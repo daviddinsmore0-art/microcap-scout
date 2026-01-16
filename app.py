@@ -20,24 +20,23 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- GLOBAL SETTINGS ---
-MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
-
+# --- SETTINGS ---
 st.sidebar.divider()
 st.sidebar.header("🚀 My Picks")
 user_input = st.sidebar.text_input("Edit Tickers", value="TSLA, NVDA, GME, BTC-USD")
 my_picks_list = [x.strip().upper() for x in user_input.split(",")]
 
-# --- UNIFIED CHART SELECTOR ---
-# Combines Market list + Your Picks so you can chart ANYTHING easily
+MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
+
+# --- CHART SELECTOR (Unified) ---
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
+# Combine lists and remove duplicates
 all_tickers = sorted(list(set(MARKET_TICKERS + my_picks_list)))
-chart_ticker = st.sidebar.selectbox("Select Asset to Chart", all_tickers)
+chart_ticker = st.sidebar.selectbox("Select Asset", all_tickers)
 
 st.title("⚡ PennyPulse Pro")
 
-# --- TICKER MAP ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -76,7 +75,6 @@ def fetch_quant_data(symbol):
             prev_close = history['Close'].iloc[-2]
             delta_pct = ((live_price - prev_close) / prev_close) * 100
         
-        # Volume Handling
         volume = history['Volume'].iloc[-1]
         if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
 
@@ -255,34 +253,35 @@ with tab3:
 with tab4:
     st.subheader(f"📈 Chart: {chart_ticker}")
     live_chart = st.toggle("🔴 Enable Live Chart (5s Refresh)", key="live_chart")
-    
     chart_container = st.empty()
     
     def render_chart():
         try:
-            # Fetch Data (1d, 5m)
+            # Fetch Data
             chart_data = yf.Ticker(chart_ticker).history(period="1d", interval="5m")
+            
             if not chart_data.empty:
                 chart_data = chart_data.reset_index()
                 
-                # SMA Calculation
+                # --- VISUAL PATCH: Fix Column Name ---
+                # Rename whatever the date column is to 'Datetime' so Altair finds it
+                chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
+                
+                # SMA Calc
                 chart_data['SMA'] = chart_data['Close'].rolling(window=20).mean()
                 
-                # 1. Price Chart + SMA
-                base = alt.Chart(chart_data).encode(x='Datetime')
+                # Chart
+                base = alt.Chart(chart_data).encode(x='Datetime:T') # :T forces time format
                 price_line = base.mark_line().encode(
                     y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
-                    tooltip=['Datetime', 'Close', 'Volume']
+                    tooltip=['Datetime:T', 'Close', 'Volume']
                 )
-                sma_line = base.mark_line(color='orange').encode(
-                    y='SMA', tooltip=['SMA']
-                )
+                sma_line = base.mark_line(color='orange').encode(y='SMA')
                 
-                # 2. Volume Chart
-                vol_bar = base.mark_bar(opacity=0.5).encode(
+                vol_bar = base.mark_bar(opacity=0.3).encode(
                     y=alt.Y('Volume', title='Vol'),
                     color=alt.condition("datum.Open < datum.Close", alt.value("green"), alt.value("red"))
-                ).properties(height=100)
+                ).properties(height=80)
                 
                 final_chart = alt.vconcat(
                     (price_line + sma_line).properties(height=350),
@@ -291,28 +290,20 @@ with tab4:
                 
                 with chart_container:
                     st.altair_chart(final_chart, use_container_width=True)
-                    
-                    # Stats Row
                     curr = chart_data['Close'].iloc[-1]
-                    open_p = chart_data['Close'].iloc[0]
-                    diff = curr - open_p
+                    diff = curr - chart_data['Close'].iloc[0]
                     col = "green" if diff >= 0 else "red"
                     st.markdown(f"### Today's Move: :{col}[${diff:,.2f}]")
                     st.caption("Orange Line: 20-Period Moving Average")
             else:
-                with chart_container:
-                    st.warning("Waiting for Market Data...")
-        except:
-            with chart_container:
-                st.error("Chart Error (Retrying...)")
+                with chart_container: st.warning("Waiting for Market Data (Market may be closed)")
+        except Exception as e:
+            with chart_container: st.error(f"Chart Error: {e}")
 
-    # Initial Render
     render_chart()
-
-    # Loop if Live
     if live_chart:
         while True:
-            time.sleep(5) # 5s refresh to avoid rate limits on heavy chart data
+            time.sleep(5)
             render_chart()
 
 st.success("✅ System Ready")
