@@ -20,7 +20,7 @@ user_input = st.sidebar.text_input("Portfolio", value="TSLA, NVDA, GME, BTC-USD"
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Newsroom Edition")
+st.caption("Quant Data + Live Pre-Market Feed")
 
 # --- INSTANT TICKER MAP ---
 TICKER_MAP = {
@@ -41,6 +41,24 @@ TICKER_MAP = {
 def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
+        
+        # 1. Get Live Price (Handles Pre/Post Market)
+        # fast_info is much faster and more accurate for "Right Now"
+        try:
+            live_price = ticker.fast_info['last_price']
+            prev_close = ticker.fast_info['previous_close']
+            delta_pct = ((live_price - prev_close) / prev_close) * 100
+        except:
+            # Fallback if fast_info fails
+            history = ticker.history(period="2d")
+            if not history.empty:
+                live_price = history['Close'].iloc[-1]
+                prev_close = history['Close'].iloc[-2] if len(history) > 1 else live_price
+                delta_pct = ((live_price - prev_close) / prev_close) * 100
+            else:
+                return None
+
+        # 2. Get Indicators (Needs History)
         history = ticker.history(period="3mo", interval="1d", prepost=True)
         if history.empty: return None
 
@@ -55,16 +73,16 @@ def fetch_quant_data(symbol):
         history['MACD'] = ema12 - ema26
         history['Signal'] = history['MACD'].ewm(span=9, adjust=False).mean()
 
-        latest = history.iloc[-1]
-        prev = history.iloc[-2]
-        delta_pct = ((latest['Close'] - prev['Close']) / prev['Close']) * 100
+        latest_rsi = history['RSI'].iloc[-1]
+        latest_macd = history['MACD'].iloc[-1]
+        latest_signal = history['Signal'].iloc[-1]
         
         return {
-            "price": latest['Close'],
+            "price": live_price,
             "delta": delta_pct,
-            "rsi": latest['RSI'],
-            "macd": latest['MACD'],
-            "macd_sig": latest['Signal']
+            "rsi": latest_rsi,
+            "macd": latest_macd,
+            "macd_sig": latest_signal
         }
     except:
         return None
@@ -89,7 +107,7 @@ def fetch_rss_items():
                     items.append({"title": title, "link": link})
         except: continue
     
-    return items[:25] # Grab 25 items
+    return items[:25]
 
 def analyze_batch(items, client):
     # 1. Pre-process hints
@@ -129,24 +147,20 @@ def analyze_batch(items, client):
         if not response.choices: return []
             
         raw_text = response.choices[0].message.content.strip()
-        st.session_state['last_ai_raw'] = raw_text # Debug store
+        st.session_state['last_ai_raw'] = raw_text 
         
         lines = raw_text.split("\n")
         enriched_results = []
-        
-        # --- THE CRASH FIX: Safe Independent Counter ---
         item_index = 0
         
         for line in lines:
             clean_line = line.replace("```", "").replace("plaintext", "").strip()
             if not clean_line: continue
             
-            # Stop if we run out of news items to match
             if item_index >= len(items): break
             
             parts = clean_line.split("|")
             
-            # If line is valid, add it
             if len(parts) >= 3:
                 ticker = parts[0].strip()
                 if "MACRO" in ticker or "MARKET" in ticker: ticker = "MACRO"
@@ -158,7 +172,7 @@ def analyze_batch(items, client):
                     "title": items[item_index]['title'],
                     "link": items[item_index]['link']
                 })
-                item_index += 1 # Only move to next item if we matched this one
+                item_index += 1
                 
         return enriched_results
 
@@ -187,6 +201,7 @@ if st.button("🚀 Run Analysis"):
                     c1, c2, c3 = st.columns([1.5, 1, 1])
                     with c1:
                         st.markdown(f"### {symbol}")
+                        # Displaying Live Price
                         st.markdown(f"<span style='color:{color}; font-size: 24px; font-weight:bold'>${data['price']:,.2f}</span> ({data['delta']:.2f}%)", unsafe_allow_html=True)
                     with c2:
                         st.caption("RSI")
@@ -226,32 +241,6 @@ if st.button("🚀 Run Analysis"):
                     tick = res['ticker']
                     if tick not in ticker_counts: ticker_counts[tick] = 0
                     
-                    if ticker_counts[tick] >= 5: continue # Max 5 per ticker
+                    if ticker_counts[tick] >= 5: continue 
                     ticker_counts[tick] += 1
                     displayed_count += 1
-                    
-                    b_color = "gray" if tick == "MACRO" else "blue"
-
-                    with st.container():
-                        c1, c2 = st.columns([1, 4])
-                        with c1:
-                            st.markdown(f"### :{b_color}[{tick}]")
-                            st.caption(f"{res['signal']}")
-                        with c2:
-                            st.markdown(f"**[{res['title']}]({res['link']})**")
-                            st.info(f"{res['reason']}")
-                            st.caption(f"[🔗 Read Source]({res['link']})")
-                        st.divider()
-            
-            # FALLBACK
-            if displayed_count == 0:
-                st.warning("⚠️ Switching to Raw Feed.")
-                for item in raw_items[:10]:
-                    with st.container():
-                        c1, c2 = st.columns([1, 4])
-                        with c1:
-                            st.markdown("### :gray[RAW]")
-                        with c2:
-                            st.markdown(f"**[{item['title']}]({item['link']})**")
-                            st.caption(f"[🔗 Read Source]({item['link']})")
-                        st.divider()
