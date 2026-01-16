@@ -27,7 +27,6 @@ st.sidebar.header("🚀 My Picks")
 user_input = st.sidebar.text_input("Edit Tickers", value="TSLA, NVDA, GME, BTC-USD")
 my_picks_list = [x.strip().upper() for x in user_input.split(",")]
 
-# --- UNIFIED CHART SELECTOR ---
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
 all_tickers = sorted(list(set(MARKET_TICKERS + my_picks_list)))
@@ -35,7 +34,6 @@ chart_ticker = st.sidebar.selectbox("Select Asset to Chart", all_tickers)
 
 st.title("⚡ PennyPulse Pro")
 
-# --- TICKER MAP (For News Analysis) ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -100,7 +98,7 @@ def format_volume(num):
 
 def display_ticker_grid(ticker_list, live_mode=False):
     if live_mode:
-        st.info("🔴 Live Streaming Active. Uncheck to see full data.")
+        st.info("🔴 Live Streaming Active. Uncheck to see full technicals.")
         price_containers = {}
         cols = st.columns(4)
         for i, tick in enumerate(ticker_list):
@@ -256,18 +254,20 @@ with tab4:
     def render_chart():
         try:
             tick_obj = yf.Ticker(chart_ticker)
-            # Use 5m for market open stability
+            # Fetch intraday data - more robust at market open
             chart_data = tick_obj.history(period="1d", interval="5m")
             if chart_data.empty: 
                 chart_data = tick_obj.history(period="5d", interval="5m")
 
             if not chart_data.empty:
-                # Sync Fix: drop corrupted rows and ensure Datetime column
+                # SCRUBBER: Remove corrupted/empty rows
                 chart_data = chart_data.dropna().reset_index()
+                
+                # COMPATIBILITY: Standardize time column name
                 chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
                 
                 with chart_container:
-                    # Native st.line_chart bypasses Altair v1.42+ vconcat bugs
+                    # NATIVE CHART: Bypass Altair bugs entirely
                     st.line_chart(chart_data.set_index('Datetime')['Close'])
                     
                     curr = chart_data['Close'].iloc[-1]
