@@ -251,45 +251,57 @@ with tab3:
 with tab4:
     st.subheader(f"📈 Chart: {chart_ticker}")
     live_chart = st.toggle("🔴 Enable Live Chart (5s Refresh)", key="live_chart")
-    chart_container = st.empty()
+    
+    # We use distinct containers to avoid the 'vconcat' rendering bug
+    price_container = st.empty()
+    st.markdown("---") # Visual separator
+    volume_container = st.empty()
     
     def render_chart():
         try:
             tick_obj = yf.Ticker(chart_ticker)
-            chart_data = tick_obj.history(period="1d", interval="1m")
+            # Use 5m interval for stability
+            chart_data = tick_obj.history(period="1d", interval="5m")
             if chart_data.empty: chart_data = tick_obj.history(period="5d", interval="5m")
 
             if not chart_data.empty:
+                # 1. Clean data to prevent blank charts
                 chart_data = chart_data.dropna().reset_index()
+                # 2. Normalize Time Column
                 chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
+                # 3. Calculate SMA
                 chart_data['SMA'] = chart_data['Close'].rolling(window=20).mean()
-                
+
+                # --- CHART 1: PRICE & SMA ---
                 base = alt.Chart(chart_data).encode(x='Datetime:T')
                 price_line = base.mark_line().encode(
                     y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
                     tooltip=['Datetime:T', 'Close', 'Volume']
                 )
-                sma_line = base.mark_line(color='orange', opacity=0.6).encode(y='SMA')
-                vol_bar = base.mark_bar(opacity=0.3).encode(
-                    y=alt.Y('Volume', title='Vol'),
-                    color=alt.condition("datum.Open < datum.Close", alt.value("green"), alt.value("red"))
-                ).properties(height=80)
+                sma_line = base.mark_line(color='orange', opacity=0.8).encode(y='SMA')
                 
-                final_chart = alt.vconcat(
-                    (price_line + sma_line).properties(height=350),
-                    vol_bar
-                ).resolve_scale(x='shared')
-                
-                with chart_container:
-                    st.altair_chart(final_chart, use_container_width=True)
+                with price_container:
+                    st.altair_chart((price_line + sma_line).interactive(), use_container_width=True)
+                    
+                    # Text Stats
                     curr = chart_data['Close'].iloc[-1]
                     diff = curr - chart_data['Close'].iloc[0]
                     col = "green" if diff >= 0 else "red"
                     st.markdown(f"### Current: ${curr:,.2f} | Move: :{col}[${diff:,.2f}]")
+
+                # --- CHART 2: VOLUME (Separated) ---
+                vol_bar = base.mark_bar().encode(
+                    y=alt.Y('Volume', title='Vol'),
+                    color=alt.condition("datum.Open < datum.Close", alt.value("green"), alt.value("red"))
+                ).properties(height=150) # Shorter height for volume
+                
+                with volume_container:
+                    st.altair_chart(vol_bar, use_container_width=True)
+
             else:
-                with chart_container: st.warning("Data sync in progress...")
+                with price_container: st.warning("Waiting for Market Data...")
         except Exception as e:
-            with chart_container: st.error(f"Sync Issue: {e}")
+            with price_container: st.error(f"Sync Issue: {e}")
 
     render_chart()
     if live_chart:
@@ -297,4 +309,5 @@ with tab4:
             time.sleep(5)
             render_chart()
 
+# --- THE SUCCESS CHECK ---
 st.success("✅ System Ready (Full Extended Layout)")
