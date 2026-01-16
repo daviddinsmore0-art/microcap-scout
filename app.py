@@ -18,6 +18,8 @@ except:
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'news_error' not in st.session_state: st.session_state['news_error'] = None
+# TRACKING ALERTS
+if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
 if "OPENAI_KEY" in st.secrets:
     OPENAI_KEY = st.secrets["OPENAI_KEY"]
@@ -25,7 +27,7 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 💼 PORTFOLIO (The Serious Stuff) ---
+# --- 💼 PORTFOLIO ---
 MY_PORTFOLIO = {
     "TSLA":    {"entry": 350.00, "date": "Dec 10"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
@@ -34,23 +36,28 @@ MY_PORTFOLIO = {
 }
 
 # --- SIDEBAR ---
-# 1. Logo (Fixed Size)
 st.sidebar.divider()
 try:
-    # width=150 makes it look like a logo, not a poster
     st.sidebar.image("logo.png", width=150) 
 except:
     st.sidebar.header("⚡ PennyPulse")
 
-# 2. Watchlist Search (I brought it back!)
 st.sidebar.header("👀 Watchlist")
 user_input = st.sidebar.text_input("Add Tickers", value="AMD, PLTR")
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
+st.sidebar.header("🔔 Price Alert")
+alert_ticker = st.sidebar.selectbox("Alert Asset", sorted(list(MY_PORTFOLIO.keys()) + watchlist_list))
+alert_price = st.sidebar.number_input("Target Price ($)", min_value=0.0, value=0.0, step=0.5)
+alert_active = st.sidebar.toggle("Activate Alert")
+
+if not alert_active:
+    st.session_state['alert_triggered'] = False # Reset when toggled off
+
+st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
-# Combine everything for the chart selector
 all_tickers = sorted(list(set(MARKET_TICKERS + list(MY_PORTFOLIO.keys()) + watchlist_list)))
 chart_ticker = st.sidebar.selectbox("Select Asset", all_tickers)
 
@@ -103,14 +110,9 @@ def fetch_quant_data(symbol):
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         history['RSI'] = 100 - (100 / (1 + rs))
-        ema12 = history['Close'].ewm(span=12, adjust=False).mean()
-        ema26 = history['Close'].ewm(span=26, adjust=False).mean()
-        history['MACD'] = ema12 - ema26
-        history['Signal'] = history['MACD'].ewm(span=9, adjust=False).mean()
         return {
             "price": live_price, "delta": delta_pct, "volume": volume,
-            "rsi": history['RSI'].iloc[-1], "macd": history['MACD'].iloc[-1],
-            "macd_sig": history['Signal'].iloc[-1]
+            "rsi": history['RSI'].iloc[-1]
         }
     except: return None
 
@@ -216,11 +218,10 @@ with tab1:
     st.subheader("Major Indices")
     st.caption(f"Also Watching: {', '.join(watchlist_list)}")
     live_on = st.toggle("🔴 Enable Live Prices", key="live_market")
-    # Show Market + Watchlist
     display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
 
 with tab2:
-    st.subheader("My Positions (Hardcoded)")
+    st.subheader("My Positions")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
@@ -277,6 +278,16 @@ with tab4:
     
     def render_chart():
         try:
+            # 1. ALERT CHECK
+            if alert_active and not st.session_state['alert_triggered']:
+                check_tick = yf.Ticker(alert_ticker)
+                curr_price = check_tick.fast_info['last_price']
+                # Check if we crossed the price (High or Low)
+                if curr_price >= alert_price:
+                    st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr_price:,.2f}!", icon="🔥")
+                    st.session_state['alert_triggered'] = True
+            
+            # 2. RENDER CHART
             tick_obj = yf.Ticker(chart_ticker)
             chart_data = tick_obj.history(period="1d", interval="5m")
             if chart_data.empty: chart_data = tick_obj.history(period="5d", interval="5m")
@@ -318,4 +329,4 @@ with tab4:
             time.sleep(5)
             render_chart()
 
-st.success("✅ System Ready (Fixed Logo Size)")
+st.success("✅ System Ready (Alerts Enabled)")
