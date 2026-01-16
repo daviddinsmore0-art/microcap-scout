@@ -13,7 +13,7 @@ try:
     icon_img = Image.open("logo.png")
     st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
 except:
-    st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
+    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -28,7 +28,7 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
+    "BAER":    {"entry": 1.8697, "date": "Dec 31"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
     "GME":     {"entry": 25.00,  "date": "Jan 14"},
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
@@ -49,7 +49,7 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = "AMD, PLTR"
+    saved_watchlist = ""
 
 # 2. Input Box
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -73,10 +73,10 @@ if not alert_active:
 
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
-MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
+MARKET_TICKERS = ["SPY", "QQQ", "SI=F, "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 chart_ticker = st.sidebar.selectbox("Select Asset", sorted(list(set(MARKET_TICKERS + all_assets))))
 
-st.title("⚡ PennyPulse Pro")
+st.title("⚡ Penny Pulse Pro")
 
 # --- TICKER MAP ---
 TICKER_MAP = {
