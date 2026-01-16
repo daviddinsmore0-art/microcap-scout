@@ -23,43 +23,30 @@ st.sidebar.header("⚡ Watchlist")
 user_input = st.sidebar.text_input("My Portfolio", value="TSLA, NVDA, GME, BTC-USD")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
-st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Hybrid News Filter")
+# DEBUG TOGGLE
+show_raw = st.sidebar.checkbox("Show Raw Feed (Debug Mode)", value=False)
 
-# --- 3. THE PYTHON GATEKEEPER ---
-# We filter these LOCALLY first. If a headline misses these, AI never sees it.
-FINANCIAL_KEYWORDS = [
-    "stock", "share", "market", "trade", "invest", "profit", "loss",
-    "surge", "crash", "plunge", "soar", "rally", "drop", "high", "low",
-    "fed", "rate", "bank", "inflation", "yield", "crypto", "bitcoin",
-    "gold", "oil", "futures", "etf", "dividend", "earnings", "revenue",
-    "sec", "ipo", "merger", "acquisition", "deal", "sp500", "dow", "nasdaq"
-]
+st.title("⚡ PennyPulse Pro")
+st.caption("Quant Data + Fail-Safe News Wire")
 
 # --- FUNCTIONS ---
 def get_ai_analysis(headline, client):
     try:
-        # AI Task: Extract Ticker & Sentiment
+        # Simplified Prompt
         prompt = f"""
-        Act as a Trader.
         Headline: "{headline}"
-        
-        Task:
-        1. Does this mention a specific ticker/asset?
-           - If NO, output: "SKIP"
-           - If YES, output: [Ticker] | [Signal] | [Reason]
-           
-        Format: Ticker | Signal (🟢/🔴/⚪) | Reason (5 words)
-        Example: TSLA | 🔴 | Recalls affecting production.
+        Task: Extract Ticker (e.g. AAPL) and Sentiment (Bullish/Bearish).
+        If no specific ticker, use "MARKET".
+        Format: Ticker | Signal | Reason
         """
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=60
+            max_tokens=50
         )
         return response.choices[0].message.content.strip()
-    except Exception as e:
-        return "SKIP"
+    except:
+        return "MARKET | ⚪ | AI Busy"
 
 def fetch_quant_data(symbol):
     try:
@@ -67,7 +54,7 @@ def fetch_quant_data(symbol):
         history = ticker.history(period="3mo", interval="1d", prepost=True)
         if history.empty: return None
 
-        # RSI & MACD Calc
+        # Indicators
         delta = history['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -95,7 +82,7 @@ def fetch_quant_data(symbol):
 
 def fetch_general_news(api_key):
     all_news = []
-    # Only fetch GENERAL and CRYPTO to save bandwidth
+    # Fetch General + Crypto
     for cat in ["general", "crypto"]:
         try:
             url = f"https://finnhub.io/api/v1/news?category={cat}&token={api_key}"
@@ -105,7 +92,7 @@ def fetch_general_news(api_key):
         except: pass
     
     all_news.sort(key=lambda x: x.get('datetime', 0), reverse=True)
-    return all_news[:60] # Fetch 60, but Python will filter most
+    return all_news[:25] # Limit to 25 to be safe
 
 # --- MAIN APP ---
 if st.button("🚀 Run Analysis"):
@@ -113,9 +100,9 @@ if st.button("🚀 Run Analysis"):
         st.error("⚠️ Enter API Keys in Sidebar!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
-        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 Smart Wire"])
+        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 News Wire"])
 
-        # --- TAB 1: PORTFOLIO ---
+        # --- TAB 1: QUANT DASHBOARD ---
         with tab1:
             st.subheader("Your Watchlist")
             for symbol in stock_list:
@@ -137,34 +124,36 @@ if st.button("🚀 Run Analysis"):
                         st.write(f"{macd_sig}")
                     st.divider()
 
-        # --- TAB 2: SMART WIRE ---
+        # --- TAB 2: NEWS WIRE ---
         with tab2:
-            st.subheader("🚨 Verified Financial News")
-            st.caption("Filtering noise locally...")
+            st.subheader("🚨 Global Wire")
             
+            # 1. Fetch
             raw_news = fetch_general_news(FINNHUB_KEY)
-            valid_count = 0
             
-            if len(raw_news) > 0:
+            # DEBUG MESSAGE (So you know it worked)
+            if len(raw_news) == 0:
+                st.error("⚠️ Finnhub API returned 0 stories. Check API limits.")
+            else:
+                st.caption(f"⚡ Fetched {len(raw_news)} raw stories from the wire.")
+
+            # 2. Process
+            # If "Debug Mode" is ON, we show everything without AI (Fastest)
+            if show_raw:
+                for item in raw_news:
+                    st.markdown(f"**{item['headline']}**")
+                    st.caption(f"Source: {item['source']}")
+                    st.divider()
+            
+            # Normal Mode: AI Analysis
+            else:
+                count = 0
                 for item in raw_news:
                     headline = item['headline']
                     
-                    # LAYER 1: PYTHON CHECK (Instant)
-                    # Does it contain a financial keyword?
-                    is_financial = any(word in headline.lower() for word in FINANCIAL_KEYWORDS)
-                    
-                    # Also check if it contains a known big ticker (optional safety net)
-                    has_ticker = any(t in headline for t in ["TSLA", "AAPL", "BTC", "ETH", "GOLD", "USD"])
-                    
-                    if not (is_financial or has_ticker):
-                        continue # Silent Delete
-                        
-                    # LAYER 2: AI CHECK (Only for survivors)
+                    # Direct AI Check (No Python Filter)
                     ai_result = get_ai_analysis(headline, client)
                     
-                    if "SKIP" in ai_result:
-                        continue
-                        
                     parts = ai_result.split("|")
                     if len(parts) == 3:
                         ticker, signal, reason = parts[0].strip(), parts[1].strip(), parts[2].strip()
@@ -178,9 +167,10 @@ if st.button("🚀 Run Analysis"):
                                 st.markdown(f"**{headline}**")
                                 st.info(f"{reason}")
                             st.divider()
+                        count += 1
                         
-                        valid_count += 1
-                        if valid_count >= 10: break
-            
-            if valid_count == 0:
-                st.write("No major financial news in the last batch.")
+                    # Stop after 10 stories to keep it fast
+                    if count >= 10: break
+                
+                if count == 0 and len(raw_news) > 0:
+                    st.warning("AI filtered out all stories (or API returned generic news). Try checking 'Show Raw Feed' in the sidebar.")
