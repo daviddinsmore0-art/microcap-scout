@@ -1,5 +1,8 @@
 streamlit
-openai
-requests
 yfinance
 pandas
+altair
+openai
+requests
+Pillow
+extra-streamlit-components
