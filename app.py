@@ -4,7 +4,7 @@ import yfinance as yf
 import xml.etree.ElementTree as ET
 import time
 import pandas as pd
-import altair as alt  
+import altair as alt
 from openai import OpenAI
 
 # --- CONFIGURATION ---
@@ -20,7 +20,7 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- SETTINGS ---
+# --- SIDEBAR ---
 st.sidebar.divider()
 st.sidebar.header("🚀 My Picks")
 user_input = st.sidebar.text_input("Edit Tickers", value="TSLA, NVDA, GME, BTC-USD")
@@ -34,7 +34,7 @@ MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 
 st.title("⚡ PennyPulse Pro")
 
-# --- INSTANT TICKER MAP ---
+# --- TICKER MAP ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -65,6 +65,7 @@ def fetch_quant_data(symbol):
         history = ticker.history(period="3mo", interval="1d", prepost=True)
         if history.empty: return None
 
+        # Price Logic
         try:
             live_price = ticker.fast_info['last_price']
             prev_close = ticker.fast_info['previous_close']
@@ -73,43 +74,49 @@ def fetch_quant_data(symbol):
             live_price = history['Close'].iloc[-1]
             prev_close = history['Close'].iloc[-2]
             delta_pct = ((live_price - prev_close) / prev_close) * 100
+        
+        # Volume (Use yesterday's if today is empty/pre-market)
+        volume = history['Volume'].iloc[-1]
+        if volume == 0 and len(history) > 1:
+            volume = history['Volume'].iloc[-2]
 
+        # Indicators
         delta = history['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         history['RSI'] = 100 - (100 / (1 + rs))
-
         ema12 = history['Close'].ewm(span=12, adjust=False).mean()
         ema26 = history['Close'].ewm(span=26, adjust=False).mean()
         history['MACD'] = ema12 - ema26
         history['Signal'] = history['MACD'].ewm(span=9, adjust=False).mean()
-
+        
         return {
-            "price": live_price,
-            "delta": delta_pct,
-            "rsi": history['RSI'].iloc[-1],
-            "macd": history['MACD'].iloc[-1],
+            "price": live_price, "delta": delta_pct, "volume": volume,
+            "rsi": history['RSI'].iloc[-1], "macd": history['MACD'].iloc[-1],
             "macd_sig": history['Signal'].iloc[-1]
         }
     except: return None
 
+def format_volume(num):
+    if num >= 1_000_000: return f"{num/1_000_000:.1f}M"
+    if num >= 1_000: return f"{num/1_000:.1f}K"
+    return str(num)
+
 def display_ticker_grid(ticker_list, live_mode=False):
     if live_mode:
-        st.info("🔴 Live Streaming Active. Uncheck to stop.")
+        st.info("🔴 Live Streaming Active (Volume Hidden). Uncheck to see full data.")
         price_containers = {}
         cols = st.columns(4)
         for i, tick in enumerate(ticker_list):
-            with cols[i % 4]:
-                price_containers[tick] = st.empty()
-        
+            with cols[i % 4]: price_containers[tick] = st.empty()
         while True:
             for tick, container in price_containers.items():
                 price, delta = get_live_price(tick)
-                with container:
-                    st.metric(label=tick, value=f"${price:,.2f}", delta=f"{delta:.2f}%")
+                with container: st.metric(label=tick, value=f"${price:,.2f}", delta=f"{delta:.2f}%")
             time.sleep(2)
     else:
+        # Static Mode (Shows Volume & Indicators)
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
             with cols[i % 3]:
@@ -117,8 +124,10 @@ def display_ticker_grid(ticker_list, live_mode=False):
                 if data:
                     rsi_sig = "🔴 Over" if data['rsi'] > 70 else ("🟢 Under" if data['rsi'] < 30 else "⚪ Neut")
                     macd_sig = "🟢 Bull" if data['macd'] > data['macd_sig'] else "🔴 Bear"
+                    vol_str = format_volume(data['volume'])
+                    
                     st.markdown(f"**{tick}**")
-                    st.metric(label="Price", value=f"${data['price']:,.2f}", delta=f"{data['delta']:.2f}%")
+                    st.metric(label=f"Vol: {vol_str}", value=f"${data['price']:,.2f}", delta=f"{data['delta']:.2f}%")
                     c1, c2 = st.columns(2)
                     c1.caption(f"RSI: {data['rsi']:.0f} ({rsi_sig})")
                     c2.caption(f"MACD: {macd_sig}")
@@ -147,7 +156,6 @@ def fetch_rss_items():
 
 def analyze_batch(items, client):
     if not items: return []
-    
     prompt_list = ""
     for i, item in enumerate(items):
         hl = item['title']
@@ -158,7 +166,6 @@ def analyze_batch(items, client):
                 hint = f"(Hint: {val})"
                 break
         prompt_list += f"{i+1}. {hl} {hint}\n"
-
     prompt = f"""
     Analyze these {len(items)} headlines.
     Task: Identify Ticker (or "MACRO"), Signal (🟢/🔴/⚪), and 3-word reason.
@@ -166,17 +173,13 @@ def analyze_batch(items, client):
     Headlines:
     {prompt_list}
     """
-    
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=400
+            model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=400
         )
         lines = response.choices[0].message.content.strip().split("\n")
         enriched_results = []
         item_index = 0
-        
         for line in lines:
             clean_line = line.replace("```", "").replace("plaintext", "").strip()
             if len(clean_line) > 0 and clean_line[0].isdigit():
@@ -192,11 +195,8 @@ def analyze_batch(items, client):
                 if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
                 try:
                     enriched_results.append({
-                        "ticker": ticker,
-                        "signal": parts[1].strip(),
-                        "reason": parts[2].strip(),
-                        "title": items[item_index]['title'],
-                        "link": items[item_index]['link']
+                        "ticker": ticker, "signal": parts[1].strip(), "reason": parts[2].strip(),
+                        "title": items[item_index]['title'], "link": items[item_index]['link']
                     })
                     item_index += 1
                 except IndexError: break
@@ -205,11 +205,11 @@ def analyze_batch(items, client):
         st.session_state['news_error'] = str(e)
         return []
 
-# --- MAIN LAYOUT ---
+# --- TABS ---
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News", "📈 Chart Room"])
 
 with tab1:
-    st.subheader("Major Indices & Commodities")
+    st.subheader("Major Indices")
     live_on = st.toggle("🔴 Enable Live Prices", key="live_market")
     display_ticker_grid(MARKET_TICKERS, live_mode=live_on)
 
@@ -221,8 +221,7 @@ with tab2:
 with tab3:
     st.subheader("🚨 Global Wire")
     if st.button("Generate AI Report", type="primary"):
-        if not OPENAI_KEY:
-            st.error("⚠️ Enter OpenAI Key!")
+        if not OPENAI_KEY: st.error("⚠️ Enter OpenAI Key!")
         else:
             client = OpenAI(api_key=OPENAI_KEY)
             with st.spinner("Scanning Global Markets..."):
@@ -234,9 +233,7 @@ with tab3:
                 else:
                     st.session_state['news_error'] = "Could not reach news feeds."
                     st.session_state['news_results'] = []
-
-    if st.session_state['news_error']:
-        st.error(f"⚠️ Error: {st.session_state['news_error']}")
+    if st.session_state['news_error']: st.error(f"⚠️ Error: {st.session_state['news_error']}")
     results = st.session_state['news_results']
     if results:
         ticker_counts = {}
@@ -262,28 +259,53 @@ with tab4:
     st.subheader(f"📈 Chart: {chart_ticker}")
     with st.spinner("Loading Chart..."):
         try:
-            # 1d history, 5m interval
+            # Fetch Data (1d, 5m)
             chart_data = yf.Ticker(chart_ticker).history(period="1d", interval="5m")
-            
             if not chart_data.empty:
                 chart_data = chart_data.reset_index()
-                # Dynamic Y-Axis Scaling (The Smart Chart)
-                base = alt.Chart(chart_data).encode(x='Datetime')
-                line = base.mark_line().encode(
-                    y=alt.Y('Close', scale=alt.Scale(zero=False)) 
-                )
-                st.altair_chart(line, use_container_width=True)
                 
-                # Stats
+                # Create Moving Average (20 Period)
+                chart_data['SMA'] = chart_data['Close'].rolling(window=20).mean()
+                
+                # 1. Price Chart (Blue) + SMA (Orange)
+                base = alt.Chart(chart_data).encode(x='Datetime')
+                
+                price_line = base.mark_line().encode(
+                    y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
+                    tooltip=['Close', 'Volume']
+                )
+                
+                sma_line = base.mark_line(color='orange').encode(
+                    y='SMA',
+                    tooltip=['SMA']
+                )
+                
+                # 2. Volume Chart (Bar)
+                vol_bar = base.mark_bar(opacity=0.5).encode(
+                    y=alt.Y('Volume', title='Vol'),
+                    color=alt.condition(
+                        "datum.Open < datum.Close",
+                        alt.value("green"),
+                        alt.value("red")
+                    )
+                ).properties(height=100) # Smaller height for volume
+                
+                # Combine: Price on top, Volume on bottom
+                final_chart = alt.vconcat(
+                    (price_line + sma_line).properties(height=300),
+                    vol_bar
+                ).resolve_scale(x='shared')
+                
+                st.altair_chart(final_chart, use_container_width=True)
+                
+                # Simple Stats
                 curr = chart_data['Close'].iloc[-1]
                 open_p = chart_data['Close'].iloc[0]
                 diff = curr - open_p
                 col = "green" if diff >= 0 else "red"
                 st.markdown(f"### Today's Move: :{col}[${diff:,.2f}]")
-            else:
-                st.warning("No chart data available right now (Market might be closed).")
-        except Exception as e:
-            st.error(f"Could not load chart: {e}")
+                st.caption(f"Orange Line = 20-Period Moving Average")
+            else: st.warning("No chart data available right now.")
+        except Exception as e: st.error(f"Could not load chart: {e}")
 
-# --- SYSTEM CHECK ---
-st.success("✅ System Ready (Tabs Loaded)")
+st.success("✅ System Ready")
