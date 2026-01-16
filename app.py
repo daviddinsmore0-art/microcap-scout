@@ -21,7 +21,7 @@ user_input = st.sidebar.text_input("Portfolio", value="TSLA, NVDA, GME, BTC-USD"
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Smart Diversity News Feed")
+st.caption("Quant Data + Fail-Safe News Feed")
 
 # --- INSTANT TICKER MAP ---
 TICKER_MAP = {
@@ -71,9 +71,6 @@ def fetch_quant_data(symbol):
         return None
 
 def fetch_rss_items():
-    """
-    Fetches Headline AND Link.
-    """
     urls = [
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
@@ -88,17 +85,14 @@ def fetch_rss_items():
             for item in root.findall('.//item'):
                 title = item.find('title').text
                 link = item.find('link').text
-                
-                # Deduplicate headlines
                 if title and title not in seen_titles:
                     seen_titles.add(title)
                     items.append({"title": title, "link": link})
         except: continue
     
-    return items[:25] # Grab 25 to ensure we have enough after filtering
+    return items[:25]
 
 def analyze_batch(items, client):
-    # 1. Pre-process hints
     prompt_list = ""
     for i, item in enumerate(items):
         hl = item['title']
@@ -110,7 +104,6 @@ def analyze_batch(items, client):
                 break
         prompt_list += f"{i+1}. {hl} {hint}\n"
 
-    # 2. Batch Request
     prompt = f"""
     Analyze these {len(items)} headlines.
     Task: Identify Ticker (or "MACRO"), Signal (🟢/🔴/⚪), and 3-word reason.
@@ -118,7 +111,7 @@ def analyze_batch(items, client):
     Headlines:
     {prompt_list}
     
-    Output Format (one per line):
+    Output Format:
     Ticker | Signal | Reason
     """
     
@@ -130,16 +123,14 @@ def analyze_batch(items, client):
         )
         lines = response.choices[0].message.content.strip().split("\n")
         
-        # Merge AI result with original data (Link)
         enriched_results = []
         for i, line in enumerate(lines):
             if i < len(items):
                 parts = line.split("|")
+                # RELAXED PARSING: Even if format is weird, try to capture it
                 if len(parts) >= 3:
                     ticker = parts[0].strip()
-                    # Clean up common AI quirks
                     if "MACRO" in ticker or "MARKET" in ticker: ticker = "MACRO"
-                    
                     enriched_results.append({
                         "ticker": ticker,
                         "signal": parts[1].strip(),
@@ -157,7 +148,7 @@ if st.button("🚀 Run Analysis"):
         st.error("⚠️ Enter OpenAI Key!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
-        tab1, tab2 = st.tabs(["📊 Portfolio", "🌎 Filtered Wire"])
+        tab1, tab2 = st.tabs(["📊 Portfolio", "🌎 News Wire"])
 
         # --- TAB 1: QUANT ---
         with tab1:
@@ -183,57 +174,54 @@ if st.button("🚀 Run Analysis"):
 
         # --- TAB 2: NEWS ---
         with tab2:
-            st.subheader("🚨 Diverse News Feed")
+            st.subheader("🚨 Global Wire")
             
-            # 1. Fetch
             raw_items = fetch_rss_items()
             
             if not raw_items:
-                st.error("⚠️ News Offline.")
+                st.error("⚠️ News Offline (Check Internet).")
             else:
-                with st.spinner(f"Scanning {len(raw_items)} stories for diversity..."):
+                with st.spinner(f"Scanning {len(raw_items)} stories..."):
                     results = analyze_batch(raw_items, client)
                 
-                # 2. THE DIVERSITY FILTER
+                # --- DISPLAY LOGIC ---
                 ticker_counts = {}
                 displayed_count = 0
                 
-                for res in results:
-                    tick = res['ticker']
-                    
-                    # Initialize count
-                    if tick not in ticker_counts: ticker_counts[tick] = 0
-                    
-                    # THE RULE: Max 2 stories per Ticker (prevents MACRO spam)
-                    if ticker_counts[tick] >= 2:
-                        continue
+                # 1. Try to display AI-Filtered results
+                if results:
+                    for res in results:
+                        tick = res['ticker']
+                        if tick not in ticker_counts: ticker_counts[tick] = 0
                         
-                    ticker_counts[tick] += 1
-                    displayed_count += 1
-                    
-                    # Display Logic
-                    if tick == "MACRO": 
-                        badge = "🌎 MACRO"
-                        b_color = "gray"
-                    else:
-                        badge = tick
-                        b_color = "blue"
+                        # RELAXED LIMIT: Allow 5 stories per ticker (prevents empty feed)
+                        if ticker_counts[tick] >= 5: continue
+                            
+                        ticker_counts[tick] += 1
+                        displayed_count += 1
+                        
+                        b_color = "gray" if tick == "MACRO" else "blue"
 
-                    with st.container():
-                        c1, c2 = st.columns([1, 4])
-                        with c1:
-                            st.markdown(f"### :{b_color}[{badge}]")
-                            st.caption(f"{res['signal']}")
-                        with c2:
-                            # TITLE IS NOW A LINK
-                            st.markdown(f"**[{res['title']}]({res['link']})**")
-                            st.info(f"{res['reason']}")
-                            st.caption(f"[🔗 Read Source]({res['link']})")
-                        st.divider()
-                    
-                    # Stop after showing 20 good stories
-                    if displayed_count >= 20:
-                        break
+                        with st.container():
+                            c1, c2 = st.columns([1, 4])
+                            with c1:
+                                st.markdown(f"### :{b_color}[{tick}]")
+                                st.caption(f"{res['signal']}")
+                            with c2:
+                                st.markdown(f"**[{res['title']}]({res['link']})**")
+                                st.info(f"{res['reason']}")
+                                st.caption(f"[🔗 Read Source]({res['link']})")
+                            st.divider()
                 
+                # 2. SAFETY NET: If AI failed or filtered everything, show RAW feed
                 if displayed_count == 0:
-                    st.warning("No stories passed the filters.")
+                    st.warning("⚠️ AI Filters blocked all stories. Switching to Raw Feed.")
+                    for item in raw_items[:10]:
+                        with st.container():
+                            c1, c2 = st.columns([1, 4])
+                            with c1:
+                                st.markdown("### :gray[RAW]")
+                            with c2:
+                                st.markdown(f"**[{item['title']}]({item['link']})**")
+                                st.caption(f"[🔗 Read Source]({item['link']})")
+                            st.divider()
