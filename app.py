@@ -4,6 +4,7 @@ import yfinance as yf
 import xml.etree.ElementTree as ET
 import time
 import pandas as pd
+import altair as alt  # <--- Added for Smart Charts
 from openai import OpenAI
 
 # --- CONFIGURATION ---
@@ -25,10 +26,9 @@ st.sidebar.header("🚀 My Picks")
 user_input = st.sidebar.text_input("Edit Tickers", value="TSLA, NVDA, GME, BTC-USD")
 my_picks_list = [x.strip().upper() for x in user_input.split(",")]
 
-# Add a selector for the Chart Room
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
-chart_ticker = st.sidebar.selectbox("Select Asset to Chart", my_picks_list + ["SPY", "BTC-USD"])
+chart_ticker = st.sidebar.selectbox("Select Asset", my_picks_list + ["SPY", "BTC-USD"])
 
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 
@@ -116,170 +116,4 @@ def display_ticker_grid(ticker_list, live_mode=False):
                 data = fetch_quant_data(tick)
                 if data:
                     rsi_sig = "🔴 Over" if data['rsi'] > 70 else ("🟢 Under" if data['rsi'] < 30 else "⚪ Neut")
-                    macd_sig = "🟢 Bull" if data['macd'] > data['macd_sig'] else "🔴 Bear"
-                    st.markdown(f"**{tick}**")
-                    st.metric(label="Price", value=f"${data['price']:,.2f}", delta=f"{data['delta']:.2f}%")
-                    c1, c2 = st.columns(2)
-                    c1.caption(f"RSI: {data['rsi']:.0f} ({rsi_sig})")
-                    c2.caption(f"MACD: {macd_sig}")
-                    st.divider()
-
-def fetch_rss_items():
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    urls = [
-        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
-        "https://feeds.content.dowjones.io/public/rss/mw_topstories"
-    ]
-    items = []
-    seen_titles = set()
-    for url in urls:
-        try:
-            response = requests.get(url, headers=headers, timeout=3)
-            root = ET.fromstring(response.content)
-            for item in root.findall('.//item'):
-                title = item.find('title').text
-                link = item.find('link').text
-                if title and title not in seen_titles:
-                    seen_titles.add(title)
-                    items.append({"title": title, "link": link})
-        except: continue
-    return items[:25]
-
-def analyze_batch(items, client):
-    if not items: return []
-    
-    prompt_list = ""
-    for i, item in enumerate(items):
-        hl = item['title']
-        hint = ""
-        upper_hl = hl.upper()
-        for key, val in TICKER_MAP.items():
-            if key in upper_hl:
-                hint = f"(Hint: {val})"
-                break
-        prompt_list += f"{i+1}. {hl} {hint}\n"
-
-    prompt = f"""
-    Analyze these {len(items)} headlines.
-    Task: Identify Ticker (or "MACRO"), Signal (🟢/🔴/⚪), and 3-word reason.
-    STRICT FORMAT: Ticker | Signal | Reason
-    Headlines:
-    {prompt_list}
-    """
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=400
-        )
-        lines = response.choices[0].message.content.strip().split("\n")
-        enriched_results = []
-        item_index = 0
-        
-        for line in lines:
-            clean_line = line.replace("```", "").replace("plaintext", "").strip()
-            if len(clean_line) > 0 and clean_line[0].isdigit():
-                parts = clean_line.split(".", 1)
-                if len(parts) > 1: clean_line = parts[1].strip()
-            
-            if not clean_line: continue
-            if item_index >= len(items): break
-
-            parts = clean_line.split("|")
-            if len(parts) >= 3:
-                ticker = parts[0].strip()
-                sectors = ["Real estate", "Retail", "Chemical", "Earnings", "Tax", "Energy", "Airlines", "Semiconductor", "Munis"]
-                if any(x in ticker for x in sectors): ticker = "MACRO"
-                if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
-                
-                try:
-                    enriched_results.append({
-                        "ticker": ticker,
-                        "signal": parts[1].strip(),
-                        "reason": parts[2].strip(),
-                        "title": items[item_index]['title'],
-                        "link": items[item_index]['link']
-                    })
-                    item_index += 1
-                except IndexError: break
-        return enriched_results
-    except Exception as e:
-        st.session_state['news_error'] = str(e)
-        return []
-
-# --- MAIN LAYOUT ---
-tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News", "📈 Chart Room"])
-
-with tab1:
-    st.subheader("Major Indices & Commodities")
-    live_on = st.toggle("🔴 Enable Live Prices", key="live_market")
-    display_ticker_grid(MARKET_TICKERS, live_mode=live_on)
-
-with tab2:
-    st.subheader("My Portfolio")
-    live_on_picks = st.toggle("🔴 Enable Live Prices", key="live_picks")
-    display_ticker_grid(my_picks_list, live_mode=live_on_picks)
-
-with tab3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate AI Report", type="primary"):
-        if not OPENAI_KEY:
-            st.error("⚠️ Enter OpenAI Key!")
-        else:
-            client = OpenAI(api_key=OPENAI_KEY)
-            with st.spinner("Scanning Global Markets..."):
-                raw_items = fetch_rss_items()
-                st.session_state['news_error'] = None 
-                if raw_items:
-                    results = analyze_batch(raw_items, client)
-                    st.session_state['news_results'] = results
-                else:
-                    st.session_state['news_error'] = "Could not reach news feeds."
-                    st.session_state['news_results'] = []
-
-    if st.session_state['news_error']:
-        st.error(f"⚠️ Error: {st.session_state['news_error']}")
-        
-    results = st.session_state['news_results']
-    if results:
-        ticker_counts = {}
-        for res in results:
-            tick = res['ticker']
-            if tick not in ticker_counts: ticker_counts[tick] = 0
-            if ticker_counts[tick] >= 5: continue 
-            ticker_counts[tick] += 1
-            b_color = "gray" if tick == "MACRO" else "blue"
-            with st.container():
-                c1, c2 = st.columns([1, 4])
-                with c1:
-                    st.markdown(f"### :{b_color}[{tick}]")
-                    st.caption(f"{res['signal']}")
-                with c2:
-                    st.markdown(f"**[{res['title']}]({res['link']})**")
-                    st.info(f"{res['reason']}")
-                st.divider()
-    elif not st.session_state['news_error'] and not results:
-        st.info("Click 'Generate AI Report' to start scanning.")
-
-with tab4:
-    st.subheader(f"📈 Chart: {chart_ticker}")
-    # Fetch 1-day Intraday data (1-minute intervals)
-    with st.spinner("Loading Chart..."):
-        try:
-            # 1d period, 5m interval is good for intraday
-            chart_data = yf.Ticker(chart_ticker).history(period="1d", interval="5m")
-            if not chart_data.empty:
-                # Basic Line Chart
-                st.line_chart(chart_data['Close'])
-                
-                # Stats
-                curr = chart_data['Close'].iloc[-1]
-                open_p = chart_data['Close'].iloc[0]
-                diff = curr - open_p
-                col = "green" if diff >= 0 else "red"
-                st.markdown(f"### Today's Move: :{col}[${diff:,.2f}]")
-            else:
-                st.warning("No chart data available right now (Market might be closed).")
-        except:
-            st.error("Could not load chart.")
+                    macd_
