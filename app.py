@@ -3,12 +3,12 @@ import requests
 import yfinance as yf
 import xml.etree.ElementTree as ET
 import time
+import pandas as pd
 from openai import OpenAI
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
-# Initialize Session State
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'news_error' not in st.session_state: st.session_state['news_error'] = None
@@ -25,45 +25,28 @@ st.sidebar.header("🚀 My Picks")
 user_input = st.sidebar.text_input("Edit Tickers", value="TSLA, NVDA, GME, BTC-USD")
 my_picks_list = [x.strip().upper() for x in user_input.split(",")]
 
+# Add a selector for the Chart Room
+st.sidebar.divider()
+st.sidebar.header("📈 Chart Room")
+chart_ticker = st.sidebar.selectbox("Select Asset to Chart", my_picks_list + ["SPY", "BTC-USD"])
+
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 
 st.title("⚡ PennyPulse Pro")
 
-# --- INSTANT TICKER MAP (Reformatted for Safety) ---
+# --- INSTANT TICKER MAP ---
 TICKER_MAP = {
-    "TESLA": "TSLA",
-    "MUSK": "TSLA",
-    "CYBERTRUCK": "TSLA",
-    "NVIDIA": "NVDA",
-    "JENSEN": "NVDA",
-    "AI CHIP": "NVDA",
-    "APPLE": "AAPL",
-    "IPHONE": "AAPL",
-    "MAC": "AAPL",
-    "MICROSOFT": "MSFT",
-    "WINDOWS": "MSFT",
-    "OPENAI": "MSFT",
-    "GOOGLE": "GOOGL",
-    "GEMINI": "GOOGL",
-    "YOUTUBE": "GOOGL",
-    "AMAZON": "AMZN",
-    "AWS": "AMZN",
-    "PRIME": "AMZN",
-    "META": "META",
-    "FACEBOOK": "META",
-    "INSTAGRAM": "META",
-    "NETFLIX": "NFLX",
-    "DISNEY": "DIS",
-    "BITCOIN": "BTC-USD",
-    "CRYPTO": "BTC-USD",
-    "COINBASE": "COIN",
-    "GOLD": "GC=F",
-    "OIL": "CL=F",
-    "FED": "USD",
-    "POWELL": "USD",
-    "JPMORGAN": "JPM",
-    "GOLDMAN": "GS",
-    "BOEING": "BA"
+    "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
+    "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
+    "APPLE": "AAPL", "IPHONE": "AAPL", "MAC": "AAPL",
+    "MICROSOFT": "MSFT", "WINDOWS": "MSFT", "OPENAI": "MSFT",
+    "GOOGLE": "GOOGL", "GEMINI": "GOOGL", "YOUTUBE": "GOOGL",
+    "AMAZON": "AMZN", "AWS": "AMZN", "PRIME": "AMZN",
+    "META": "META", "FACEBOOK": "META", "INSTAGRAM": "META",
+    "NETFLIX": "NFLX", "DISNEY": "DIS",
+    "BITCOIN": "BTC-USD", "CRYPTO": "BTC-USD", "COINBASE": "COIN",
+    "GOLD": "GC=F", "OIL": "CL=F", "FED": "USD", "POWELL": "USD",
+    "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
 }
 
 # --- FUNCTIONS ---
@@ -196,22 +179,16 @@ def analyze_batch(items, client):
         
         for line in lines:
             clean_line = line.replace("```", "").replace("plaintext", "").strip()
-            
-            # Remove leading numbers (e.g., "25. ")
             if len(clean_line) > 0 and clean_line[0].isdigit():
                 parts = clean_line.split(".", 1)
-                if len(parts) > 1:
-                    clean_line = parts[1].strip()
+                if len(parts) > 1: clean_line = parts[1].strip()
             
             if not clean_line: continue
-            
             if item_index >= len(items): break
 
             parts = clean_line.split("|")
             if len(parts) >= 3:
                 ticker = parts[0].strip()
-                
-                # Sector Filter
                 sectors = ["Real estate", "Retail", "Chemical", "Earnings", "Tax", "Energy", "Airlines", "Semiconductor", "Munis"]
                 if any(x in ticker for x in sectors): ticker = "MACRO"
                 if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
@@ -225,15 +202,14 @@ def analyze_batch(items, client):
                         "link": items[item_index]['link']
                     })
                     item_index += 1
-                except IndexError:
-                    break
+                except IndexError: break
         return enriched_results
     except Exception as e:
         st.session_state['news_error'] = str(e)
         return []
 
 # --- MAIN LAYOUT ---
-tab1, tab2, tab3 = st.tabs(["🏠 Market Dashboard", "🚀 My Picks", "📰 News Wire"])
+tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News", "📈 Chart Room"])
 
 with tab1:
     st.subheader("Major Indices & Commodities")
@@ -247,8 +223,6 @@ with tab2:
 
 with tab3:
     st.subheader("🚨 Global Wire")
-    
-    # Action Button
     if st.button("Generate AI Report", type="primary"):
         if not OPENAI_KEY:
             st.error("⚠️ Enter OpenAI Key!")
@@ -257,20 +231,17 @@ with tab3:
             with st.spinner("Scanning Global Markets..."):
                 raw_items = fetch_rss_items()
                 st.session_state['news_error'] = None 
-                
                 if raw_items:
                     results = analyze_batch(raw_items, client)
                     st.session_state['news_results'] = results
                 else:
-                    st.session_state['news_error'] = "Could not reach news feeds (Connection blocked)."
+                    st.session_state['news_error'] = "Could not reach news feeds."
                     st.session_state['news_results'] = []
 
-    # Display Logic
     if st.session_state['news_error']:
         st.error(f"⚠️ Error: {st.session_state['news_error']}")
         
     results = st.session_state['news_results']
-    
     if results:
         ticker_counts = {}
         for res in results:
@@ -278,7 +249,6 @@ with tab3:
             if tick not in ticker_counts: ticker_counts[tick] = 0
             if ticker_counts[tick] >= 5: continue 
             ticker_counts[tick] += 1
-            
             b_color = "gray" if tick == "MACRO" else "blue"
             with st.container():
                 c1, c2 = st.columns([1, 4])
@@ -291,3 +261,25 @@ with tab3:
                 st.divider()
     elif not st.session_state['news_error'] and not results:
         st.info("Click 'Generate AI Report' to start scanning.")
+
+with tab4:
+    st.subheader(f"📈 Chart: {chart_ticker}")
+    # Fetch 1-day Intraday data (1-minute intervals)
+    with st.spinner("Loading Chart..."):
+        try:
+            # 1d period, 5m interval is good for intraday
+            chart_data = yf.Ticker(chart_ticker).history(period="1d", interval="5m")
+            if not chart_data.empty:
+                # Basic Line Chart
+                st.line_chart(chart_data['Close'])
+                
+                # Stats
+                curr = chart_data['Close'].iloc[-1]
+                open_p = chart_data['Close'].iloc[0]
+                diff = curr - open_p
+                col = "green" if diff >= 0 else "red"
+                st.markdown(f"### Today's Move: :{col}[${diff:,.2f}]")
+            else:
+                st.warning("No chart data available right now (Market might be closed).")
+        except:
+            st.error("Could not load chart.")
