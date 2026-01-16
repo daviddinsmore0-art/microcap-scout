@@ -20,16 +20,21 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- SIDEBAR SETTINGS ---
-st.sidebar.divider()
-st.sidebar.header("🚀 My Picks")
-user_input = st.sidebar.text_input("Edit Tickers", value="TSLA, NVDA, GME, BTC-USD")
-my_picks_list = [x.strip().upper() for x in user_input.split(",")]
+# --- 💼 YOUR PORTFOLIO SETTINGS (EDIT HERE) ---
+# Format: "TICKER": {"entry": Your_Buy_Price, "date": "Buy_Date"}
+MY_PORTFOLIO = {
+    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
+    "NVDA":    {"entry": 130.50, "date": "Jan 12"},
+    "GME":     {"entry": 25.00,  "date": "Jan 14"},
+    "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
+}
 
+# --- SIDEBAR SETTINGS ---
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
-all_tickers = sorted(list(set(MARKET_TICKERS + my_picks_list)))
+# Combine Market list + Your Portfolio for the selector
+all_tickers = sorted(list(set(MARKET_TICKERS + list(MY_PORTFOLIO.keys()))))
 chart_ticker = st.sidebar.selectbox("Select Asset to Chart", all_tickers)
 
 st.title("⚡ PennyPulse Pro")
@@ -99,16 +104,12 @@ def format_volume(num):
 
 def display_ticker_grid(ticker_list, live_mode=False):
     if live_mode:
-        st.info("🔴 Live Streaming Active. Uncheck to see full data.")
-        price_containers = {}
+        st.info("🔴 Live Streaming Active.")
         cols = st.columns(4)
         for i, tick in enumerate(ticker_list):
-            with cols[i % 4]: price_containers[tick] = st.empty()
-        while True:
-            for tick, container in price_containers.items():
+            with cols[i % 4]:
                 price, delta = get_live_price(tick)
-                with container: st.metric(label=tick, value=f"${price:,.2f}", delta=f"{delta:.2f}%")
-            time.sleep(2)
+                st.metric(label=tick, value=f"${price:,.2f}", delta=f"{delta:.2f}%")
     else:
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
@@ -116,13 +117,9 @@ def display_ticker_grid(ticker_list, live_mode=False):
                 data = fetch_quant_data(tick)
                 if data:
                     rsi_sig = "🔴 Over" if data['rsi'] > 70 else ("🟢 Under" if data['rsi'] < 30 else "⚪ Neut")
-                    macd_sig = "🟢 Bull" if data['macd'] > data['macd_sig'] else "🔴 Bear"
                     vol_str = format_volume(data['volume'])
-                    st.markdown(f"**{tick}**")
-                    st.metric(label=f"Vol: {vol_str}", value=f"${data['price']:,.2f}", delta=f"{data['delta']:.2f}%")
-                    c1, c2 = st.columns(2)
-                    c1.caption(f"RSI: {data['rsi']:.0f} ({rsi_sig})")
-                    c2.caption(f"MACD: {macd_sig}")
+                    st.metric(label=f"{tick} (Vol: {vol_str})", value=f"${data['price']:,.2f}", delta=f"{data['delta']:.2f}%")
+                    st.caption(f"RSI: {data['rsi']:.0f} | {rsi_sig}")
                     st.divider()
 
 def fetch_rss_items():
@@ -182,8 +179,6 @@ def analyze_batch(items, client):
             parts = clean_line.split("|")
             if len(parts) >= 3:
                 ticker = parts[0].strip()
-                sectors = ["Real estate", "Retail", "Chemical", "Earnings", "Tax", "Energy", "Airlines", "Semiconductor", "Munis"]
-                if any(x in ticker for x in sectors): ticker = "MACRO"
                 if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
                 try:
                     enriched_results.append({
@@ -198,7 +193,7 @@ def analyze_batch(items, client):
         return []
 
 # --- TABS LAYOUT ---
-tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News", "📈 Chart Room"])
+tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News", "📈 Chart Room"])
 
 with tab1:
     st.subheader("Major Indices")
@@ -206,9 +201,28 @@ with tab1:
     display_ticker_grid(MARKET_TICKERS, live_mode=live_on)
 
 with tab2:
-    st.subheader("My Portfolio")
-    live_on_picks = st.toggle("🔴 Enable Live Prices", key="live_picks")
-    display_ticker_grid(my_picks_list, live_mode=live_on_picks)
+    st.subheader("My Positions")
+    # This section now calculates P/L based on your entries
+    cols = st.columns(3)
+    for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
+        with cols[i % 3]:
+            data = fetch_quant_data(ticker)
+            if data:
+                current = data['price']
+                entry = info['entry']
+                # Calculate Total Return
+                total_return = ((current - entry) / entry) * 100
+                
+                # Display Card
+                st.metric(
+                    label=f"{ticker} (Since {info['date']})",
+                    value=f"${current:,.2f}",
+                    delta=f"{total_return:.2f}% (Total)"
+                )
+                st.caption(f"Entry: ${entry:,.2f}")
+                st.divider()
+            else:
+                st.warning(f"Loading {ticker}...")
 
 with tab3:
     st.subheader("🚨 Global Wire")
@@ -218,22 +232,15 @@ with tab3:
             client = OpenAI(api_key=OPENAI_KEY)
             with st.spinner("Scanning Global Markets..."):
                 raw_items = fetch_rss_items()
-                st.session_state['news_error'] = None 
                 if raw_items:
                     results = analyze_batch(raw_items, client)
                     st.session_state['news_results'] = results
-                else:
-                    st.session_state['news_error'] = "Could not reach news feeds."
-                    st.session_state['news_results'] = []
-    if st.session_state['news_error']: st.error(f"⚠️ Error: {st.session_state['news_error']}")
+                else: st.error("News feed unavailable.")
+    
     results = st.session_state['news_results']
     if results:
-        ticker_counts = {}
         for res in results:
             tick = res['ticker']
-            if tick not in ticker_counts: ticker_counts[tick] = 0
-            if ticker_counts[tick] >= 5: continue 
-            ticker_counts[tick] += 1
             b_color = "gray" if tick == "MACRO" else "blue"
             with st.container():
                 c1, c2 = st.columns([1, 4])
@@ -244,53 +251,40 @@ with tab3:
                     st.markdown(f"**[{res['title']}]({res['link']})**")
                     st.info(f"{res['reason']}")
                 st.divider()
-    elif not st.session_state['news_error'] and not results:
-        st.info("Click 'Generate AI Report' to start scanning.")
 
 with tab4:
     st.subheader(f"📈 Chart: {chart_ticker}")
     live_chart = st.toggle("🔴 Enable Live Chart (5s Refresh)", key="live_chart")
     
-    # We use distinct containers to avoid the 'vconcat' rendering bug
     price_container = st.empty()
-    st.markdown("### Volume Profile") # Visual separator
+    st.markdown("### Volume Profile")
     volume_container = st.empty()
     
     def render_chart():
         try:
             tick_obj = yf.Ticker(chart_ticker)
-            # Use 5m interval for stability
             chart_data = tick_obj.history(period="1d", interval="5m")
             if chart_data.empty: chart_data = tick_obj.history(period="5d", interval="5m")
 
             if not chart_data.empty:
-                # 1. Clean data
                 chart_data = chart_data.dropna().reset_index()
-                # 2. Normalize Time Column
                 chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
-                # 3. Calculate SMA
                 chart_data['SMA 20'] = chart_data['Close'].rolling(window=20).mean()
 
-                # --- HYBRID APPROACH ---
                 with price_container:
-                    # Metric for clean Price Display (Fixes the ugly text bug)
                     curr = chart_data['Close'].iloc[-1]
                     diff = curr - chart_data['Close'].iloc[0]
                     st.metric("Current Price", f"${curr:,.2f}", f"{diff:,.2f}")
                     
-                    # ALTAIR CHART (ZOOM FIXED): Draws Price + SMA
                     base = alt.Chart(chart_data).encode(x='Datetime:T')
-                    
-                    # The Magic: scale(zero=False) centers the chart
                     price_line = base.mark_line().encode(
                         y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
                         tooltip=['Datetime:T', 'Close']
                     )
                     sma_line = base.mark_line(color='orange', opacity=0.8).encode(y='SMA 20')
-                    
                     st.altair_chart((price_line + sma_line).interactive(), use_container_width=True)
 
-                # --- ALTAIR CHART: VOLUME (Separated) ---
+                base = alt.Chart(chart_data).encode(x='Datetime:T')
                 vol_bar = base.mark_bar().encode(
                     y=alt.Y('Volume', title='Vol'),
                     color=alt.condition("datum.Open < datum.Close", alt.value("green"), alt.value("red"))
@@ -298,7 +292,6 @@ with tab4:
                 
                 with volume_container:
                     st.altair_chart(vol_bar, use_container_width=True)
-
             else:
                 with price_container: st.warning("Waiting for Market Data...")
         except Exception as e:
@@ -310,5 +303,4 @@ with tab4:
             time.sleep(5)
             render_chart()
 
-# --- THE SUCCESS CHECK ---
-st.success("✅ System Ready (Hybrid Pro Layout)")
+st.success("✅ System Ready (Portfolio Tracker Active)")
