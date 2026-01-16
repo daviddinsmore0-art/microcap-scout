@@ -11,7 +11,7 @@ from PIL import Image
 # --- CONFIGURATION ---
 try:
     icon_img = Image.open("logo.png")
-    st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
+    st.set_page_config(page_title="Penny Pulse", page_icon=icon_img, layout="wide")
 except:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 
@@ -39,7 +39,7 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ PennyPulse")
+    st.sidebar.header("⚡ Penny Pulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
@@ -76,7 +76,7 @@ st.sidebar.header("📈 Chart Room")
 MARKET_TICKERS = ["SPY", "QQQ", "SI=F", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 chart_ticker = st.sidebar.selectbox("Select Asset", sorted(list(set(MARKET_TICKERS + all_assets))))
 
-st.title("⚡ Penny Pulse Pro")
+st.title("⚡ Penny Pulse")
 
 # --- TICKER MAP ---
 TICKER_MAP = {
