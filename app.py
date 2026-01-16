@@ -20,7 +20,7 @@ else:
 # --- 2. SCANNER INPUT ---
 st.sidebar.divider()
 st.sidebar.header("🔎 Quant Scanner")
-user_input = st.sidebar.text_input("Symbols", value="BTC, ETH, SOL, GL=F, SI=F")
+user_input = st.sidebar.text_input("Symbols", value="BTC, ETH, SOL, GC=F, SI=F")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("📊 PennyPulse Quant")
