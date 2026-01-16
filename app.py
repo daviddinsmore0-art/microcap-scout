@@ -262,12 +262,12 @@ with tab4:
                 chart_data = tick_obj.history(period="5d", interval="5m")
 
             if not chart_data.empty:
-                # Sync Fix: drop corrupted rows
+                # Sync Fix: drop corrupted rows and ensure Datetime column
                 chart_data = chart_data.dropna().reset_index()
                 chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
                 
                 with chart_container:
-                    # Native Streamlit Chart bypasses the Altair VConcat bug
+                    # Native st.line_chart bypasses Altair v1.42+ vconcat bugs
                     st.line_chart(chart_data.set_index('Datetime')['Close'])
                     
                     curr = chart_data['Close'].iloc[-1]
