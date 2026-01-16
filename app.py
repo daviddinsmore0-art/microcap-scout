@@ -1,20 +1,18 @@
 import streamlit as st
-import requests
 import yfinance as yf
 import pandas as pd
 from openai import OpenAI
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
 # --- 1. KEY LOADER ---
-if "FINNHUB_KEY" in st.secrets:
-    FINNHUB_KEY = st.secrets["FINNHUB_KEY"]
+# Note: We only need OpenAI Key now. Finnhub is only for backup if you wanted it.
+if "OPENAI_KEY" in st.secrets:
     OPENAI_KEY = st.secrets["OPENAI_KEY"]
 else:
     st.sidebar.header("🔑 Login")
-    FINNHUB_KEY = st.sidebar.text_input("Finnhub Key", type="password")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
 # --- 2. SETTINGS ---
@@ -23,26 +21,29 @@ st.sidebar.header("⚡ Watchlist")
 user_input = st.sidebar.text_input("My Portfolio", value="TSLA, NVDA, GME, BTC-USD")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
-# DEBUG TOGGLE
-show_raw = st.sidebar.checkbox("Show Raw Feed (Debug Mode)", value=False)
-
 st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Fail-Safe News Wire")
+st.caption("Quant Data + Yahoo Finance News Feed")
 
 # --- FUNCTIONS ---
 def get_ai_analysis(headline, client):
     try:
-        # Simplified Prompt
+        # AI Task: Extract Ticker & Sentiment
         prompt = f"""
+        Act as a Trader.
         Headline: "{headline}"
-        Task: Extract Ticker (e.g. AAPL) and Sentiment (Bullish/Bearish).
-        If no specific ticker, use "MARKET".
+        
+        Task:
+        1. Extract the Ticker (e.g. AAPL, BTC, GOLD). If none, use "MARKET".
+        2. Determine Signal: 🟢 (Bullish), 🔴 (Bearish), or ⚪ (Neutral).
+        3. Write a 5-word Reason.
+        
         Format: Ticker | Signal | Reason
+        Example: TSLA | 🔴 | Recalls affecting production.
         """
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=50
+            max_tokens=60
         )
         return response.choices[0].message.content.strip()
     except:
@@ -80,27 +81,42 @@ def fetch_quant_data(symbol):
     except:
         return None
 
-def fetch_general_news(api_key):
+def fetch_yahoo_news():
+    """
+    Fetches news from 5 major "Market Movers" to create a global feed.
+    """
+    # These proxies cover the whole market
+    proxies = ["SPY", "QQQ", "BTC-USD", "GC=F", "CL=F"] 
     all_news = []
-    # Fetch General + Crypto
-    for cat in ["general", "crypto"]:
+    seen_titles = set()
+
+    for symbol in proxies:
         try:
-            url = f"https://finnhub.io/api/v1/news?category={cat}&token={api_key}"
-            data = requests.get(url).json()
-            if isinstance(data, list):
-                all_news.extend(data)
-        except: pass
+            ticker = yf.Ticker(symbol)
+            news = ticker.news
+            for item in news:
+                title = item['title']
+                # Deduplicate (SPY and QQQ often share stories)
+                if title not in seen_titles:
+                    seen_titles.add(title)
+                    all_news.append({
+                        "headline": title,
+                        "time": item['providerPublishTime']
+                    })
+        except:
+            pass
     
-    all_news.sort(key=lambda x: x.get('datetime', 0), reverse=True)
-    return all_news[:25] # Limit to 25 to be safe
+    # Sort by time (Newest First)
+    all_news.sort(key=lambda x: x['time'], reverse=True)
+    return all_news[:20] # Return Top 20
 
 # --- MAIN APP ---
 if st.button("🚀 Run Analysis"):
-    if not FINNHUB_KEY or not OPENAI_KEY:
-        st.error("⚠️ Enter API Keys in Sidebar!")
+    if not OPENAI_KEY:
+        st.error("⚠️ Enter OpenAI Key in Sidebar!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
-        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 News Wire"])
+        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 Yahoo Market Wire"])
 
         # --- TAB 1: QUANT DASHBOARD ---
         with tab1:
@@ -124,34 +140,23 @@ if st.button("🚀 Run Analysis"):
                         st.write(f"{macd_sig}")
                     st.divider()
 
-        # --- TAB 2: NEWS WIRE ---
+        # --- TAB 2: YAHOO WIRE ---
         with tab2:
-            st.subheader("🚨 Global Wire")
+            st.subheader("🚨 Global Wire (Source: Yahoo Finance)")
             
-            # 1. Fetch
-            raw_news = fetch_general_news(FINNHUB_KEY)
+            # 1. Fetch from Yahoo
+            raw_news = fetch_yahoo_news()
             
-            # DEBUG MESSAGE (So you know it worked)
             if len(raw_news) == 0:
-                st.error("⚠️ Finnhub API returned 0 stories. Check API limits.")
+                st.error("⚠️ Connection Error. Yahoo returned 0 stories.")
             else:
-                st.caption(f"⚡ Fetched {len(raw_news)} raw stories from the wire.")
-
-            # 2. Process
-            # If "Debug Mode" is ON, we show everything without AI (Fastest)
-            if show_raw:
-                for item in raw_news:
-                    st.markdown(f"**{item['headline']}**")
-                    st.caption(f"Source: {item['source']}")
-                    st.divider()
-            
-            # Normal Mode: AI Analysis
-            else:
+                st.caption(f"⚡ Analyzed {len(raw_news)} breaking stories.")
+                
                 count = 0
                 for item in raw_news:
                     headline = item['headline']
                     
-                    # Direct AI Check (No Python Filter)
+                    # AI Analysis
                     ai_result = get_ai_analysis(headline, client)
                     
                     parts = ai_result.split("|")
@@ -169,8 +174,4 @@ if st.button("🚀 Run Analysis"):
                             st.divider()
                         count += 1
                         
-                    # Stop after 10 stories to keep it fast
-                    if count >= 10: break
-                
-                if count == 0 and len(raw_news) > 0:
-                    st.warning("AI filtered out all stories (or API returned generic news). Try checking 'Show Raw Feed' in the sidebar.")
+                    if count >= 15: break
