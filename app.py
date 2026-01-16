@@ -29,15 +29,24 @@ MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 
 st.title("⚡ PennyPulse Pro")
 
-# --- INSTANT TICKER MAP ---
+# --- INSTANT TICKER MAP (Reformatted for Safety) ---
 TICKER_MAP = {
-    "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
-    "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
-    "APPLE": "AAPL", "IPHONE": "AAPL", "MAC": "AAPL",
-    "MICROSOFT": "MSFT", "WINDOWS": "MSFT", "OPENAI": "MSFT",
-    "GOOGLE": "GOOGL", "GEMINI": "GOOGL", "YOUTUBE": "GOOGL",
-    "AMAZON": "AMZN", "AWS": "AMZN", "PRIME": "AMZN",
-    "META": "META", "FACEBOOK": "META", "INSTAGRAM": "META",
-    "NETFLIX": "NFLX", "DISNEY": "DIS",
-    "BITCOIN": "BTC-USD", "CRYPTO": "BTC-USD", "COINBASE": "COIN",
-    "GOLD": "GC=F", "OIL": "CL=F", "FED": "USD", "
+    "TESLA": "TSLA",
+    "MUSK": "TSLA",
+    "CYBERTRUCK": "TSLA",
+    "NVIDIA": "NVDA",
+    "JENSEN": "NVDA",
+    "AI CHIP": "NVDA",
+    "APPLE": "AAPL",
+    "IPHONE": "AAPL",
+    "MAC": "AAPL",
+    "MICROSOFT": "MSFT",
+    "WINDOWS": "MSFT",
+    "OPENAI": "MSFT",
+    "GOOGLE": "GOOGL",
+    "GEMINI": "GOOGL",
+    "YOUTUBE": "GOOGL",
+    "AMAZON": "AMZN",
+    "AWS": "AMZN",
+    "PRIME": "AMZN",
+    "META": "META",
