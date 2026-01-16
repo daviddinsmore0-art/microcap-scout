@@ -1,14 +1,14 @@
 import streamlit as st
+import requests
 import yfinance as yf
 import pandas as pd
+import xml.etree.ElementTree as ET
 from openai import OpenAI
-from datetime import datetime
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
 # --- 1. KEY LOADER ---
-# Note: We only need OpenAI Key now. Finnhub is only for backup if you wanted it.
 if "OPENAI_KEY" in st.secrets:
     OPENAI_KEY = st.secrets["OPENAI_KEY"]
 else:
@@ -22,7 +22,7 @@ user_input = st.sidebar.text_input("My Portfolio", value="TSLA, NVDA, GME, BTC-U
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Yahoo Finance News Feed")
+st.caption("Quant Data + Direct RSS News Feed")
 
 # --- FUNCTIONS ---
 def get_ai_analysis(headline, client):
@@ -33,12 +33,11 @@ def get_ai_analysis(headline, client):
         Headline: "{headline}"
         
         Task:
-        1. Extract the Ticker (e.g. AAPL, BTC, GOLD). If none, use "MARKET".
-        2. Determine Signal: 🟢 (Bullish), 🔴 (Bearish), or ⚪ (Neutral).
-        3. Write a 5-word Reason.
+        1. Extract Ticker (e.g. AAPL, BTC, GOLD). If none, use "MARKET".
+        2. Signal: 🟢 (Bullish), 🔴 (Bearish), or ⚪ (Neutral).
+        3. Reason: 5 words max.
         
         Format: Ticker | Signal | Reason
-        Example: TSLA | 🔴 | Recalls affecting production.
         """
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -55,7 +54,6 @@ def fetch_quant_data(symbol):
         history = ticker.history(period="3mo", interval="1d", prepost=True)
         if history.empty: return None
 
-        # Indicators
         delta = history['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -81,34 +79,37 @@ def fetch_quant_data(symbol):
     except:
         return None
 
-def fetch_yahoo_news():
+def fetch_rss_feed():
     """
-    Fetches news from 5 major "Market Movers" to create a global feed.
+    Fetches news from CNBC and MarketWatch RSS feeds.
+    Reliable because it doesn't use an API.
     """
-    # These proxies cover the whole market
-    proxies = ["SPY", "QQQ", "BTC-USD", "GC=F", "CL=F"] 
-    all_news = []
-    seen_titles = set()
-
-    for symbol in proxies:
-        try:
-            ticker = yf.Ticker(symbol)
-            news = ticker.news
-            for item in news:
-                title = item['title']
-                # Deduplicate (SPY and QQQ often share stories)
-                if title not in seen_titles:
-                    seen_titles.add(title)
-                    all_news.append({
-                        "headline": title,
-                        "time": item['providerPublishTime']
-                    })
-        except:
-            pass
+    # 1. CNBC Investing Feed
+    # 2. MarketWatch Top Stories
+    urls = [
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
+        "https://feeds.content.dowjones.io/public/rss/mw_topstories"
+    ]
     
-    # Sort by time (Newest First)
-    all_news.sort(key=lambda x: x['time'], reverse=True)
-    return all_news[:20] # Return Top 20
+    all_news = []
+    
+    for url in urls:
+        try:
+            response = requests.get(url, timeout=5)
+            # Parse XML directly
+            root = ET.fromstring(response.content)
+            
+            # Walk through items
+            for item in root.findall('.//item'):
+                title = item.find('title').text
+                # Simple deduping
+                if title and len(title) > 10:
+                    all_news.append(title)
+        except:
+            continue
+            
+    # Return top 20
+    return all_news[:20]
 
 # --- MAIN APP ---
 if st.button("🚀 Run Analysis"):
@@ -116,7 +117,7 @@ if st.button("🚀 Run Analysis"):
         st.error("⚠️ Enter OpenAI Key in Sidebar!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
-        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 Yahoo Market Wire"])
+        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 CNBC/MW Wire"])
 
         # --- TAB 1: QUANT DASHBOARD ---
         with tab1:
@@ -140,21 +141,19 @@ if st.button("🚀 Run Analysis"):
                         st.write(f"{macd_sig}")
                     st.divider()
 
-        # --- TAB 2: YAHOO WIRE ---
+        # --- TAB 2: RSS WIRE ---
         with tab2:
-            st.subheader("🚨 Global Wire (Source: Yahoo Finance)")
+            st.subheader("🚨 Global Wire (Source: CNBC & MarketWatch)")
             
-            # 1. Fetch from Yahoo
-            raw_news = fetch_yahoo_news()
+            raw_news = fetch_rss_feed()
             
-            if len(raw_news) == 0:
-                st.error("⚠️ Connection Error. Yahoo returned 0 stories.")
+            if not raw_news:
+                st.error("⚠️ Could not reach News Feeds. Check internet connection.")
             else:
-                st.caption(f"⚡ Analyzed {len(raw_news)} breaking stories.")
+                st.caption(f"⚡ Fetched {len(raw_news)} headlines via RSS.")
                 
                 count = 0
-                for item in raw_news:
-                    headline = item['headline']
+                for headline in raw_news:
                     
                     # AI Analysis
                     ai_result = get_ai_analysis(headline, client)
@@ -164,14 +163,3 @@ if st.button("🚀 Run Analysis"):
                         ticker, signal, reason = parts[0].strip(), parts[1].strip(), parts[2].strip()
                         
                         with st.container():
-                            c1, c2 = st.columns([1, 4])
-                            with c1:
-                                st.markdown(f"## {ticker}")
-                                st.caption(f"{signal}")
-                            with c2:
-                                st.markdown(f"**{headline}**")
-                                st.info(f"{reason}")
-                            st.divider()
-                        count += 1
-                        
-                    if count >= 15: break
