@@ -278,11 +278,19 @@ with tab4:
                     diff = curr - chart_data['Close'].iloc[0]
                     st.metric("Current Price", f"${curr:,.2f}", f"{diff:,.2f}")
                     
-                    # NATIVE LINE CHART: Draws Price + SMA (Bulletproof)
-                    st.line_chart(chart_data.set_index('Datetime')[['Close', 'SMA 20']])
+                    # ALTAIR CHART (ZOOM FIXED): Draws Price + SMA
+                    base = alt.Chart(chart_data).encode(x='Datetime:T')
+                    
+                    # The Magic: scale(zero=False) centers the chart
+                    price_line = base.mark_line().encode(
+                        y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
+                        tooltip=['Datetime:T', 'Close']
+                    )
+                    sma_line = base.mark_line(color='orange', opacity=0.8).encode(y='SMA 20')
+                    
+                    st.altair_chart((price_line + sma_line).interactive(), use_container_width=True)
 
-                # --- ALTAIR CHART: VOLUME (Separated, because it works!) ---
-                base = alt.Chart(chart_data).encode(x='Datetime:T')
+                # --- ALTAIR CHART: VOLUME (Separated) ---
                 vol_bar = base.mark_bar().encode(
                     y=alt.Y('Volume', title='Vol'),
                     color=alt.condition("datum.Open < datum.Close", alt.value("green"), alt.value("red"))
