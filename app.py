@@ -4,7 +4,7 @@ import yfinance as yf
 import xml.etree.ElementTree as ET
 import time
 import pandas as pd
-import altair as alt  # <--- Added for Smart Charts
+import altair as alt  
 from openai import OpenAI
 
 # --- CONFIGURATION ---
@@ -110,10 +110,3 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     st.metric(label=tick, value=f"${price:,.2f}", delta=f"{delta:.2f}%")
             time.sleep(2)
     else:
-        cols = st.columns(3)
-        for i, tick in enumerate(ticker_list):
-            with cols[i % 3]:
-                data = fetch_quant_data(tick)
-                if data:
-                    rsi_sig = "🔴 Over" if data['rsi'] > 70 else ("🟢 Under" if data['rsi'] < 30 else "⚪ Neut")
-                    macd_
