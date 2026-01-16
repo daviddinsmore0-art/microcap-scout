@@ -6,7 +6,7 @@ from openai import OpenAI
 from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="PennyPulse Terminal", page_icon="📈", layout="wide")
+st.set_page_config(page_title="PennyPulse Terminal", page_icon="🔎", layout="wide")
 
 # --- 1. KEY LOADER ---
 if "FINNHUB_KEY" in st.secrets:
@@ -17,12 +17,16 @@ else:
     FINNHUB_KEY = st.sidebar.text_input("Finnhub Key", type="password")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
+# --- 2. UNIVERSAL SEARCH BAR ---
 st.sidebar.divider()
-st.sidebar.subheader("Watchlist")
-stock_list = st.sidebar.multiselect("Stocks", ["MULN", "TSLA", "AAPL", "NVDA", "SPY"], ["TSLA", "MULN"])
+st.sidebar.header("🔎 Scanner")
+# This is the magic box - default is TSLA and MULN, but you can change it!
+user_input = st.sidebar.text_input("Enter Symbols (comma separated)", value="TSLA, MULN, BTC-USD")
+# Convert text to list (e.g., "gme, amc" -> ["GME", "AMC"])
+stock_list = [x.strip().upper() for x in user_input.split(",")]
 
-st.title("📈 PennyPulse Terminal")
-st.caption("Live AI Signals + Yahoo Finance Charts")
+st.title("🔎 PennyPulse Search")
+st.caption("Live AI Analysis for ANY Asset")
 
 # --- FUNCTIONS ---
 def get_ai_analysis(headline, asset, client):
@@ -50,77 +54,10 @@ def get_ai_analysis(headline, asset, client):
         return "⚪ | Wait | AI Connecting..."
 
 def fetch_news(symbol, api_key):
-    # Get News (Last 3 days) via Finnhub
     start = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
     today = datetime.now().strftime('%Y-%m-%d')
     url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={start}&to={today}&token={api_key}"
     return requests.get(url).json()
 
 def fetch_forex_news(api_key):
-    url = f"https://finnhub.io/api/v1/news?category=forex&token={api_key}"
-    return requests.get(url).json()
-
-# --- MAIN APP ---
-if st.button("🚀 Run Terminal Scan"):
-    if not FINNHUB_KEY or not OPENAI_KEY:
-        st.error("⚠️ Enter API Keys in Sidebar!")
-    else:
-        client = OpenAI(api_key=OPENAI_KEY)
-        
-        # 1. STOCK TERMINAL
-        st.subheader("📉 Market Action")
-        
-        for symbol in stock_list:
-            # 1. Get Chart Data from Yahoo Finance (Robust)
-            stock_data = yf.Ticker(symbol)
-            history = stock_data.history(period="1mo")
-            
-            # 2. Get News from Finnhub (Fast)
-            news = fetch_news(symbol, FINNHUB_KEY)
-            
-            # Create Layout
-            col1, col2 = st.columns([2, 1])
-            
-            # LEFT: Chart & Price
-            with col1:
-                if not history.empty:
-                    current_price = history['Close'].iloc[-1]
-                    prev_price = history['Close'].iloc[-2]
-                    delta = round(((current_price - prev_price) / prev_price) * 100, 2)
-                    
-                    st.metric(label=symbol, value=f"${current_price:.2f}", delta=f"{delta}%")
-                    st.line_chart(history['Close'], height=200)
-                else:
-                    st.warning(f"Chart data unavailable for {symbol}")
-
-            # RIGHT: AI Analysis
-            with col2:
-                if len(news) > 0:
-                    top_story = news[0]
-                    ai_result = get_ai_analysis(top_story['headline'], symbol, client)
-                    
-                    parts = ai_result.split("|")
-                    if len(parts) == 3:
-                        signal, trade, reason = parts[0], parts[1], parts[2]
-                    else:
-                        signal, trade, reason = "⚪", "Wait", ai_result
-
-                    st.markdown(f"**AI Signal:** {signal} {trade}")
-                    st.info(f"{reason}")
-                    st.caption(f"📰 {top_story['headline']}")
-                else:
-                    st.write("No major news catalysts.")
-            
-            st.divider()
-            time.sleep(0.5)
-
-        # 2. FOREX FEED
-        st.subheader("💱 Global Forex Wire")
-        forex_data = fetch_forex_news(FINNHUB_KEY)
-        if len(forex_data) > 0:
-            for item in forex_data[:3]:
-                headline = item['headline']
-                ai_result = get_ai_analysis(headline, "Forex", client)
-                st.write(f"**{ai_result}**") 
-                st.caption(f"_{headline}_")
-                st.divider()
+    url = f"
