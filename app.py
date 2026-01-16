@@ -28,14 +28,13 @@ my_picks_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
-# Combine Market list + Your Picks for the selector
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 all_tickers = sorted(list(set(MARKET_TICKERS + my_picks_list)))
 chart_ticker = st.sidebar.selectbox("Select Asset to Chart", all_tickers)
 
 st.title("⚡ PennyPulse Pro")
 
-# --- TICKER MAP (AI News Context) ---
+# --- TICKER MAP ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -254,7 +253,7 @@ with tab4:
     
     # We use distinct containers to avoid the 'vconcat' rendering bug
     price_container = st.empty()
-    st.markdown("---") # Visual separator
+    st.markdown("### Volume Profile") # Visual separator
     volume_container = st.empty()
     
     def render_chart():
@@ -265,35 +264,29 @@ with tab4:
             if chart_data.empty: chart_data = tick_obj.history(period="5d", interval="5m")
 
             if not chart_data.empty:
-                # 1. Clean data to prevent blank charts
+                # 1. Clean data
                 chart_data = chart_data.dropna().reset_index()
                 # 2. Normalize Time Column
                 chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
                 # 3. Calculate SMA
-                chart_data['SMA'] = chart_data['Close'].rolling(window=20).mean()
+                chart_data['SMA 20'] = chart_data['Close'].rolling(window=20).mean()
 
-                # --- CHART 1: PRICE & SMA ---
-                base = alt.Chart(chart_data).encode(x='Datetime:T')
-                price_line = base.mark_line().encode(
-                    y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
-                    tooltip=['Datetime:T', 'Close', 'Volume']
-                )
-                sma_line = base.mark_line(color='orange', opacity=0.8).encode(y='SMA')
-                
+                # --- HYBRID APPROACH ---
                 with price_container:
-                    st.altair_chart((price_line + sma_line).interactive(), use_container_width=True)
-                    
-                    # Text Stats
+                    # Metric for clean Price Display (Fixes the ugly text bug)
                     curr = chart_data['Close'].iloc[-1]
                     diff = curr - chart_data['Close'].iloc[0]
-                    col = "green" if diff >= 0 else "red"
-                    st.markdown(f"### Current: ${curr:,.2f} | Move: :{col}[${diff:,.2f}]")
+                    st.metric("Current Price", f"${curr:,.2f}", f"{diff:,.2f}")
+                    
+                    # NATIVE LINE CHART: Draws Price + SMA (Bulletproof)
+                    st.line_chart(chart_data.set_index('Datetime')[['Close', 'SMA 20']])
 
-                # --- CHART 2: VOLUME (Separated) ---
+                # --- ALTAIR CHART: VOLUME (Separated, because it works!) ---
+                base = alt.Chart(chart_data).encode(x='Datetime:T')
                 vol_bar = base.mark_bar().encode(
                     y=alt.Y('Volume', title='Vol'),
                     color=alt.condition("datum.Open < datum.Close", alt.value("green"), alt.value("red"))
-                ).properties(height=150) # Shorter height for volume
+                ).properties(height=150)
                 
                 with volume_container:
                     st.altair_chart(vol_bar, use_container_width=True)
@@ -310,4 +303,4 @@ with tab4:
             render_chart()
 
 # --- THE SUCCESS CHECK ---
-st.success("✅ System Ready (Full Extended Layout)")
+st.success("✅ System Ready (Hybrid Pro Layout)")
