@@ -6,7 +6,7 @@ from openai import OpenAI
 from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="PennyPulse Terminal", page_icon="🔎", layout="wide")
+st.set_page_config(page_title="PennyPulse Terminal", page_icon="📡", layout="wide")
 
 # --- 1. KEY LOADER ---
 if "FINNHUB_KEY" in st.secrets:
@@ -17,14 +17,14 @@ else:
     FINNHUB_KEY = st.sidebar.text_input("Finnhub Key", type="password")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 2. UNIVERSAL SEARCH BAR ---
+# --- 2. SEARCH BAR ---
 st.sidebar.divider()
-st.sidebar.header("🔎 Scanner")
-user_input = st.sidebar.text_input("Enter Symbols (comma separated)", value="TSLA, MULN, BTC-USD")
+st.sidebar.header("🔎 Asset Scanner")
+user_input = st.sidebar.text_input("Symbols", value="GC=F, GLD, NEM")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
-st.title("🔎 PennyPulse Search")
-st.caption("Live AI Analysis for ANY Asset")
+st.title("📡 PennyPulse Terminal")
+st.caption("Live AI Analysis: Stocks, Crypto & Commodities")
 
 # --- FUNCTIONS ---
 def get_ai_analysis(headline, asset, client):
@@ -40,7 +40,6 @@ def get_ai_analysis(headline, asset, client):
         3. Reason: 5 words max.
         
         Format: [Signal] | [Trade] | [Reason]
-        Example: 🔴 Bearish | Short | Production delays confirmed.
         """
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -51,84 +50,89 @@ def get_ai_analysis(headline, asset, client):
     except:
         return "⚪ | Wait | AI Connecting..."
 
-def fetch_news(symbol, api_key):
-    # Get News (Last 3 days)
+def fetch_specific_news(symbol, api_key):
+    # Works best for COMPANIES (Apple, Tesla, Barrick Gold)
     start = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
     today = datetime.now().strftime('%Y-%m-%d')
     url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={start}&to={today}&token={api_key}"
     return requests.get(url).json()
 
-def fetch_forex_news(api_key):
-    url = f"https://finnhub.io/api/v1/news?category=forex&token={api_key}"
+def fetch_market_news(category, api_key):
+    # Works best for COMMODITIES (Gold, Crypto, Forex)
+    url = f"https://finnhub.io/api/v1/news?category={category}&token={api_key}"
     return requests.get(url).json()
 
 # --- MAIN APP ---
-if st.button("🚀 Run Search"):
+if st.button("🚀 Run Scan"):
     if not FINNHUB_KEY or not OPENAI_KEY:
         st.error("⚠️ Enter API Keys in Sidebar!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
         
-        # 1. DYNAMIC STOCK TERMINAL
-        st.subheader("📉 Asset Analysis")
+        # TAB 1: ASSET SCANNER (Charts + Specific News)
+        tab1, tab2 = st.tabs(["🔎 Specific Assets", "🌎 Global Market Wire"])
         
-        for symbol in stock_list:
-            # 1. Get Chart Data
-            try:
-                stock_data = yf.Ticker(symbol)
-                history = stock_data.history(period="1mo")
-            except:
-                history = None
-            
-            # 2. Get News
-            news = fetch_news(symbol, FINNHUB_KEY)
-            
-            # Layout
-            col1, col2 = st.columns([2, 1])
-            
-            # LEFT: Chart
-            with col1:
-                if history is not None and not history.empty:
-                    current_price = history['Close'].iloc[-1]
-                    if len(history) > 1:
-                        prev_price = history['Close'].iloc[-2]
-                        delta = round(((current_price - prev_price) / prev_price) * 100, 2)
+        with tab1:
+            for symbol in stock_list:
+                # 1. Chart Data (Yahoo)
+                try:
+                    stock_data = yf.Ticker(symbol)
+                    history = stock_data.history(period="1mo")
+                except:
+                    history = None
+                
+                # 2. News (Finnhub)
+                news = fetch_specific_news(symbol, FINNHUB_KEY)
+                
+                col1, col2 = st.columns([2, 1])
+                
+                # LEFT: Chart
+                with col1:
+                    if history is not None and not history.empty:
+                        curr = history['Close'].iloc[-1]
+                        if len(history) > 1:
+                            prev = history['Close'].iloc[-2]
+                            delta = round(((curr - prev) / prev) * 100, 2)
+                        else:
+                            delta = 0
+                        st.metric(f"{symbol} Price", f"${curr:,.2f}", f"{delta}%")
+                        st.line_chart(history['Close'], height=200)
                     else:
-                        delta = 0
-                    
-                    st.metric(label=symbol, value=f"${current_price:,.2f}", delta=f"{delta}%")
-                    st.line_chart(history['Close'], height=200)
-                else:
-                    st.warning(f"Chart unavailable for {symbol}")
+                        st.warning(f"Chart unavailable for {symbol}")
 
-            # RIGHT: AI Analysis
-            with col2:
-                if len(news) > 0:
-                    top_story = news[0]
-                    ai_result = get_ai_analysis(top_story['headline'], symbol, client)
-                    
-                    parts = ai_result.split("|")
-                    if len(parts) == 3:
-                        signal, trade, reason = parts[0], parts[1], parts[2]
+                # RIGHT: AI Analysis
+                with col2:
+                    if len(news) > 0:
+                        top_story = news[0]
+                        ai_result = get_ai_analysis(top_story['headline'], symbol, client)
+                        
+                        parts = ai_result.split("|")
+                        if len(parts) == 3:
+                            sig, trade, reason = parts[0], parts[1], parts[2]
+                        else:
+                            sig, trade, reason = "⚪", "Wait", ai_result
+
+                        st.markdown(f"**{sig} {trade}**")
+                        st.info(f"{reason}")
+                        st.caption(f"📰 {top_story['headline']}")
                     else:
-                        signal, trade, reason = "⚪", "Wait", ai_result
-
-                    st.markdown(f"**AI Signal:** {signal} {trade}")
-                    st.info(f"{reason}")
-                    st.caption(f"📰 {top_story['headline']}")
-                else:
-                    st.write("No recent news.")
-            
-            st.divider()
-            time.sleep(0.5)
-
-        # 2. GLOBAL FEED
-        st.subheader("💱 Global Headlines")
-        forex_data = fetch_forex_news(FINNHUB_KEY)
-        if len(forex_data) > 0:
-            for item in forex_data[:3]:
-                headline = item['headline']
-                ai_result = get_ai_analysis(headline, "Forex", client)
-                st.write(f"**{ai_result}**") 
-                st.caption(f"_{headline}_")
+                        st.write("No company-specific news.")
+                        st.caption("Check 'Global Market Wire' tab for macro news.")
                 st.divider()
+
+        # TAB 2: THE "MACRO" FEED (This finds Gold/War news)
+        with tab2:
+            st.subheader("📰 General Market News (Gold, Oil, Fed, War)")
+            # We fetch 'general' category which includes commodities
+            market_data = fetch_market_news("general", FINNHUB_KEY)
+            
+            if len(market_data) > 0:
+                for item in market_data[:5]: # Top 5 Stories
+                    headline = item['headline']
+                    # Ask AI to tag the asset
+                    ai_result = get_ai_analysis(headline, "Global Market", client)
+                    st.markdown(f"**{ai_result}**")
+                    st.write(f"_{headline}_")
+                    st.divider()
+            else:
+                st.write("No wire news found.")
