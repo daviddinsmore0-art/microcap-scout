@@ -14,90 +14,30 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 2. SETTINGS ---
+# --- SETTINGS ---
 st.sidebar.divider()
 st.sidebar.header("⚡ Watchlist")
-user_input = st.sidebar.text_input("My Portfolio", value="TSLA, NVDA, GME, BTC-USD")
+user_input = st.sidebar.text_input("Portfolio", value="TSLA, NVDA, GME, BTC-USD")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Instant-Tag News")
+st.caption("Quant Data + Batch-Processed News")
 
-# --- 3. THE "INSTANT-TAG" DICTIONARY ---
-# Python matches these keywords to tickers INSTANTLY (0ms latency).
+# --- INSTANT TICKER MAP (The Cheat Sheet) ---
 TICKER_MAP = {
-    # TECH
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
-    "NVIDIA": "NVDA", "JENSEN": "NVDA", "GPU": "NVDA", "AI CHIP": "NVDA",
-    "APPLE": "AAPL", "IPHONE": "AAPL", "MAC": "AAPL", "TIM COOK": "AAPL",
-    "MICROSOFT": "MSFT", "WINDOWS": "MSFT", "AZURE": "MSFT", "OPENAI": "MSFT",
-    "GOOGLE": "GOOGL", "ALPHABET": "GOOGL", "SEARCH": "GOOGL", "YOUTUBE": "GOOGL",
-    "AMAZON": "AMZN", "AWS": "AMZN", "BEZOS": "AMZN", "PRIME": "AMZN",
-    "META": "META", "FACEBOOK": "META", "ZUCKERBERG": "META", "INSTAGRAM": "META",
-    "NETFLIX": "NFLX", "STREAMING": "NFLX",
-    "AMD": "AMD", "INTEL": "INTC", "TSMC": "TSM",
-    
-    # MEME / RETAIL
-    "GAMESTOP": "GME", "COHEN": "GME",
-    "AMC": "AMC", "MOVIES": "AMC",
-    "HOOD": "HOOD", "ROBINHOOD": "HOOD",
-    "REDDIT": "RDDT",
-    
-    # CRYPTO
-    "BITCOIN": "BTC-USD", "BTC": "BTC-USD", "CRYPTO": "BTC-USD",
-    "ETHEREUM": "ETH-USD", "ETHER": "ETH-USD",
-    "COINBASE": "COIN", "BINANCE": "BNB-USD",
-    
-    # COMMODITIES
-    "GOLD": "GC=F", "SILVER": "SI=F",
-    "OIL": "CL=F", "CRUDE": "CL=F", "ENERGY": "XLE",
-    
-    # MACRO / BANKS
-    "FED": "USD", "POWELL": "USD", "RATES": "USD", "INFLATION": "USD",
-    "JPMORGAN": "JPM", "DIMON": "JPM",
-    "GOLDMAN": "GS", "BANK OF AMERICA": "BAC",
-    "BOEING": "BA", "AIRBUS": "EADSY",
-    "DISNEY": "DIS", "WALMART": "WMT", "COSTCO": "COST"
+    "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
+    "APPLE": "AAPL", "IPHONE": "AAPL", "MAC": "AAPL",
+    "MICROSOFT": "MSFT", "WINDOWS": "MSFT", "OPENAI": "MSFT",
+    "GOOGLE": "GOOGL", "GEMINI": "GOOGL", "YOUTUBE": "GOOGL",
+    "AMAZON": "AMZN", "AWS": "AMZN", "PRIME": "AMZN",
+    "META": "META", "FACEBOOK": "META", "INSTAGRAM": "META",
+    "NETFLIX": "NFLX", "DISNEY": "DIS",
+    "BITCOIN": "BTC-USD", "CRYPTO": "BTC-USD", "COINBASE": "COIN",
+    "GOLD": "GC=F", "OIL": "CL=F", "FED": "USD", "POWELL": "USD"
 }
 
 # --- FUNCTIONS ---
-def analyze_headline(headline, client):
-    # 1. INSTANT PYTHON TAGGING
-    # Check if we can find the ticker without asking AI
-    upper_hl = headline.upper()
-    found_ticker = None
-    
-    for keyword, symbol in TICKER_MAP.items():
-        if keyword in upper_hl:
-            found_ticker = symbol
-            break
-            
-    # If Python found it, we tell the AI: "Focus on THIS stock."
-    context = f"Ticker is {found_ticker}" if found_ticker else "Find the ticker."
-    
-    try:
-        # 2. FAST AI ANALYSIS
-        # We ask for a very short response to speed up generation
-        prompt = f"""
-        Headline: "{headline}"
-        Context: {context}
-        
-        Task:
-        1. Identify Ticker (Use context if available). If Macro news, use "MACRO".
-        2. Signal: 🟢, 🔴, or ⚪.
-        3. Reason: Max 3 words.
-        
-        Format: Ticker | Signal | Reason
-        """
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=30 # Keep tokens low = FASTER
-        )
-        return response.choices[0].message.content.strip()
-    except:
-        return f"{found_ticker if found_ticker else 'MACRO'} | ⚪ | AI Busy"
-
 def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
@@ -129,8 +69,8 @@ def fetch_quant_data(symbol):
     except:
         return None
 
-def fetch_rss_feed():
-    # CNBC and MarketWatch
+def fetch_rss_headlines():
+    # Grabs top headlines from CNBC & MarketWatch
     urls = [
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
@@ -145,7 +85,45 @@ def fetch_rss_feed():
                 if title and len(title) > 10:
                     all_news.append(title)
         except: continue
-    return all_news[:10]
+    return all_news[:6] # Top 6 for Batch Speed
+
+def analyze_batch(headlines, client):
+    """
+    Sends ALL headlines in ONE request. 10x Faster.
+    """
+    # 1. Pre-process with Cheat Sheet
+    numbered_list = ""
+    for i, hl in enumerate(headlines):
+        # Check map
+        hint = ""
+        upper_hl = hl.upper()
+        for key, val in TICKER_MAP.items():
+            if key in upper_hl:
+                hint = f"(Hint: {val})"
+                break
+        numbered_list += f"{i+1}. {hl} {hint}\n"
+
+    # 2. The Batch Prompt
+    prompt = f"""
+    Analyze these {len(headlines)} headlines.
+    For each, identify the Ticker (or use "MACRO"), the Sentiment (🟢/🔴/⚪), and a 3-word reason.
+    
+    Headlines:
+    {numbered_list}
+    
+    Output Format (one per line):
+    Ticker | Signal | Reason
+    """
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200
+        )
+        return response.choices[0].message.content.strip().split("\n")
+    except:
+        return []
 
 # --- MAIN APP ---
 if st.button("🚀 Run Analysis"):
@@ -153,7 +131,7 @@ if st.button("🚀 Run Analysis"):
         st.error("⚠️ Enter OpenAI Key!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
-        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 Instant Wire"])
+        tab1, tab2 = st.tabs(["📊 Portfolio", "🌎 Turbo Wire"])
 
         # --- TAB 1: QUANT ---
         with tab1:
@@ -177,45 +155,46 @@ if st.button("🚀 Run Analysis"):
                         st.write(f"{macd_sig}")
                     st.divider()
 
-        # --- TAB 2: INSTANT WIRE ---
+        # --- TAB 2: BATCH WIRE ---
         with tab2:
-            st.subheader("🚨 Global Wire")
+            st.subheader("🚨 Global Wire (Batch Mode)")
             
-            headlines = fetch_rss_feed()
-            headlines = headlines[:6] # Top 6 stories for MAX speed
+            # 1. Fetch
+            headlines = fetch_rss_headlines()
             
             if not headlines:
-                st.error("⚠️ News Feed Offline.")
+                st.error("⚠️ News Offline.")
             else:
-                progress_bar = st.progress(0)
+                # 2. Analyze (ONE SPINNER FOR EVERYTHING)
+                with st.spinner(f"Analyzing {len(headlines)} headlines at once..."):
+                    results = analyze_batch(headlines, client)
                 
-                for i, headline in enumerate(headlines):
-                    # FAST ANALYSIS
-                    ai_result = analyze_headline(headline, client)
-                    
-                    progress_bar.progress((i + 1) / len(headlines))
-                    
-                    parts = ai_result.split("|")
-                    if len(parts) == 3:
-                        ticker, signal, reason = parts[0].strip(), parts[1].strip(), parts[2].strip()
-                        
-                        # --- UI UPGRADE: BIG TICKER BADGE ---
-                        if ticker == "MACRO": 
-                            badge_color = "gray"
-                            ticker_display = "🌎 MACRO"
-                        else: 
-                            badge_color = "blue"
-                            ticker_display = ticker
+                # 3. Display
+                for i, line in enumerate(results):
+                    if "|" in line:
+                        parts = line.split("|")
+                        if len(parts) >= 3:
+                            ticker = parts[0].strip()
+                            signal = parts[1].strip()
+                            reason = parts[2].strip()
+                            
+                            # Clean Display
+                            headline_text = headlines[i] if i < len(headlines) else "Headline Error"
+                            
+                            # Badges
+                            if ticker in ["MACRO", "SECTOR"]:
+                                badge = "🌎 MACRO"
+                                b_color = "gray"
+                            else:
+                                badge = ticker
+                                b_color = "blue"
 
-                        with st.container():
-                            c1, c2 = st.columns([1, 4])
-                            with c1:
-                                # BIG BOLD TICKER
-                                st.markdown(f"### :{badge_color}[{ticker_display}]")
-                                st.caption(f"{signal} Sentiment")
-                            with c2:
-                                st.markdown(f"**{headline}**")
-                                st.info(f"{reason}")
-                            st.divider()
-                
-                progress_bar.empty()
+                            with st.container():
+                                c1, c2 = st.columns([1, 4])
+                                with c1:
+                                    st.markdown(f"### :{b_color}[{badge}]")
+                                    st.caption(f"{signal}")
+                                with c2:
+                                    st.markdown(f"**{headline_text}**")
+                                    st.info(f"{reason}")
+                                st.divider()
