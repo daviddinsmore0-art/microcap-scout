@@ -7,7 +7,7 @@ import pandas as pd
 import altair as alt
 from openai import OpenAI
 from PIL import Image
-import extra_streamlit_components as stx  # <--- The new Cookie Tool
+import extra_streamlit_components as stx
 
 # --- CONFIGURATION ---
 try:
@@ -35,8 +35,8 @@ MY_PORTFOLIO = {
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
 }
 
-# --- COOKIE MANAGER SETUP ---
-@st.cache_resource(experimental_allow_widgets=True)
+# --- COOKIE MANAGER SETUP (Fixed) ---
+@st.cache_resource
 def get_manager():
     return stx.CookieManager()
 
@@ -68,7 +68,7 @@ user_input = st.sidebar.text_input("Add Tickers", value=default_val, key="watchl
 if user_input != cookie_watchlist:
     cookie_manager.set("watchlist", user_input, expires_at=None) # Never expires
     # We trigger a rerun so the app feels 'locked in' immediately
-    if cookie_watchlist is not None: # Avoid rerun loop on first load
+    if cookie_watchlist is not None: 
         time.sleep(0.5)
         st.rerun()
 
