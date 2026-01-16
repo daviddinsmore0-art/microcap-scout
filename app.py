@@ -60,7 +60,7 @@ def fetch_specific_news(symbol, api_key):
 def fetch_market_news(api_key):
     # ROBUST UPDATE: Combine General + Forex + Crypto so it's never empty
     all_news = []
-    categories = ["general", "forex", "crypto"]
+    categories = ["general", "forex", "stocks", "crypto"]
     
     for cat in categories:
         try:
