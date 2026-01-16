@@ -11,9 +11,9 @@ from PIL import Image
 # --- CONFIGURATION ---
 try:
     icon_img = Image.open("logo.png")
-    st.set_page_config(page_title="Penny Pulse", page_icon=icon_img, layout="wide")
+    st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
 except:
-    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
+    st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -28,7 +28,7 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "BAER":    {"entry": 1.8697, "date": "Dec 31"},
+    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
     "GME":     {"entry": 25.00,  "date": "Jan 14"},
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
@@ -39,7 +39,7 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ Penny Pulse")
+    st.sidebar.header("⚡ PennyPulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
@@ -49,7 +49,7 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = ""
+    saved_watchlist = "AMD, PLTR"
 
 # 2. Input Box
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -57,7 +57,6 @@ user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 # 3. Update URL if changed
 if user_input != saved_watchlist:
     st.query_params["watchlist"] = user_input
-    # No rerun needed, Streamlit handles the URL update dynamically
 
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
@@ -73,10 +72,10 @@ if not alert_active:
 
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
-MARKET_TICKERS = ["SPY", "QQQ", "SI=F", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
+MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 chart_ticker = st.sidebar.selectbox("Select Asset", sorted(list(set(MARKET_TICKERS + all_assets))))
 
-st.title("⚡ Penny Pulse")
+st.title("⚡ PennyPulse Pro")
 
 # --- TICKER MAP ---
 TICKER_MAP = {
@@ -108,6 +107,8 @@ def fetch_quant_data(symbol):
         ticker = yf.Ticker(symbol)
         history = ticker.history(period="3mo", interval="1d", prepost=True)
         if history.empty: return None
+        
+        # 1. Price Data
         try:
             live_price = ticker.fast_info['last_price']
             prev_close = ticker.fast_info['previous_close']
@@ -117,17 +118,34 @@ def fetch_quant_data(symbol):
             prev_close = history['Close'].iloc[-2]
             delta_pct = ((live_price - prev_close) / prev_close) * 100
         
+        # 2. Volume
         volume = history['Volume'].iloc[-1]
         if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
 
+        # 3. RSI (Overbought/Oversold)
         delta = history['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         history['RSI'] = 100 - (100 / (1 + rs))
+        
+        # 4. MACD (Trend Direction)
+        ema12 = history['Close'].ewm(span=12, adjust=False).mean()
+        ema26 = history['Close'].ewm(span=26, adjust=False).mean()
+        macd = ema12 - ema26
+        signal = macd.ewm(span=9, adjust=False).mean()
+        
+        macd_val = macd.iloc[-1]
+        sig_val = signal.iloc[-1]
+        
+        # Determine Trend
+        if macd_val > sig_val: trend = "🐂 BULL"
+        else: trend = "🐻 BEAR"
+
         return {
             "price": live_price, "delta": delta_pct, "volume": volume,
-            "rsi": history['RSI'].iloc[-1]
+            "rsi": history['RSI'].iloc[-1],
+            "trend": trend
         }
     except: return None
 
@@ -150,10 +168,16 @@ def display_ticker_grid(ticker_list, live_mode=False):
             with cols[i % 3]:
                 data = fetch_quant_data(tick)
                 if data:
-                    rsi_sig = "🔴 Over" if data['rsi'] > 70 else ("🟢 Under" if data['rsi'] < 30 else "⚪ Neut")
+                    # RSI Logic
+                    rsi_val = data['rsi']
+                    if rsi_val > 70:   rsi_sig = "🔥 Overbought"
+                    elif rsi_val < 30: rsi_sig = "🧊 Oversold"
+                    else:              rsi_sig = "⚪ Neutral"
+                    
                     vol_str = format_volume(data['volume'])
+                    
                     st.metric(label=f"{tick} (Vol: {vol_str})", value=f"${data['price']:,.2f}", delta=f"{data['delta']:.2f}%")
-                    st.caption(f"RSI: {data['rsi']:.0f} | {rsi_sig}")
+                    st.caption(f"{data['trend']} | RSI: {rsi_val:.0f} ({rsi_sig})")
                     st.divider()
 
 def fetch_rss_items():
@@ -343,4 +367,4 @@ with tab4:
             time.sleep(5)
             render_chart()
 
-st.success("✅ System Ready (Stable URL Edition)")
+st.success("✅ System Ready (Trader View Enabled)")
