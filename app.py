@@ -19,82 +19,64 @@ else:
 
 # --- 2. SCANNER INPUT ---
 st.sidebar.divider()
-st.sidebar.header("⚡ Live Scanner")
-user_input = st.sidebar.text_input("Watchlist", value="TSLA, NVDA, GME, BTC-USD, AMD")
+st.sidebar.header("⚡ Watchlist Scanner")
+user_input = st.sidebar.text_input("My Portfolio", value="TSLA, NVDA, GME, BTC-USD")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Real-Time News Feed")
+st.caption("Quant Data + Global News Dragnet")
 
 # --- FUNCTIONS ---
-def get_ai_analysis(headline, asset, client):
+def get_ai_analysis(headline, context, client):
     try:
+        # We ask AI to FIND the ticker in the generic news
         prompt = f"""
         Act as a Trader.
         Headline: "{headline}"
-        Asset: {asset}
+        Context: {context}
         
         Task:
-        1. Signal: 🟢 (Bullish), 🔴 (Bearish), or ⚪ (Neutral).
-        2. Trade: "Long", "Short", or "Wait".
+        1. Identify Ticker: If a company is mentioned, give the symbol (e.g. "AAPL"). If none, write "MARKET".
+        2. Signal: 🟢 (Bullish), 🔴 (Bearish), or ⚪ (Neutral).
         3. Reason: 5 words max.
         
-        Format: [Signal] | [Trade] | [Reason]
+        Format: [Ticker] | [Signal] | [Reason]
+        Example: TSLA | 🔴 Bearish | Recalls affecting output.
         """
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=50
+            max_tokens=60
         )
         return response.choices[0].message.content.strip()
     except:
-        return "⚪ | Wait | AI Connecting..."
+        return "MARKET | ⚪ | AI Connecting..."
 
-def fetch_stock_news(symbol, api_key):
-    try:
-        start = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
-        today = datetime.now().strftime('%Y-%m-%d')
-        url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={start}&to={today}&token={api_key}"
-        data = requests.get(url).json()
-        # Add symbol to each news item so we know who it belongs to later
-        for item in data:
-            item['symbol'] = symbol
-        return data
-    except:
-        return []
-
-def get_quant_data(symbol):
+def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        # Get 3mo history for valid MACD/RSI
         history = ticker.history(period="3mo", interval="1d", prepost=True)
-        
         if history.empty: return None
 
-        # 1. RSI
+        # RSI & MACD Calc
         delta = history['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         history['RSI'] = 100 - (100 / (1 + rs))
 
-        # 2. MACD
         ema12 = history['Close'].ewm(span=12, adjust=False).mean()
         ema26 = history['Close'].ewm(span=26, adjust=False).mean()
         history['MACD'] = ema12 - ema26
         history['Signal'] = history['MACD'].ewm(span=9, adjust=False).mean()
-
-        # 3. Momentum
         history['Momentum'] = history['Close'].pct_change(periods=10) * 100
 
-        # Current Stats
         latest = history.iloc[-1]
         prev = history.iloc[-2]
-        curr_price = latest['Close']
-        delta_pct = ((curr_price - prev['Close']) / prev['Close']) * 100
+        delta_pct = ((latest['Close'] - prev['Close']) / prev['Close']) * 100
         
         return {
-            "price": curr_price,
+            "price": latest['Close'],
             "delta": delta_pct,
             "rsi": latest['RSI'],
             "macd": latest['MACD'],
@@ -104,101 +86,90 @@ def get_quant_data(symbol):
     except:
         return None
 
+def fetch_general_news(api_key):
+    # Grabs "General" (Stocks/Econ) and "Crypto"
+    all_news = []
+    for cat in ["general", "crypto"]:
+        try:
+            url = f"https://finnhub.io/api/v1/news?category={cat}&token={api_key}"
+            data = requests.get(url).json()
+            if isinstance(data, list):
+                all_news.extend(data)
+        except: pass
+    
+    # Sort and Cut off at 25
+    all_news.sort(key=lambda x: x.get('datetime', 0), reverse=True)
+    return all_news[:25]
+
 # --- MAIN APP ---
 if st.button("🚀 Run Analysis"):
     if not FINNHUB_KEY or not OPENAI_KEY:
         st.error("⚠️ Enter API Keys in Sidebar!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
-        
-        # CREATE TABS
-        tab1, tab2 = st.tabs(["📊 Quant Dashboard", "📰 Live News Wire"])
+        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 Global Wire (Last 25)"])
 
-        # --- PRE-FETCH DATA ---
-        # We fetch data once to use in both tabs
-        quant_cache = {}
-        all_news = []
-
-        with st.spinner("Analyzing Market Data..."):
-            for symbol in stock_list:
-                # Get Stats
-                q_data = get_quant_data(symbol)
-                if q_data:
-                    quant_cache[symbol] = q_data
-                
-                # Get News
-                s_news = fetch_stock_news(symbol, FINNHUB_KEY)
-                if s_news:
-                    all_news.extend(s_news)
-        
-        # Sort news by time (Newest First)
-        all_news.sort(key=lambda x: x.get('datetime', 0), reverse=True)
-
-        # --- TAB 1: QUANT DASHBOARD (The Comparison View) ---
+        # --- TAB 1: PORTFOLIO QUANT ---
         with tab1:
-            st.subheader("Market Overview")
+            st.subheader("Your Watchlist")
             for symbol in stock_list:
-                if symbol in quant_cache:
-                    data = quant_cache[symbol]
-                    
-                    # Logic
+                data = fetch_quant_data(symbol)
+                if data:
+                    # Signals
                     rsi_sig = "🔴 Overbought" if data['rsi'] > 70 else ("🟢 Oversold" if data['rsi'] < 30 else "⚪ Neutral")
                     macd_sig = "🟢 Bullish" if data['macd'] > data['macd_sig'] else "🔴 Bearish"
-                    mom_sig = "🟢 Strong" if data['mom'] > 0 else "🔴 Weak"
                     
-                    # Color Coded Price String
+                    # Color Price
                     color = "green" if data['delta'] > 0 else "red"
                     price_html = f"<span style='color:{color}; font-size: 24px; font-weight:bold'>${data['price']:,.2f}</span>"
-                    delta_html = f"<span style='color:{color}; font-size: 16px'>({data['delta']:.2f}%)</span>"
-
-                    # Layout
+                    
                     c1, c2, c3 = st.columns([1.5, 1, 1])
                     with c1:
                         st.markdown(f"### {symbol}")
-                        st.markdown(f"{price_html} {delta_html}", unsafe_allow_html=True)
+                        st.markdown(f"{price_html} ({data['delta']:.2f}%)", unsafe_allow_html=True)
                     with c2:
-                        st.caption("RSI (14)")
+                        st.caption("RSI")
                         st.write(f"**{data['rsi']:.0f}** {rsi_sig}")
                     with c3:
                         st.caption("MACD")
                         st.write(f"{macd_sig}")
                     st.divider()
+                else:
+                    st.warning(f"No data for {symbol}")
 
-        # --- TAB 2: LIVE NEWS WIRE (The "Jump on it" View) ---
+        # --- TAB 2: GLOBAL WIRE (ANY TICKER) ---
         with tab2:
-            st.subheader("🚨 Breaking News Feed")
+            st.subheader("🚨 Market Dragnet")
+            news_data = fetch_general_news(FINNHUB_KEY)
             
-            # Limit to top 20 stories to keep it fast
-            for story in all_news[:20]:
-                symbol = story['symbol']
-                headline = story['headline']
-                
-                # Container for the news item
-                with st.container():
-                    # 1. Headline
-                    st.markdown(f"**{symbol}: {headline}**")
+            if len(news_data) > 0:
+                for item in news_data:
+                    headline = item['headline']
                     
-                    # 2. The "Mini Quant Card" (User requested Chart/Stats for news)
-                    if symbol in quant_cache:
-                        data = quant_cache[symbol]
-                        
-                        # Simplified Logic for the News Card
-                        rsi_val = data['rsi']
-                        rsi_color = "🟢" if rsi_val < 30 else ("🔴" if rsi_val > 70 else "⚪")
-                        macd_val = "🟢" if data['macd'] > data['macd_sig'] else "🔴"
-                        
-                        # Price Color
-                        p_color = "green" if data['delta'] > 0 else "red"
-                        
-                        # Display Stats INLINE with the news
-                        stats_html = f"""
-                        <span style='color:{p_color}; font-weight:bold'>${data['price']:.2f} ({data['delta']:.2f}%)</span> 
-                        | RSI: {rsi_color} {rsi_val:.0f} | MACD: {macd_val}
-                        """
-                        st.markdown(stats_html, unsafe_allow_html=True)
+                    # 1. Ask AI to find the Ticker & Sentiment
+                    ai_result = get_ai_analysis(headline, "General Market News", client)
                     
-                    # 3. AI Insight
-                    ai_result = get_ai_analysis(headline, symbol, client)
-                    st.info(f"AI: {ai_result}")
-                    
-                    st.divider()
+                    # 2. Parse the AI's 3-part response
+                    parts = ai_result.split("|")
+                    if len(parts) == 3:
+                        extracted_ticker = parts[0].strip()
+                        signal = parts[1].strip()
+                        reason = parts[2].strip()
+                    else:
+                        extracted_ticker = "MARKET"
+                        signal = "⚪"
+                        reason = ai_result
+
+                    # 3. Display
+                    with st.container():
+                        c1, c2 = st.columns([1, 4])
+                        with c1:
+                            # Show the Ticker the AI found (e.g. "AAPL" or "GOLD")
+                            st.markdown(f"## {extracted_ticker}")
+                            st.caption(f"{signal}")
+                        with c2:
+                            st.markdown(f"**{headline}**")
+                            st.info(f"AI Insight: {reason}")
+                        st.divider()
+            else:
+                st.write("No wire news found. (Check API quota)")
