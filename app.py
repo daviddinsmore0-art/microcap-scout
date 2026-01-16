@@ -9,7 +9,6 @@ from openai import OpenAI
 from PIL import Image
 
 # --- CONFIGURATION ---
-# 1. We try to load the logo for the browser tab icon
 try:
     icon_img = Image.open("logo.png")
     st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
@@ -26,7 +25,7 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 💼 YOUR PORTFOLIO SETTINGS ---
+# --- 💼 PORTFOLIO (The Serious Stuff) ---
 MY_PORTFOLIO = {
     "TSLA":    {"entry": 350.00, "date": "Dec 10"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
@@ -34,20 +33,26 @@ MY_PORTFOLIO = {
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
 }
 
-# --- SIDEBAR SETTINGS ---
+# --- SIDEBAR ---
+# 1. Logo (Fixed Size)
 st.sidebar.divider()
-
-# 2. Display the Logo in the Sidebar
 try:
-    st.sidebar.image("logo.png", use_container_width=True)
+    # width=150 makes it look like a logo, not a poster
+    st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ PennyPulse") # Fallback if file is missing
+    st.sidebar.header("⚡ PennyPulse")
+
+# 2. Watchlist Search (I brought it back!)
+st.sidebar.header("👀 Watchlist")
+user_input = st.sidebar.text_input("Add Tickers", value="AMD, PLTR")
+watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
-all_tickers = sorted(list(set(MARKET_TICKERS + list(MY_PORTFOLIO.keys()))))
-chart_ticker = st.sidebar.selectbox("Select Asset to Chart", all_tickers)
+# Combine everything for the chart selector
+all_tickers = sorted(list(set(MARKET_TICKERS + list(MY_PORTFOLIO.keys()) + watchlist_list)))
+chart_ticker = st.sidebar.selectbox("Select Asset", all_tickers)
 
 st.title("⚡ PennyPulse Pro")
 
@@ -209,11 +214,13 @@ tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 N
 
 with tab1:
     st.subheader("Major Indices")
+    st.caption(f"Also Watching: {', '.join(watchlist_list)}")
     live_on = st.toggle("🔴 Enable Live Prices", key="live_market")
-    display_ticker_grid(MARKET_TICKERS, live_mode=live_on)
+    # Show Market + Watchlist
+    display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
 
 with tab2:
-    st.subheader("My Positions")
+    st.subheader("My Positions (Hardcoded)")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
@@ -311,4 +318,4 @@ with tab4:
             time.sleep(5)
             render_chart()
 
-st.success("✅ System Ready (Logo Edition)")
+st.success("✅ System Ready (Fixed Logo Size)")
