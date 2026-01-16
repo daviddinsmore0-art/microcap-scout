@@ -6,9 +6,15 @@ import time
 import pandas as pd
 import altair as alt
 from openai import OpenAI
+from PIL import Image
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
+# 1. We try to load the logo for the browser tab icon
+try:
+    icon_img = Image.open("logo.png")
+    st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
+except:
+    st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -20,8 +26,7 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 💼 YOUR PORTFOLIO SETTINGS (EDIT HERE) ---
-# Format: "TICKER": {"entry": Your_Buy_Price, "date": "Buy_Date"}
+# --- 💼 YOUR PORTFOLIO SETTINGS ---
 MY_PORTFOLIO = {
     "TSLA":    {"entry": 350.00, "date": "Dec 10"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
@@ -31,9 +36,16 @@ MY_PORTFOLIO = {
 
 # --- SIDEBAR SETTINGS ---
 st.sidebar.divider()
+
+# 2. Display the Logo in the Sidebar
+try:
+    st.sidebar.image("logo.png", use_container_width=True)
+except:
+    st.sidebar.header("⚡ PennyPulse") # Fallback if file is missing
+
+st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
-# Combine Market list + Your Portfolio for the selector
 all_tickers = sorted(list(set(MARKET_TICKERS + list(MY_PORTFOLIO.keys()))))
 chart_ticker = st.sidebar.selectbox("Select Asset to Chart", all_tickers)
 
@@ -202,7 +214,6 @@ with tab1:
 
 with tab2:
     st.subheader("My Positions")
-    # This section now calculates P/L based on your entries
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
@@ -210,10 +221,7 @@ with tab2:
             if data:
                 current = data['price']
                 entry = info['entry']
-                # Calculate Total Return
                 total_return = ((current - entry) / entry) * 100
-                
-                # Display Card
                 st.metric(
                     label=f"{ticker} (Since {info['date']})",
                     value=f"${current:,.2f}",
@@ -303,4 +311,4 @@ with tab4:
             time.sleep(5)
             render_chart()
 
-st.success("✅ System Ready (Portfolio Tracker Active)")
+st.success("✅ System Ready (Logo Edition)")
