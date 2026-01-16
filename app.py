@@ -19,7 +19,7 @@ st.sidebar.header("⚡ Watchlist")
 user_input = st.sidebar.text_input("Portfolio", value="TSLA, NVDA, GME, BTC-USD")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
-st.title("⚡ PennyPulse Pro")
+st.title("⚡ Penny Pulse Pro")
 st.caption("Quant Data + Live Pre-Market Feed")
 
 # --- INSTANT TICKER MAP ---
