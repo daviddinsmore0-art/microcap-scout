@@ -10,7 +10,6 @@ from openai import OpenAI
 # --- CONFIGURATION ---
 st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
-if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'news_error' not in st.session_state: st.session_state['news_error'] = None
 
@@ -20,21 +19,23 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- SETTINGS ---
+# --- GLOBAL SETTINGS ---
+MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
+
 st.sidebar.divider()
 st.sidebar.header("🚀 My Picks")
 user_input = st.sidebar.text_input("Edit Tickers", value="TSLA, NVDA, GME, BTC-USD")
 my_picks_list = [x.strip().upper() for x in user_input.split(",")]
 
-MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
-
+# --- UNIFIED CHART SELECTOR ---
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
 all_tickers = sorted(list(set(MARKET_TICKERS + my_picks_list)))
-chart_ticker = st.sidebar.selectbox("Select Asset", all_tickers)
+chart_ticker = st.sidebar.selectbox("Select Asset to Chart", all_tickers)
 
 st.title("⚡ PennyPulse Pro")
 
+# --- TICKER MAP ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -99,7 +100,7 @@ def format_volume(num):
 
 def display_ticker_grid(ticker_list, live_mode=False):
     if live_mode:
-        st.info("🔴 Live Streaming Active. Uncheck to see full technicals.")
+        st.info("🔴 Live Streaming Active. Uncheck to see full data.")
         price_containers = {}
         cols = st.columns(4)
         for i, tick in enumerate(ticker_list):
@@ -247,7 +248,7 @@ with tab3:
     elif not st.session_state['news_error'] and not results:
         st.info("Click 'Generate AI Report' to start scanning.")
 
-# --- CHART ROOM (Opening Bell Optimized) ---
+# --- CHART ROOM (Live Optimized) ---
 with tab4:
     st.subheader(f"📈 Chart: {chart_ticker}")
     live_chart = st.toggle("🔴 Enable Live Chart (5s Refresh)", key="live_chart")
@@ -255,31 +256,22 @@ with tab4:
     
     def render_chart():
         try:
-            # 1. Fetch Intraday Data
             tick_obj = yf.Ticker(chart_ticker)
-            chart_data = tick_obj.history(period="1d", interval="1m") # 1-min for start of day
-            
-            if chart_data.empty:
-                # Fallback to 5-day if 1-day is too new (Opening Bell gap)
-                chart_data = tick_obj.history(period="5d", interval="5m")
+            chart_data = tick_obj.history(period="1d", interval="1m")
+            if chart_data.empty: chart_data = tick_obj.history(period="5d", interval="5m")
 
             if not chart_data.empty:
-                chart_data = chart_data.reset_index()
-                # Rename columns for Altair consistency
+                chart_data = chart_data.dropna().reset_index()
                 chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
-                
-                # Indicators
                 chart_data['SMA'] = chart_data['Close'].rolling(window=20).mean()
                 
-                # Charting Logic
+                # Chart Layering
                 base = alt.Chart(chart_data).encode(x='Datetime:T')
-                
                 price_line = base.mark_line().encode(
                     y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
                     tooltip=['Datetime:T', 'Close', 'Volume']
                 )
-                
-                sma_line = base.mark_line(color='orange', opacity=0.7).encode(y='SMA')
+                sma_line = base.mark_line(color='orange', opacity=0.6).encode(y='SMA')
                 
                 vol_bar = base.mark_bar(opacity=0.3).encode(
                     y=alt.Y('Volume', title='Vol'),
@@ -298,17 +290,15 @@ with tab4:
                     col = "green" if diff >= 0 else "red"
                     st.markdown(f"### Current: ${curr:,.2f} | Move: :{col}[${diff:,.2f}]")
             else:
-                with chart_container:
-                    st.warning("No data found. The exchange may be delayed or ticker is invalid.")
+                with chart_container: st.warning("Data sync in progress...")
         except Exception as e:
-            with chart_container:
-                st.error(f"Connection Error: {e}")
+            with chart_container: st.error(f"Sync Issue: {e}")
 
-    # Start loop
     render_chart()
     if live_chart:
         while True:
             time.sleep(5)
             render_chart()
 
-st.success("✅ System Ready")
+# --- THE SUCCESS CHECK ---
+st.success("✅ System Ready (Full Layout Active)")
