@@ -73,7 +73,7 @@ if not alert_active:
 
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
-MARKET_TICKERS = ["SPY", "QQQ", "SI=F, "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
+MARKET_TICKERS = ["SPY", "QQQ", "SI=F", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 chart_ticker = st.sidebar.selectbox("Select Asset", sorted(list(set(MARKET_TICKERS + all_assets))))
 
 st.title("⚡ Penny Pulse Pro")
