@@ -163,3 +163,14 @@ if st.button("🚀 Run Analysis"):
                         ticker, signal, reason = parts[0].strip(), parts[1].strip(), parts[2].strip()
                         
                         with st.container():
+                            c1, c2 = st.columns([1, 4])
+                            with c1:
+                                st.markdown(f"## {ticker}")
+                                st.caption(f"{signal}")
+                            with c2:
+                                st.markdown(f"**{headline}**")
+                                st.info(f"{reason}")
+                            st.divider()
+                        count += 1
+                        
+                    if count >= 15: break
