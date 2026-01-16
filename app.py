@@ -8,7 +8,6 @@ from openai import OpenAI
 # --- CONFIGURATION ---
 st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
-# --- 1. KEY LOADER ---
 if "OPENAI_KEY" in st.secrets:
     OPENAI_KEY = st.secrets["OPENAI_KEY"]
 else:
@@ -22,54 +21,82 @@ user_input = st.sidebar.text_input("My Portfolio", value="TSLA, NVDA, GME, BTC-U
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Stable News Wire")
+st.caption("Quant Data + Instant-Tag News")
 
-# --- CHEAT SHEET (Instant Tickers) ---
+# --- 3. THE "INSTANT-TAG" DICTIONARY ---
+# Python matches these keywords to tickers INSTANTLY (0ms latency).
 TICKER_MAP = {
-    "TESLA": "TSLA", "MUSK": "TSLA",
-    "NVIDIA": "NVDA", "AI": "NVDA",
-    "APPLE": "AAPL", "IPHONE": "AAPL",
-    "MICROSOFT": "MSFT", "WINDOWS": "MSFT",
-    "GOOGLE": "GOOGL", "ALPHABET": "GOOGL",
-    "AMAZON": "AMZN", "AWS": "AMZN",
-    "META": "META", "FACEBOOK": "META",
-    "NETFLIX": "NFLX",
-    "BITCOIN": "BTC-USD", "CRYPTO": "BTC-USD",
-    "GOLD": "GC=F",
-    "OIL": "CL=F", "CRUDE": "CL=F",
-    "FED": "USD", "POWELL": "USD", "RATES": "USD"
+    # TECH
+    "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
+    "NVIDIA": "NVDA", "JENSEN": "NVDA", "GPU": "NVDA", "AI CHIP": "NVDA",
+    "APPLE": "AAPL", "IPHONE": "AAPL", "MAC": "AAPL", "TIM COOK": "AAPL",
+    "MICROSOFT": "MSFT", "WINDOWS": "MSFT", "AZURE": "MSFT", "OPENAI": "MSFT",
+    "GOOGLE": "GOOGL", "ALPHABET": "GOOGL", "SEARCH": "GOOGL", "YOUTUBE": "GOOGL",
+    "AMAZON": "AMZN", "AWS": "AMZN", "BEZOS": "AMZN", "PRIME": "AMZN",
+    "META": "META", "FACEBOOK": "META", "ZUCKERBERG": "META", "INSTAGRAM": "META",
+    "NETFLIX": "NFLX", "STREAMING": "NFLX",
+    "AMD": "AMD", "INTEL": "INTC", "TSMC": "TSM",
+    
+    # MEME / RETAIL
+    "GAMESTOP": "GME", "COHEN": "GME",
+    "AMC": "AMC", "MOVIES": "AMC",
+    "HOOD": "HOOD", "ROBINHOOD": "HOOD",
+    "REDDIT": "RDDT",
+    
+    # CRYPTO
+    "BITCOIN": "BTC-USD", "BTC": "BTC-USD", "CRYPTO": "BTC-USD",
+    "ETHEREUM": "ETH-USD", "ETHER": "ETH-USD",
+    "COINBASE": "COIN", "BINANCE": "BNB-USD",
+    
+    # COMMODITIES
+    "GOLD": "GC=F", "SILVER": "SI=F",
+    "OIL": "CL=F", "CRUDE": "CL=F", "ENERGY": "XLE",
+    
+    # MACRO / BANKS
+    "FED": "USD", "POWELL": "USD", "RATES": "USD", "INFLATION": "USD",
+    "JPMORGAN": "JPM", "DIMON": "JPM",
+    "GOLDMAN": "GS", "BANK OF AMERICA": "BAC",
+    "BOEING": "BA", "AIRBUS": "EADSY",
+    "DISNEY": "DIS", "WALMART": "WMT", "COSTCO": "COST"
 }
 
 # --- FUNCTIONS ---
-def get_ai_analysis(headline, client):
+def analyze_headline(headline, client):
+    # 1. INSTANT PYTHON TAGGING
+    # Check if we can find the ticker without asking AI
+    upper_hl = headline.upper()
+    found_ticker = None
+    
+    for keyword, symbol in TICKER_MAP.items():
+        if keyword in upper_hl:
+            found_ticker = symbol
+            break
+            
+    # If Python found it, we tell the AI: "Focus on THIS stock."
+    context = f"Ticker is {found_ticker}" if found_ticker else "Find the ticker."
+    
     try:
-        # 1. Check Cheat Sheet first (Instant)
-        upper_hl = headline.upper()
-        pre_ticker = "MARKET"
-        for keyword, symbol in TICKER_MAP.items():
-            if keyword in upper_hl:
-                pre_ticker = symbol
-                break
-
-        # 2. Ask AI
+        # 2. FAST AI ANALYSIS
+        # We ask for a very short response to speed up generation
         prompt = f"""
         Headline: "{headline}"
-        Context: Ticker might be {pre_ticker}.
-        Task: 
-        1. Confirm Ticker (e.g. 'Boeing' -> 'BA'). If generic, use "MARKET".
+        Context: {context}
+        
+        Task:
+        1. Identify Ticker (Use context if available). If Macro news, use "MACRO".
         2. Signal: 🟢, 🔴, or ⚪.
-        3. Reason: 5 words max.
+        3. Reason: Max 3 words.
         
         Format: Ticker | Signal | Reason
         """
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=50
+            max_tokens=30 # Keep tokens low = FASTER
         )
         return response.choices[0].message.content.strip()
     except:
-        return f"MARKET | ⚪ | AI Busy"
+        return f"{found_ticker if found_ticker else 'MACRO'} | ⚪ | AI Busy"
 
 def fetch_quant_data(symbol):
     try:
@@ -103,6 +130,7 @@ def fetch_quant_data(symbol):
         return None
 
 def fetch_rss_feed():
+    # CNBC and MarketWatch
     urls = [
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
@@ -110,14 +138,14 @@ def fetch_rss_feed():
     all_news = []
     for url in urls:
         try:
-            response = requests.get(url, timeout=3)
+            response = requests.get(url, timeout=2)
             root = ET.fromstring(response.content)
             for item in root.findall('.//item'):
                 title = item.find('title').text
                 if title and len(title) > 10:
                     all_news.append(title)
         except: continue
-    return all_news[:10] # Grab top 10
+    return all_news[:10]
 
 # --- MAIN APP ---
 if st.button("🚀 Run Analysis"):
@@ -125,7 +153,7 @@ if st.button("🚀 Run Analysis"):
         st.error("⚠️ Enter OpenAI Key!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
-        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 Stable Wire"])
+        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 Instant Wire"])
 
         # --- TAB 1: QUANT ---
         with tab1:
@@ -149,44 +177,45 @@ if st.button("🚀 Run Analysis"):
                         st.write(f"{macd_sig}")
                     st.divider()
 
-        # --- TAB 2: STABLE RSS ---
+        # --- TAB 2: INSTANT WIRE ---
         with tab2:
-            st.subheader("🚨 Global Wire (Top 5 Stories)")
+            st.subheader("🚨 Global Wire")
             
-            # 1. Fetch Headlines
             headlines = fetch_rss_feed()
+            headlines = headlines[:6] # Top 6 stories for MAX speed
             
             if not headlines:
-                st.error("⚠️ RSS Feed Connection Failed.")
+                st.error("⚠️ News Feed Offline.")
             else:
-                # 2. Limit to Top 5 for Speed
-                headlines = headlines[:5]
-                
-                # 3. Progress Bar
                 progress_bar = st.progress(0)
                 
                 for i, headline in enumerate(headlines):
-                    # Analysis
-                    ai_result = get_ai_analysis(headline, client)
+                    # FAST ANALYSIS
+                    ai_result = analyze_headline(headline, client)
                     
-                    # Update Bar
                     progress_bar.progress((i + 1) / len(headlines))
                     
-                    # Display Result
                     parts = ai_result.split("|")
                     if len(parts) == 3:
                         ticker, signal, reason = parts[0].strip(), parts[1].strip(), parts[2].strip()
-                        if ticker == "MARKET": ticker = "🌎 MKT"
+                        
+                        # --- UI UPGRADE: BIG TICKER BADGE ---
+                        if ticker == "MACRO": 
+                            badge_color = "gray"
+                            ticker_display = "🌎 MACRO"
+                        else: 
+                            badge_color = "blue"
+                            ticker_display = ticker
 
                         with st.container():
                             c1, c2 = st.columns([1, 4])
                             with c1:
-                                st.markdown(f"## {ticker}")
-                                st.caption(f"{signal}")
+                                # BIG BOLD TICKER
+                                st.markdown(f"### :{badge_color}[{ticker_display}]")
+                                st.caption(f"{signal} Sentiment")
                             with c2:
                                 st.markdown(f"**{headline}**")
                                 st.info(f"{reason}")
                             st.divider()
                 
-                # Hide Bar when done
                 progress_bar.empty()
