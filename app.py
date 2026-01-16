@@ -20,7 +20,7 @@ else:
 # --- 2. SEARCH BAR ---
 st.sidebar.divider()
 st.sidebar.header("🔎 Asset Scanner")
-user_input = st.sidebar.text_input("Symbols", value="GC=F, GLD, NEM")
+user_input = st.sidebar.text_input("Symbols", value="GC=F, GLD, NEM, BTC-USD")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("📡 PennyPulse Terminal")
@@ -57,10 +57,24 @@ def fetch_specific_news(symbol, api_key):
     url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={start}&to={today}&token={api_key}"
     return requests.get(url).json()
 
-def fetch_market_news(category, api_key):
-    # Works best for COMMODITIES (Gold, Crypto, Forex)
-    url = f"https://finnhub.io/api/v1/news?category={category}&token={api_key}"
-    return requests.get(url).json()
+def fetch_market_news(api_key):
+    # ROBUST UPDATE: Combine General + Forex + Crypto so it's never empty
+    all_news = []
+    categories = ["general", "forex", "crypto"]
+    
+    for cat in categories:
+        try:
+            url = f"https://finnhub.io/api/v1/news?category={cat}&token={api_key}"
+            data = requests.get(url).json()
+            if isinstance(data, list):
+                all_news.extend(data)
+        except:
+            pass
+            
+    # Sort combined list by time (newest first) and take top 10
+    # 'datetime' field is a unix timestamp
+    all_news.sort(key=lambda x: x.get('datetime', 0), reverse=True)
+    return all_news[:10]
 
 # --- MAIN APP ---
 if st.button("🚀 Run Scan"):
@@ -69,7 +83,7 @@ if st.button("🚀 Run Scan"):
     else:
         client = OpenAI(api_key=OPENAI_KEY)
         
-        # TAB 1: ASSET SCANNER (Charts + Specific News)
+        # TAB 1: ASSET SCANNER
         tab1, tab2 = st.tabs(["🔎 Specific Assets", "🌎 Global Market Wire"])
         
         with tab1:
@@ -120,19 +134,22 @@ if st.button("🚀 Run Scan"):
                         st.caption("Check 'Global Market Wire' tab for macro news.")
                 st.divider()
 
-        # TAB 2: THE "MACRO" FEED (This finds Gold/War news)
+        # TAB 2: THE "OMNI" FEED
         with tab2:
-            st.subheader("📰 General Market News (Gold, Oil, Fed, War)")
-            # We fetch 'general' category which includes commodities
-            market_data = fetch_market_news("general", FINNHUB_KEY)
+            st.subheader("📰 Global Headlines (Gold, Crypto, Forex)")
+            # Uses the new Robust Fetcher
+            market_data = fetch_market_news(FINNHUB_KEY)
             
             if len(market_data) > 0:
-                for item in market_data[:5]: # Top 5 Stories
+                for item in market_data[:5]: # Top 5 Stories from the combined list
                     headline = item['headline']
-                    # Ask AI to tag the asset
+                    category = item.get('category', 'Market')
+                    # Ask AI to analyze
                     ai_result = get_ai_analysis(headline, "Global Market", client)
+                    
                     st.markdown(f"**{ai_result}**")
                     st.write(f"_{headline}_")
+                    st.caption(f"Tag: {category.upper()}")
                     st.divider()
             else:
-                st.write("No wire news found.")
+                st.error("No news found. Check API Key or try again later.")
