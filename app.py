@@ -19,10 +19,11 @@ st.sidebar.header("⚡ Watchlist")
 user_input = st.sidebar.text_input("Portfolio", value="TSLA, NVDA, GME, BTC-USD")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
-st.title("⚡ Penny Pulse Pro")
-st.caption("Quant Data + Live Pre-Market Feed")
+st.title("⚡ PennyPulse Pro")
+st.caption("Quant Data + Newsroom Edition")
 
 # --- INSTANT TICKER MAP ---
+# Helps the AI find the ticker instantly
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -43,13 +44,12 @@ def fetch_quant_data(symbol):
         ticker = yf.Ticker(symbol)
         
         # 1. Get Live Price (Handles Pre/Post Market)
-        # fast_info is much faster and more accurate for "Right Now"
         try:
             live_price = ticker.fast_info['last_price']
             prev_close = ticker.fast_info['previous_close']
             delta_pct = ((live_price - prev_close) / prev_close) * 100
         except:
-            # Fallback if fast_info fails
+            # Fallback
             history = ticker.history(period="2d")
             if not history.empty:
                 live_price = history['Close'].iloc[-1]
@@ -157,13 +157,22 @@ def analyze_batch(items, client):
             clean_line = line.replace("```", "").replace("plaintext", "").strip()
             if not clean_line: continue
             
+            # Stop if we run out of headlines to match
             if item_index >= len(items): break
             
             parts = clean_line.split("|")
             
             if len(parts) >= 3:
                 ticker = parts[0].strip()
-                if "MACRO" in ticker or "MARKET" in ticker: ticker = "MACRO"
+                
+                # --- SECTOR FILTER: Force these to MACRO ---
+                sectors = ["Real estate", "Retail", "Chemical", "Earnings", "Tax", "Energy", "Airlines", "Semiconductor", "Munis"]
+                if any(x in ticker for x in sectors):
+                    ticker = "MACRO"
+                    
+                # Catch generic long phrases
+                if len(ticker) > 6 and ticker != "BTC-USD":
+                    ticker = "MACRO"
                 
                 enriched_results.append({
                     "ticker": ticker,
@@ -201,7 +210,7 @@ if st.button("🚀 Run Analysis"):
                     c1, c2, c3 = st.columns([1.5, 1, 1])
                     with c1:
                         st.markdown(f"### {symbol}")
-                        # Displaying Live Price
+                        # Live Price Display
                         st.markdown(f"<span style='color:{color}; font-size: 24px; font-weight:bold'>${data['price']:,.2f}</span> ({data['delta']:.2f}%)", unsafe_allow_html=True)
                     with c2:
                         st.caption("RSI")
@@ -211,23 +220,20 @@ if st.button("🚀 Run Analysis"):
                         st.write(f"{macd_sig}")
                     st.divider()
 
-        # --- TAB 2: NEWS ---
+        # --- TAB 2: NEWS (Silent Mode) ---
         with tab2:
             st.subheader("🚨 Global Wire")
             
-            with st.status("Fetching News...", expanded=True) as status:
-                st.write("📡 Connecting to RSS Feeds...")
+            # Simple Spinner instead of the "Debug" box
+            with st.spinner("Scanning Global Markets..."):
                 raw_items = fetch_rss_items()
-                st.write(f"✅ Found {len(raw_items)} headlines.")
                 
                 if raw_items:
-                    st.write("🧠 AI Analyzing...")
                     results = analyze_batch(raw_items, client)
-                    st.write(f"✅ Processed {len(results)} stories.")
-                
-                status.update(label="Complete", state="complete", expanded=False)
+                else:
+                    results = []
 
-            # --- DEBUGGER ---
+            # --- DEBUGGER (Hidden) ---
             with st.expander("🛠️ Debug (Click if Empty)"):
                 if 'last_ai_raw' in st.session_state: st.code(st.session_state['last_ai_raw'])
                 if 'last_ai_error' in st.session_state: st.error(st.session_state['last_ai_error'])
@@ -241,6 +247,37 @@ if st.button("🚀 Run Analysis"):
                     tick = res['ticker']
                     if tick not in ticker_counts: ticker_counts[tick] = 0
                     
+                    # Max 5 stories per ticker
                     if ticker_counts[tick] >= 5: continue 
                     ticker_counts[tick] += 1
                     displayed_count += 1
+                    
+                    # Badge Color Logic
+                    b_color = "gray" if tick == "MACRO" else "blue"
+
+                    with st.container():
+                        c1, c2 = st.columns([1, 4])
+                        with c1:
+                            st.markdown(f"### :{b_color}[{tick}]")
+                            st.caption(f"{res['signal']}")
+                        with c2:
+                            st.markdown(f"**[{res['title']}]({res['link']})**")
+                            st.info(f"{res['reason']}")
+                            st.caption(f"[🔗 Read Source]({res['link']})")
+                        st.divider()
+            
+            # FALLBACK
+            if displayed_count == 0:
+                if not raw_items:
+                    st.error("⚠️ News Offline (Check Internet).")
+                else:
+                    st.warning("⚠️ Switching to Raw Feed.")
+                    for item in raw_items[:10]:
+                        with st.container():
+                            c1, c2 = st.columns([1, 4])
+                            with c1:
+                                st.markdown("### :gray[RAW]")
+                            with c2:
+                                st.markdown(f"**[{item['title']}]({item['link']})**")
+                                st.caption(f"[🔗 Read Source]({item['link']})")
+                            st.divider()
