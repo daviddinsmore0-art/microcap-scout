@@ -28,10 +28,8 @@ my_picks_list = [x.strip().upper() for x in user_input.split(",")]
 
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 
-# --- CHART SELECTOR (Unified) ---
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
-# Combine lists and remove duplicates
 all_tickers = sorted(list(set(MARKET_TICKERS + my_picks_list)))
 chart_ticker = st.sidebar.selectbox("Select Asset", all_tickers)
 
@@ -101,7 +99,7 @@ def format_volume(num):
 
 def display_ticker_grid(ticker_list, live_mode=False):
     if live_mode:
-        st.info("🔴 Live Streaming Active (Volume Hidden). Uncheck to see full data.")
+        st.info("🔴 Live Streaming Active. Uncheck to see full technicals.")
         price_containers = {}
         cols = st.columns(4)
         for i, tick in enumerate(ticker_list):
@@ -249,7 +247,7 @@ with tab3:
     elif not st.session_state['news_error'] and not results:
         st.info("Click 'Generate AI Report' to start scanning.")
 
-# --- LIVE CHART ROOM ---
+# --- CHART ROOM (Opening Bell Optimized) ---
 with tab4:
     st.subheader(f"📈 Chart: {chart_ticker}")
     live_chart = st.toggle("🔴 Enable Live Chart (5s Refresh)", key="live_chart")
@@ -257,26 +255,31 @@ with tab4:
     
     def render_chart():
         try:
-            # Fetch Data
-            chart_data = yf.Ticker(chart_ticker).history(period="1d", interval="5m")
+            # 1. Fetch Intraday Data
+            tick_obj = yf.Ticker(chart_ticker)
+            chart_data = tick_obj.history(period="1d", interval="1m") # 1-min for start of day
             
+            if chart_data.empty:
+                # Fallback to 5-day if 1-day is too new (Opening Bell gap)
+                chart_data = tick_obj.history(period="5d", interval="5m")
+
             if not chart_data.empty:
                 chart_data = chart_data.reset_index()
-                
-                # --- VISUAL PATCH: Fix Column Name ---
-                # Rename whatever the date column is to 'Datetime' so Altair finds it
+                # Rename columns for Altair consistency
                 chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
                 
-                # SMA Calc
+                # Indicators
                 chart_data['SMA'] = chart_data['Close'].rolling(window=20).mean()
                 
-                # Chart
-                base = alt.Chart(chart_data).encode(x='Datetime:T') # :T forces time format
+                # Charting Logic
+                base = alt.Chart(chart_data).encode(x='Datetime:T')
+                
                 price_line = base.mark_line().encode(
                     y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
                     tooltip=['Datetime:T', 'Close', 'Volume']
                 )
-                sma_line = base.mark_line(color='orange').encode(y='SMA')
+                
+                sma_line = base.mark_line(color='orange', opacity=0.7).encode(y='SMA')
                 
                 vol_bar = base.mark_bar(opacity=0.3).encode(
                     y=alt.Y('Volume', title='Vol'),
@@ -293,13 +296,15 @@ with tab4:
                     curr = chart_data['Close'].iloc[-1]
                     diff = curr - chart_data['Close'].iloc[0]
                     col = "green" if diff >= 0 else "red"
-                    st.markdown(f"### Today's Move: :{col}[${diff:,.2f}]")
-                    st.caption("Orange Line: 20-Period Moving Average")
+                    st.markdown(f"### Current: ${curr:,.2f} | Move: :{col}[${diff:,.2f}]")
             else:
-                with chart_container: st.warning("Waiting for Market Data (Market may be closed)")
+                with chart_container:
+                    st.warning("No data found. The exchange may be delayed or ticker is invalid.")
         except Exception as e:
-            with chart_container: st.error(f"Chart Error: {e}")
+            with chart_container:
+                st.error(f"Connection Error: {e}")
 
+    # Start loop
     render_chart()
     if live_chart:
         while True:
