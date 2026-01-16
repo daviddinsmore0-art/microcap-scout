@@ -3,6 +3,7 @@ import requests
 import yfinance as yf
 import pandas as pd
 import xml.etree.ElementTree as ET
+import concurrent.futures
 from openai import OpenAI
 
 # --- CONFIGURATION ---
@@ -22,19 +23,46 @@ user_input = st.sidebar.text_input("My Portfolio", value="TSLA, NVDA, GME, BTC-U
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("⚡ PennyPulse Pro")
-st.caption("Quant Data + Direct RSS News Feed")
+st.caption("Quant Data + Turbo RSS Feed")
+
+# --- CHEAT SHEET (Instant Tickers) ---
+# This fixes the "Missing Ticker" issue by forcing a match.
+TICKER_MAP = {
+    "TESLA": "TSLA", "MUSK": "TSLA",
+    "NVIDIA": "NVDA", "AI": "NVDA",
+    "APPLE": "AAPL", "IPHONE": "AAPL",
+    "MICROSOFT": "MSFT", "WINDOWS": "MSFT",
+    "GOOGLE": "GOOGL", "ALPHABET": "GOOGL",
+    "AMAZON": "AMZN", "AWS": "AMZN",
+    "META": "META", "FACEBOOK": "META",
+    "NETFLIX": "NFLX",
+    "BITCOIN": "BTC-USD", "CRYPTO": "BTC-USD",
+    "GOLD": "GC=F",
+    "OIL": "CL=F", "CRUDE": "CL=F",
+    "FED": "USD", "POWELL": "USD", "RATES": "USD"
+}
 
 # --- FUNCTIONS ---
 def get_ai_analysis(headline, client):
+    """
+    Runs in parallel to speed up loading.
+    """
     try:
-        # AI Task: Extract Ticker & Sentiment
+        # 1. Check Cheat Sheet first (Instant Speed)
+        upper_hl = headline.upper()
+        pre_ticker = "MARKET"
+        for keyword, symbol in TICKER_MAP.items():
+            if keyword in upper_hl:
+                pre_ticker = symbol
+                break
+
+        # 2. Ask AI for Sentiment only (Faster)
         prompt = f"""
-        Act as a Trader.
         Headline: "{headline}"
-        
-        Task:
-        1. Extract Ticker (e.g. AAPL, BTC, GOLD). If none, use "MARKET".
-        2. Signal: 🟢 (Bullish), 🔴 (Bearish), or ⚪ (Neutral).
+        Context: Ticker is {pre_ticker}.
+        Task: 
+        1. If Ticker is MARKET, try to find a better one (e.g. 'Boeing' -> 'BA').
+        2. Signal: 🟢, 🔴, or ⚪.
         3. Reason: 5 words max.
         
         Format: Ticker | Signal | Reason
@@ -42,11 +70,11 @@ def get_ai_analysis(headline, client):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=60
+            max_tokens=50
         )
         return response.choices[0].message.content.strip()
     except:
-        return "MARKET | ⚪ | AI Busy"
+        return f"MARKET | ⚪ | AI Busy"
 
 def fetch_quant_data(symbol):
     try:
@@ -80,46 +108,31 @@ def fetch_quant_data(symbol):
         return None
 
 def fetch_rss_feed():
-    """
-    Fetches news from CNBC and MarketWatch RSS feeds.
-    Reliable because it doesn't use an API.
-    """
-    # 1. CNBC Investing Feed
-    # 2. MarketWatch Top Stories
     urls = [
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
     ]
-    
     all_news = []
-    
     for url in urls:
         try:
-            response = requests.get(url, timeout=5)
-            # Parse XML directly
+            response = requests.get(url, timeout=3)
             root = ET.fromstring(response.content)
-            
-            # Walk through items
             for item in root.findall('.//item'):
                 title = item.find('title').text
-                # Simple deduping
                 if title and len(title) > 10:
                     all_news.append(title)
-        except:
-            continue
-            
-    # Return top 20
-    return all_news[:20]
+        except: continue
+    return all_news[:15] # Limit to 15 for speed
 
 # --- MAIN APP ---
 if st.button("🚀 Run Analysis"):
     if not OPENAI_KEY:
-        st.error("⚠️ Enter OpenAI Key in Sidebar!")
+        st.error("⚠️ Enter OpenAI Key!")
     else:
         client = OpenAI(api_key=OPENAI_KEY)
-        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 CNBC/MW Wire"])
+        tab1, tab2 = st.tabs(["📊 My Portfolio", "🌎 Turbo Wire"])
 
-        # --- TAB 1: QUANT DASHBOARD ---
+        # --- TAB 1: QUANT ---
         with tab1:
             st.subheader("Your Watchlist")
             for symbol in stock_list:
@@ -141,27 +154,40 @@ if st.button("🚀 Run Analysis"):
                         st.write(f"{macd_sig}")
                     st.divider()
 
-        # --- TAB 2: RSS WIRE ---
+        # --- TAB 2: TURBO RSS ---
         with tab2:
-            st.subheader("🚨 Global Wire (Source: CNBC & MarketWatch)")
+            st.subheader("🚨 Global Wire (Turbo Mode)")
             
-            raw_news = fetch_rss_feed()
+            # 1. Fetch Headlines
+            headlines = fetch_rss_feed()
             
-            if not raw_news:
-                st.error("⚠️ Could not reach News Feeds. Check internet connection.")
+            if not headlines:
+                st.error("⚠️ RSS Feed Connection Failed.")
             else:
-                st.caption(f"⚡ Fetched {len(raw_news)} headlines via RSS.")
+                st.caption(f"⚡ Processing {len(headlines)} headlines simultaneously...")
                 
-                count = 0
-                for headline in raw_news:
+                # 2. PARALLEL EXECUTION (The Speed Boost)
+                results = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    # Submit all tasks at once
+                    future_to_hl = {executor.submit(get_ai_analysis, hl, client): hl for hl in headlines}
                     
-                    # AI Analysis
-                    ai_result = get_ai_analysis(headline, client)
-                    
+                    for future in concurrent.futures.as_completed(future_to_hl):
+                        try:
+                            res = future.result()
+                            hl = future_to_hl[future]
+                            results.append((hl, res))
+                        except: pass
+
+                # 3. Display Results
+                for headline, ai_result in results:
                     parts = ai_result.split("|")
                     if len(parts) == 3:
                         ticker, signal, reason = parts[0].strip(), parts[1].strip(), parts[2].strip()
                         
+                        # Clean up "MARKET" ticker to look nicer
+                        if ticker == "MARKET": ticker = "🌎 MKT"
+
                         with st.container():
                             c1, c2 = st.columns([1, 4])
                             with c1:
@@ -171,6 +197,3 @@ if st.button("🚀 Run Analysis"):
                                 st.markdown(f"**{headline}**")
                                 st.info(f"{reason}")
                             st.divider()
-                        count += 1
-                        
-                    if count >= 15: break
