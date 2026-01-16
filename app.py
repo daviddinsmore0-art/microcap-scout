@@ -1,12 +1,13 @@
 import streamlit as st
-import requests
 import yfinance as yf
+import requests
 import xml.etree.ElementTree as ET
 import time
 import pandas as pd
 import altair as alt
 from openai import OpenAI
 from PIL import Image
+import extra_streamlit_components as stx  # <--- The new Cookie Tool
 
 # --- CONFIGURATION ---
 try:
@@ -18,7 +19,6 @@ except:
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'news_error' not in st.session_state: st.session_state['news_error'] = None
-# TRACKING ALERTS
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
 if "OPENAI_KEY" in st.secrets:
@@ -27,13 +27,20 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 💼 PORTFOLIO ---
+# --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
     "TSLA":    {"entry": 350.00, "date": "Dec 10"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
     "GME":     {"entry": 25.00,  "date": "Jan 14"},
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
 }
+
+# --- COOKIE MANAGER SETUP ---
+@st.cache_resource(experimental_allow_widgets=True)
+def get_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_manager()
 
 # --- SIDEBAR ---
 st.sidebar.divider()
@@ -42,24 +49,45 @@ try:
 except:
     st.sidebar.header("⚡ PennyPulse")
 
+# --- 🧠 MEMORY SYSTEM (Cookies) ---
 st.sidebar.header("👀 Watchlist")
-user_input = st.sidebar.text_input("Add Tickers", value="AMD, PLTR")
+
+# 1. Try to load from Cookie
+cookie_watchlist = cookie_manager.get(cookie="watchlist")
+
+# 2. Set Default if Cookie is empty
+if not cookie_watchlist:
+    default_val = "AMD, PLTR"
+else:
+    default_val = cookie_watchlist
+
+# 3. Input Box
+user_input = st.sidebar.text_input("Add Tickers", value=default_val, key="watchlist_input")
+
+# 4. Save to Cookie if changed
+if user_input != cookie_watchlist:
+    cookie_manager.set("watchlist", user_input, expires_at=None) # Never expires
+    # We trigger a rerun so the app feels 'locked in' immediately
+    if cookie_watchlist is not None: # Avoid rerun loop on first load
+        time.sleep(0.5)
+        st.rerun()
+
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
-alert_ticker = st.sidebar.selectbox("Alert Asset", sorted(list(MY_PORTFOLIO.keys()) + watchlist_list))
+all_assets = sorted(list(set(list(MY_PORTFOLIO.keys()) + watchlist_list)))
+alert_ticker = st.sidebar.selectbox("Alert Asset", all_assets)
 alert_price = st.sidebar.number_input("Target Price ($)", min_value=0.0, value=0.0, step=0.5)
 alert_active = st.sidebar.toggle("Activate Alert")
 
 if not alert_active:
-    st.session_state['alert_triggered'] = False # Reset when toggled off
+    st.session_state['alert_triggered'] = False 
 
 st.sidebar.divider()
 st.sidebar.header("📈 Chart Room")
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
-all_tickers = sorted(list(set(MARKET_TICKERS + list(MY_PORTFOLIO.keys()) + watchlist_list)))
-chart_ticker = st.sidebar.selectbox("Select Asset", all_tickers)
+chart_ticker = st.sidebar.selectbox("Select Asset", sorted(list(set(MARKET_TICKERS + all_assets))))
 
 st.title("⚡ PennyPulse Pro")
 
@@ -282,7 +310,6 @@ with tab4:
             if alert_active and not st.session_state['alert_triggered']:
                 check_tick = yf.Ticker(alert_ticker)
                 curr_price = check_tick.fast_info['last_price']
-                # Check if we crossed the price (High or Low)
                 if curr_price >= alert_price:
                     st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr_price:,.2f}!", icon="🔥")
                     st.session_state['alert_triggered'] = True
@@ -329,4 +356,4 @@ with tab4:
             time.sleep(5)
             render_chart()
 
-st.success("✅ System Ready (Alerts Enabled)")
+st.success("✅ System Ready (Auto-Save: Cookies)")
