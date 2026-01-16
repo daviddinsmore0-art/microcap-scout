@@ -35,12 +35,9 @@ MY_PORTFOLIO = {
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
 }
 
-# --- COOKIE MANAGER SETUP (Fixed) ---
-@st.cache_resource
-def get_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_manager()
+# --- COOKIE MANAGER SETUP (Simplified) ---
+# We removed the @st.cache_resource decorator to fix the warning.
+cookie_manager = stx.CookieManager()
 
 # --- SIDEBAR ---
 st.sidebar.divider()
