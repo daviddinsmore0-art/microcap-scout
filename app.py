@@ -122,4 +122,145 @@ def display_ticker_grid(ticker_list, live_mode=False):
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
-        "
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
+        "https://feeds.content.dowjones.io/public/rss/mw_topstories"
+    ]
+    items = []
+    seen_titles = set()
+    for url in urls:
+        try:
+            response = requests.get(url, headers=headers, timeout=3)
+            root = ET.fromstring(response.content)
+            for item in root.findall('.//item'):
+                title = item.find('title').text
+                link = item.find('link').text
+                if title and title not in seen_titles:
+                    seen_titles.add(title)
+                    items.append({"title": title, "link": link})
+        except: continue
+    return items[:25]
+
+def analyze_batch(items, client):
+    if not items: return []
+    
+    prompt_list = ""
+    for i, item in enumerate(items):
+        hl = item['title']
+        hint = ""
+        upper_hl = hl.upper()
+        for key, val in TICKER_MAP.items():
+            if key in upper_hl:
+                hint = f"(Hint: {val})"
+                break
+        prompt_list += f"{i+1}. {hl} {hint}\n"
+
+    prompt = f"""
+    Analyze these {len(items)} headlines.
+    Task: Identify Ticker (or "MACRO"), Signal (🟢/🔴/⚪), and 3-word reason.
+    STRICT FORMAT: Ticker | Signal | Reason
+    Headlines:
+    {prompt_list}
+    """
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400
+        )
+        lines = response.choices[0].message.content.strip().split("\n")
+        enriched_results = []
+        item_index = 0
+        
+        for line in lines:
+            clean_line = line.replace("```", "").replace("plaintext", "").strip()
+            if not clean_line: continue
+            
+            # --- CRASH FIX: Check size before accessing ---
+            if item_index >= len(items): 
+                break 
+
+            parts = clean_line.split("|")
+            if len(parts) >= 3:
+                ticker = parts[0].strip()
+                sectors = ["Real estate", "Retail", "Chemical", "Earnings", "Tax", "Energy", "Airlines", "Semiconductor", "Munis"]
+                if any(x in ticker for x in sectors): ticker = "MACRO"
+                if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
+                
+                # --- SAFE ACCESS ---
+                try:
+                    enriched_results.append({
+                        "ticker": ticker,
+                        "signal": parts[1].strip(),
+                        "reason": parts[2].strip(),
+                        "title": items[item_index]['title'],
+                        "link": items[item_index]['link']
+                    })
+                    item_index += 1
+                except IndexError:
+                    break # Stop if we somehow go out of bounds
+                    
+        return enriched_results
+    except Exception as e:
+        st.session_state['news_error'] = str(e)
+        return []
+
+# --- MAIN LAYOUT ---
+tab1, tab2, tab3 = st.tabs(["🏠 Market Dashboard", "🚀 My Picks", "📰 News Wire"])
+
+with tab1:
+    st.subheader("Major Indices & Commodities")
+    live_on = st.toggle("🔴 Enable Live Prices", key="live_market")
+    display_ticker_grid(MARKET_TICKERS, live_mode=live_on)
+
+with tab2:
+    st.subheader("My Portfolio")
+    live_on_picks = st.toggle("🔴 Enable Live Prices", key="live_picks")
+    display_ticker_grid(my_picks_list, live_mode=live_on_picks)
+
+with tab3:
+    st.subheader("🚨 Global Wire")
+    
+    # Action Button
+    if st.button("Generate AI Report", type="primary"):
+        if not OPENAI_KEY:
+            st.error("⚠️ Enter OpenAI Key!")
+        else:
+            client = OpenAI(api_key=OPENAI_KEY)
+            with st.spinner("Scanning Global Markets..."):
+                raw_items = fetch_rss_items()
+                st.session_state['news_error'] = None 
+                
+                if raw_items:
+                    results = analyze_batch(raw_items, client)
+                    st.session_state['news_results'] = results
+                else:
+                    st.session_state['news_error'] = "Could not reach news feeds (Connection blocked)."
+                    st.session_state['news_results'] = []
+
+    # Display Logic
+    if st.session_state['news_error']:
+        st.error(f"⚠️ Error: {st.session_state['news_error']}")
+        
+    results = st.session_state['news_results']
+    
+    if results:
+        ticker_counts = {}
+        for res in results:
+            tick = res['ticker']
+            if tick not in ticker_counts: ticker_counts[tick] = 0
+            if ticker_counts[tick] >= 5: continue 
+            ticker_counts[tick] += 1
+            
+            b_color = "gray" if tick == "MACRO" else "blue"
+            with st.container():
+                c1, c2 = st.columns([1, 4])
+                with c1:
+                    st.markdown(f"### :{b_color}[{tick}]")
+                    st.caption(f"{res['signal']}")
+                with c2:
+                    st.markdown(f"**[{res['title']}]({res['link']})**")
+                    st.info(f"{res['reason']}")
+                st.divider()
+    elif not st.session_state['news_error'] and not results:
+        st.info("Click 'Generate AI Report' to start scanning.")
