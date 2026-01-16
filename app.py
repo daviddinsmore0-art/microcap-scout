@@ -7,7 +7,6 @@ import pandas as pd
 import altair as alt
 from openai import OpenAI
 from PIL import Image
-import extra_streamlit_components as stx
 
 # --- CONFIGURATION ---
 try:
@@ -35,10 +34,6 @@ MY_PORTFOLIO = {
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
 }
 
-# --- COOKIE MANAGER SETUP (Simplified) ---
-# We removed the @st.cache_resource decorator to fix the warning.
-cookie_manager = stx.CookieManager()
-
 # --- SIDEBAR ---
 st.sidebar.divider()
 try:
@@ -46,28 +41,23 @@ try:
 except:
     st.sidebar.header("⚡ PennyPulse")
 
-# --- 🧠 MEMORY SYSTEM (Cookies) ---
+# --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
 
-# 1. Try to load from Cookie
-cookie_watchlist = cookie_manager.get(cookie="watchlist")
-
-# 2. Set Default if Cookie is empty
-if not cookie_watchlist:
-    default_val = "AMD, PLTR"
+# 1. Read from URL (or default)
+query_params = st.query_params
+if "watchlist" in query_params:
+    saved_watchlist = query_params["watchlist"]
 else:
-    default_val = cookie_watchlist
+    saved_watchlist = "AMD, PLTR"
 
-# 3. Input Box
-user_input = st.sidebar.text_input("Add Tickers", value=default_val, key="watchlist_input")
+# 2. Input Box
+user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 
-# 4. Save to Cookie if changed
-if user_input != cookie_watchlist:
-    cookie_manager.set("watchlist", user_input, expires_at=None) # Never expires
-    # We trigger a rerun so the app feels 'locked in' immediately
-    if cookie_watchlist is not None: 
-        time.sleep(0.5)
-        st.rerun()
+# 3. Update URL if changed
+if user_input != saved_watchlist:
+    st.query_params["watchlist"] = user_input
+    # No rerun needed, Streamlit handles the URL update dynamically
 
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
@@ -353,4 +343,4 @@ with tab4:
             time.sleep(5)
             render_chart()
 
-st.success("✅ System Ready (Auto-Save: Cookies)")
+st.success("✅ System Ready (Stable URL Edition)")
