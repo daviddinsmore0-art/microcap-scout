@@ -4,12 +4,12 @@ import yfinance as yf
 import xml.etree.ElementTree as ET
 import time
 import pandas as pd
-import altair as alt
 from openai import OpenAI
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
+# Initialize Session State
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'news_error' not in st.session_state: st.session_state['news_error'] = None
 
@@ -35,7 +35,7 @@ chart_ticker = st.sidebar.selectbox("Select Asset to Chart", all_tickers)
 
 st.title("⚡ PennyPulse Pro")
 
-# --- TICKER MAP ---
+# --- TICKER MAP (For News Analysis) ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -198,7 +198,7 @@ def analyze_batch(items, client):
         st.session_state['news_error'] = str(e)
         return []
 
-# --- TABS ---
+# --- TABS LAYOUT ---
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News", "📈 Chart Room"])
 
 with tab1:
@@ -248,7 +248,6 @@ with tab3:
     elif not st.session_state['news_error'] and not results:
         st.info("Click 'Generate AI Report' to start scanning.")
 
-# --- CHART ROOM (Live Optimized) ---
 with tab4:
     st.subheader(f"📈 Chart: {chart_ticker}")
     live_chart = st.toggle("🔴 Enable Live Chart (5s Refresh)", key="live_chart")
@@ -257,40 +256,26 @@ with tab4:
     def render_chart():
         try:
             tick_obj = yf.Ticker(chart_ticker)
-            chart_data = tick_obj.history(period="1d", interval="1m")
-            if chart_data.empty: chart_data = tick_obj.history(period="5d", interval="5m")
+            # Use 5m for market open stability
+            chart_data = tick_obj.history(period="1d", interval="5m")
+            if chart_data.empty: 
+                chart_data = tick_obj.history(period="5d", interval="5m")
 
             if not chart_data.empty:
+                # Sync Fix: drop corrupted rows
                 chart_data = chart_data.dropna().reset_index()
                 chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
-                chart_data['SMA'] = chart_data['Close'].rolling(window=20).mean()
-                
-                # Chart Layering
-                base = alt.Chart(chart_data).encode(x='Datetime:T')
-                price_line = base.mark_line().encode(
-                    y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
-                    tooltip=['Datetime:T', 'Close', 'Volume']
-                )
-                sma_line = base.mark_line(color='orange', opacity=0.6).encode(y='SMA')
-                
-                vol_bar = base.mark_bar(opacity=0.3).encode(
-                    y=alt.Y('Volume', title='Vol'),
-                    color=alt.condition("datum.Open < datum.Close", alt.value("green"), alt.value("red"))
-                ).properties(height=80)
-                
-                final_chart = alt.vconcat(
-                    (price_line + sma_line).properties(height=350),
-                    vol_bar
-                ).resolve_scale(x='shared')
                 
                 with chart_container:
-                    st.altair_chart(final_chart, use_container_width=True)
+                    # Native Streamlit Chart bypasses the Altair VConcat bug
+                    st.line_chart(chart_data.set_index('Datetime')['Close'])
+                    
                     curr = chart_data['Close'].iloc[-1]
                     diff = curr - chart_data['Close'].iloc[0]
                     col = "green" if diff >= 0 else "red"
                     st.markdown(f"### Current: ${curr:,.2f} | Move: :{col}[${diff:,.2f}]")
             else:
-                with chart_container: st.warning("Data sync in progress...")
+                with chart_container: st.warning("Waiting for Market Data...")
         except Exception as e:
             with chart_container: st.error(f"Sync Issue: {e}")
 
