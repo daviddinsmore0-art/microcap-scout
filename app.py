@@ -20,7 +20,7 @@ else:
 # --- 2. SEARCH BAR ---
 st.sidebar.divider()
 st.sidebar.header("🔎 Asset Scanner")
-user_input = st.sidebar.text_input("Symbols", value="BTC-USD, ETH-USD, GC=F, NEM")
+user_input = st.sidebar.text_input("Symbols", value="BTC-USD, ETH-USD, GC=F, SI=F")
 stock_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.title("📡 PennyPulse Terminal")
