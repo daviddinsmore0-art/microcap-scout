@@ -26,7 +26,7 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
+    "BAER":    {"entry": 1.86, "date": "Dec 31"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
     "GME":     {"entry": 25.00,  "date": "Jan 14"},
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
@@ -37,7 +37,7 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ PennyPulse")
+    st.sidebar.header("⚡ Penny Pulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
