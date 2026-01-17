@@ -18,7 +18,6 @@ except:
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
-# Initialize User Manual Dates in Session State
 if 'user_dates' not in st.session_state: st.session_state['user_dates'] = {}
 
 if "OPENAI_KEY" in st.secrets:
@@ -27,8 +26,7 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 🗓️ ADMIN DEFAULT DATES (Starter Pack) ---
-# These load automatically for everyone.
+# --- 🗓️ ADMIN DEFAULT DATES (Priority 2) ---
 ADMIN_EARNINGS = {
     "TMQ": "2026-02-13",
     "NFLX": "2026-01-20",
@@ -52,7 +50,7 @@ try:
 except:
     st.sidebar.header("⚡ Penny Pulse")
 
-# --- 🧠 MEMORY SYSTEM (URL Method) ---
+# --- 🧠 MEMORY SYSTEM ---
 st.sidebar.header("👀 Watchlist")
 query_params = st.query_params
 if "watchlist" in query_params:
@@ -68,27 +66,33 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 
-# --- 🛠️ EARNINGS FIXER (The "Community" Feature) ---
-with st.sidebar.expander("📅 Earnings Fixer"):
-    st.caption("Missing a date? Add it here.")
+# --- 🛠️ EARNINGS FIXER (Debugged) ---
+with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
+    st.caption("Override any date here.")
     c1, c2 = st.columns([1, 2])
     with c1:
-        fix_tick = st.text_input("Ticker", placeholder="TMQ").upper()
+        # ADDED .strip() TO FIX THE BUG
+        fix_tick = st.text_input("Ticker", placeholder="TMQ").upper().strip()
     with c2:
         fix_date = st.date_input("Date")
     
-    if st.button("Add Date"):
+    if st.button("Add/Update Date"):
         if fix_tick:
-            # Save to session state (Memory)
             st.session_state['user_dates'][fix_tick] = fix_date.strftime("%Y-%m-%d")
-            st.success(f"Added {fix_tick}!")
-            time.sleep(1)
+            st.success(f"Fixed {fix_tick}!")
+            time.sleep(0.5)
             st.rerun()
 
-    # Show active overrides
     if st.session_state['user_dates']:
-        st.caption("Active Fixes:")
-        st.write(st.session_state['user_dates'])
+        st.divider()
+        st.caption("Active Overrides:")
+        # Show list cleanly
+        for k, v in st.session_state['user_dates'].items():
+            st.code(f"{k}: {v}")
+        
+        if st.button("🗑️ Clear All Overrides"):
+            st.session_state['user_dates'] = {}
+            st.rerun()
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
@@ -220,24 +224,24 @@ def fetch_quant_data_v2(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (HYBRID: USER + ADMIN + AUTO)
+        # 6. EARNINGS RADAR (HYBRID)
         earnings_msg = ""
         next_date = None
         
         try:
-            # PRIORITY 1: User Session Override (The "Community" Fix)
+            # PRIORITY 1: User Session Override
             if symbol in st.session_state['user_dates']:
                 try:
                     next_date = datetime.strptime(st.session_state['user_dates'][symbol], "%Y-%m-%d")
                 except: pass
 
-            # PRIORITY 2: Admin Code Override (Your Hardcoded List)
+            # PRIORITY 2: Admin Code Override
             if next_date is None and symbol in ADMIN_EARNINGS:
                 try:
                     next_date = datetime.strptime(ADMIN_EARNINGS[symbol], "%Y-%m-%d")
                 except: pass
 
-            # PRIORITY 3: Yahoo Calendar (Auto)
+            # PRIORITY 3: Yahoo Calendar
             if next_date is None:
                 cal = ticker.calendar
                 if cal is not None:
@@ -262,7 +266,6 @@ def fetch_quant_data_v2(symbol):
 
             # --- CALCULATE BADGE ---
             if next_date:
-                # Safer Timezone Strip
                 if hasattr(next_date, "replace"):
                     next_date = next_date.replace(tzinfo=None)
                 
@@ -523,4 +526,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.1 - Community Edition)")
+st.success("✅ System Ready (v3.2 - Precision Fix)")
