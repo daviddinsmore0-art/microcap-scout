@@ -78,7 +78,18 @@ TICKER_MAP = {
     "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
 }
 
-MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
+# --- MACRO TAPE LIST (The Global Desk) ---
+MACRO_TICKERS = [
+    "SPY",      # S&P 500
+    "QQQ",      # Nasdaq
+    "IWM",      # Small Caps
+    "GC=F",     # Gold
+    "SI=F",     # Silver
+    "CL=F",     # Crude Oil
+    "DX-Y.NYB", # US Dollar Index
+    "^VIX",     # Fear Index
+    "BTC-USD"   # Bitcoin
+]
 
 # --- FUNCTIONS ---
 def get_live_price(symbol):
@@ -182,16 +193,25 @@ def format_volume(num):
     if num >= 1_000: return f"{num/1_000:.1f}K"
     return str(num)
 
-# --- NEW: SCROLLING TICKER TAPE (THICK & SLOW) ---
+# --- NEW: MACRO TAPE (Thick, Slow, Seamless) ---
 def render_ticker_tape(tickers):
     ticker_items = []
+    # Friendly Names for Macro
+    name_map = {
+        "GC=F": "GOLD", "SI=F": "SILVER", "CL=F": "OIL", 
+        "DX-Y.NYB": "USD", "^VIX": "VIX", "BTC-USD": "BTC"
+    }
+    
     for tick in tickers:
         p, d = get_live_price(tick)
         color = "#4caf50" if d >= 0 else "#f44336"
         arrow = "▲" if d >= 0 else "▼"
-        # Added 'color: white' to ticker symbol to fix visibility
-        # Added font-size: 20px for thickness
-        ticker_items.append(f"<span style='margin-right: 30px; font-weight: 900; font-size: 20px; color: white;'>{tick}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
+        display_name = name_map.get(tick, tick) # Use short name if available
+        
+        ticker_items.append(f"<span style='margin-right: 40px; font-weight: 900; font-size: 20px; color: white;'>{display_name}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
+    
+    # We repeat the content 4 times to ensure no gaps on wide screens
+    content_str = ' '.join(ticker_items)
     
     ticker_html = f"""
     <style>
@@ -199,26 +219,26 @@ def render_ticker_tape(tickers):
         width: 100%;
         overflow: hidden;
         background-color: #0e1117;
-        border-bottom: 2px solid #444; /* Thicker Border */
+        border-bottom: 2px solid #444; 
         white-space: nowrap;
         box-sizing: border-box;
-        height: 50px; /* Taller Bar */
+        height: 50px; 
         display: flex;
         align-items: center;
     }}
     .ticker {{
         display: inline-block;
         white-space: nowrap;
-        animation: ticker 45s linear infinite; /* Slower Speed */
+        animation: ticker 60s linear infinite; /* 60s = Very Slow */
     }}
     @keyframes ticker {{
-        0% {{ transform: translateX(100%); }}
+        0% {{ transform: translateX(0); }}
         100% {{ transform: translateX(-100%); }}
     }}
     </style>
     <div class="ticker-wrap">
         <div class="ticker">
-            {' '.join(ticker_items)}   {' '.join(ticker_items)}
+            {content_str} {content_str} {content_str} {content_str}
         </div>
     </div>
     """
@@ -340,18 +360,17 @@ def analyze_batch(items, client):
 # --- MAIN APP UI ---
 st.title("⚡ PennyPulse Pro")
 
-# RENDER TICKER TAPE AT THE TOP
-combined_list = sorted(list(set(MARKET_TICKERS + watchlist_list)))
-render_ticker_tape(combined_list)
+# RENDER MACRO TAPE (The Global Desk)
+render_ticker_tape(MACRO_TICKERS)
 
 # --- TABS LAYOUT ---
 tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 
 with tab1:
-    st.subheader("Major Indices")
-    st.caption(f"Also Watching: {', '.join(watchlist_list)}")
+    st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
+    st.caption(f"Currently Tracking: {', '.join(watchlist_list)}")
     live_on = st.toggle("🔴 Enable Live Prices", key="live_market") 
-    display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
+    display_ticker_grid(watchlist_list, live_mode=live_on)
 
 with tab2:
     st.subheader("My Positions")
@@ -402,4 +421,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Thick & Smooth Ticker)")
+st.success("✅ System Ready (Macro Tape: 60s Loop)")
