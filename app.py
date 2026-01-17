@@ -79,6 +79,9 @@ TICKER_MAP = {
     "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
 }
 
+# --- CONSTANTS (FIXED: Added this back!) ---
+MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
+
 # --- FUNCTIONS ---
 def get_live_price(symbol):
     try:
@@ -103,7 +106,6 @@ def fetch_quant_data(symbol):
         day_delta_pct = ((live_price - prev_close) / prev_close) * 100
         
         # Extended Hours Logic
-        # We assume the last row in history is the "Regular Market Close"
         try:
             last_regular_close = history['Close'].iloc[-1]
             ext_diff = live_price - last_regular_close
@@ -135,9 +137,9 @@ def fetch_quant_data(symbol):
         sig_val = signal.iloc[-1]
         
         if macd_val > sig_val: 
-            trend_str = ":green[**BULL**]" # Green Text
+            trend_str = ":green[**BULL**]" 
         else: 
-            trend_str = ":red[**BEAR**]"   # Red Text
+            trend_str = ":red[**BEAR**]"
 
         return {
             "price": live_price, 
@@ -186,11 +188,10 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     vol_str = format_volume(data['volume'])
                     
                     # EXTENDED HOURS FORMATTING
-                    # If there is a pre/post move, we add it to the label
                     ext_str = ""
-                    if abs(data['ext_delta']) > 0.05: # Only show if meaningful move
+                    if abs(data['ext_delta']) > 0.05: 
                         color = "green" if data['ext_delta'] > 0 else "red"
-                        symbol = "🌙" # Moon for after hours
+                        symbol = "🌙" 
                         ext_str = f" | :{color}[{symbol} {data['ext_delta']:.2f}%]"
 
                     # MAIN CARD
@@ -199,7 +200,7 @@ def display_ticker_grid(ticker_list, live_mode=False):
                         value=f"${data['price']:,.2f}", 
                         delta=f"{data['day_delta']:.2f}% (Day)"
                     )
-                    # The Rich Caption: Trend + RSI + Extended Hours
+                    # The Rich Caption
                     st.markdown(f"{data['trend']} | RSI: {rsi_val:.0f}{ext_str}")
                     st.divider()
 
@@ -282,6 +283,7 @@ with tab1:
     st.subheader("Major Indices")
     st.caption(f"Also Watching: {', '.join(watchlist_list)}")
     live_on = st.toggle("🔴 Enable Live Prices", key="live_market")
+    # This line below was crashing because MARKET_TICKERS wasn't found. Fixed now!
     display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
 
 with tab2:
@@ -332,4 +334,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Ext Hours + Colors)")
+st.success("✅ System Ready (NameError Fixed)")
