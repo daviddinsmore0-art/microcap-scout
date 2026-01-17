@@ -78,10 +78,12 @@ TICKER_MAP = {
     "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
 }
 
-# --- MACRO TAPE LIST (The Global Desk) ---
+# --- MACRO TAPE LIST (The "Whole Market" Desk) ---
 MACRO_TICKERS = [
     "SPY",      # S&P 500
-    "QQQ",      # Nasdaq
+    "^IXIC",    # Nasdaq Composite (Added)
+    "^DJI",     # Dow Jones (Added)
+    "^GSPTSE",  # TSX Composite (Added)
     "IWM",      # Small Caps
     "GC=F",     # Gold
     "SI=F",     # Silver
@@ -199,14 +201,15 @@ def render_ticker_tape(tickers):
     # Friendly Names for Macro
     name_map = {
         "GC=F": "GOLD", "SI=F": "SILVER", "CL=F": "OIL", 
-        "DX-Y.NYB": "USD", "^VIX": "VIX", "BTC-USD": "BTC"
+        "DX-Y.NYB": "USD", "^VIX": "VIX", "BTC-USD": "BTC",
+        "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "^DJI": "DOW" # Added Friendly Names
     }
     
     for tick in tickers:
         p, d = get_live_price(tick)
         color = "#4caf50" if d >= 0 else "#f44336"
         arrow = "▲" if d >= 0 else "▼"
-        display_name = name_map.get(tick, tick) # Use short name if available
+        display_name = name_map.get(tick, tick) 
         
         ticker_items.append(f"<span style='margin-right: 40px; font-weight: 900; font-size: 20px; color: white;'>{display_name}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
     
@@ -229,7 +232,7 @@ def render_ticker_tape(tickers):
     .ticker {{
         display: inline-block;
         white-space: nowrap;
-        animation: ticker 60s linear infinite; /* 60s = Very Slow */
+        animation: ticker 60s linear infinite; 
     }}
     @keyframes ticker {{
         0% {{ transform: translateX(0); }}
@@ -344,81 +347,3 @@ def analyze_batch(items, client):
             parts = clean_line.split("|")
             if len(parts) >= 3:
                 ticker = parts[0].strip()
-                if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
-                try:
-                    enriched_results.append({
-                        "ticker": ticker, "signal": parts[1].strip(), "reason": parts[2].strip(),
-                        "title": items[item_index]['title'], "link": items[item_index]['link']
-                    })
-                    item_index += 1
-                except IndexError: break
-        return enriched_results
-    except Exception as e:
-        st.session_state['news_error'] = str(e)
-        return []
-
-# --- MAIN APP UI ---
-st.title("⚡ PennyPulse Pro")
-
-# RENDER MACRO TAPE (The Global Desk)
-render_ticker_tape(MACRO_TICKERS)
-
-# --- TABS LAYOUT ---
-tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
-
-with tab1:
-    st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
-    st.caption(f"Currently Tracking: {', '.join(watchlist_list)}")
-    live_on = st.toggle("🔴 Enable Live Prices", key="live_market") 
-    display_ticker_grid(watchlist_list, live_mode=live_on)
-
-with tab2:
-    st.subheader("My Positions")
-    cols = st.columns(3)
-    for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
-        with cols[i % 3]:
-            data = fetch_quant_data(ticker)
-            if data:
-                current = data['reg_price'] 
-                entry = info['entry']
-                total_return = ((current - entry) / entry) * 100
-                st.metric(
-                    label=f"{ticker} (Since {info['date']})",
-                    value=f"${current:,.2f}",
-                    delta=f"{total_return:.2f}% (Total)"
-                )
-                if data['ext_str']: st.markdown(data['ext_str'])
-                st.caption(f"Entry: ${entry:,.2f}")
-                st.divider()
-            else:
-                st.warning(f"Loading {ticker}...")
-
-with tab3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate AI Report", type="primary"):
-        if not OPENAI_KEY: st.error("⚠️ Enter OpenAI Key!")
-        else:
-            client = OpenAI(api_key=OPENAI_KEY)
-            with st.spinner("Scanning Global Markets..."):
-                raw_items = fetch_rss_items()
-                if raw_items:
-                    results = analyze_batch(raw_items, client)
-                    st.session_state['news_results'] = results
-                else: st.error("News feed unavailable.")
-    
-    results = st.session_state['news_results']
-    if results:
-        for res in results:
-            tick = res['ticker']
-            b_color = "gray" if tick == "MACRO" else "blue"
-            with st.container():
-                c1, c2 = st.columns([1, 4])
-                with c1:
-                    st.markdown(f"### :{b_color}[{tick}]")
-                    st.caption(f"{res['signal']}")
-                with c2:
-                    st.markdown(f"**[{res['title']}]({res['link']})**")
-                    st.info(f"{res['reason']}")
-                st.divider()
-
-st.success("✅ System Ready (Macro Tape: 60s Loop)")
