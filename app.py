@@ -11,9 +11,9 @@ from PIL import Image
 # --- CONFIGURATION ---
 try:
     icon_img = Image.open("logo.png")
-    st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
+    st.set_page_config(page_title="Penny Pulse", page_icon=icon_img, layout="wide")
 except:
-    st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
+    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -28,10 +28,10 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
-    "NVDA":    {"entry": 130.50, "date": "Jan 12"},
-    "GME":     {"entry": 25.00,  "date": "Jan 14"},
-    "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
+    "BAER":    {"entry": 1.87, "date": "Dec 31"},
+    "SNDA":    {"entry": 32.06, "date": "Jan 9"},
+    "MYO":     {"entry": 1.01,  "date": "Jan 8"},
+    "OCS": {"entry": 21.64, "date": "Jan 8"}
 }
 
 # --- SIDEBAR ---
