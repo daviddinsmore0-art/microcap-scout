@@ -31,6 +31,9 @@ MY_PORTFOLIO = {
     "BAER":    {"entry": 1.87, "date": "Dec 31"},
     "SNDA":    {"entry": 32.06, "date": "Jan 9"},
     "MYO":     {"entry": 1.01,  "date": "Jan 8"},
+    "OCS": {"entry": 21.64, "date": "Jan 8"},
+    "ZYME": {"entry": 24.20, "date": "Jan 6"},
+    "AEVA": {"entry": 12.99, "date": "Jan 5"},
     "OCS": {"entry": 21.64, "date": "Jan 8"}
 }
 
@@ -39,7 +42,7 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ PennyPulse")
+    st.sidebar.header("⚡ Penny Pulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
@@ -75,7 +78,7 @@ st.sidebar.header("📈 Chart Room")
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 chart_ticker = st.sidebar.selectbox("Select Asset", sorted(list(set(MARKET_TICKERS + all_assets))))
 
-st.title("⚡ PennyPulse Pro")
+st.title("⚡ Penny Pulse")
 
 # --- TICKER MAP ---
 TICKER_MAP = {
@@ -251,7 +254,7 @@ def analyze_batch(items, client):
         return []
 
 # --- TABS LAYOUT ---
-tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News", "📈 Chart Room"])
+tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Rec's", "📰 News", "📈 Chart Room"])
 
 with tab1:
     st.subheader("Major Indices")
@@ -260,7 +263,7 @@ with tab1:
     display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
 
 with tab2:
-    st.subheader("My Positions")
+    st.subheader("My Rec's")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
