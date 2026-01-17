@@ -25,6 +25,15 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
+# --- 🗓️ MANUAL EARNINGS OVERRIDE ---
+# If Yahoo blocks the data, TYPE YOUR DATES HERE (Format: "YYYY-MM-DD")
+MANUAL_EARNINGS = {
+    "TMQ": "2026-02-13",  # Confirmed date
+    "NFLX": "2026-01-20", # Confirmed date
+    "PG": "2026-01-22",   # Confirmed date
+    "UAL": "2026-01-21"   # Confirmed date
+}
+
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
     "HIVE":     {"entry": 3.19,  "date": "Jan 7"},
@@ -47,7 +56,7 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = "AMD, PLTR, NFLX, UAL, PG"
+    saved_watchlist = "AMD, PLTR, NFLX, UAL, PG, TMQ"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 if user_input != saved_watchlist:
@@ -57,7 +66,6 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 st.sidebar.header("⚙️ Settings")
-# Keep Debug on by default for you to verify, then you can uncheck it
 enable_debug = st.sidebar.checkbox("🛠️ Debug Mode", value=True, help="Show raw earnings dates for testing.")
 
 st.sidebar.divider()
@@ -93,7 +101,8 @@ SYMBOL_NAMES = {
     "SPY": "S&P 500", "QQQ": "Nasdaq", "IWM": "Russell 2k", "DIA": "Dow Jones",
     "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
     "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
-    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble"
+    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble",
+    "TMQ": "Trilogy Metals"
 }
 
 # --- MACRO TAPE LIST ---
@@ -189,38 +198,58 @@ def fetch_quant_data_v2(symbol, debug=False):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (DICT + DATAFRAME SUPPORT)
+        # 6. EARNINGS RADAR (MANUAL + AUTO + BACKUP)
         earnings_msg = ""
         debug_info = ""
+        next_date = None
+        source_used = "None"
+        
         try:
-            cal = ticker.calendar
-            next_date = None
-            
-            # --- Robust Extraction Logic ---
-            if cal is not None:
-                # Scenario A: It is a Dictionary (The Bug Fix)
-                if isinstance(cal, dict):
-                    # Try common keys
-                    if 'Earnings Date' in cal:
-                        val = cal['Earnings Date']
-                        if isinstance(val, list): next_date = val[0]
-                        else: next_date = val
-                    elif 0 in cal:
-                        val = cal[0]
-                        if isinstance(val, list): next_date = val[0]
-                        else: next_date = val
-                
-                # Scenario B: It is a DataFrame (The Old Way)
-                elif not cal.empty:
-                    if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
-                    elif 0 in cal: next_date = cal[0].iloc[0]
+            # PRIORITY 1: Manual Override (User Input)
+            if symbol in MANUAL_EARNINGS:
+                try:
+                    next_date = datetime.strptime(MANUAL_EARNINGS[symbol], "%Y-%m-%d")
+                    source_used = "Manual"
+                except: pass
 
-            # Attempt 2: Backup
+            # PRIORITY 2: Yahoo Calendar (Auto)
+            if next_date is None:
+                cal = ticker.calendar
+                if cal is not None:
+                    if isinstance(cal, dict):
+                        if 'Earnings Date' in cal:
+                            val = cal['Earnings Date']
+                            if isinstance(val, list): next_date = val[0]
+                            else: next_date = val
+                            source_used = "Calendar"
+                        elif 0 in cal:
+                            val = cal[0]
+                            if isinstance(val, list): next_date = val[0]
+                            else: next_date = val
+                            source_used = "Calendar"
+                    elif not cal.empty:
+                        if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
+                        elif 0 in cal: next_date = cal[0].iloc[0]
+                        source_used = "Calendar"
+
+            # PRIORITY 3: Yahoo Info Backup (Hidden Data)
+            if next_date is None:
+                try:
+                    # Some tickers hide it in .info['earningsTimestamp']
+                    ts = ticker.info.get('earningsTimestamp', None)
+                    if ts:
+                         next_date = datetime.fromtimestamp(ts)
+                         source_used = "Info"
+                except: pass
+
+            # PRIORITY 4: Get Earnings Dates (Deep Scan)
             if next_date is None:
                 dates = ticker.get_earnings_dates(limit=1)
                 if dates is not None and not dates.empty:
                     next_date = dates.index[0]
+                    source_used = "DeepScan"
 
+            # --- CALCULATE BADGE ---
             if next_date:
                 # Safer Timezone Strip
                 if hasattr(next_date, "replace"):
@@ -229,16 +258,16 @@ def fetch_quant_data_v2(symbol, debug=False):
                 now = datetime.now().replace(tzinfo=None)
                 days_diff = (next_date - now).days
                 
-                if -1 <= days_diff <= 8: # Widened slightly
+                if -1 <= days_diff <= 8:
                     earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
                 elif 8 < days_diff <= 30:
                     fmt_date = next_date.strftime("%b %d")
                     earnings_msg = f":calendar: **Earn: {fmt_date}**"
                 
                 if debug:
-                    debug_info = f"`DEBUG: Found {next_date.strftime('%Y-%m-%d')} (Diff: {days_diff})`"
+                    debug_info = f"`DEBUG: {source_used} {next_date.strftime('%Y-%m-%d')} (Diff: {days_diff})`"
             else:
-                if debug: debug_info = "`DEBUG: No Date Found`"
+                if debug: debug_info = "`DEBUG: No Date Found (Blocked)`"
                 
         except Exception as e:
             if debug: debug_info = f"`DEBUG: Error {str(e)}`"
@@ -500,4 +529,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v2.8 - Dictionary Fix)")
+st.success("✅ System Ready (v2.9 - Manual Override Edition)")
