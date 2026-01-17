@@ -16,6 +16,7 @@ except:
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
+if 'news_error' not in st.session_state: st.session_state['news_error'] = None
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
 if "OPENAI_KEY" in st.secrets:
@@ -93,70 +94,99 @@ def get_live_price(symbol):
 def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        history = ticker.history(period="1mo", interval="1d", prepost=True)
-        if history.empty: return None
         
-        # --- 1. PRICE DATA ---
-        # We use fast_info for speed. 
-        live_price = ticker.fast_info['last_price']
-        prev_close = ticker.fast_info['previous_close']
-        
-        # The 'Regular Market Close' is roughly the last Close in history
+        # 1. FETCH DEEP INFO
+        # We try to get 'info' to separate Regular vs Post market
         try:
-            reg_close = history['Close'].iloc[-1]
+            info = ticker.info
+            reg_price = info.get('regularMarketPrice', 0.0)
+            pre_price = info.get('preMarketPrice', None)
+            post_price = info.get('postMarketPrice', None)
+            curr_price = info.get('currentPrice', reg_price)
+            prev_close = info.get('regularMarketPreviousClose', 0.0)
         except:
-            reg_close = live_price
+            # Fallback
+            reg_price = ticker.fast_info['last_price']
+            post_price = reg_price
+            prev_close = ticker.fast_info['previous_close']
+            curr_price = reg_price
 
+        # 2. IS THIS CRYPTO?
+        # Crypto symbols usually end in -USD (e.g., BTC-USD)
+        is_crypto = symbol.endswith("-USD")
+
+        # 3. CALCULATE GAINS
         # Day Gain (Reg Close vs Yesterday)
-        day_diff = reg_close - prev_close
-        day_pct = (day_diff / prev_close) * 100
-        
-        # Ext Gain (Live vs Reg Close)
-        ext_diff = live_price - reg_close
-        
-        if reg_close > 0:
-            ext_pct = (ext_diff / reg_close) * 100
+        if prev_close and prev_close > 0:
+            day_pct = ((reg_price - prev_close) / prev_close) * 100
         else:
-            ext_pct = 0.0
-
-        # --- 2. FORCED EXTENDED STRING ---
-        # This logic GUARANTEES the line appears.
-        if abs(ext_pct) > 0.01:
-            # Case A: Price is moving (Green/Red)
-            color = "green" if ext_pct > 0 else "red"
-            ext_str = f"**🌙 Ext: ${live_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
+            day_pct = 0.0
+            
+        # 4. FORMAT SECOND LINE (Smart Logic)
+        if is_crypto:
+            # CRYPTO LOGIC: Always Live, Never Closed
+            # For Crypto, reg_price is essentially the live price.
+            color = "green" if day_pct >= 0 else "red"
+            # We show "Live" and repeat the 24h change to show it's active
+            ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
+            
         else:
-            # Case B: Price is Flat/Weekend (Gray)
-            # We explicitly say "Market Closed" so you see the line exists
-            ext_str = f"**🌙 Ext: ${live_price:,.2f} (:gray[Market Closed])**"
+            # STOCK LOGIC: Check Post/Pre Market
+            ext_price = reg_price # Default
+            if post_price and post_price != reg_price:
+                ext_price = post_price
+            elif pre_price and pre_price != reg_price:
+                ext_price = pre_price
+            
+            # Ext Gain (Live vs Reg Close)
+            if reg_price and reg_price > 0:
+                ext_diff = ext_price - reg_price
+                ext_pct = (ext_diff / reg_price) * 100
+            else:
+                ext_pct = 0.0
 
-        # --- 3. VOLUME ---
-        volume = history['Volume'].iloc[-1]
-        if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
+            # Filter Noise (Lower threshold to 0.001 to catch +0.39 moves)
+            if abs(ext_pct) > 0.001: 
+                color = "green" if ext_pct > 0 else "red"
+                icon = "🌙"
+                ext_str = f"**{icon} Ext: ${ext_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
+            else:
+                # Market Closed / Flat
+                ext_str = f"**🌙 Ext: ${ext_price:,.2f} (:gray[Market Closed])**"
 
-        # --- 4. RSI & MACD ---
-        delta = history['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        history['RSI'] = 100 - (100 / (1 + rs))
-        
-        ema12 = history['Close'].ewm(span=12, adjust=False).mean()
-        ema26 = history['Close'].ewm(span=26, adjust=False).mean()
-        macd = ema12 - ema26
-        signal = macd.ewm(span=9, adjust=False).mean()
-        
-        if macd.iloc[-1] > signal.iloc[-1]: 
-            trend_str = ":green[**BULL**]" 
-        else: 
-            trend_str = ":red[**BEAR**]"
+        # 5. FETCH HISTORY FOR RSI
+        history = ticker.history(period="1mo", interval="1d", prepost=True)
+        if not history.empty:
+            volume = history['Volume'].iloc[-1]
+            if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
+
+            delta = history['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            history['RSI'] = 100 - (100 / (1 + rs))
+            rsi_val = history['RSI'].iloc[-1]
+            
+            # Trend Logic
+            ema12 = history['Close'].ewm(span=12, adjust=False).mean()
+            ema26 = history['Close'].ewm(span=26, adjust=False).mean()
+            macd = ema12 - ema26
+            signal = macd.ewm(span=9, adjust=False).mean()
+            if macd.iloc[-1] > signal.iloc[-1]: 
+                trend_str = ":green[**BULL**]" 
+            else: 
+                trend_str = ":red[**BEAR**]"
+        else:
+            volume = 0
+            rsi_val = 50
+            trend_str = ":gray[**WAIT**]"
 
         return {
-            "reg_price": reg_close,
+            "reg_price": reg_price,
             "day_delta": day_pct,
             "ext_str": ext_str,
             "volume": volume,
-            "rsi": history['RSI'].iloc[-1],
+            "rsi": rsi_val,
             "trend": trend_str
         }
     except: return None
@@ -200,17 +230,12 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     
                     vol_str = format_volume(data['volume'])
 
-                    # 1. Day Close (Big Number)
                     st.metric(
                         label=f"{tick} (Vol: {vol_str})", 
                         value=f"${data['reg_price']:,.2f}", 
-                        delta=f"{data['day_delta']:.2f}% (Day)"
+                        delta=f"{data['day_delta']:.2f}% (Close)"
                     )
-                    
-                    # 2. Extended Hours Line (FORCED VISIBILITY)
                     st.markdown(data['ext_str'])
-                    
-                    # 3. Indicators
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     st.divider()
 
@@ -310,7 +335,7 @@ with tab2:
                     value=f"${current:,.2f}",
                     delta=f"{total_return:.2f}% (Total)"
                 )
-                st.markdown(data['ext_str']) # ADDED THIS HERE TOO
+                if data['ext_str']: st.markdown(data['ext_str'])
                 st.caption(f"Entry: ${entry:,.2f}")
                 st.divider()
             else:
@@ -344,4 +369,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Layout Forced)")
+st.success("✅ System Ready (Crypto Live & Sensitive Post-Market)")
