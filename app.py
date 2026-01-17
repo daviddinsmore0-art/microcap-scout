@@ -66,12 +66,11 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 
-# --- 🛠️ EARNINGS FIXER (Debugged) ---
+# --- 🛠️ EARNINGS FIXER ---
 with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     st.caption("Override any date here.")
     c1, c2 = st.columns([1, 2])
     with c1:
-        # ADDED .strip() TO FIX THE BUG
         fix_tick = st.text_input("Ticker", placeholder="TMQ").upper().strip()
     with c2:
         fix_date = st.date_input("Date")
@@ -86,7 +85,6 @@ with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     if st.session_state['user_dates']:
         st.divider()
         st.caption("Active Overrides:")
-        # Show list cleanly
         for k, v in st.session_state['user_dates'].items():
             st.code(f"{k}: {v}")
         
@@ -224,21 +222,24 @@ def fetch_quant_data_v2(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (HYBRID)
+        # 6. EARNINGS RADAR (EXTENDED VISION)
         earnings_msg = ""
         next_date = None
+        source_label = ""
         
         try:
             # PRIORITY 1: User Session Override
             if symbol in st.session_state['user_dates']:
                 try:
                     next_date = datetime.strptime(st.session_state['user_dates'][symbol], "%Y-%m-%d")
+                    source_label = " (User)"
                 except: pass
 
             # PRIORITY 2: Admin Code Override
             if next_date is None and symbol in ADMIN_EARNINGS:
                 try:
                     next_date = datetime.strptime(ADMIN_EARNINGS[symbol], "%Y-%m-%d")
+                    source_label = " (Admin)" # Can remove this text later if you want cleaner look
                 except: pass
 
             # PRIORITY 3: Yahoo Calendar
@@ -272,11 +273,13 @@ def fetch_quant_data_v2(symbol):
                 now = datetime.now().replace(tzinfo=None)
                 days_diff = (next_date - now).days
                 
+                # EXTENDED TO 90 DAYS so you can see your tests working
                 if -1 <= days_diff <= 8:
                     earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
-                elif 8 < days_diff <= 30:
+                elif 8 < days_diff <= 90:
                     fmt_date = next_date.strftime("%b %d")
-                    earnings_msg = f":calendar: **Earn: {fmt_date}**"
+                    # Added source_label so you know WHO set the date
+                    earnings_msg = f":calendar: **Earn: {fmt_date}{source_label}**"
                 
         except: pass
 
@@ -526,4 +529,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.2 - Precision Fix)")
+st.success("✅ System Ready (v3.3 - Extended Radar)")
