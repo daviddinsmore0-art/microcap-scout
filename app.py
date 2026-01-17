@@ -347,3 +347,81 @@ def analyze_batch(items, client):
             parts = clean_line.split("|")
             if len(parts) >= 3:
                 ticker = parts[0].strip()
+                if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
+                try:
+                    enriched_results.append({
+                        "ticker": ticker, "signal": parts[1].strip(), "reason": parts[2].strip(),
+                        "title": items[item_index]['title'], "link": items[item_index]['link']
+                    })
+                    item_index += 1
+                except IndexError: break
+        return enriched_results
+    except Exception as e:
+        st.session_state['news_error'] = str(e)
+        return []
+
+# --- MAIN APP UI ---
+st.title("⚡ PennyPulse Pro")
+
+# RENDER MACRO TAPE (The Global Desk)
+render_ticker_tape(MACRO_TICKERS)
+
+# --- TABS LAYOUT ---
+tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
+
+with tab1:
+    st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
+    st.caption(f"Currently Tracking: {', '.join(watchlist_list)}")
+    live_on = st.toggle("🔴 Enable Live Prices", key="live_market") 
+    display_ticker_grid(watchlist_list, live_mode=live_on)
+
+with tab2:
+    st.subheader("My Positions")
+    cols = st.columns(3)
+    for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
+        with cols[i % 3]:
+            data = fetch_quant_data(ticker)
+            if data:
+                current = data['reg_price'] 
+                entry = info['entry']
+                total_return = ((current - entry) / entry) * 100
+                st.metric(
+                    label=f"{ticker} (Since {info['date']})",
+                    value=f"${current:,.2f}",
+                    delta=f"{total_return:.2f}% (Total)"
+                )
+                if data['ext_str']: st.markdown(data['ext_str'])
+                st.caption(f"Entry: ${entry:,.2f}")
+                st.divider()
+            else:
+                st.warning(f"Loading {ticker}...")
+
+with tab3:
+    st.subheader("🚨 Global Wire")
+    if st.button("Generate AI Report", type="primary"):
+        if not OPENAI_KEY: st.error("⚠️ Enter OpenAI Key!")
+        else:
+            client = OpenAI(api_key=OPENAI_KEY)
+            with st.spinner("Scanning Global Markets..."):
+                raw_items = fetch_rss_items()
+                if raw_items:
+                    results = analyze_batch(raw_items, client)
+                    st.session_state['news_results'] = results
+                else: st.error("News feed unavailable.")
+    
+    results = st.session_state['news_results']
+    if results:
+        for res in results:
+            tick = res['ticker']
+            b_color = "gray" if tick == "MACRO" else "blue"
+            with st.container():
+                c1, c2 = st.columns([1, 4])
+                with c1:
+                    st.markdown(f"### :{b_color}[{tick}]")
+                    st.caption(f"{res['signal']}")
+                with c2:
+                    st.markdown(f"**[{res['title']}]({res['link']})**")
+                    st.info(f"{res['reason']}")
+                st.divider()
+
+st.success("✅ System Ready (Full Macro Tape)")
