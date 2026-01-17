@@ -10,9 +10,9 @@ from PIL import Image
 # --- CONFIGURATION ---
 try:
     icon_img = Image.open("logo.png")
-    st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
+    st.set_page_config(page_title="Penny Pulse", page_icon=icon_img, layout="wide")
 except:
-    st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
+    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -37,7 +37,7 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ PennyPulse")
+    st.sidebar.header("⚡ Penny Pulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
@@ -361,13 +361,13 @@ def analyze_batch(items, client):
         return []
 
 # --- MAIN APP UI ---
-st.title("⚡ PennyPulse Pro")
+st.title("⚡ Penny Pulse")
 
 # RENDER MACRO TAPE (The Global Desk)
 render_ticker_tape(MACRO_TICKERS)
 
 # --- TABS LAYOUT ---
-tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
+tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News"])
 
 with tab1:
     st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
