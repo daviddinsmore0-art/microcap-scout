@@ -295,7 +295,7 @@ def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
         "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
-        "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
+        "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"
     
     ]
     items = []
