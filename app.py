@@ -26,7 +26,7 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
+    "BAER":    {"entry": 1.86, "date": "Dec 31"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
     "GME":     {"entry": 25.00,  "date": "Jan 14"},
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
@@ -376,7 +376,7 @@ with tab1:
     display_ticker_grid(watchlist_list, live_mode=live_on)
 
 with tab2:
-    st.subheader("My Positions")
+    st.subheader("My Picks")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
