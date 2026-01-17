@@ -27,9 +27,9 @@ else:
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
     "BAER":    {"entry": 1.86, "date": "Dec 31"},
-    "NVDA":    {"entry": 130.50, "date": "Jan 12"},
-    "GME":     {"entry": 25.00,  "date": "Jan 14"},
-    "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
+    "TX":    {"entry": 38.10, "date": "Dec 29"},
+    "HIVE":     {"entry": 3.19,  "date": "Jan 7"},
+    "IMNN": {"entry": 3.22, "date": "Dec 29"}
 }
 
 # --- SIDEBAR ---
