@@ -34,7 +34,7 @@ MY_PORTFOLIO = {
     "OCS": {"entry": 21.64, "date": "Jan 8"},
     "ZYME": {"entry": 24.20, "date": "Jan 6"},
     "AEVA": {"entry": 12.99, "date": "Jan 5"},
-    "OCS": {"entry": 21.64, "date": "Jan 8"}
+    "RERE": {"entry": 5.30, "date": "Dec 29"}
 }
 
 # --- SIDEBAR ---
@@ -186,6 +186,7 @@ def display_ticker_grid(ticker_list, live_mode=False):
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
+        "https://allpennystocks.com/pennystocknews/",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
     ]
