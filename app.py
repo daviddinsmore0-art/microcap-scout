@@ -182,15 +182,16 @@ def format_volume(num):
     if num >= 1_000: return f"{num/1_000:.1f}K"
     return str(num)
 
-# --- NEW: SCROLLING TICKER TAPE ---
+# --- NEW: SCROLLING TICKER TAPE (THICK & SLOW) ---
 def render_ticker_tape(tickers):
-    # This creates a HTML/CSS scrolling bar
     ticker_items = []
     for tick in tickers:
         p, d = get_live_price(tick)
-        color = "#4caf50" if d >= 0 else "#f44336" # Green or Red hex codes
+        color = "#4caf50" if d >= 0 else "#f44336"
         arrow = "▲" if d >= 0 else "▼"
-        ticker_items.append(f"<span style='margin-right: 20px; font-weight: bold;'>{tick}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
+        # Added 'color: white' to ticker symbol to fix visibility
+        # Added font-size: 20px for thickness
+        ticker_items.append(f"<span style='margin-right: 30px; font-weight: 900; font-size: 20px; color: white;'>{tick}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
     
     ticker_html = f"""
     <style>
@@ -198,16 +199,17 @@ def render_ticker_tape(tickers):
         width: 100%;
         overflow: hidden;
         background-color: #0e1117;
-        border-bottom: 1px solid #333;
+        border-bottom: 2px solid #444; /* Thicker Border */
         white-space: nowrap;
         box-sizing: border-box;
+        height: 50px; /* Taller Bar */
+        display: flex;
+        align-items: center;
     }}
     .ticker {{
         display: inline-block;
-        padding-top: 5px;
-        padding-bottom: 5px;
         white-space: nowrap;
-        animation: ticker 30s linear infinite;
+        animation: ticker 45s linear infinite; /* Slower Speed */
     }}
     @keyframes ticker {{
         0% {{ transform: translateX(100%); }}
@@ -348,7 +350,6 @@ tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 with tab1:
     st.subheader("Major Indices")
     st.caption(f"Also Watching: {', '.join(watchlist_list)}")
-    # Note: Live prices toggle is still here but redundant with the ticker tape
     live_on = st.toggle("🔴 Enable Live Prices", key="live_market") 
     display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
 
@@ -401,4 +402,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Ticker Tape Enabled)")
+st.success("✅ System Ready (Thick & Smooth Ticker)")
