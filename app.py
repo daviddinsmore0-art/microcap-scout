@@ -66,29 +66,35 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 
-# --- 🛠️ EARNINGS FIXER ---
+# --- 🛠️ EARNINGS FIXER (FORM EDITION) ---
 with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     st.caption("Override any date here.")
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        fix_tick = st.text_input("Ticker", placeholder="TMQ").upper().strip()
-    with c2:
-        fix_date = st.date_input("Date")
     
-    if st.button("Add/Update Date"):
-        if fix_tick:
+    # WRAPPED IN FORM TO FORCE SAVE
+    with st.form("earnings_form", clear_on_submit=True):
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            fix_tick = st.text_input("Ticker", placeholder="TMQ").upper().strip()
+        with c2:
+            fix_date = st.date_input("Date")
+        
+        submitted = st.form_submit_button("💾 Save Date Override")
+        
+        if submitted and fix_tick:
             st.session_state['user_dates'][fix_tick] = fix_date.strftime("%Y-%m-%d")
-            st.success(f"Fixed {fix_tick}!")
+            st.success(f"Saved {fix_tick}!")
             time.sleep(0.5)
             st.rerun()
 
+    # SHOW ACTIVE OVERRIDES
     if st.session_state['user_dates']:
         st.divider()
-        st.caption("Active Overrides:")
+        st.caption("Active User Overrides:")
         for k, v in st.session_state['user_dates'].items():
+            # Show exact values so you can verify "TMQ" is really there
             st.code(f"{k}: {v}")
         
-        if st.button("🗑️ Clear All Overrides"):
+        if st.button("🗑️ Clear All"):
             st.session_state['user_dates'] = {}
             st.rerun()
 
@@ -148,6 +154,9 @@ def get_live_price(symbol):
 def fetch_quant_data_v2(symbol):
     try:
         ticker = yf.Ticker(symbol)
+        
+        # PARANOID CLEANING (Triple ensure matching)
+        clean_symbol = symbol.strip().upper()
         
         # 1. FETCH DEEP INFO
         try:
@@ -222,24 +231,24 @@ def fetch_quant_data_v2(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (EXTENDED VISION)
+        # 6. EARNINGS RADAR (WITH PARANOID MATCHING)
         earnings_msg = ""
         next_date = None
         source_label = ""
         
         try:
-            # PRIORITY 1: User Session Override
-            if symbol in st.session_state['user_dates']:
+            # PRIORITY 1: User Session Override (Use clean_symbol)
+            if clean_symbol in st.session_state['user_dates']:
                 try:
-                    next_date = datetime.strptime(st.session_state['user_dates'][symbol], "%Y-%m-%d")
+                    next_date = datetime.strptime(st.session_state['user_dates'][clean_symbol], "%Y-%m-%d")
                     source_label = " (User)"
                 except: pass
 
             # PRIORITY 2: Admin Code Override
-            if next_date is None and symbol in ADMIN_EARNINGS:
+            if next_date is None and clean_symbol in ADMIN_EARNINGS:
                 try:
-                    next_date = datetime.strptime(ADMIN_EARNINGS[symbol], "%Y-%m-%d")
-                    source_label = " (Admin)" # Can remove this text later if you want cleaner look
+                    next_date = datetime.strptime(ADMIN_EARNINGS[clean_symbol], "%Y-%m-%d")
+                    source_label = " (Admin)"
                 except: pass
 
             # PRIORITY 3: Yahoo Calendar
@@ -273,12 +282,11 @@ def fetch_quant_data_v2(symbol):
                 now = datetime.now().replace(tzinfo=None)
                 days_diff = (next_date - now).days
                 
-                # EXTENDED TO 90 DAYS so you can see your tests working
+                # EXTENDED TO 90 DAYS
                 if -1 <= days_diff <= 8:
                     earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
                 elif 8 < days_diff <= 90:
                     fmt_date = next_date.strftime("%b %d")
-                    # Added source_label so you know WHO set the date
                     earnings_msg = f":calendar: **Earn: {fmt_date}{source_label}**"
                 
         except: pass
@@ -529,4 +537,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.3 - Extended Radar)")
+st.success("✅ System Ready (v3.4 - The Form Fix)")
