@@ -47,7 +47,7 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = "AMD, PLTR"
+    saved_watchlist = "AMD, PLTR, NFLX"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 if user_input != saved_watchlist:
@@ -107,7 +107,7 @@ def get_live_price(symbol):
         return price, delta
     except: return 0.0, 0.0
 
-def fetch_quant_data(symbol):
+def fetch_quant_data_v2(symbol):
     try:
         ticker = yf.Ticker(symbol)
         
@@ -125,8 +125,8 @@ def fetch_quant_data(symbol):
             prev_close = ticker.fast_info['previous_close']
             curr_price = reg_price
 
-        # 2. IS THIS CRYPTO?
-        is_crypto = symbol.endswith("-USD")
+        # 2. IS THIS CRYPTO? (Brute Force Check)
+        is_crypto = symbol.endswith("-USD") or "BTC" in symbol or "ETH" in symbol
 
         # 3. CALCULATE GAINS
         if prev_close and prev_close > 0:
@@ -184,35 +184,36 @@ def fetch_quant_data(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR
+        # 6. EARNINGS RADAR (With Backup)
         earnings_msg = ""
         try:
-            # Check calendar for upcoming earnings
+            # Attempt 1: Calendar
             cal = ticker.calendar
+            next_date = None
+            
             if cal is not None and not cal.empty:
-                # Get the next Earnings Date
-                # Usually row 0 is next earnings, or column 'Earnings Date'
-                if 'Earnings Date' in cal:
-                    next_date = cal['Earnings Date'].iloc[0]
-                elif 0 in cal: # Sometimes it is indexed by 0
-                     next_date = cal[0].iloc[0]
-                else:
-                    next_date = None
+                if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
+                elif 0 in cal: next_date = cal[0].iloc[0]
 
-                if next_date:
-                    # Convert to simple date
-                    # Ensure next_date is a datetime object
-                    if isinstance(next_date, (datetime, pd.Timestamp)):
-                        now = datetime.now(next_date.tzinfo) # Match timezone
-                        days_diff = (next_date - now).days
-                        
-                        if 0 <= days_diff <= 7:
-                            earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
-                        elif 7 < days_diff <= 30:
-                            fmt_date = next_date.strftime("%b %d")
-                            earnings_msg = f":calendar: **Earn: {fmt_date}**"
+            # Attempt 2: Earnings Dates (Backup)
+            if next_date is None:
+                dates = ticker.get_earnings_dates(limit=1)
+                if dates is not None and not dates.empty:
+                    next_date = dates.index[0]
+
+            if next_date:
+                if isinstance(next_date, (datetime, pd.Timestamp)):
+                    # Handle timezone naive/aware comparison
+                    now = pd.Timestamp.now(tz=next_date.tzinfo)
+                    days_diff = (next_date - now).days
+                    
+                    if 0 <= days_diff <= 7:
+                        earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
+                    elif 7 < days_diff <= 30:
+                        fmt_date = next_date.strftime("%b %d")
+                        earnings_msg = f":calendar: **Earn: {fmt_date}**"
         except:
-            pass # Fail silently to keep app fast
+            pass 
 
         return {
             "reg_price": reg_price,
@@ -295,7 +296,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
             with cols[i % 3]:
-                data = fetch_quant_data(tick)
+                # USING NEW V2 FUNCTION
+                data = fetch_quant_data_v2(tick)
                 if data:
                     rsi_val = data['rsi']
                     if pd.isna(rsi_val): 
@@ -315,7 +317,6 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     )
                     st.markdown(data['ext_str'])
                     
-                    # EARNINGS BADGE (New Feature)
                     if data.get('earn_str'):
                         st.markdown(data['earn_str'])
                         
@@ -412,7 +413,7 @@ with tab2:
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            data = fetch_quant_data(ticker)
+            data = fetch_quant_data_v2(ticker)
             if data:
                 current = data['reg_price'] 
                 entry = info['entry']
@@ -424,7 +425,6 @@ with tab2:
                 )
                 if data['ext_str']: st.markdown(data['ext_str'])
                 
-                # EARNINGS BADGE (New Feature)
                 if data.get('earn_str'):
                     st.markdown(data['earn_str'])
                 
@@ -462,4 +462,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Earnings Radar Active)")
+st.success("✅ System Ready (v2.5 - Fixed Earnings & Crypto)")
