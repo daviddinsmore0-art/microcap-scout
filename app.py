@@ -18,6 +18,8 @@ except:
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
+# Initialize User Manual Dates in Session State
+if 'user_dates' not in st.session_state: st.session_state['user_dates'] = {}
 
 if "OPENAI_KEY" in st.secrets:
     OPENAI_KEY = st.secrets["OPENAI_KEY"]
@@ -25,9 +27,9 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 🗓️ MANUAL EARNINGS OVERRIDE ---
-# Format: "YYYY-MM-DD"
-MANUAL_EARNINGS = {
+# --- 🗓️ ADMIN DEFAULT DATES (Starter Pack) ---
+# These load automatically for everyone.
+ADMIN_EARNINGS = {
     "TMQ": "2026-02-13",
     "NFLX": "2026-01-20",
     "PG": "2026-01-22",
@@ -56,7 +58,6 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    # Default list including your tracked items
     saved_watchlist = "AMD, PLTR, NFLX, UAL, PG, TMQ, VCIG"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -64,6 +65,30 @@ if user_input != saved_watchlist:
     st.query_params["watchlist"] = user_input
 
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
+
+st.sidebar.divider()
+
+# --- 🛠️ EARNINGS FIXER (The "Community" Feature) ---
+with st.sidebar.expander("📅 Earnings Fixer"):
+    st.caption("Missing a date? Add it here.")
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        fix_tick = st.text_input("Ticker", placeholder="TMQ").upper()
+    with c2:
+        fix_date = st.date_input("Date")
+    
+    if st.button("Add Date"):
+        if fix_tick:
+            # Save to session state (Memory)
+            st.session_state['user_dates'][fix_tick] = fix_date.strftime("%Y-%m-%d")
+            st.success(f"Added {fix_tick}!")
+            time.sleep(1)
+            st.rerun()
+
+    # Show active overrides
+    if st.session_state['user_dates']:
+        st.caption("Active Fixes:")
+        st.write(st.session_state['user_dates'])
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
@@ -195,18 +220,24 @@ def fetch_quant_data_v2(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (MANUAL + AUTO)
+        # 6. EARNINGS RADAR (HYBRID: USER + ADMIN + AUTO)
         earnings_msg = ""
         next_date = None
         
         try:
-            # PRIORITY 1: Manual Override
-            if symbol in MANUAL_EARNINGS:
+            # PRIORITY 1: User Session Override (The "Community" Fix)
+            if symbol in st.session_state['user_dates']:
                 try:
-                    next_date = datetime.strptime(MANUAL_EARNINGS[symbol], "%Y-%m-%d")
+                    next_date = datetime.strptime(st.session_state['user_dates'][symbol], "%Y-%m-%d")
                 except: pass
 
-            # PRIORITY 2: Yahoo Calendar (Auto)
+            # PRIORITY 2: Admin Code Override (Your Hardcoded List)
+            if next_date is None and symbol in ADMIN_EARNINGS:
+                try:
+                    next_date = datetime.strptime(ADMIN_EARNINGS[symbol], "%Y-%m-%d")
+                except: pass
+
+            # PRIORITY 3: Yahoo Calendar (Auto)
             if next_date is None:
                 cal = ticker.calendar
                 if cal is not None:
@@ -223,7 +254,7 @@ def fetch_quant_data_v2(symbol):
                         if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
                         elif 0 in cal: next_date = cal[0].iloc[0]
 
-            # PRIORITY 3: Deep Scan
+            # PRIORITY 4: Deep Scan
             if next_date is None:
                 dates = ticker.get_earnings_dates(limit=1)
                 if dates is not None and not dates.empty:
@@ -492,4 +523,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.0 - Gold Master)")
+st.success("✅ System Ready (v3.1 - Community Edition)")
