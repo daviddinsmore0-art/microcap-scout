@@ -79,6 +79,18 @@ TICKER_MAP = {
     "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
 }
 
+# --- SYMBOL NAMES (For Display) ---
+SYMBOL_NAMES = {
+    "TSLA": "Tesla", "NVDA": "Nvidia", "GME": "GameStop", "BTC-USD": "Bitcoin",
+    "AMD": "AMD", "PLTR": "Palantir", "AAPL": "Apple", "MSFT": "Microsoft",
+    "GOOGL": "Google", "AMZN": "Amazon", "META": "Meta", "NFLX": "Netflix",
+    "SPY": "S&P 500", "QQQ": "Nasdaq", "IWM": "Russell 2k", "DIA": "Dow Jones",
+    "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
+    "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
+    # Added mappings for your portfolio items where possible
+    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium"
+}
+
 # --- MACRO TAPE LIST (The "Whole Market" Desk) ---
 MACRO_TICKERS = [
     "SPY",      # S&P 500
@@ -199,18 +211,12 @@ def format_volume(num):
 # --- NEW: MACRO TAPE (Thick, GLIDING SLOW, Seamless) ---
 def render_ticker_tape(tickers):
     ticker_items = []
-    # Friendly Names for Macro
-    name_map = {
-        "GC=F": "GOLD", "SI=F": "SILVER", "CL=F": "OIL", 
-        "DX-Y.NYB": "USD", "^VIX": "VIX", "BTC-USD": "BTC",
-        "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "^DJI": "DOW" 
-    }
-    
+    # Using SYMBOL_NAMES for consistent Friendly Names
     for tick in tickers:
         p, d = get_live_price(tick)
         color = "#4caf50" if d >= 0 else "#f44336"
         arrow = "▲" if d >= 0 else "▼"
-        display_name = name_map.get(tick, tick) 
+        display_name = SYMBOL_NAMES.get(tick, tick) 
         
         ticker_items.append(f"<span style='margin-right: 40px; font-weight: 900; font-size: 20px; color: white;'>{display_name}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
     
@@ -297,7 +303,6 @@ def fetch_rss_items():
         "https://rss.app/feeds/tMfefT7whS1oe2VT.xml",
         "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
         "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"
-    
     ]
     items = []
     seen_titles = set()
@@ -416,15 +421,19 @@ with tab3:
     if results:
         for res in results:
             tick = res['ticker']
+            
+            # --- THE FIX APPLIED HERE ---
+            display_name = SYMBOL_NAMES.get(tick, tick)
+            
             b_color = "gray" if tick == "MACRO" else "blue"
             with st.container():
                 c1, c2 = st.columns([1, 4])
                 with c1:
-                    st.markdown(f"### :{b_color}[{tick}]")
+                    st.markdown(f"### :{b_color}[{display_name}]")
                     st.caption(f"{res['signal']}")
                 with c2:
                     st.markdown(f"**[{res['title']}]({res['link']})**")
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Macro Tape: Gliding Speed)")
+st.success("✅ System Ready (Friendly Names Active)")
