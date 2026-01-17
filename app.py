@@ -296,7 +296,6 @@ def fetch_rss_items():
     urls = [
         "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
         "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
-        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
     ]
     items = []
