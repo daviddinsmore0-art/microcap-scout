@@ -26,7 +26,7 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "BAER":    {"entry": 1.86, "date": "Dec 31"},
+    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
     "NVDA":    {"entry": 130.50, "date": "Jan 12"},
     "GME":     {"entry": 25.00,  "date": "Jan 14"},
     "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
@@ -37,7 +37,7 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ Penny Pulse")
+    st.sidebar.header("⚡ PennyPulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
@@ -367,7 +367,7 @@ st.title("⚡ Penny Pulse")
 render_ticker_tape(MACRO_TICKERS)
 
 # --- TABS LAYOUT ---
-tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News"])
+tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 
 with tab1:
     st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
