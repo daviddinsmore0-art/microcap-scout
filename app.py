@@ -94,38 +94,37 @@ def get_live_price(symbol):
 def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        # FIXED: Increased period to "1mo" so RSI has enough data (needs 14 days minimum)
         history = ticker.history(period="1mo", interval="1d", prepost=True)
         if history.empty: return None
         
-        # --- 1. PRICE LOGIC ---
-        # Current Live Price (Post-Market)
+        # --- 1. PRICE SEPARATION ---
+        # "Live" is the absolute latest trade (Pre/Post/Live)
         live_price = ticker.fast_info['last_price']
-        # Yesterday's Close (For Day Gain)
-        prev_close = ticker.fast_info['previous_close']
         
-        # Day Gain %
-        day_delta_pct = ((live_price - prev_close) / prev_close) * 100
+        # "Regular Close" is the last official close from history
+        regular_close = history['Close'].iloc[-1]
         
-        # Extended Hours Check
-        # We compare "Live Price" vs "Regular Market Last Close"
+        # "Previous Close" is yesterday's close (to calculate Day Gain)
+        # Note: If today is active, iloc[-2] is yesterday. 
+        # If today is just starting, we check fast_info.
+        prev_close_official = ticker.fast_info['previous_close']
+        
+        # A. Day Gain (Regular Close vs Yesterday)
+        day_diff = regular_close - prev_close_official
+        day_pct = (day_diff / prev_close_official) * 100
+        
+        # B. Extended Gain (Live vs Regular Close)
+        ext_diff = live_price - regular_close
+        ext_pct = (ext_diff / regular_close) * 100
+        
+        # Format the Extended String (Only if diff exists)
         ext_str = ""
-        try:
-            # Get the last 'Close' from the history table (Usually 4:00 PM price)
-            regular_close = history['Close'].iloc[-1]
-            
-            # Calculate difference between Live (8:00 PM) and Regular (4:00 PM)
-            ext_diff = live_price - regular_close
-            ext_pct = (ext_diff / regular_close) * 100
-
-            # Only show if there is a real difference (> 0.01%)
-            if abs(ext_pct) > 0.01:
-                color = "green" if ext_pct > 0 else "red"
-                icon = "🌙" # Moon for After Hours
-                ext_str = f"**{icon} Ext: :{color}[{ext_pct:+.2f}%]**"
-        except:
-            pass
-
+        if abs(ext_pct) > 0.01:
+            color = "green" if ext_pct > 0 else "red"
+            icon = "🌙" # Post/Pre market icon
+            # Separate line for "Ext: $Price (+%)"
+            ext_str = f"**{icon} Ext: ${live_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
+        
         # --- 2. VOLUME ---
         volume = history['Volume'].iloc[-1]
         if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
@@ -151,8 +150,8 @@ def fetch_quant_data(symbol):
             trend_str = ":red[**BEAR**]"
 
         return {
-            "price": live_price, 
-            "day_delta": day_delta_pct,
+            "reg_price": regular_close,
+            "day_delta": day_pct,
             "ext_str": ext_str,
             "volume": volume,
             "rsi": history['RSI'].iloc[-1],
@@ -191,7 +190,7 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     # RSI Logic
                     rsi_val = data['rsi']
                     if pd.isna(rsi_val): 
-                        rsi_disp = "N/A" # Graceful fail if still loading
+                        rsi_disp = "N/A"
                     else:
                         if rsi_val > 70:   rsi_sig = "🔥 Over"
                         elif rsi_val < 30: rsi_sig = "🧊 Under"
@@ -201,18 +200,19 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     vol_str = format_volume(data['volume'])
 
                     # CARD DISPLAY
+                    # 1. Big Number = Regular Close
                     st.metric(
                         label=f"{tick} (Vol: {vol_str})", 
-                        value=f"${data['price']:,.2f}", 
-                        delta=f"{data['day_delta']:.2f}% (Day)"
+                        value=f"${data['reg_price']:,.2f}", 
+                        delta=f"{data['day_delta']:.2f}% (Close)"
                     )
                     
-                    # Row 1: Trend + RSI
-                    st.markdown(f"{data['trend']} | RSI: {rsi_disp}")
-                    
-                    # Row 2: Extended Hours (Only if exists)
+                    # 2. Separate Line for EXTENDED HOURS (if exists)
                     if data['ext_str']:
                         st.markdown(data['ext_str'])
+                    
+                    # 3. Bottom Line for Signals
+                    st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     
                     st.divider()
 
@@ -304,7 +304,7 @@ with tab2:
         with cols[i % 3]:
             data = fetch_quant_data(ticker)
             if data:
-                current = data['price']
+                current = data['reg_price'] # Changed to Reg Price for consistency
                 entry = info['entry']
                 total_return = ((current - entry) / entry) * 100
                 st.metric(
@@ -312,6 +312,7 @@ with tab2:
                     value=f"${current:,.2f}",
                     delta=f"{total_return:.2f}% (Total)"
                 )
+                if data['ext_str']: st.markdown(data['ext_str'])
                 st.caption(f"Entry: ${entry:,.2f}")
                 st.divider()
             else:
@@ -345,4 +346,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Fixed: RSI & Ext Hours)")
+st.success("✅ System Ready (Separated Prices)")
