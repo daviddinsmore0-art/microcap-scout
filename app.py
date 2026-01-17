@@ -81,9 +81,9 @@ TICKER_MAP = {
 # --- MACRO TAPE LIST (The "Whole Market" Desk) ---
 MACRO_TICKERS = [
     "SPY",      # S&P 500
-    "^IXIC",    # Nasdaq Composite (Added)
-    "^DJI",     # Dow Jones (Added)
-    "^GSPTSE",  # TSX Composite (Added)
+    "^IXIC",    # Nasdaq Composite
+    "^DJI",     # Dow Jones
+    "^GSPTSE",  # TSX Composite
     "IWM",      # Small Caps
     "GC=F",     # Gold
     "SI=F",     # Silver
@@ -195,14 +195,14 @@ def format_volume(num):
     if num >= 1_000: return f"{num/1_000:.1f}K"
     return str(num)
 
-# --- NEW: MACRO TAPE (Thick, Slow, Seamless) ---
+# --- NEW: MACRO TAPE (Thick, GLIDING SLOW, Seamless) ---
 def render_ticker_tape(tickers):
     ticker_items = []
     # Friendly Names for Macro
     name_map = {
         "GC=F": "GOLD", "SI=F": "SILVER", "CL=F": "OIL", 
         "DX-Y.NYB": "USD", "^VIX": "VIX", "BTC-USD": "BTC",
-        "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "^DJI": "DOW" # Added Friendly Names
+        "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "^DJI": "DOW" 
     }
     
     for tick in tickers:
@@ -232,7 +232,7 @@ def render_ticker_tape(tickers):
     .ticker {{
         display: inline-block;
         white-space: nowrap;
-        animation: ticker 60s linear infinite; 
+        animation: ticker 100s linear infinite; /* 100s = Gliding Speed */
     }}
     @keyframes ticker {{
         0% {{ transform: translateX(0); }}
@@ -372,56 +372,4 @@ tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 with tab1:
     st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
     st.caption(f"Currently Tracking: {', '.join(watchlist_list)}")
-    live_on = st.toggle("🔴 Enable Live Prices", key="live_market") 
-    display_ticker_grid(watchlist_list, live_mode=live_on)
-
-with tab2:
-    st.subheader("My Positions")
-    cols = st.columns(3)
-    for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
-        with cols[i % 3]:
-            data = fetch_quant_data(ticker)
-            if data:
-                current = data['reg_price'] 
-                entry = info['entry']
-                total_return = ((current - entry) / entry) * 100
-                st.metric(
-                    label=f"{ticker} (Since {info['date']})",
-                    value=f"${current:,.2f}",
-                    delta=f"{total_return:.2f}% (Total)"
-                )
-                if data['ext_str']: st.markdown(data['ext_str'])
-                st.caption(f"Entry: ${entry:,.2f}")
-                st.divider()
-            else:
-                st.warning(f"Loading {ticker}...")
-
-with tab3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate AI Report", type="primary"):
-        if not OPENAI_KEY: st.error("⚠️ Enter OpenAI Key!")
-        else:
-            client = OpenAI(api_key=OPENAI_KEY)
-            with st.spinner("Scanning Global Markets..."):
-                raw_items = fetch_rss_items()
-                if raw_items:
-                    results = analyze_batch(raw_items, client)
-                    st.session_state['news_results'] = results
-                else: st.error("News feed unavailable.")
-    
-    results = st.session_state['news_results']
-    if results:
-        for res in results:
-            tick = res['ticker']
-            b_color = "gray" if tick == "MACRO" else "blue"
-            with st.container():
-                c1, c2 = st.columns([1, 4])
-                with c1:
-                    st.markdown(f"### :{b_color}[{tick}]")
-                    st.caption(f"{res['signal']}")
-                with c2:
-                    st.markdown(f"**[{res['title']}]({res['link']})**")
-                    st.info(f"{res['reason']}")
-                st.divider()
-
-st.success("✅ System Ready (Full Macro Tape)")
+    live_on = st.toggle("🔴
