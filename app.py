@@ -4,16 +4,15 @@ import requests
 import xml.etree.ElementTree as ET
 import time
 import pandas as pd
-import altair as alt
 from openai import OpenAI
 from PIL import Image
 
 # --- CONFIGURATION ---
 try:
     icon_img = Image.open("logo.png")
-    st.set_page_config(page_title="Penny Pulse", page_icon=icon_img, layout="wide")
+    st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
 except:
-    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
+    st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -28,13 +27,10 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "BAER":    {"entry": 1.87, "date": "Dec 31"},
-    "SNDA":    {"entry": 32.06, "date": "Jan 9"},
-    "MYO":     {"entry": 1.01,  "date": "Jan 8"},
-    "OCS": {"entry": 21.64, "date": "Jan 8"},
-    "ZYME": {"entry": 24.20, "date": "Jan 6"},
-    "AEVA": {"entry": 12.99, "date": "Jan 5"},
-    "RERE": {"entry": 5.30, "date": "Dec 29"}
+    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
+    "NVDA":    {"entry": 130.50, "date": "Jan 12"},
+    "GME":     {"entry": 25.00,  "date": "Jan 14"},
+    "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
 }
 
 # --- SIDEBAR ---
@@ -42,22 +38,17 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ Penny Pulse")
+    st.sidebar.header("⚡ PennyPulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
-
-# 1. Read from URL (or default)
 query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
     saved_watchlist = "AMD, PLTR"
 
-# 2. Input Box
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
-
-# 3. Update URL if changed
 if user_input != saved_watchlist:
     st.query_params["watchlist"] = user_input
 
@@ -72,13 +63,6 @@ alert_active = st.sidebar.toggle("Activate Alert")
 
 if not alert_active:
     st.session_state['alert_triggered'] = False 
-
-st.sidebar.divider()
-st.sidebar.header("📈 Chart Room")
-MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
-chart_ticker = st.sidebar.selectbox("Select Asset", sorted(list(set(MARKET_TICKERS + all_assets))))
-
-st.title("⚡ Penny Pulse")
 
 # --- TICKER MAP ---
 TICKER_MAP = {
@@ -108,47 +92,60 @@ def get_live_price(symbol):
 def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        history = ticker.history(period="3mo", interval="1d", prepost=True)
+        history = ticker.history(period="5d", interval="1d", prepost=True)
         if history.empty: return None
         
-        # 1. Price Data
-        try:
-            live_price = ticker.fast_info['last_price']
-            prev_close = ticker.fast_info['previous_close']
-            delta_pct = ((live_price - prev_close) / prev_close) * 100
-        except:
-            live_price = history['Close'].iloc[-1]
-            prev_close = history['Close'].iloc[-2]
-            delta_pct = ((live_price - prev_close) / prev_close) * 100
+        # --- 1. PRICE LOGIC (Day vs Extended) ---
+        live_price = ticker.fast_info['last_price']
+        prev_close = ticker.fast_info['previous_close']
         
-        # 2. Volume
+        # Day Gain (Current vs Yesterday Close)
+        day_delta_pct = ((live_price - prev_close) / prev_close) * 100
+        
+        # Extended Hours Logic
+        # We assume the last row in history is the "Regular Market Close"
+        try:
+            last_regular_close = history['Close'].iloc[-1]
+            ext_diff = live_price - last_regular_close
+            ext_delta_pct = (ext_diff / last_regular_close) * 100
+            
+            # Filter noise: If difference is tiny (<0.01%), assume 0 (Market Open)
+            if abs(ext_delta_pct) < 0.01: ext_delta_pct = 0.0
+        except:
+            ext_delta_pct = 0.0
+
+        # --- 2. VOLUME ---
         volume = history['Volume'].iloc[-1]
         if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
 
-        # 3. RSI (Overbought/Oversold)
+        # --- 3. RSI & MACD ---
         delta = history['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         history['RSI'] = 100 - (100 / (1 + rs))
         
-        # 4. MACD (Trend Direction)
         ema12 = history['Close'].ewm(span=12, adjust=False).mean()
         ema26 = history['Close'].ewm(span=26, adjust=False).mean()
         macd = ema12 - ema26
         signal = macd.ewm(span=9, adjust=False).mean()
         
+        # Trend Logic (Red/Green Text)
         macd_val = macd.iloc[-1]
         sig_val = signal.iloc[-1]
         
-        # Determine Trend
-        if macd_val > sig_val: trend = "🐂 BULL"
-        else: trend = "🐻 BEAR"
+        if macd_val > sig_val: 
+            trend_str = ":green[**BULL**]" # Green Text
+        else: 
+            trend_str = ":red[**BEAR**]"   # Red Text
 
         return {
-            "price": live_price, "delta": delta_pct, "volume": volume,
+            "price": live_price, 
+            "day_delta": day_delta_pct,
+            "ext_delta": ext_delta_pct,
+            "volume": volume,
             "rsi": history['RSI'].iloc[-1],
-            "trend": trend
+            "trend": trend_str
         }
     except: return None
 
@@ -158,6 +155,16 @@ def format_volume(num):
     return str(num)
 
 def display_ticker_grid(ticker_list, live_mode=False):
+    # Silent Alert Check
+    if alert_active and not st.session_state['alert_triggered']:
+        try:
+            check_tick = yf.Ticker(alert_ticker)
+            curr_price = check_tick.fast_info['last_price']
+            if curr_price >= alert_price:
+                st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr_price:,.2f}!", icon="🔥")
+                st.session_state['alert_triggered'] = True
+        except: pass
+
     if live_mode:
         st.info("🔴 Live Streaming Active.")
         cols = st.columns(4)
@@ -171,22 +178,34 @@ def display_ticker_grid(ticker_list, live_mode=False):
             with cols[i % 3]:
                 data = fetch_quant_data(tick)
                 if data:
-                    # RSI Logic
                     rsi_val = data['rsi']
-                    if rsi_val > 70:   rsi_sig = "🔥 Overbought"
-                    elif rsi_val < 30: rsi_sig = "🧊 Oversold"
-                    else:              rsi_sig = "⚪ Neutral"
+                    if rsi_val > 70:   rsi_sig = "🔥 Over"
+                    elif rsi_val < 30: rsi_sig = "🧊 Under"
+                    else:              rsi_sig = "⚪ Neut"
                     
                     vol_str = format_volume(data['volume'])
                     
-                    st.metric(label=f"{tick} (Vol: {vol_str})", value=f"${data['price']:,.2f}", delta=f"{data['delta']:.2f}%")
-                    st.caption(f"{data['trend']} | RSI: {rsi_val:.0f} ({rsi_sig})")
+                    # EXTENDED HOURS FORMATTING
+                    # If there is a pre/post move, we add it to the label
+                    ext_str = ""
+                    if abs(data['ext_delta']) > 0.05: # Only show if meaningful move
+                        color = "green" if data['ext_delta'] > 0 else "red"
+                        symbol = "🌙" # Moon for after hours
+                        ext_str = f" | :{color}[{symbol} {data['ext_delta']:.2f}%]"
+
+                    # MAIN CARD
+                    st.metric(
+                        label=f"{tick} (Vol: {vol_str})", 
+                        value=f"${data['price']:,.2f}", 
+                        delta=f"{data['day_delta']:.2f}% (Day)"
+                    )
+                    # The Rich Caption: Trend + RSI + Extended Hours
+                    st.markdown(f"{data['trend']} | RSI: {rsi_val:.0f}{ext_str}")
                     st.divider()
 
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
-        "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
     ]
@@ -254,8 +273,10 @@ def analyze_batch(items, client):
         st.session_state['news_error'] = str(e)
         return []
 
+st.title("⚡ PennyPulse Pro")
+
 # --- TABS LAYOUT ---
-tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "🚀 My Rec's", "📰 News", "📈 Chart Room"])
+tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 
 with tab1:
     st.subheader("Major Indices")
@@ -264,7 +285,7 @@ with tab1:
     display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
 
 with tab2:
-    st.subheader("My Rec's")
+    st.subheader("My Positions")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
@@ -311,64 +332,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-with tab4:
-    st.subheader(f"📈 Chart: {chart_ticker}")
-    live_chart = st.toggle("🔴 Enable Live Chart (5s Refresh)", key="live_chart")
-    
-    price_container = st.empty()
-    st.markdown("### Volume Profile")
-    volume_container = st.empty()
-    
-    def render_chart():
-        try:
-            # 1. ALERT CHECK
-            if alert_active and not st.session_state['alert_triggered']:
-                check_tick = yf.Ticker(alert_ticker)
-                curr_price = check_tick.fast_info['last_price']
-                if curr_price >= alert_price:
-                    st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr_price:,.2f}!", icon="🔥")
-                    st.session_state['alert_triggered'] = True
-            
-            # 2. RENDER CHART
-            tick_obj = yf.Ticker(chart_ticker)
-            chart_data = tick_obj.history(period="1d", interval="5m")
-            if chart_data.empty: chart_data = tick_obj.history(period="5d", interval="5m")
-
-            if not chart_data.empty:
-                chart_data = chart_data.dropna().reset_index()
-                chart_data.columns = ['Datetime'] + list(chart_data.columns[1:])
-                chart_data['SMA 20'] = chart_data['Close'].rolling(window=20).mean()
-
-                with price_container:
-                    curr = chart_data['Close'].iloc[-1]
-                    diff = curr - chart_data['Close'].iloc[0]
-                    st.metric("Current Price", f"${curr:,.2f}", f"{diff:,.2f}")
-                    
-                    base = alt.Chart(chart_data).encode(x='Datetime:T')
-                    price_line = base.mark_line().encode(
-                        y=alt.Y('Close', scale=alt.Scale(zero=False), title='Price'),
-                        tooltip=['Datetime:T', 'Close']
-                    )
-                    sma_line = base.mark_line(color='orange', opacity=0.8).encode(y='SMA 20')
-                    st.altair_chart((price_line + sma_line).interactive(), use_container_width=True)
-
-                base = alt.Chart(chart_data).encode(x='Datetime:T')
-                vol_bar = base.mark_bar().encode(
-                    y=alt.Y('Volume', title='Vol'),
-                    color=alt.condition("datum.Open < datum.Close", alt.value("green"), alt.value("red"))
-                ).properties(height=150)
-                
-                with volume_container:
-                    st.altair_chart(vol_bar, use_container_width=True)
-            else:
-                with price_container: st.warning("Waiting for Market Data...")
-        except Exception as e:
-            with price_container: st.error(f"Sync Issue: {e}")
-
-    render_chart()
-    if live_chart:
-        while True:
-            time.sleep(5)
-            render_chart()
-
-st.success("✅ System Ready (Trader View Enabled)")
+st.success("✅ System Ready (Ext Hours + Colors)")
