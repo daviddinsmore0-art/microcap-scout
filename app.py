@@ -94,6 +94,7 @@ def get_live_price(symbol):
 def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
+        # Using 1mo period to ensure RSI is never NaN
         history = ticker.history(period="1mo", interval="1d", prepost=True)
         if history.empty: return None
         
@@ -105,8 +106,6 @@ def fetch_quant_data(symbol):
         regular_close = history['Close'].iloc[-1]
         
         # "Previous Close" is yesterday's close (to calculate Day Gain)
-        # Note: If today is active, iloc[-2] is yesterday. 
-        # If today is just starting, we check fast_info.
         prev_close_official = ticker.fast_info['previous_close']
         
         # A. Day Gain (Regular Close vs Yesterday)
@@ -117,13 +116,15 @@ def fetch_quant_data(symbol):
         ext_diff = live_price - regular_close
         ext_pct = (ext_diff / regular_close) * 100
         
-        # Format the Extended String (Only if diff exists)
-        ext_str = ""
-        if abs(ext_pct) > 0.01:
-            color = "green" if ext_pct > 0 else "red"
-            icon = "🌙" # Post/Pre market icon
-            # Separate line for "Ext: $Price (+%)"
-            ext_str = f"**{icon} Ext: ${live_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
+        # Create Extended String (ALWAYS SHOW)
+        color = "green" if ext_pct >= 0 else "red"
+        icon = "🌙" # Post/Pre market icon
+        
+        # If the price is identical (Weekend/Flat), we still show it to confirm system is working
+        if abs(ext_pct) < 0.01:
+             ext_str = f"**{icon} Ext: ${live_price:,.2f} (:gray[Flat])**"
+        else:
+             ext_str = f"**{icon} Ext: ${live_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
         
         # --- 2. VOLUME ---
         volume = history['Volume'].iloc[-1]
@@ -207,9 +208,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
                         delta=f"{data['day_delta']:.2f}% (Close)"
                     )
                     
-                    # 2. Separate Line for EXTENDED HOURS (if exists)
-                    if data['ext_str']:
-                        st.markdown(data['ext_str'])
+                    # 2. Separate Line for EXTENDED HOURS (ALWAYS SHOWS)
+                    st.markdown(data['ext_str'])
                     
                     # 3. Bottom Line for Signals
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
@@ -346,4 +346,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Separated Prices)")
+st.success("✅ System Ready (Dual Prices Always On)")
