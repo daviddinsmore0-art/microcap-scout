@@ -50,6 +50,11 @@ try:
 except:
     st.sidebar.header("⚡ Penny Pulse")
 
+# --- 🔴 HARD RESET (THE FIXER) ---
+if st.sidebar.button("🔴 HARD RESET (Click First)"):
+    st.session_state['user_dates'] = {}
+    st.rerun()
+
 # --- 🧠 MEMORY SYSTEM ---
 st.sidebar.header("👀 Watchlist")
 query_params = st.query_params
@@ -66,11 +71,10 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 
-# --- 🛠️ EARNINGS FIXER (FORM EDITION) ---
+# --- 🛠️ EARNINGS FIXER (X-RAY EDITION) ---
 with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     st.caption("Override any date here.")
     
-    # WRAPPED IN FORM TO FORCE SAVE
     with st.form("earnings_form", clear_on_submit=True):
         c1, c2 = st.columns([1, 2])
         with c1:
@@ -81,22 +85,17 @@ with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
         submitted = st.form_submit_button("💾 Save Date Override")
         
         if submitted and fix_tick:
-            st.session_state['user_dates'][fix_tick] = fix_date.strftime("%Y-%m-%d")
-            st.success(f"Saved {fix_tick}!")
+            # FORCE STRING FORMAT
+            date_str = fix_date.strftime("%Y-%m-%d")
+            st.session_state['user_dates'][fix_tick] = date_str
+            st.success(f"Saved {fix_tick} -> {date_str}")
             time.sleep(0.5)
             st.rerun()
 
-    # SHOW ACTIVE OVERRIDES
     if st.session_state['user_dates']:
         st.divider()
-        st.caption("Active User Overrides:")
-        for k, v in st.session_state['user_dates'].items():
-            # Show exact values so you can verify "TMQ" is really there
-            st.code(f"{k}: {v}")
-        
-        if st.button("🗑️ Clear All"):
-            st.session_state['user_dates'] = {}
-            st.rerun()
+        st.caption("Raw Memory (Debug):")
+        st.write(st.session_state['user_dates'])
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
@@ -155,7 +154,7 @@ def fetch_quant_data_v2(symbol):
     try:
         ticker = yf.Ticker(symbol)
         
-        # PARANOID CLEANING (Triple ensure matching)
+        # PARANOID CLEANING
         clean_symbol = symbol.strip().upper()
         
         # 1. FETCH DEEP INFO
@@ -231,65 +230,72 @@ def fetch_quant_data_v2(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (WITH PARANOID MATCHING)
+        # 6. EARNINGS RADAR (X-RAY VISION)
         earnings_msg = ""
         next_date = None
         source_label = ""
+        debug_xray = ""
         
-        try:
-            # PRIORITY 1: User Session Override (Use clean_symbol)
-            if clean_symbol in st.session_state['user_dates']:
-                try:
-                    next_date = datetime.strptime(st.session_state['user_dates'][clean_symbol], "%Y-%m-%d")
-                    source_label = " (User)"
-                except: pass
+        # X-RAY: What key are we looking for?
+        keys_in_memory = list(st.session_state['user_dates'].keys())
+        
+        # PRIORITY 1: User Session Override (Removed Silent Failures)
+        if clean_symbol in st.session_state['user_dates']:
+            # DIRECT LOOKUP - NO TRY/EXCEPT SO WE SEE ERRORS
+            date_str = st.session_state['user_dates'][clean_symbol]
+            next_date = datetime.strptime(date_str, "%Y-%m-%d")
+            source_label = " (User)"
+        else:
+            debug_xray = f"`X-RAY: Key '{clean_symbol}' not found in {keys_in_memory}`"
 
-            # PRIORITY 2: Admin Code Override
-            if next_date is None and clean_symbol in ADMIN_EARNINGS:
-                try:
-                    next_date = datetime.strptime(ADMIN_EARNINGS[clean_symbol], "%Y-%m-%d")
-                    source_label = " (Admin)"
-                except: pass
+        # PRIORITY 2: Admin Code Override
+        if next_date is None and clean_symbol in ADMIN_EARNINGS:
+            try:
+                next_date = datetime.strptime(ADMIN_EARNINGS[clean_symbol], "%Y-%m-%d")
+                source_label = " (Admin)"
+            except: pass
 
-            # PRIORITY 3: Yahoo Calendar
-            if next_date is None:
-                cal = ticker.calendar
-                if cal is not None:
-                    if isinstance(cal, dict):
-                        if 'Earnings Date' in cal:
-                            val = cal['Earnings Date']
-                            if isinstance(val, list): next_date = val[0]
-                            else: next_date = val
-                        elif 0 in cal:
-                            val = cal[0]
-                            if isinstance(val, list): next_date = val[0]
-                            else: next_date = val
-                    elif not cal.empty:
-                        if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
-                        elif 0 in cal: next_date = cal[0].iloc[0]
+        # PRIORITY 3: Yahoo Calendar
+        if next_date is None:
+            cal = ticker.calendar
+            if cal is not None:
+                if isinstance(cal, dict):
+                    if 'Earnings Date' in cal:
+                        val = cal['Earnings Date']
+                        if isinstance(val, list): next_date = val[0]
+                        else: next_date = val
+                    elif 0 in cal:
+                        val = cal[0]
+                        if isinstance(val, list): next_date = val[0]
+                        else: next_date = val
+                elif not cal.empty:
+                    if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
+                    elif 0 in cal: next_date = cal[0].iloc[0]
 
-            # PRIORITY 4: Deep Scan
-            if next_date is None:
-                dates = ticker.get_earnings_dates(limit=1)
-                if dates is not None and not dates.empty:
-                    next_date = dates.index[0]
+        # PRIORITY 4: Deep Scan
+        if next_date is None:
+            dates = ticker.get_earnings_dates(limit=1)
+            if dates is not None and not dates.empty:
+                next_date = dates.index[0]
 
-            # --- CALCULATE BADGE ---
-            if next_date:
-                if hasattr(next_date, "replace"):
-                    next_date = next_date.replace(tzinfo=None)
-                
-                now = datetime.now().replace(tzinfo=None)
-                days_diff = (next_date - now).days
-                
-                # EXTENDED TO 90 DAYS
-                if -1 <= days_diff <= 8:
-                    earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
-                elif 8 < days_diff <= 90:
-                    fmt_date = next_date.strftime("%b %d")
-                    earnings_msg = f":calendar: **Earn: {fmt_date}{source_label}**"
-                
-        except: pass
+        # --- CALCULATE BADGE ---
+        if next_date:
+            if hasattr(next_date, "replace"):
+                next_date = next_date.replace(tzinfo=None)
+            
+            now = datetime.now().replace(tzinfo=None)
+            days_diff = (next_date - now).days
+            
+            # EXTENDED TO 90 DAYS
+            if -1 <= days_diff <= 8:
+                earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
+            elif 8 < days_diff <= 90:
+                fmt_date = next_date.strftime("%b %d")
+                earnings_msg = f":calendar: **Earn: {fmt_date}{source_label}**"
+        
+        # Append X-Ray Debug if User Override Failed
+        if debug_xray and source_label == " (Admin)":
+            earnings_msg += f" {debug_xray}"
 
         return {
             "reg_price": reg_price,
@@ -537,4 +543,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.4 - The Form Fix)")
+st.success("✅ System Ready (v3.5 - X-Ray Edition)")
