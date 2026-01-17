@@ -37,7 +37,7 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ PennyPulse")
+    st.sidebar.header("⚡ Penny Pulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
@@ -361,13 +361,13 @@ def analyze_batch(items, client):
         return []
 
 # --- MAIN APP UI ---
-st.title("⚡ PennyPulse Pro")
+st.title("⚡ Penny Pulse")
 
 # RENDER MACRO TAPE (The Global Desk)
 render_ticker_tape(MACRO_TICKERS)
 
 # --- TABS LAYOUT ---
-tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
+tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News"])
 
 with tab1:
     st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
@@ -376,7 +376,7 @@ with tab1:
     display_ticker_grid(watchlist_list, live_mode=live_on)
 
 with tab2:
-    st.subheader("My Positions")
+    st.subheader("My Picks")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
