@@ -94,68 +94,85 @@ def get_live_price(symbol):
 def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        # Using 1mo period to ensure RSI is never NaN
-        history = ticker.history(period="1mo", interval="1d", prepost=True)
-        if history.empty: return None
         
-        # --- 1. PRICE SEPARATION ---
-        # "Live" is the absolute latest trade (Pre/Post/Live)
-        live_price = ticker.fast_info['last_price']
-        
-        # "Regular Close" is the last official close from history
-        regular_close = history['Close'].iloc[-1]
-        
-        # "Previous Close" is yesterday's close (to calculate Day Gain)
-        prev_close_official = ticker.fast_info['previous_close']
-        
-        # A. Day Gain (Regular Close vs Yesterday)
-        day_diff = regular_close - prev_close_official
-        day_pct = (day_diff / prev_close_official) * 100
-        
-        # B. Extended Gain (Live vs Regular Close)
-        ext_diff = live_price - regular_close
-        ext_pct = (ext_diff / regular_close) * 100
-        
-        # Create Extended String (ALWAYS SHOW)
-        color = "green" if ext_pct >= 0 else "red"
-        icon = "🌙" # Post/Pre market icon
-        
-        # If the price is identical (Weekend/Flat), we still show it to confirm system is working
-        if abs(ext_pct) < 0.01:
-             ext_str = f"**{icon} Ext: ${live_price:,.2f} (:gray[Flat])**"
-        else:
-             ext_str = f"**{icon} Ext: ${live_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
-        
-        # --- 2. VOLUME ---
-        volume = history['Volume'].iloc[-1]
-        if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
+        # 1. FETCH DEEP INFO (This is the fix for accurate Pre/Post prices)
+        # We wrap this in try/except because .info can sometimes time out
+        try:
+            info = ticker.info
+            # Grab specific fields that separate 4pm from 8pm
+            reg_price = info.get('regularMarketPrice', 0.0)
+            pre_price = info.get('preMarketPrice', None)
+            post_price = info.get('postMarketPrice', None)
+            curr_price = info.get('currentPrice', reg_price)
+            prev_close = info.get('regularMarketPreviousClose', 0.0)
+        except:
+            # Fallback if .info fails
+            reg_price = ticker.fast_info['last_price']
+            post_price = reg_price
+            prev_close = ticker.fast_info['previous_close']
+            curr_price = reg_price
 
-        # --- 3. RSI & MACD ---
-        delta = history['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        history['RSI'] = 100 - (100 / (1 + rs))
+        # 2. DETERMINE EXTENDED PRICE
+        # Logic: If Post Market exists and is different, use it. Else check Pre.
+        ext_price = reg_price # Default
+        if post_price and post_price != reg_price:
+            ext_price = post_price
+        elif pre_price and pre_price != reg_price:
+            ext_price = pre_price
         
-        ema12 = history['Close'].ewm(span=12, adjust=False).mean()
-        ema26 = history['Close'].ewm(span=26, adjust=False).mean()
-        macd = ema12 - ema26
-        signal = macd.ewm(span=9, adjust=False).mean()
-        
-        macd_val = macd.iloc[-1]
-        sig_val = signal.iloc[-1]
-        
-        if macd_val > sig_val: 
-            trend_str = ":green[**BULL**]" 
-        else: 
-            trend_str = ":red[**BEAR**]"
+        # 3. CALCULATE GAINS
+        # Day Gain (4:00 PM vs Yesterday)
+        if prev_close and prev_close > 0:
+            day_pct = ((reg_price - prev_close) / prev_close) * 100
+        else:
+            day_pct = 0.0
+            
+        # Ext Gain (Current Ext vs 4:00 PM)
+        if reg_price and reg_price > 0:
+            ext_diff = ext_price - reg_price
+            ext_pct = (ext_diff / reg_price) * 100
+        else:
+            ext_pct = 0.0
+
+        # 4. FORMAT EXTENDED STRING
+        color = "green" if ext_pct >= 0 else "red"
+        icon = "🌙"
+        # Always show it, even if flat, so you know it checked.
+        ext_str = f"**{icon} Ext: ${ext_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
+
+        # 5. FETCH HISTORY FOR RSI (Separate Call)
+        history = ticker.history(period="1mo", interval="1d", prepost=True)
+        if not history.empty:
+            volume = history['Volume'].iloc[-1]
+            if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
+
+            delta = history['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            history['RSI'] = 100 - (100 / (1 + rs))
+            rsi_val = history['RSI'].iloc[-1]
+            
+            # Trend Logic
+            ema12 = history['Close'].ewm(span=12, adjust=False).mean()
+            ema26 = history['Close'].ewm(span=26, adjust=False).mean()
+            macd = ema12 - ema26
+            signal = macd.ewm(span=9, adjust=False).mean()
+            if macd.iloc[-1] > signal.iloc[-1]: 
+                trend_str = ":green[**BULL**]" 
+            else: 
+                trend_str = ":red[**BEAR**]"
+        else:
+            volume = 0
+            rsi_val = 50
+            trend_str = ":gray[**WAIT**]"
 
         return {
-            "reg_price": regular_close,
+            "reg_price": reg_price,
             "day_delta": day_pct,
             "ext_str": ext_str,
             "volume": volume,
-            "rsi": history['RSI'].iloc[-1],
+            "rsi": rsi_val,
             "trend": trend_str
         }
     except: return None
@@ -188,7 +205,6 @@ def display_ticker_grid(ticker_list, live_mode=False):
             with cols[i % 3]:
                 data = fetch_quant_data(tick)
                 if data:
-                    # RSI Logic
                     rsi_val = data['rsi']
                     if pd.isna(rsi_val): 
                         rsi_disp = "N/A"
@@ -200,20 +216,13 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     
                     vol_str = format_volume(data['volume'])
 
-                    # CARD DISPLAY
-                    # 1. Big Number = Regular Close
                     st.metric(
                         label=f"{tick} (Vol: {vol_str})", 
                         value=f"${data['reg_price']:,.2f}", 
                         delta=f"{data['day_delta']:.2f}% (Close)"
                     )
-                    
-                    # 2. Separate Line for EXTENDED HOURS (ALWAYS SHOWS)
                     st.markdown(data['ext_str'])
-                    
-                    # 3. Bottom Line for Signals
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
-                    
                     st.divider()
 
 def fetch_rss_items():
@@ -346,4 +355,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Dual Prices Always On)")
+st.success("✅ System Ready (Deep Data Mode)")
