@@ -294,6 +294,7 @@ def display_ticker_grid(ticker_list, live_mode=False):
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
+        "https://rss.app/feeds/tMfefT7whS1oe2VT.xml",
         "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
         "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"
     
