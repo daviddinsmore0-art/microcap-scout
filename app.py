@@ -47,7 +47,8 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = "AMD, PLTR, NFLX"
+    # Added UAL and PG here by default so you can test the Earnings Radar immediately
+    saved_watchlist = "AMD, PLTR, NFLX, UAL, PG"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 if user_input != saved_watchlist:
@@ -88,7 +89,7 @@ SYMBOL_NAMES = {
     "SPY": "S&P 500", "QQQ": "Nasdaq", "IWM": "Russell 2k", "DIA": "Dow Jones",
     "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
     "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
-    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium"
+    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble"
 }
 
 # --- MACRO TAPE LIST ---
@@ -125,7 +126,7 @@ def fetch_quant_data_v2(symbol):
             prev_close = ticker.fast_info['previous_close']
             curr_price = reg_price
 
-        # 2. IS THIS CRYPTO? (Brute Force Check)
+        # 2. IS THIS CRYPTO?
         is_crypto = symbol.endswith("-USD") or "BTC" in symbol or "ETH" in symbol
 
         # 3. CALCULATE GAINS
@@ -158,7 +159,7 @@ def fetch_quant_data_v2(symbol):
             else:
                 ext_str = f"**🌙 Ext: ${ext_price:,.2f} (:gray[Market Closed])**"
 
-        # 5. FETCH HISTORY FOR RSI
+        # 5. FETCH HISTORY
         history = ticker.history(period="1mo", interval="1d", prepost=True)
         if not history.empty:
             volume = history['Volume'].iloc[-1]
@@ -184,10 +185,9 @@ def fetch_quant_data_v2(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (With Backup)
+        # 6. EARNINGS RADAR (TIMEZONE FIXED)
         earnings_msg = ""
         try:
-            # Attempt 1: Calendar
             cal = ticker.calendar
             next_date = None
             
@@ -195,25 +195,28 @@ def fetch_quant_data_v2(symbol):
                 if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
                 elif 0 in cal: next_date = cal[0].iloc[0]
 
-            # Attempt 2: Earnings Dates (Backup)
             if next_date is None:
                 dates = ticker.get_earnings_dates(limit=1)
                 if dates is not None and not dates.empty:
                     next_date = dates.index[0]
 
             if next_date:
-                if isinstance(next_date, (datetime, pd.Timestamp)):
-                    # Handle timezone naive/aware comparison
-                    now = pd.Timestamp.now(tz=next_date.tzinfo)
-                    days_diff = (next_date - now).days
-                    
-                    if 0 <= days_diff <= 7:
-                        earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
-                    elif 7 < days_diff <= 30:
-                        fmt_date = next_date.strftime("%b %d")
-                        earnings_msg = f":calendar: **Earn: {fmt_date}**"
-        except:
-            pass 
+                # Force Naive Datetime (Strip Timezone)
+                if hasattr(next_date, "tz_localize"):
+                    next_date = next_date.tz_localize(None)
+                
+                # Get current time (Naive)
+                now = datetime.now().replace(tzinfo=None)
+                
+                days_diff = (next_date - now).days
+                
+                if -1 <= days_diff <= 7:
+                    earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
+                elif 7 < days_diff <= 30:
+                    fmt_date = next_date.strftime("%b %d")
+                    earnings_msg = f":calendar: **Earn: {fmt_date}**"
+        except Exception:
+            pass
 
         return {
             "reg_price": reg_price,
@@ -296,7 +299,6 @@ def display_ticker_grid(ticker_list, live_mode=False):
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
             with cols[i % 3]:
-                # USING NEW V2 FUNCTION
                 data = fetch_quant_data_v2(tick)
                 if data:
                     rsi_val = data['rsi']
@@ -462,4 +464,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v2.5 - Fixed Earnings & Crypto)")
+st.success("✅ System Ready (v2.6 - Timezone Crash Fixed)")
