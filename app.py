@@ -47,7 +47,6 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    # Added UAL and PG here by default so you can test the Earnings Radar immediately
     saved_watchlist = "AMD, PLTR, NFLX, UAL, PG"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -55,6 +54,10 @@ if user_input != saved_watchlist:
     st.query_params["watchlist"] = user_input
 
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
+
+st.sidebar.divider()
+st.sidebar.header("⚙️ Settings")
+enable_debug = st.sidebar.checkbox("🛠️ Debug Mode", value=False, help="Show raw earnings dates for testing.")
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
@@ -108,7 +111,7 @@ def get_live_price(symbol):
         return price, delta
     except: return 0.0, 0.0
 
-def fetch_quant_data_v2(symbol):
+def fetch_quant_data_v2(symbol, debug=False):
     try:
         ticker = yf.Ticker(symbol)
         
@@ -185,8 +188,9 @@ def fetch_quant_data_v2(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (TIMEZONE FIXED)
+        # 6. EARNINGS RADAR (DEBUGGABLE)
         earnings_msg = ""
+        debug_info = ""
         try:
             cal = ticker.calendar
             next_date = None
@@ -201,13 +205,11 @@ def fetch_quant_data_v2(symbol):
                     next_date = dates.index[0]
 
             if next_date:
-                # Force Naive Datetime (Strip Timezone)
-                if hasattr(next_date, "tz_localize"):
-                    next_date = next_date.tz_localize(None)
+                # Safer Timezone Strip
+                if hasattr(next_date, "replace"):
+                    next_date = next_date.replace(tzinfo=None)
                 
-                # Get current time (Naive)
                 now = datetime.now().replace(tzinfo=None)
-                
                 days_diff = (next_date - now).days
                 
                 if -1 <= days_diff <= 7:
@@ -215,8 +217,14 @@ def fetch_quant_data_v2(symbol):
                 elif 7 < days_diff <= 30:
                     fmt_date = next_date.strftime("%b %d")
                     earnings_msg = f":calendar: **Earn: {fmt_date}**"
-        except Exception:
-            pass
+                
+                if debug:
+                    debug_info = f"`DEBUG: Found {next_date.strftime('%Y-%m-%d')} (Diff: {days_diff})`"
+            else:
+                if debug: debug_info = "`DEBUG: No Date Found`"
+                
+        except Exception as e:
+            if debug: debug_info = f"`DEBUG: Error {str(e)}`"
 
         return {
             "reg_price": reg_price,
@@ -225,7 +233,8 @@ def fetch_quant_data_v2(symbol):
             "volume": volume,
             "rsi": rsi_val,
             "trend": trend_str,
-            "earn_str": earnings_msg
+            "earn_str": earnings_msg,
+            "debug_str": debug_info
         }
     except: return None
 
@@ -299,7 +308,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
             with cols[i % 3]:
-                data = fetch_quant_data_v2(tick)
+                # PASS DEBUG STATE
+                data = fetch_quant_data_v2(tick, debug=enable_debug)
                 if data:
                     rsi_val = data['rsi']
                     if pd.isna(rsi_val): 
@@ -321,6 +331,10 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     
                     if data.get('earn_str'):
                         st.markdown(data['earn_str'])
+                    
+                    # SHOW DEBUG INFO IF AVAILABLE
+                    if data.get('debug_str'):
+                        st.caption(data['debug_str'])
                         
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     st.divider()
@@ -415,7 +429,8 @@ with tab2:
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            data = fetch_quant_data_v2(ticker)
+            # PASS DEBUG STATE TO PORTFOLIO
+            data = fetch_quant_data_v2(ticker, debug=enable_debug)
             if data:
                 current = data['reg_price'] 
                 entry = info['entry']
@@ -430,6 +445,10 @@ with tab2:
                 if data.get('earn_str'):
                     st.markdown(data['earn_str'])
                 
+                # SHOW DEBUG INFO IF AVAILABLE
+                if data.get('debug_str'):
+                    st.caption(data['debug_str'])
+                    
                 st.caption(f"Entry: ${entry:,.2f}")
                 st.divider()
             else:
@@ -464,4 +483,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v2.6 - Timezone Crash Fixed)")
+st.success("✅ System Ready (v2.7 - Debugger Mode)")
