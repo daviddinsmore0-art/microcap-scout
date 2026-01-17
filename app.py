@@ -16,7 +16,6 @@ except:
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
-if 'news_error' not in st.session_state: st.session_state['news_error'] = None
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
 if "OPENAI_KEY" in st.secrets:
@@ -96,7 +95,6 @@ def fetch_quant_data(symbol):
         ticker = yf.Ticker(symbol)
         
         # 1. FETCH DEEP INFO
-        # We try to get 'info' to separate Regular vs Post market
         try:
             info = ticker.info
             reg_price = info.get('regularMarketPrice', 0.0)
@@ -105,53 +103,42 @@ def fetch_quant_data(symbol):
             curr_price = info.get('currentPrice', reg_price)
             prev_close = info.get('regularMarketPreviousClose', 0.0)
         except:
-            # Fallback
             reg_price = ticker.fast_info['last_price']
             post_price = reg_price
             prev_close = ticker.fast_info['previous_close']
             curr_price = reg_price
 
         # 2. IS THIS CRYPTO?
-        # Crypto symbols usually end in -USD (e.g., BTC-USD)
         is_crypto = symbol.endswith("-USD")
 
         # 3. CALCULATE GAINS
-        # Day Gain (Reg Close vs Yesterday)
         if prev_close and prev_close > 0:
             day_pct = ((reg_price - prev_close) / prev_close) * 100
         else:
             day_pct = 0.0
             
-        # 4. FORMAT SECOND LINE (Smart Logic)
+        # 4. FORMAT SECOND LINE
         if is_crypto:
-            # CRYPTO LOGIC: Always Live, Never Closed
-            # For Crypto, reg_price is essentially the live price.
             color = "green" if day_pct >= 0 else "red"
-            # We show "Live" and repeat the 24h change to show it's active
             ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
-            
         else:
-            # STOCK LOGIC: Check Post/Pre Market
-            ext_price = reg_price # Default
+            ext_price = reg_price
             if post_price and post_price != reg_price:
                 ext_price = post_price
             elif pre_price and pre_price != reg_price:
                 ext_price = pre_price
             
-            # Ext Gain (Live vs Reg Close)
             if reg_price and reg_price > 0:
                 ext_diff = ext_price - reg_price
                 ext_pct = (ext_diff / reg_price) * 100
             else:
                 ext_pct = 0.0
 
-            # Filter Noise (Lower threshold to 0.001 to catch +0.39 moves)
             if abs(ext_pct) > 0.001: 
                 color = "green" if ext_pct > 0 else "red"
                 icon = "🌙"
                 ext_str = f"**{icon} Ext: ${ext_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
             else:
-                # Market Closed / Flat
                 ext_str = f"**🌙 Ext: ${ext_price:,.2f} (:gray[Market Closed])**"
 
         # 5. FETCH HISTORY FOR RSI
@@ -167,7 +154,6 @@ def fetch_quant_data(symbol):
             history['RSI'] = 100 - (100 / (1 + rs))
             rsi_val = history['RSI'].iloc[-1]
             
-            # Trend Logic
             ema12 = history['Close'].ewm(span=12, adjust=False).mean()
             ema26 = history['Close'].ewm(span=26, adjust=False).mean()
             macd = ema12 - ema26
@@ -195,6 +181,46 @@ def format_volume(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}M"
     if num >= 1_000: return f"{num/1_000:.1f}K"
     return str(num)
+
+# --- NEW: SCROLLING TICKER TAPE ---
+def render_ticker_tape(tickers):
+    # This creates a HTML/CSS scrolling bar
+    ticker_items = []
+    for tick in tickers:
+        p, d = get_live_price(tick)
+        color = "#4caf50" if d >= 0 else "#f44336" # Green or Red hex codes
+        arrow = "▲" if d >= 0 else "▼"
+        ticker_items.append(f"<span style='margin-right: 20px; font-weight: bold;'>{tick}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
+    
+    ticker_html = f"""
+    <style>
+    .ticker-wrap {{
+        width: 100%;
+        overflow: hidden;
+        background-color: #0e1117;
+        border-bottom: 1px solid #333;
+        white-space: nowrap;
+        box-sizing: border-box;
+    }}
+    .ticker {{
+        display: inline-block;
+        padding-top: 5px;
+        padding-bottom: 5px;
+        white-space: nowrap;
+        animation: ticker 30s linear infinite;
+    }}
+    @keyframes ticker {{
+        0% {{ transform: translateX(100%); }}
+        100% {{ transform: translateX(-100%); }}
+    }}
+    </style>
+    <div class="ticker-wrap">
+        <div class="ticker">
+            {' '.join(ticker_items)}   {' '.join(ticker_items)}
+        </div>
+    </div>
+    """
+    st.markdown(ticker_html, unsafe_allow_html=True)
 
 def display_ticker_grid(ticker_list, live_mode=False):
     if alert_active and not st.session_state['alert_triggered']:
@@ -309,7 +335,12 @@ def analyze_batch(items, client):
         st.session_state['news_error'] = str(e)
         return []
 
+# --- MAIN APP UI ---
 st.title("⚡ PennyPulse Pro")
+
+# RENDER TICKER TAPE AT THE TOP
+combined_list = sorted(list(set(MARKET_TICKERS + watchlist_list)))
+render_ticker_tape(combined_list)
 
 # --- TABS LAYOUT ---
 tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
@@ -317,7 +348,8 @@ tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 with tab1:
     st.subheader("Major Indices")
     st.caption(f"Also Watching: {', '.join(watchlist_list)}")
-    live_on = st.toggle("🔴 Enable Live Prices", key="live_market")
+    # Note: Live prices toggle is still here but redundant with the ticker tape
+    live_on = st.toggle("🔴 Enable Live Prices", key="live_market") 
     display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
 
 with tab2:
@@ -369,4 +401,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Crypto Live & Sensitive Post-Market)")
+st.success("✅ System Ready (Ticker Tape Enabled)")
