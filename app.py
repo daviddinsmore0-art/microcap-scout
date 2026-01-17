@@ -294,6 +294,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
+        "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
+        "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
     ]
