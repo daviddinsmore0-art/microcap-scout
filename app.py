@@ -295,8 +295,8 @@ def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
         "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
-        "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
-        "https://feeds.content.dowjones.io/public/rss/mw_topstories"
+        "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml"
+    
     ]
     items = []
     seen_titles = set()
