@@ -26,12 +26,12 @@ else:
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
 # --- 🗓️ MANUAL EARNINGS OVERRIDE ---
-# If Yahoo blocks the data, TYPE YOUR DATES HERE (Format: "YYYY-MM-DD")
+# Format: "YYYY-MM-DD"
 MANUAL_EARNINGS = {
-    "TMQ": "2026-02-13",  # Confirmed date
-    "NFLX": "2026-01-20", # Confirmed date
-    "PG": "2026-01-22",   # Confirmed date
-    "UAL": "2026-01-21"   # Confirmed date
+    "TMQ": "2026-02-13",
+    "NFLX": "2026-01-20",
+    "PG": "2026-01-22",
+    "UAL": "2026-01-21"
 }
 
 # --- 💼 SHARED PORTFOLIO ---
@@ -56,17 +56,14 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = "AMD, PLTR, NFLX, UAL, PG, TMQ"
+    # Default list including your tracked items
+    saved_watchlist = "AMD, PLTR, NFLX, UAL, PG, TMQ, VCIG"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 if user_input != saved_watchlist:
     st.query_params["watchlist"] = user_input
 
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
-
-st.sidebar.divider()
-st.sidebar.header("⚙️ Settings")
-enable_debug = st.sidebar.checkbox("🛠️ Debug Mode", value=True, help="Show raw earnings dates for testing.")
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
@@ -102,7 +99,7 @@ SYMBOL_NAMES = {
     "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
     "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
     "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble",
-    "TMQ": "Trilogy Metals"
+    "TMQ": "Trilogy Metals", "VCIG": "VCI Global"
 }
 
 # --- MACRO TAPE LIST ---
@@ -121,7 +118,7 @@ def get_live_price(symbol):
         return price, delta
     except: return 0.0, 0.0
 
-def fetch_quant_data_v2(symbol, debug=False):
+def fetch_quant_data_v2(symbol):
     try:
         ticker = yf.Ticker(symbol)
         
@@ -198,18 +195,15 @@ def fetch_quant_data_v2(symbol, debug=False):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (MANUAL + AUTO + BACKUP)
+        # 6. EARNINGS RADAR (MANUAL + AUTO)
         earnings_msg = ""
-        debug_info = ""
         next_date = None
-        source_used = "None"
         
         try:
-            # PRIORITY 1: Manual Override (User Input)
+            # PRIORITY 1: Manual Override
             if symbol in MANUAL_EARNINGS:
                 try:
                     next_date = datetime.strptime(MANUAL_EARNINGS[symbol], "%Y-%m-%d")
-                    source_used = "Manual"
                 except: pass
 
             # PRIORITY 2: Yahoo Calendar (Auto)
@@ -221,33 +215,19 @@ def fetch_quant_data_v2(symbol, debug=False):
                             val = cal['Earnings Date']
                             if isinstance(val, list): next_date = val[0]
                             else: next_date = val
-                            source_used = "Calendar"
                         elif 0 in cal:
                             val = cal[0]
                             if isinstance(val, list): next_date = val[0]
                             else: next_date = val
-                            source_used = "Calendar"
                     elif not cal.empty:
                         if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
                         elif 0 in cal: next_date = cal[0].iloc[0]
-                        source_used = "Calendar"
 
-            # PRIORITY 3: Yahoo Info Backup (Hidden Data)
-            if next_date is None:
-                try:
-                    # Some tickers hide it in .info['earningsTimestamp']
-                    ts = ticker.info.get('earningsTimestamp', None)
-                    if ts:
-                         next_date = datetime.fromtimestamp(ts)
-                         source_used = "Info"
-                except: pass
-
-            # PRIORITY 4: Get Earnings Dates (Deep Scan)
+            # PRIORITY 3: Deep Scan
             if next_date is None:
                 dates = ticker.get_earnings_dates(limit=1)
                 if dates is not None and not dates.empty:
                     next_date = dates.index[0]
-                    source_used = "DeepScan"
 
             # --- CALCULATE BADGE ---
             if next_date:
@@ -264,13 +244,7 @@ def fetch_quant_data_v2(symbol, debug=False):
                     fmt_date = next_date.strftime("%b %d")
                     earnings_msg = f":calendar: **Earn: {fmt_date}**"
                 
-                if debug:
-                    debug_info = f"`DEBUG: {source_used} {next_date.strftime('%Y-%m-%d')} (Diff: {days_diff})`"
-            else:
-                if debug: debug_info = "`DEBUG: No Date Found (Blocked)`"
-                
-        except Exception as e:
-            if debug: debug_info = f"`DEBUG: Error {str(e)}`"
+        except: pass
 
         return {
             "reg_price": reg_price,
@@ -279,8 +253,7 @@ def fetch_quant_data_v2(symbol, debug=False):
             "volume": volume,
             "rsi": rsi_val,
             "trend": trend_str,
-            "earn_str": earnings_msg,
-            "debug_str": debug_info
+            "earn_str": earnings_msg
         }
     except: return None
 
@@ -354,8 +327,7 @@ def display_ticker_grid(ticker_list, live_mode=False):
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
             with cols[i % 3]:
-                # PASS DEBUG STATE
-                data = fetch_quant_data_v2(tick, debug=enable_debug)
+                data = fetch_quant_data_v2(tick)
                 if data:
                     rsi_val = data['rsi']
                     if pd.isna(rsi_val): 
@@ -378,10 +350,6 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     if data.get('earn_str'):
                         st.markdown(data['earn_str'])
                     
-                    # SHOW DEBUG INFO IF AVAILABLE
-                    if data.get('debug_str'):
-                        st.caption(data['debug_str'])
-                        
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     st.divider()
 
@@ -475,8 +443,7 @@ with tab2:
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            # PASS DEBUG STATE TO PORTFOLIO
-            data = fetch_quant_data_v2(ticker, debug=enable_debug)
+            data = fetch_quant_data_v2(ticker)
             if data:
                 current = data['reg_price'] 
                 entry = info['entry']
@@ -490,10 +457,6 @@ with tab2:
                 
                 if data.get('earn_str'):
                     st.markdown(data['earn_str'])
-                
-                # SHOW DEBUG INFO IF AVAILABLE
-                if data.get('debug_str'):
-                    st.caption(data['debug_str'])
                     
                 st.caption(f"Entry: ${entry:,.2f}")
                 st.divider()
@@ -529,4 +492,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v2.9 - Manual Override Edition)")
+st.success("✅ System Ready (v3.0 - Gold Master)")
