@@ -79,7 +79,6 @@ TICKER_MAP = {
     "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
 }
 
-# --- CONSTANTS (FIXED: Added this back!) ---
 MARKET_TICKERS = ["SPY", "QQQ", "IWM", "BTC-USD", "ETH-USD", "GC=F", "CL=F"]
 
 # --- FUNCTIONS ---
@@ -95,26 +94,37 @@ def get_live_price(symbol):
 def fetch_quant_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        history = ticker.history(period="5d", interval="1d", prepost=True)
+        # FIXED: Increased period to "1mo" so RSI has enough data (needs 14 days minimum)
+        history = ticker.history(period="1mo", interval="1d", prepost=True)
         if history.empty: return None
         
-        # --- 1. PRICE LOGIC (Day vs Extended) ---
+        # --- 1. PRICE LOGIC ---
+        # Current Live Price (Post-Market)
         live_price = ticker.fast_info['last_price']
+        # Yesterday's Close (For Day Gain)
         prev_close = ticker.fast_info['previous_close']
         
-        # Day Gain (Current vs Yesterday Close)
+        # Day Gain %
         day_delta_pct = ((live_price - prev_close) / prev_close) * 100
         
-        # Extended Hours Logic
+        # Extended Hours Check
+        # We compare "Live Price" vs "Regular Market Last Close"
+        ext_str = ""
         try:
-            last_regular_close = history['Close'].iloc[-1]
-            ext_diff = live_price - last_regular_close
-            ext_delta_pct = (ext_diff / last_regular_close) * 100
+            # Get the last 'Close' from the history table (Usually 4:00 PM price)
+            regular_close = history['Close'].iloc[-1]
             
-            # Filter noise: If difference is tiny (<0.01%), assume 0 (Market Open)
-            if abs(ext_delta_pct) < 0.01: ext_delta_pct = 0.0
+            # Calculate difference between Live (8:00 PM) and Regular (4:00 PM)
+            ext_diff = live_price - regular_close
+            ext_pct = (ext_diff / regular_close) * 100
+
+            # Only show if there is a real difference (> 0.01%)
+            if abs(ext_pct) > 0.01:
+                color = "green" if ext_pct > 0 else "red"
+                icon = "🌙" # Moon for After Hours
+                ext_str = f"**{icon} Ext: :{color}[{ext_pct:+.2f}%]**"
         except:
-            ext_delta_pct = 0.0
+            pass
 
         # --- 2. VOLUME ---
         volume = history['Volume'].iloc[-1]
@@ -132,7 +142,6 @@ def fetch_quant_data(symbol):
         macd = ema12 - ema26
         signal = macd.ewm(span=9, adjust=False).mean()
         
-        # Trend Logic (Red/Green Text)
         macd_val = macd.iloc[-1]
         sig_val = signal.iloc[-1]
         
@@ -144,7 +153,7 @@ def fetch_quant_data(symbol):
         return {
             "price": live_price, 
             "day_delta": day_delta_pct,
-            "ext_delta": ext_delta_pct,
+            "ext_str": ext_str,
             "volume": volume,
             "rsi": history['RSI'].iloc[-1],
             "trend": trend_str
@@ -157,7 +166,6 @@ def format_volume(num):
     return str(num)
 
 def display_ticker_grid(ticker_list, live_mode=False):
-    # Silent Alert Check
     if alert_active and not st.session_state['alert_triggered']:
         try:
             check_tick = yf.Ticker(alert_ticker)
@@ -180,28 +188,32 @@ def display_ticker_grid(ticker_list, live_mode=False):
             with cols[i % 3]:
                 data = fetch_quant_data(tick)
                 if data:
+                    # RSI Logic
                     rsi_val = data['rsi']
-                    if rsi_val > 70:   rsi_sig = "🔥 Over"
-                    elif rsi_val < 30: rsi_sig = "🧊 Under"
-                    else:              rsi_sig = "⚪ Neut"
+                    if pd.isna(rsi_val): 
+                        rsi_disp = "N/A" # Graceful fail if still loading
+                    else:
+                        if rsi_val > 70:   rsi_sig = "🔥 Over"
+                        elif rsi_val < 30: rsi_sig = "🧊 Under"
+                        else:              rsi_sig = "⚪ Neut"
+                        rsi_disp = f"{rsi_val:.0f} ({rsi_sig})"
                     
                     vol_str = format_volume(data['volume'])
-                    
-                    # EXTENDED HOURS FORMATTING
-                    ext_str = ""
-                    if abs(data['ext_delta']) > 0.05: 
-                        color = "green" if data['ext_delta'] > 0 else "red"
-                        symbol = "🌙" 
-                        ext_str = f" | :{color}[{symbol} {data['ext_delta']:.2f}%]"
 
-                    # MAIN CARD
+                    # CARD DISPLAY
                     st.metric(
                         label=f"{tick} (Vol: {vol_str})", 
                         value=f"${data['price']:,.2f}", 
                         delta=f"{data['day_delta']:.2f}% (Day)"
                     )
-                    # The Rich Caption
-                    st.markdown(f"{data['trend']} | RSI: {rsi_val:.0f}{ext_str}")
+                    
+                    # Row 1: Trend + RSI
+                    st.markdown(f"{data['trend']} | RSI: {rsi_disp}")
+                    
+                    # Row 2: Extended Hours (Only if exists)
+                    if data['ext_str']:
+                        st.markdown(data['ext_str'])
+                    
                     st.divider()
 
 def fetch_rss_items():
@@ -283,7 +295,6 @@ with tab1:
     st.subheader("Major Indices")
     st.caption(f"Also Watching: {', '.join(watchlist_list)}")
     live_on = st.toggle("🔴 Enable Live Prices", key="live_market")
-    # This line below was crashing because MARKET_TICKERS wasn't found. Fixed now!
     display_ticker_grid(MARKET_TICKERS + watchlist_list, live_mode=live_on)
 
 with tab2:
@@ -334,4 +345,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (NameError Fixed)")
+st.success("✅ System Ready (Fixed: RSI & Ext Hours)")
