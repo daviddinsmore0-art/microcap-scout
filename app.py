@@ -57,7 +57,8 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 st.sidebar.header("⚙️ Settings")
-enable_debug = st.sidebar.checkbox("🛠️ Debug Mode", value=False, help="Show raw earnings dates for testing.")
+# Keep Debug on by default for you to verify, then you can uncheck it
+enable_debug = st.sidebar.checkbox("🛠️ Debug Mode", value=True, help="Show raw earnings dates for testing.")
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
@@ -188,17 +189,33 @@ def fetch_quant_data_v2(symbol, debug=False):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR (DEBUGGABLE)
+        # 6. EARNINGS RADAR (DICT + DATAFRAME SUPPORT)
         earnings_msg = ""
         debug_info = ""
         try:
             cal = ticker.calendar
             next_date = None
             
-            if cal is not None and not cal.empty:
-                if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
-                elif 0 in cal: next_date = cal[0].iloc[0]
+            # --- Robust Extraction Logic ---
+            if cal is not None:
+                # Scenario A: It is a Dictionary (The Bug Fix)
+                if isinstance(cal, dict):
+                    # Try common keys
+                    if 'Earnings Date' in cal:
+                        val = cal['Earnings Date']
+                        if isinstance(val, list): next_date = val[0]
+                        else: next_date = val
+                    elif 0 in cal:
+                        val = cal[0]
+                        if isinstance(val, list): next_date = val[0]
+                        else: next_date = val
+                
+                # Scenario B: It is a DataFrame (The Old Way)
+                elif not cal.empty:
+                    if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
+                    elif 0 in cal: next_date = cal[0].iloc[0]
 
+            # Attempt 2: Backup
             if next_date is None:
                 dates = ticker.get_earnings_dates(limit=1)
                 if dates is not None and not dates.empty:
@@ -212,9 +229,9 @@ def fetch_quant_data_v2(symbol, debug=False):
                 now = datetime.now().replace(tzinfo=None)
                 days_diff = (next_date - now).days
                 
-                if -1 <= days_diff <= 7:
+                if -1 <= days_diff <= 8: # Widened slightly
                     earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
-                elif 7 < days_diff <= 30:
+                elif 8 < days_diff <= 30:
                     fmt_date = next_date.strftime("%b %d")
                     earnings_msg = f":calendar: **Earn: {fmt_date}**"
                 
@@ -483,4 +500,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v2.7 - Debugger Mode)")
+st.success("✅ System Ready (v2.8 - Dictionary Fix)")
