@@ -361,7 +361,7 @@ def analyze_batch(items, client):
         return []
 
 # --- MAIN APP UI ---
-st.title("⚡ PennyPulse Prp")
+st.title("⚡ Penny Pulse")
 
 # RENDER MACRO TAPE (The Global Desk)
 render_ticker_tape(MACRO_TICKERS)
