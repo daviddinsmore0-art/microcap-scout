@@ -26,10 +26,10 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
+    "HIVE":     {"entry": 3.19,  "date": "Jan 7"},
     "BAER":    {"entry": 1.86, "date": "Dec 31"},
     "TX":    {"entry": 38.10, "date": "Dec 29"},
-    "HIVE":     {"entry": 3.19,  "date": "Jan 7"},
-    "IMNN": {"entry": 3.22, "date": "Dec 29"},
+    "IMNN": {"entry": 3.22, "date": "Dec 29"}, 
     "RERE":    {"entry": 5.31, "date": "Dec 29"}
 }
 
