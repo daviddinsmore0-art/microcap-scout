@@ -8,8 +8,9 @@ from datetime import datetime
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 
-# --- SESSION STATE ---
+# --- SESSION STATE INITIALIZATION ---
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
+if 'last_update' not in st.session_state: st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
 
 # --- 🗓️ MANUAL EARNINGS LIST ---
 MANUAL_EARNINGS = {
@@ -52,7 +53,19 @@ alert_ticker = st.sidebar.selectbox("Alert Asset", sorted(ALL_ASSETS))
 alert_price = st.sidebar.number_input("Target Price ($)", min_value=0.0, value=0.0, step=0.5)
 alert_active = st.sidebar.toggle("Activate Alert")
 
-# --- TICKER MAP (For News) ---
+# --- SYMBOL NAMES ---
+SYMBOL_NAMES = {
+    "TSLA": "Tesla", "NVDA": "Nvidia", "BTC-USD": "Bitcoin",
+    "AMD": "AMD", "PLTR": "Palantir", "AAPL": "Apple", "MSFT": "Microsoft",
+    "GOOGL": "Google", "AMZN": "Amazon", "META": "Meta", "NFLX": "Netflix",
+    "SPY": "S&P 500", "QQQ": "Nasdaq", "IWM": "Russell 2k", "DIA": "Dow Jones",
+    "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
+    "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
+    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble",
+    "TMQ": "Trilogy Metals", "VCIG": "VCI Global", "TD.TO": "TD Bank", "CCO.TO": "Cameco", "IVN.TO": "Ivanhoe Mines", "BN.TO": "Brookfield", "NKE": "Nike"
+}
+
+# --- TICKER MAP ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -67,44 +80,34 @@ TICKER_MAP = {
     "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
 }
 
-# --- SYMBOL NAMES ---
-SYMBOL_NAMES = {
-    "TSLA": "Tesla", "NVDA": "Nvidia", "BTC-USD": "Bitcoin",
-    "AMD": "AMD", "PLTR": "Palantir", "AAPL": "Apple", "MSFT": "Microsoft",
-    "GOOGL": "Google", "AMZN": "Amazon", "META": "Meta", "NFLX": "Netflix",
-    "SPY": "S&P 500", "QQQ": "Nasdaq", "IWM": "Russell 2k", "DIA": "Dow Jones",
-    "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
-    "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
-    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble",
-    "TMQ": "Trilogy Metals", "VCIG": "VCI Global", "TD.TO": "TD Bank", "CCO.TO": "Cameco", "IVN.TO": "Ivanhoe Mines", "BN.TO": "Brookfield", "NKE": "Nike"
-}
-
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- ⚡ BATCH LOADER ---
-# Live Mode = No Cache. Normal Mode = Cache 60s.
-def load_market_data(tickers, live=False):
-    if not tickers: return None
+# --- ⚡ THE ENGINE (CACHE BUSTER EDITION) ---
+
+@st.cache_data(ttl=60)
+def load_data_static(tickers):
+    # This runs when Live Mode is OFF (Saves resources)
     try:
-        # If live, we don't cache. If not live, we let Streamlit handle it via rerun speed.
         return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
     except: return None
 
-# --- DECISION ENGINE ---
+def load_data_live(tickers):
+    # This runs when Live Mode is ON (Forces Fresh Data)
+    st.cache_data.clear() # NUCLEAR OPTION: Clear cache to force update
+    try:
+        return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
+    except: return None
+
+# --- LOAD DATA ---
 if st.session_state['live_mode']:
-    BATCH_DATA = load_market_data(ALL_ASSETS, live=True)
-    time.sleep(3) # 3s Loop
-    st.rerun()
+    BATCH_DATA = load_data_live(ALL_ASSETS)
+    st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
 else:
-    # We use a cached wrapper for normal mode to save data
-    @st.cache_data(ttl=60)
-    def cached_load(t): return load_market_data(t)
-    BATCH_DATA = cached_load(ALL_ASSETS)
+    BATCH_DATA = load_data_static(ALL_ASSETS)
 
 # --- FUNCTIONS ---
 def get_live_price_macro(symbol):
     try:
-        # Create fresh ticker object to force bypass internal caches
         ticker = yf.Ticker(symbol)
         price = ticker.fast_info['last_price']
         prev = ticker.fast_info['previous_close']
@@ -189,12 +192,20 @@ def format_volume(num):
     return str(num)
 
 # --- UI HEADER ---
-if st.session_state['live_mode']:
-    st.markdown("## ⚡ Penny Pulse :red[● LIVE]")
-else:
-    st.title("⚡ Penny Pulse")
+c_head_1, c_head_2 = st.columns([3, 1])
+with c_head_1:
+    if st.session_state['live_mode']:
+        st.markdown(f"## ⚡ Penny Pulse :red[● LIVE] <span style='font-size:14px; color:gray'>Last Update: {st.session_state['last_update']}</span>", unsafe_allow_html=True)
+    else:
+        st.title("⚡ Penny Pulse")
 
-# --- IMPROVED TICKER TAPE (Flexbox Fix) ---
+with c_head_2:
+    # LIVE SWITCH (Top Right)
+    live_on = st.toggle("🔴 LIVE DATA", key="live_mode_toggle")
+    if live_on: st.session_state['live_mode'] = True
+    else: st.session_state['live_mode'] = False
+
+# --- TICKER TAPE (FLEXBOX) ---
 def render_ticker_tape(tickers):
     ticker_items = []
     for tick in tickers:
@@ -202,38 +213,17 @@ def render_ticker_tape(tickers):
         c = "#4caf50" if d >= 0 else "#f44336"
         a = "▲" if d >= 0 else "▼"
         display_name = SYMBOL_NAMES.get(tick, tick) 
-        # Added Non-Breaking Spaces and Span Styling to prevent overlap
         ticker_items.append(f"<span style='display:inline-block; margin-right:50px; font-weight:900; font-size:18px; color:white;'>{display_name}: <span style='color:{c};'>${p:,.2f} {a} {d:.2f}%</span></span>")
     
     content_str = "".join(ticker_items)
     
-    # CSS: Uses Flexbox to ensure items stay in a row and don't collapse
     st.markdown(f"""
     <style>
-    .ticker-container {{
-        width: 100%;
-        overflow: hidden;
-        background-color: #0e1117;
-        border-bottom: 2px solid #444;
-        height: 50px;
-        display: flex;
-        align-items: center;
-    }}
-    .ticker-text {{
-        display: flex;
-        white-space: nowrap;
-        animation: ticker-slide 60s linear infinite;
-    }}
-    @keyframes ticker-slide {{
-        0% {{ transform: translateX(0); }}
-        100% {{ transform: translateX(-100%); }}
-    }}
+    .ticker-container {{ width: 100%; overflow: hidden; background-color: #0e1117; border-bottom: 2px solid #444; height: 50px; display: flex; align-items: center; }}
+    .ticker-text {{ display: flex; white-space: nowrap; animation: ticker-slide 60s linear infinite; }}
+    @keyframes ticker-slide {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(-100%); }} }}
     </style>
-    <div class="ticker-container">
-        <div class="ticker-text">
-            {content_str} &nbsp;&nbsp;&nbsp; {content_str} &nbsp;&nbsp;&nbsp; {content_str}
-        </div>
-    </div>
+    <div class="ticker-container"><div class="ticker-text">{content_str} &nbsp;&nbsp;&nbsp; {content_str} &nbsp;&nbsp;&nbsp; {content_str}</div></div>
     """, unsafe_allow_html=True)
 
 render_ticker_tape(MACRO_TICKERS)
@@ -241,29 +231,22 @@ render_ticker_tape(MACRO_TICKERS)
 # --- TABS ---
 tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 
+# --- ALERT CHECK ---
+if alert_active and BATCH_DATA is not None:
+    try:
+        if isinstance(BATCH_DATA.columns, pd.MultiIndex):
+            if alert_ticker in BATCH_DATA.columns.levels[0]:
+                curr = BATCH_DATA[alert_ticker]['Close'].iloc[-1]
+        elif alert_ticker == ALL_ASSETS[0]: curr = BATCH_DATA['Close'].iloc[-1]
+        
+        if 'curr' in locals() and curr >= alert_price and not st.session_state.get('alert_triggered', False):
+            st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr:,.2f}!", icon="🔥")
+            st.session_state['alert_triggered'] = True
+    except: pass
+
 with tab1:
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        st.subheader("My Watchlist")
-        st.caption(f"Tracking: {', '.join(watchlist_list)}")
-    with c2:
-        live_on = st.toggle("🔴 LIVE DATA", key="live_mode_toggle")
-        if live_on: st.session_state['live_mode'] = True
-        else: st.session_state['live_mode'] = False
-
-    # ALERT CHECK
-    if alert_active and BATCH_DATA is not None:
-        try:
-            if isinstance(BATCH_DATA.columns, pd.MultiIndex):
-                if alert_ticker in BATCH_DATA.columns.levels[0]:
-                    curr = BATCH_DATA[alert_ticker]['Close'].iloc[-1]
-            elif alert_ticker == ALL_ASSETS[0]: curr = BATCH_DATA['Close'].iloc[-1]
-            
-            if 'curr' in locals() and curr >= alert_price and not st.session_state.get('alert_triggered', False):
-                st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr:,.2f}!", icon="🔥")
-                st.session_state['alert_triggered'] = True
-        except: pass
-
+    st.subheader("My Watchlist")
+    st.caption(f"Tracking: {', '.join(watchlist_list)}")
     cols = st.columns(3)
     for i, tick in enumerate(watchlist_list):
         with cols[i % 3]:
@@ -295,7 +278,7 @@ with tab2:
                 if data['earn_str']: st.markdown(data['earn_str'])
                 st.divider()
 
-# --- NEWS TAB (Restored) ---
+# --- NEWS TAB ---
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml", "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml", "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"]
@@ -355,4 +338,9 @@ with tab3:
             st.caption(r['reason'])
             st.divider()
 
-st.success("✅ System Ready (v4.9 - Visual Patch)")
+# --- THE LOOP ---
+if st.session_state['live_mode']:
+    time.sleep(3) # Wait 3 seconds
+    st.rerun()    # RESTART SCRIPT
+
+st.success("✅ System Ready (v5.0 - Cache Buster)")
