@@ -87,80 +87,90 @@ TICKER_MAP = {
 
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- ⚡ THE ENGINE (BULLETPROOF) ---
-# Strategy: Use 'fast_info' for price (Reliable). Use 'history' for RSI (Optional).
-# If history fails, we still show the price.
+# --- ⚡ THE ENGINE (IRONCLAD) ---
 
 def fetch_stock_data(symbol):
     clean_symbol = symbol.strip().upper()
+    
+    price = 0.0
+    prev_close = 0.0
+    found_price = False
+
+    # ATTEMPT 1: Fast Info (Best)
     try:
         ticker = yf.Ticker(clean_symbol)
-        
-        # 1. GET PRICE (The Critical Part)
-        # fast_info is much more stable than .history for just current price
+        price = ticker.fast_info['last_price']
+        prev_close = ticker.fast_info['previous_close']
+        found_price = True
+    except:
+        pass
+    
+    # ATTEMPT 2: History (Backup)
+    if not found_price:
         try:
-            price = ticker.fast_info['last_price']
-            prev_close = ticker.fast_info['previous_close']
+            hist = ticker.history(period="5d")
+            if not hist.empty:
+                price = hist['Close'].iloc[-1]
+                prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else hist['Open'].iloc[-1]
+                found_price = True
         except:
-            # Fallback to history if fast_info fails (rare)
-            hist = ticker.history(period="2d")
-            if hist.empty: return None
-            price = hist['Close'].iloc[-1]
-            prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else hist['Open'].iloc[-1]
-
-        # Calculate Change
-        day_pct = ((price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
-        
-        # Crypto Color Logic
-        is_crypto = clean_symbol.endswith("-USD") or "BTC" in clean_symbol
-        if is_crypto:
-            color = "green" if day_pct >= 0 else "red"
-            ext_str = f"**⚡ Live: ${price:,.2f} (:{color}[{day_pct:+.2f}%])**"
-        else:
-            ext_str = f"**🌙 Ext: ${price:,.2f} (:gray[Market Closed])**"
-
-        # 2. GET HISTORY (The Optional Part)
-        # We try to get history for RSI/Volume. If it fails, we default to "N/A" but keep the price.
-        rsi_val = 50
-        trend_str = "WAIT"
-        volume_str = "N/A"
-        
-        try:
-            hist_month = ticker.history(period="1mo")
-            if not hist_month.empty:
-                # Volume
-                vol = hist_month['Volume'].iloc[-1]
-                volume_str = format_volume(vol)
-                
-                # RSI Calc
-                if len(hist_month) >= 14:
-                    delta = hist_month['Close'].diff()
-                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                    rs = gain / loss
-                    rsi = 100 - (100 / (1 + rs))
-                    rsi_val = rsi.iloc[-1]
-                    
-                    # Trend Calc
-                    ema12 = hist_month['Close'].ewm(span=12, adjust=False).mean()
-                    ema26 = hist_month['Close'].ewm(span=26, adjust=False).mean()
-                    macd = ema12 - ema26
-                    if macd.iloc[-1] > 0: trend_str = ":green[BULL]" 
-                    else: trend_str = ":red[BEAR]"
-        except:
-            pass # It's okay if RSI fails, as long as we have price.
-
+            pass
+            
+    # IF ALL FAILS: Return Zombie Data (Prevents Red Box)
+    if not found_price:
         return {
-            "reg_price": price,
-            "day_delta": day_pct,
-            "ext_str": ext_str,
-            "volume": volume_str,
-            "rsi": rsi_val,
-            "trend": trend_str
+            "reg_price": 0.0,
+            "day_delta": 0.0,
+            "ext_str": ":gray[**Data Unavailable**]",
+            "volume": "N/A",
+            "rsi": 50,
+            "trend": "N/A"
         }
 
-    except Exception as e:
-        return None
+    # CALCULATIONS
+    day_pct = ((price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
+    
+    is_crypto = clean_symbol.endswith("-USD") or "BTC" in clean_symbol
+    if is_crypto:
+        color = "green" if day_pct >= 0 else "red"
+        ext_str = f"**⚡ Live: ${price:,.2f} (:{color}[{day_pct:+.2f}%])**"
+    else:
+        ext_str = f"**🌙 Ext: ${price:,.2f} (:gray[Market Closed])**"
+
+    # OPTIONAL HISTORY (For RSI)
+    rsi_val = 50
+    trend_str = "WAIT"
+    volume_str = "N/A"
+    
+    try:
+        hist_month = ticker.history(period="1mo")
+        if not hist_month.empty:
+            vol = hist_month['Volume'].iloc[-1]
+            volume_str = format_volume(vol)
+            
+            if len(hist_month) >= 14:
+                delta = hist_month['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                rs = gain / loss
+                rsi = 100 - (100 / (1 + rs))
+                rsi_val = rsi.iloc[-1]
+                
+                ema12 = hist_month['Close'].ewm(span=12, adjust=False).mean()
+                ema26 = hist_month['Close'].ewm(span=26, adjust=False).mean()
+                macd = ema12 - ema26
+                if macd.iloc[-1] > 0: trend_str = ":green[BULL]" 
+                else: trend_str = ":red[BEAR]"
+    except: pass
+
+    return {
+        "reg_price": price,
+        "day_delta": day_pct,
+        "ext_str": ext_str,
+        "volume": volume_str,
+        "rsi": rsi_val,
+        "trend": trend_str
+    }
 
 def format_volume(num):
     try:
@@ -232,15 +242,15 @@ with tab1:
     cols = st.columns(3)
     for i, tick in enumerate(watchlist_list):
         with cols[i % 3]:
-            # BULLETPROOF FETCH
+            # IRONCLAD FETCH
             data = fetch_stock_data(tick)
-            if data:
-                # BOLD STATS LINE
-                st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
-                st.markdown(f"**Vol: {data['volume']} | RSI: {data['rsi']:.0f} | {data['trend']}**")
-                st.markdown(data['ext_str'])
-                st.divider()
-            else: st.error(f"⚠️ {tick} Unreachable")
+            
+            # If valid price found (even if 0.0, better than error)
+            # BOLD STATS LINE
+            st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
+            st.markdown(f"**Vol: {data['volume']} | RSI: {data['rsi']:.0f} | {data['trend']}**")
+            st.markdown(data['ext_str'])
+            st.divider()
 
 with tab2:
     st.subheader("My Picks")
@@ -322,4 +332,4 @@ if st.session_state['live_mode']:
     time.sleep(3) # Wait 3 seconds
     st.rerun()    # RESTART SCRIPT
 
-st.success("✅ System Ready (v5.6 - Bulletproof)")
+st.success("✅ System Ready (v5.7 - Ironclad)")
