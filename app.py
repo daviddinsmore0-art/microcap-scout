@@ -137,67 +137,8 @@ with tab2:
                 st.markdown(f"**Entry: ${info['entry']} | {d['trend']}**")
                 st.markdown(d['ext_str'])
             st.divider()
+
 # --- NEWS ENGINE (Yahoo/CNBC/WSJ) ---
-def fetch_rss_items():
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    urls = [
-        "https://finance.yahoo.com/news/rssindex",
-        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"
-    ]
-    items = []
-    seen = set()
-    for url in urls:
-        try:
-            r = requests.get(url, headers=headers, timeout=2)
-            root = ET.fromstring(r.content)
-            for item in root.findall('.//item')[:5]:
-                t = item.find('title').text
-                l = item.find('link').text
-                if t and t not in seen:
-                    seen.add(t)
-                    items.append({"title": t, "link": l})
-        except: continue
-    return items
-
-def analyze_batch(items, client):
-    if not items: return []
-    p_list = ""
-    for i, item in enumerate(items):
-        p_list += f"{i+1}. {item['title']}\n"
-    prompt = f"Analyze {len(items)} headlines. Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"
-    try:
-        resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}], max_tokens=400)
-        lines = resp.choices[0].message.content.strip().split("\n")
-        enrich = []
-        idx = 0
-        for l in lines:
-            parts = l.split("|")
-            if len(parts) >= 3 and idx < len(items):
-                enrich.append({"ticker": parts[0].strip(), "signal": parts[1].strip(), "reason": parts[2].strip(), "title": items[idx]['title'], "link": items[idx]['link']})
-                idx += 1
-        return enrich
-    except: return []
-
-with tab3:
-    st.subheader("🚨 Global Wire (Yahoo/CNBC/WSJ)")
-    if st.button("Generate AI Report", type="primary"):
-        if not OPENAI_KEY: st.error("Enter OpenAI Key")
-        else:
-            with st.spinner("Scanning Markets..."):
-                raw = fetch_rss_items()
-                res = analyze_batch(raw, OpenAI(api_key=OPENAI_KEY))
-                st.session_state['news_results'] = res
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider()
-
-if st.session_state['live_mode']:
-    time.sleep(15)
-    st.rerun()
-# --- NEWS ENGINE (High Quality Sources) ---
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
