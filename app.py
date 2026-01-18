@@ -2,6 +2,7 @@ import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as
 from datetime import datetime
 from openai import OpenAI
 
+# --- CONFIG & SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
@@ -9,23 +10,28 @@ if 'last_update' not in st.session_state: st.session_state['last_update'] = date
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
+# --- DATA ---
 PORT = {"HIVE":{"e":3.19},"BAER":{"e":1.86},"TX":{"e":38.10},"IMNN":{"e":3.22},"RERE":{"e":5.31}}
-if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-else: st.sidebar.header("🔑 Login"); KEY = st.sidebar.text_input("OpenAI Key", type="password")
+NAMES = {"TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold"}
 
+# --- SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
+if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
+else: KEY = st.sidebar.text_input("OpenAI Key", type="password")
+
 qp = st.query_params
 w_str = qp.get("watchlist", "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ")
 u_in = st.sidebar.text_input("Add Tickers", value=w_str)
 if u_in != w_str: st.query_params["watchlist"] = u_in
 WATCH = [x.strip().upper() for x in u_in.split(",")]
 ALL = list(set(WATCH + list(PORT.keys())))
-
 st.sidebar.divider()
+live_on = st.sidebar.toggle("Live Mode (Auto-Sync)", value=True)
 a_tick = st.sidebar.selectbox("Alert Asset", sorted(ALL))
 a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5)
 a_on = st.sidebar.toggle("Activate Alert")
 
+# --- ENGINE ---
 def get_data(s):
     s = s.strip().upper()
     p, pv, f = 0.0, 0.0, False
@@ -61,40 +67,44 @@ def get_data(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "tr":tr}
 
+# --- HEADER ---
 c1, c2 = st.columns([3,1])
-with c1: st.markdown(f"## ⚡ Penny Pulse :red[● LIVE] <span style='font-size:14px;color:gray'>Refreshes at :00 (Last: {st.session_state['last_update']})</span>", unsafe_allow_html=True)
-with c2: st.caption("✅ Auto-Sync Active")
+with c1: st.markdown(f"## ⚡ Penny Pulse <span style='font-size:14px;color:gray'>Last: {st.session_state['last_update']}</span>", unsafe_allow_html=True)
+with c2: 
+    if live_on: st.caption("✅ Auto-Sync: ON")
+    else: st.caption("⏸️ Auto-Sync: PAUSED")
 
+# --- TAPE ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
-        ti.append(f"<span style='margin-right:50px;font-weight:900;font-size:18px;color:white;'>{t}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        name = NAMES.get(t, t)
+        ti.append(f"<span style='margin-right:40px;font-weight:bold;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 60s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*3}</div></div>""", unsafe_allow_html=True)
+st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 45s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*3}</div></div>""", unsafe_allow_html=True)
 
+# --- TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 AI News"])
 with t1:
-    st.subheader("My Watchlist")
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
         with cols[i%3]:
             d = get_data(t)
             if d:
-                st.metric(t, f"${d['p']:,.2f}", f"{d['d']:.2f}%")
+                st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(f"**Vol: {d['v']} | RSI: {d['rsi']:.0f} | {d['tr']}**")
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
             st.divider()
 with t2:
-    st.subheader("My Picks")
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]:
             d = get_data(t)
             if d:
-                st.metric(t, f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
+                st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(f"**Entry: ${inf['e']} | {d['tr']}**")
                 st.markdown(d['x'])
             st.divider()
@@ -105,6 +115,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
+# --- NEWS ---
 def get_news():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"]
@@ -123,12 +134,12 @@ def get_news():
 with t3:
     st.subheader("🚨 Global Wire (Yahoo/CNBC/WSJ)")
     if st.button("Generate AI Report", type="primary"):
-        if not KEY: st.error("Enter OpenAI Key")
+        if not KEY: st.error("❌ Missing OpenAI Key. Check Sidebar.")
         else:
             with st.spinner("Scanning..."):
-                raw = get_news()
-                p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
                 try:
+                    raw = get_news()
+                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":f"Analyze {len(raw)} headlines. Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}], max_tokens=400)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
@@ -139,15 +150,16 @@ with t3:
                             enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
                             idx+=1
                     st.session_state['news_results'] = enrich
-                except: st.error("AI Error")
+                except Exception as e: st.error(f"AI Error: {e}")
     if st.session_state.get('news_results'):
         for r in st.session_state['news_results']:
             st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
             st.caption(r['reason'])
             st.divider()
 
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
-st.rerun()
+if live_on:
+    now = datetime.now()
+    wait = 60 - now.second
+    time.sleep(wait + 1)
+    st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
+    st.rerun()
