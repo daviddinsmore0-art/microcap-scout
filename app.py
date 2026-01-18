@@ -2,6 +2,7 @@ import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as
 from datetime import datetime
 import streamlit.components.v1 as components
 import pandas as pd
+import altair as alt  # <--- Added for better charts
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
@@ -96,38 +97,25 @@ def get_rating_cached(s):
         else: return "N/A", "#888"
     except: return "N/A", "#888"
 
-# --- AI SIGNAL ENGINE (Rule-Based) ---
+# --- AI SIGNAL ENGINE ---
 def get_ai_signal(rsi, vol_ratio, trend, price_change):
-    # This simulates "AI" logic using Technical Analysis rules
     score = 0
     reasons = []
     
-    # RSI Logic
-    if rsi >= 80: 
-        score -= 3
-        reasons.append("Extreme Overbought")
-    elif rsi >= 70: 
-        score -= 2
-        reasons.append("Overbought")
-    elif rsi <= 20: 
-        score += 3
-        reasons.append("Extreme Oversold")
-    elif rsi <= 30: 
-        score += 2
-        reasons.append("Oversold")
+    if rsi >= 80: score -= 3; reasons.append("Extreme Overbought")
+    elif rsi >= 70: score -= 2; reasons.append("Overbought")
+    elif rsi <= 20: score += 3; reasons.append("Extreme Oversold")
+    elif rsi <= 30: score += 2; reasons.append("Oversold")
     
-    # Volume Logic
     if vol_ratio > 2.0: 
-        if price_change > 0: score += 2; reasons.append("Vol Surge")
-        else: score -= 2; reasons.append("Panic Sell")
+        if price_change > 0: score += 2
+        else: score -= 2
     elif vol_ratio > 1.2:
         score += 1 if price_change > 0 else -1
 
-    # Trend Logic
     if trend == "BULL": score += 1
     elif trend == "BEAR": score -= 1
 
-    # Final Classification
     if score >= 3: return "🚀 RALLY LIKELY", "#00ff00", "Strong Buy Signal"
     elif score >= 1: return "🟢 BULLISH BIAS", "#4caf50", "Positive Momentum"
     elif score <= -3: return "⚠️ PULLBACK RISK", "#ff0000", "Correction Likely"
@@ -211,10 +199,7 @@ def get_data_cached(s):
                 else:
                     raw_trend = "BEAR"
                     tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
-                    
-                # CALL AI ENGINE
                 ai_txt, ai_col, ai_reas = get_ai_signal(rsi, ratio, raw_trend, dp)
-
     except: pass
     return {"p":p, "d":dp, "d_raw":d_raw, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "ai_reas":ai_reas}
 
@@ -280,30 +265,30 @@ with t1:
                 sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
                 url = f"https://finance.yahoo.com/quote/{t}"
                 st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
-                
                 st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                
-                # AI SIGNAL BADGE
                 st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
-                
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
                 
                 meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
                 st.markdown(meta_html, unsafe_allow_html=True)
-                
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
                 
+                # ALTAIR CHART FIX (ZERO=FALSE)
                 with st.expander("📉 Chart"):
                     if d['chart'] is not None:
-                        st.line_chart(d['chart'], height=200)
+                        cdf = d['chart'].reset_index()
+                        cdf.columns = ['Time', 'Price']
+                        c = alt.Chart(cdf).mark_line().encode(
+                            x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')),
+                            y=alt.Y('Price', scale=alt.Scale(zero=False), title='')
+                        ).properties(height=200)
+                        st.altair_chart(c, use_container_width=True)
                     else: st.caption("Chart data unavailable")
-
             else: st.metric(t, "---", "0.0%")
             st.divider()
 with t2:
-    # --- PORTFOLIO CALCULATION LOOP ---
     tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
     for t, inf in PORT.items():
         d = get_data_cached(t)
@@ -321,21 +306,11 @@ with t2:
     st.markdown(f"""
     <div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;">
         <div style="display:flex; justify-content:space-around; text-align:center;">
-            <div>
-                <div style="color:#aaa; font-size:12px;">Net Liq</div>
-                <div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div>
-            </div>
-            <div>
-                <div style="color:#aaa; font-size:12px;">Day P/L</div>
-                <div style="font-size:18px; font-weight:bold; color:{c_day};">${day_pl:+,.2f}</div>
-            </div>
-            <div>
-                <div style="color:#aaa; font-size:12px;">Total P/L</div>
-                <div style="font-size:18px; font-weight:bold; color:{c_tot};">${tot_pl:+,.2f}</div>
-            </div>
+            <div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div>
+            <div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{c_day};">${day_pl:+,.2f}</div></div>
+            <div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{c_tot};">${tot_pl:+,.2f}</div></div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
@@ -353,23 +328,24 @@ with t2:
                 
                 q = inf.get("q", 100)
                 st.caption(f"{q} Shares @ ${inf['e']}")
-                
                 st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-                
-                # AI SIGNAL BADGE
                 st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
-
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
                 
                 meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
                 st.markdown(meta_html, unsafe_allow_html=True)
-                
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
                 
                 with st.expander("📉 Chart"):
                     if d['chart'] is not None:
-                        st.line_chart(d['chart'], height=200)
+                        cdf = d['chart'].reset_index()
+                        cdf.columns = ['Time', 'Price']
+                        c = alt.Chart(cdf).mark_line().encode(
+                            x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')),
+                            y=alt.Y('Price', scale=alt.Scale(zero=False), title='')
+                        ).properties(height=200)
+                        st.altair_chart(c, use_container_width=True)
                     else: st.caption("Chart data unavailable")
             st.divider()
 
@@ -383,57 +359,4 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://www.investing.com/rss/news.rss"]
-    it, seen = [], set()
-    for u in urls:
-        try:
-            r = requests.get(u, headers=head, timeout=5)
-            root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:5]:
-                t, l = i.find('title').text, i.find('link').text
-                if t and t not in seen:
-                    seen.add(t); it.append({"title":t,"link":l})
-        except: continue
-    return it
-
-with t3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate Report", type="primary", key="news_btn"):
-        with st.spinner("Scanning..."):
-            raw = get_news_cached()
-            if not raw: st.error("⚠️ No news sources responded.")
-            elif not KEY:
-                st.warning("⚠️ No OpenAI Key. Showing Headlines.")
-                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
-            else:
-                try:
-                    from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
-                        {"role":"system", "content": system_instr},
-                        {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
-                    ], max_tokens=400)
-                    enrich = []
-                    lines = res.choices[0].message.content.strip().split("\n")
-                    idx = 0
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts)>=3 and idx<len(raw):
-                            enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
-                            idx+=1
-                    st.session_state['news_results'] = enrich
-                except:
-                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider()
-
-# --- RECONNECT LOGIC ---
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "
