@@ -133,6 +133,7 @@ def fetch_data_safe(symbol):
     # 2. SAFETY NET: If Batch failed, fetch individually
     if df is None or df.empty:
         try:
+            # Force fetch for stubborn tickers
             df = yf.Ticker(symbol).history(period="1mo")
         except: return None
 
