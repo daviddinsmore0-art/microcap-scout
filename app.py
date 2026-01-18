@@ -87,7 +87,7 @@ TICKER_MAP = {
 
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- ⚡ THE ENGINE (CRYPTO SPECIALIST) ---
+# --- ⚡ THE ENGINE (SMOOTH OPERATOR) ---
 
 def fetch_stock_data(symbol):
     clean_symbol = symbol.strip().upper()
@@ -105,21 +105,18 @@ def fetch_stock_data(symbol):
             hist = ticker.history(period="1d", interval="1m")
             if not hist.empty:
                 price = hist['Close'].iloc[-1]
-                # Use open of the first candle as "previous" for the day context
                 prev_close = hist['Open'].iloc[0] 
                 found_price = True
         except: pass
 
-    # === STANDARD PATH FOR STOCKS (Ironclad) ===
+    # === STANDARD PATH FOR STOCKS ===
     if not found_price:
         try:
-            # Attempt 1: Fast Info
             price = ticker.fast_info['last_price']
             prev_close = ticker.fast_info['previous_close']
             found_price = True
         except:
             try:
-                # Attempt 2: Daily History Fallback
                 hist = ticker.history(period="5d")
                 if not hist.empty:
                     price = hist['Close'].iloc[-1]
@@ -127,7 +124,7 @@ def fetch_stock_data(symbol):
                     found_price = True
             except: pass
             
-    # IF ALL FAILS: Return Zombie Data (Prevents Red Box)
+    # IF ALL FAILS: Return Zombie Data
     if not found_price:
         return {
             "reg_price": 0.0,
@@ -148,7 +145,7 @@ def fetch_stock_data(symbol):
     else:
         ext_str = f"**🌙 Ext: ${price:,.2f} (:gray[Market Closed])**"
 
-    # OPTIONAL HISTORY (For RSI)
+    # OPTIONAL HISTORY
     rsi_val = 50
     trend_str = "WAIT"
     volume_str = "N/A"
@@ -212,10 +209,9 @@ def render_ticker_tape(tickers):
     for tick in tickers:
         try:
             t = yf.Ticker(tick)
-            # Try fast info first
             p = t.fast_info['last_price']
             pr = t.fast_info['previous_close']
-            if p is None and tick.endswith("-USD"): # Fallback for crypto in tape
+            if p is None and tick.endswith("-USD"):
                 h = t.history(period="1d", interval="1m")
                 p = h['Close'].iloc[-1]
                 pr = h['Open'].iloc[0]
@@ -282,7 +278,7 @@ with tab2:
                 st.markdown(data['ext_str'])
                 st.divider()
 
-# --- NEWS TAB ---
+# --- NEWS TAB (Fixed) ---
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml", "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml", "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"]
@@ -344,7 +340,8 @@ with tab3:
 
 # --- THE LOOP ---
 if st.session_state['live_mode']:
-    time.sleep(3) # Wait 3 seconds
-    st.rerun()    # RESTART SCRIPT
+    # 15 SECONDS (Much smoother, same data)
+    time.sleep(15) 
+    st.rerun()
 
-st.success("✅ System Ready (v5.8 - Crypto Specialist)")
+st.success("✅ System Ready (v5.9 - Smooth Operator)")
