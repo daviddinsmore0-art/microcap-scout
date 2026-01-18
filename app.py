@@ -17,13 +17,14 @@ if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 
 if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
 if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = False
 
-# --- PORTFOLIO ---
+# --- PORTFOLIO (Added 'q' for Quantity) ---
+# I added "q": 100 as a placeholder so the math works. Change these to your real share counts!
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024"},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025"},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023"},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024"},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024"}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
 }
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
@@ -131,6 +132,7 @@ def get_data_cached(s):
     if not f: return None
     
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
+    d_raw = p - pv # Dollar change raw
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
     
@@ -172,7 +174,7 @@ def get_data_cached(s):
                     raw_trend = "BEAR"
                     tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
     except: pass
-    return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data}
+    return {"p":p, "d":dp, "d_raw":d_raw, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data}
 
 # --- HEADER & COUNTDOWN ---
 c1, c2 = st.columns([1, 1])
@@ -232,11 +234,10 @@ with t1:
                 rat_txt, rat_col = get_rating_cached(t)
                 sec, earn = get_meta_data(t)
                 
-                # FIXED HEADER HTML: Removed 'color:white' so it works in Light Mode too
                 nm = NAMES.get(t, t)
                 sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
                 url = f"https://finance.yahoo.com/quote/{t}"
-                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>🔗</a></h3>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
                 
                 st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
@@ -256,6 +257,43 @@ with t1:
             else: st.metric(t, "---", "0.0%")
             st.divider()
 with t2:
+    # --- PORTFOLIO CALCULATION LOOP ---
+    tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
+    # First pass to calc totals
+    for t, inf in PORT.items():
+        d = get_data_cached(t)
+        if d:
+            q = inf.get("q", 100) # Quantity
+            curr_val = d['p'] * q
+            cost_basis = inf['e'] * q
+            
+            tot_val += curr_val
+            tot_pl += (curr_val - cost_basis)
+            day_pl += (d['d_raw'] * q)
+            
+    # DISPLAY TOTALS
+    c_day = "green" if day_pl >= 0 else "red"
+    c_tot = "green" if tot_pl >= 0 else "red"
+    
+    st.markdown(f"""
+    <div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;">
+        <div style="display:flex; justify-content:space-around; text-align:center;">
+            <div>
+                <div style="color:#aaa; font-size:14px;">Net Liq</div>
+                <div style="font-size:24px; font-weight:bold; color:white;">${tot_val:,.2f}</div>
+            </div>
+            <div>
+                <div style="color:#aaa; font-size:14px;">Day P/L</div>
+                <div style="font-size:24px; font-weight:bold; color:{c_day};">${day_pl:+,.2f}</div>
+            </div>
+            <div>
+                <div style="color:#aaa; font-size:14px;">Total P/L</div>
+                <div style="font-size:24px; font-weight:bold; color:{c_tot};">${tot_pl:+,.2f}</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]:
@@ -265,11 +303,14 @@ with t2:
                 rat_txt, rat_col = get_rating_cached(t)
                 sec, earn = get_meta_data(t)
                 
-                # FIXED HEADER HTML
                 nm = NAMES.get(t, t)
                 sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
                 url = f"https://finance.yahoo.com/quote/{t}"
-                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>🔗</a></h3>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
+                
+                # Show Quantity in Caption
+                q = inf.get("q", 100)
+                st.caption(f"{q} Shares @ ${inf['e']}")
                 
                 st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
@@ -277,8 +318,6 @@ with t2:
                 meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
                 st.markdown(meta_html, unsafe_allow_html=True)
                 
-                date_str = inf.get("d", "N/A")
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
                 
@@ -323,32 +362,4 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
-                        {"role":"system", "content": system_instr},
-                        {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
-                    ], max_tokens=400)
-                    enrich = []
-                    lines = res.choices[0].message.content.strip().split("\n")
-                    idx = 0
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts)>=3 and idx<len(raw):
-                            enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
-                            idx+=1
-                    st.session_state['news_results'] = enrich
-                except:
-                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider()
-
-# --- RECONNECT LOGIC ---
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
+                    p_list = "\n".join([f"{i+1}. {x
