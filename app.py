@@ -10,12 +10,17 @@ if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'
 
 # --- DATA ---
 PORT = {"HIVE":{"e":3.19},"BAER":{"e":1.86},"TX":{"e":38.10},"IMNN":{"e":3.22},"RERE":{"e":5.31}}
-NAMES = {"TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", "BN.TO":"Brookfield", "JNJ":"J&J"}
+NAMES = {
+    "TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", 
+    "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", 
+    "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", "BN.TO":"Brookfield", "JNJ":"J&J"
+}
 
 # --- SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
+
 qp = st.query_params
 w_str = qp.get("watchlist", "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ")
 u_in = st.sidebar.text_input("Add Tickers", value=w_str)
@@ -62,11 +67,11 @@ def get_data(s):
                 d = hm['Close'].diff()
                 g, l = d.where(d>0,0).rolling(14).mean(), (-d.where(d<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
-                # RSI Logic (Hot/Cold)
+                # RSI
                 if rsi >= 70: rsi_label = "🔥 HOT"
                 elif rsi <= 30: rsi_label = "❄️ COLD"
                 else: rsi_label = "😐 OK"
-                # MACD Logic (Momentum)
+                # MACD
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
                 tr = ":green[BULL]" if macd.iloc[-1]>0 else ":red[BEAR]"
     except: pass
@@ -76,24 +81,24 @@ def get_data(s):
 c1, c2 = st.columns([3,1])
 with c1: st.title("⚡ Penny Pulse")
 with c2: 
-    # Self-correcting Javascript Timer
+    # Timer - Updated styling to ensure 's' is visible
     components.html("""
-    <div style="font-family:sans-serif; color:#888; font-size:14px; text-align:right; padding-top:20px;">
-    Next Update: <span id="timer" style="color:white; font-weight:bold; font-size:16px;">--</span>s
+    <div style="font-family:sans-serif; color:#888; font-size:14px; text-align:right; margin-top:10px;">
+    Next Update: <span id="timer" style="color:white; font-weight:bold; font-size:16px;">--</span>
     </div>
     <script>
     function updateTimer() {
         var now = new Date();
         var seconds = now.getSeconds();
         var left = 60 - seconds;
-        document.getElementById("timer").innerText = left;
+        document.getElementById("timer").innerText = left + "s";
     }
     setInterval(updateTimer, 1000);
     updateTimer();
     </script>
-    """, height=50)
+    """, height=60)
 
-# --- TAPE ---
+# --- TAPE (Slower Speed) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
@@ -102,7 +107,8 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
         name = NAMES.get(t, t)
         ti.append(f"<span style='margin-right:40px;font-weight:bold;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 150s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*30}</div></div>""", unsafe_allow_html=True)
+# Changed animation to 600s (10 minutes) for very smooth scrolling
+st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 600s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*30}</div></div>""", unsafe_allow_html=True)
 
 # --- TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -113,9 +119,9 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                # CLEANER LAYOUT
+                # BOLD RSI & MOMENTUM
                 st.markdown(f"**Momentum: {d['tr']}**")
-                st.caption(f"Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})")
+                st.markdown(f"**Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})**")
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
             st.divider()
@@ -126,8 +132,9 @@ with t2:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
+                # BOLD RSI & MOMENTUM
                 st.markdown(f"**Momentum: {d['tr']}**")
-                st.caption(f"Entry: ${inf['e']} | RSI: {d['rsi']:.0f}")
+                st.markdown(f"**Entry: ${inf['e']} | RSI: {d['rsi']:.0f}**")
                 st.markdown(d['x'])
             st.divider()
 
