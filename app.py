@@ -1,6 +1,7 @@
 import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime
 import streamlit.components.v1 as components
+import pandas as pd
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
@@ -52,8 +53,6 @@ flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on")
 def get_meta_data(s):
     try:
         tk = yf.Ticker(s)
-        
-        # 1. SECTOR MAPPING
         sec_raw = tk.info.get('sector', 'N/A')
         sec_map = {
             "Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH",
@@ -62,35 +61,26 @@ def get_meta_data(s):
         }
         sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
         
-        # 2. EARNINGS COUNTDOWN
         earn_html = ""
         try:
             cal = tk.calendar
-            # Handle different yfinance calendar structures
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 dates = cal['Earnings Date']
-                # If it's a list, pick the first one
-                if isinstance(dates, list) and len(dates) > 0:
-                    nxt = dates[0]
+                if isinstance(dates, list) and len(dates) > 0: nxt = dates[0]
                 else: nxt = None
-            elif hasattr(cal, 'iloc'): # If DataFrame
-                 nxt = cal.iloc[0,0] if not cal.empty else None
+            elif hasattr(cal, 'iloc'): nxt = cal.iloc[0,0] if not cal.empty else None
             else: nxt = None
 
             if nxt:
-                # Ensure nxt is a date object
                 if hasattr(nxt, "date"): nxt = nxt.date()
                 days = (nxt - datetime.now().date()).days
-                
                 if 0 <= days <= 7:
                     earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
                 elif 8 <= days <= 30:
                     earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
         except: pass
-        
         return sector_code, earn_html
-    except:
-        return "", ""
+    except: return "", ""
 
 # --- ANALYST RATINGS (Cached 1 Hour) ---
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -106,11 +96,12 @@ def get_rating_cached(s):
         else: return "N/A", "#888"
     except: return "N/A", "#888"
 
-# --- LIVE PRICE ENGINE (Cached 60s) ---
+# --- LIVE PRICE ENGINE (Now returns chart data) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
     s = s.strip().upper()
     p, pv, dh, dl, f = 0.0, 0.0, 0.0, 0.0, False
+    chart_data = None
     tk = yf.Ticker(s)
     is_crypto = s.endswith("-USD")
     
@@ -123,17 +114,21 @@ def get_data_cached(s):
             f = True
         except: pass
 
-    if not f or is_crypto:
-        try:
-            h = tk.history(period="1d", interval="1m")
-            if h.empty: h = tk.history(period="5d")
-            if not h.empty:
+    # Always fetch history for chart, even if fast_info worked
+    try:
+        h = tk.history(period="1d", interval="5m") # 5m interval is cleaner for mobile charts
+        if h.empty: h = tk.history(period="5d", interval="1h")
+        
+        if not h.empty:
+            chart_data = h['Close']
+            if not f or is_crypto:
                 p = h['Close'].iloc[-1]
                 pv = h['Open'].iloc[0] if is_crypto else h['Close'].iloc[-2]
                 dh = h['High'].max()
                 dl = h['Low'].min()
                 f = True
-        except: pass
+    except: pass
+        
     if not f: return None
     
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
@@ -153,6 +148,7 @@ def get_data_cached(s):
 
     rsi, rl, tr, v_str, vol_tag, raw_trend = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL"
     try:
+        # Fetch slightly longer history for indicators
         hm = tk.history(period="1mo")
         if not hm.empty:
             cur_v = hm['Volume'].iloc[-1]
@@ -178,7 +174,7 @@ def get_data_cached(s):
                     raw_trend = "BEAR"
                     tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
     except: pass
-    return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html}
+    return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data}
 
 # --- HEADER & COUNTDOWN ---
 c1, c2 = st.columns([1, 1])
@@ -236,23 +232,31 @@ with t1:
             if d:
                 check_flip(t, d['raw_trend'])
                 rat_txt, rat_col = get_rating_cached(t)
-                sec, earn = get_meta_data(t) # Fetch Sector & Earnings
+                sec, earn = get_meta_data(t)
                 
-                # Header with Sector Tag
+                # Linkable Header
                 nm = NAMES.get(t, t)
-                if sec: nm += f" <span style='color:#777; font-size:14px;'>[{sec}]</span>"
+                sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
+                url = f"https://finance.yahoo.com/quote/{t}"
+                st.markdown(f"<a href='{url}' target='_blank' style='text-decoration:none; color:white;'><h3 style='margin:0; padding:0;'>{nm}{sec_tag} 🔗</h3></a>", unsafe_allow_html=True)
                 
-                st.markdown(f"<h3 style='margin:0; padding:0;'>{nm}</h3>", unsafe_allow_html=True)
                 st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
                 
-                # Meta Line: Earnings + Rating + Momentum
                 meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
                 st.markdown(meta_html, unsafe_allow_html=True)
                 
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
+                
+                # SLIDE DOWN CHART
+                with st.expander("📉 Chart"):
+                    if d['chart'] is not None:
+                        st.line_chart(d['chart'], height=200)
+                    else:
+                        st.caption("Chart data unavailable")
+
             else: st.metric(t, "---", "0.0%")
             st.divider()
 with t2:
@@ -266,9 +270,10 @@ with t2:
                 sec, earn = get_meta_data(t)
                 
                 nm = NAMES.get(t, t)
-                if sec: nm += f" <span style='color:#777; font-size:14px;'>[{sec}]</span>"
+                sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
+                url = f"https://finance.yahoo.com/quote/{t}"
+                st.markdown(f"<a href='{url}' target='_blank' style='text-decoration:none; color:white;'><h3 style='margin:0; padding:0;'>{nm}{sec_tag} 🔗</h3></a>", unsafe_allow_html=True)
                 
-                st.markdown(f"<h3 style='margin:0; padding:0;'>{nm}</h3>", unsafe_allow_html=True)
                 st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
                 
@@ -279,6 +284,13 @@ with t2:
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
+                
+                # SLIDE DOWN CHART
+                with st.expander("📉 Chart"):
+                    if d['chart'] is not None:
+                        st.line_chart(d['chart'], height=200)
+                    else:
+                        st.caption("Chart data unavailable")
             st.divider()
 
 if a_on:
