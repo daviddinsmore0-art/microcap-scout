@@ -71,7 +71,7 @@ def get_data(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
-# --- HEADER & COUNTDOWN (SMALLER) ---
+# --- HEADER & COUNTDOWN (SMALL) ---
 st.title("⚡ Penny Pulse")
 components.html("""
 <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 2px; border-radius: 5px;">
@@ -91,16 +91,18 @@ startTimer();
 </script>
 """, height=40)
 
-# --- TICKER (Small & Fast) ---
+# --- TICKER (Standard Size & Speed) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:14px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        # RESTORED: 18px Size
+        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:35px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 150s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
+# RESTORED: 600s Speed (Smooth)
+st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 600s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
 
 # --- DASHBOARD ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
