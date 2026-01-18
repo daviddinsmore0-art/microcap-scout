@@ -108,7 +108,6 @@ with c1:
     st.caption(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
 
 with c2:
-    # Centered Countdown
     components.html("""
     <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;">
         <span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span>
@@ -128,22 +127,22 @@ with c2:
     </script>
     """, height=60)
 
-# --- TICKER (MOBILE FRIENDLY - MARQUEE) ---
+# --- TICKER (SEAMLESS LOOP) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        ti.append(f"<span style='margin-right:25px;font-weight:900;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        # Font size increased to 22px
+        ti.append(f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
 
-# We use the <marquee> tag here. It is old-school but works 100% perfectly on mobile for this specific use case.
-# scrollamount="6" is the speed. Lower = Slower.
+# Multiplying {h*15} creates a very long continuous string, eliminating the gap.
 st.markdown(f"""
 <div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;">
     <marquee scrollamount="6" style="width: 100%;">
-        {h}
+        {h * 15}
     </marquee>
 </div>
 """, unsafe_allow_html=True)
