@@ -2,7 +2,6 @@ import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 
-# --- CONFIG ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
@@ -11,10 +10,10 @@ if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'
 
 # --- DATA & NAMES ---
 PORT = {"HIVE":{"e":3.19},"BAER":{"e":1.86},"TX":{"e":38.10},"IMNN":{"e":3.22},"RERE":{"e":5.31}}
-NAMES = {"TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe"}
+NAMES = {"TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", "BN.TO":"Brookfield"}
 
 # --- SIDEBAR ---
-st.sidebar.header("⚡ Pulse")
+st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
@@ -54,7 +53,7 @@ def get_data(s):
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
         
-    rsi, rsi_label, v_str = 50, "WAIT", "N/A"
+    rsi, rsi_label, tr, v_str = 50, "WAIT", "WAIT", "N/A"
     try:
         hm = tk.history(period="1mo")
         if not hm.empty:
@@ -64,31 +63,37 @@ def get_data(s):
                 d = hm['Close'].diff()
                 g, l = d.where(d>0,0).rolling(14).mean(), (-d.where(d<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
-                # Hot or Not Logic
-                if rsi >= 70: rsi_label = "🔥 :red[HOT]"
-                elif rsi <= 30: rsi_label = "❄️ :blue[COLD]"
+                # Hot/Cold
+                if rsi >= 70: rsi_label = "🔥 HOT"
+                elif rsi <= 30: rsi_label = "❄️ COLD"
                 else: rsi_label = "😐 HOLD"
+                # Bull/Bear
+                macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
+                tr = ":green[BULL]" if macd.iloc[-1]>0 else ":red[BEAR]"
     except: pass
-    return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rsi_label}
+    return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rsi_label, "tr":tr}
 
 # --- HEADER & COUNTDOWN ---
 c1, c2 = st.columns([3,1])
 with c1: 
     st.title("⚡ Penny Pulse")
 with c2: 
-    # Client-side JS Countdown
-    components.html("""
+    # Fixed JS Timer
+    now = datetime.now()
+    sec_left = 60 - now.second
+    components.html(f"""
     <div style="font-family:sans-serif; color:#888; font-size:14px; text-align:right; padding-top:20px;">
-    Next Update: <span id="time" style="color:white; font-weight:bold;">--</span>s
+    Next Update: <span id="time" style="color:white; font-weight:bold;">{sec_left}</span>s
     </div>
     <script>
-    function startTimer() {
-        setInterval(function() {
-            var now = new Date();
-            var sec = 60 - now.getSeconds();
+    var sec = {sec_left};
+    function startTimer() {{
+        setInterval(function() {{
+            sec--;
+            if (sec < 0) sec = 60;
             document.getElementById("time").innerText = sec;
-        }, 1000);
-    }
+        }}, 1000);
+    }}
     startTimer();
     </script>
     """, height=50)
@@ -113,7 +118,8 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                st.markdown(f"**Vol: {d['v']} | RSI: {d['rsi']:.0f} | {d['rl']}**")
+                # Added Trend (tr) back
+                st.markdown(f"**Vol: {d['v']} | RSI: {d['rsi']:.0f} | {d['rl']} | {d['tr']}**")
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
             st.divider()
@@ -124,7 +130,7 @@ with t2:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-                st.markdown(f"**Entry: ${inf['e']} | {d['rl']}**")
+                st.markdown(f"**Entry: ${inf['e']} | {d['rl']} | {d['tr']}**")
                 st.markdown(d['x'])
             st.divider()
 
@@ -134,7 +140,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS (Auto-Fallback) ---
+# --- NEWS ---
 def get_news():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html"]
@@ -155,12 +161,10 @@ with t3:
     if st.button("Generate Report (Auto-Detect)", type="primary"):
         with st.spinner("Scanning..."):
             raw = get_news()
-            # If no key, skip AI
             if not KEY:
                 st.warning("⚠️ No OpenAI Key found. Showing headlines.")
                 st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
             else:
-                # Try AI, Fallback if Rate Limit
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
@@ -175,7 +179,7 @@ with t3:
                             idx+=1
                     st.session_state['news_results'] = enrich
                 except Exception as e: 
-                    st.warning(f"⚠️ AI Busy/Limit Reached. Switched to Free Mode.")
+                    st.warning(f"⚠️ AI Busy. Switched to Free Mode.")
                     st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
 
     if st.session_state.get('news_results'):
