@@ -8,14 +8,13 @@ except: pass
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
-# --- PORTFOLIO (Add your dates here) ---
-# Format: "TICKER": {"e": Entry Price, "d": "Purchase Date"}
+# --- PORTFOLIO (Updated to your Date Format) ---
 PORT = {
-    "HIVE": {"e": 3.19, "d": "2024-12-01"},
-    "BAER": {"e": 1.86, "d": "2025-01-10"},
-    "TX":   {"e": 38.10, "d": "2023-11-05"},
-    "IMNN": {"e": 3.22, "d": "2024-08-20"},
-    "RERE": {"e": 5.31, "d": "2024-10-12"}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024"},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025"},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023"},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024"},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024"}
 }
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
@@ -79,7 +78,7 @@ def get_data(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
-# --- HEADER & COUNTDOWN ---
+# --- HEADER & COUNTDOWN (SMALL) ---
 st.title("⚡ Penny Pulse")
 components.html("""
 <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 2px; border-radius: 5px;">
@@ -132,7 +131,7 @@ with t2:
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
-                # UPDATED: Now shows Entry Price AND Date
+                # UPDATED: Entry + Your Custom Date Format
                 date_str = inf.get("d", "N/A")
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str}) | RSI: {d['rsi']:.0f}</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
