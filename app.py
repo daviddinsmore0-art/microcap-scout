@@ -56,7 +56,6 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    # YOUR FULL LIST RESTORED
     saved_watchlist = "TD.TO, CCO.TO, IVN.TO, BN.TO, VCIG, TMQ, NKE, NFLX, UAL, PG"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -67,11 +66,10 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 
-# --- 🛠️ EARNINGS FIXER (DIRECT MODE) ---
+# --- 🛠️ EARNINGS FIXER ---
 with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     st.caption("Override any date here.")
     
-    # NO FORM - DIRECT INPUTS
     c1, c2 = st.columns([1, 2])
     with c1:
         fix_tick = st.text_input("Ticker", placeholder="TMQ", key="fix_t").upper().strip()
@@ -80,7 +78,6 @@ with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     
     if st.button("💾 Save Override"):
         if fix_tick:
-            # Force String Save
             date_str = fix_date.strftime("%Y-%m-%d")
             st.session_state['user_dates'][fix_tick] = date_str
             st.success(f"Saved {fix_tick}!")
@@ -154,13 +151,23 @@ def fetch_quant_data_v3(symbol):
         ticker = yf.Ticker(symbol)
         clean_symbol = symbol.strip().upper()
         
-        # --- TURBO MODE: Skip heavy .info call ---
-        # Get Price Data via fast_info (Reliable)
+        # --- THE DOUBLE-TAP ENGINE (Reliability Fix) ---
+        reg_price = 0.0
+        prev_close = 0.0
+        
+        # Method 1: Turbo (Fast Info)
         try:
             reg_price = ticker.fast_info['last_price']
             prev_close = ticker.fast_info['previous_close']
         except:
-            return None # If we can't get price, the ticker is broken
+            # Method 2: Backup (History) - If Turbo Fails, Try This
+            try:
+                hist = ticker.history(period="1d")
+                if not hist.empty:
+                    reg_price = hist['Close'].iloc[-1]
+                    prev_close = hist['Open'].iloc[-1] # Approximation for backup
+            except:
+                return None # Both failed, give up
 
         # 2. IS THIS CRYPTO?
         is_crypto = symbol.endswith("-USD") or "BTC" in symbol or "ETH" in symbol
@@ -176,10 +183,13 @@ def fetch_quant_data_v3(symbol):
             color = "green" if day_pct >= 0 else "red"
             ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
         else:
-            # Simple Ext logic to avoid crashes
             ext_str = f"**🌙 Ext: ${reg_price:,.2f} (:gray[Market Closed])**"
 
         # 5. FETCH HISTORY (For RSI)
+        volume = 0
+        rsi_val = 50
+        trend_str = ":gray[**WAIT**]"
+        
         try:
             history = ticker.history(period="1mo", interval="1d", prepost=True)
             if not history.empty:
@@ -199,16 +209,9 @@ def fetch_quant_data_v3(symbol):
                 macd = ema12 - ema26
                 if macd.iloc[-1] > 0: trend_str = ":green[**BULL**]" 
                 else: trend_str = ":red[**BEAR**]"
-            else:
-                volume = 0
-                rsi_val = 50
-                trend_str = ":gray[**WAIT**]"
-        except:
-             volume = 0
-             rsi_val = 50
-             trend_str = ":gray[**DATA?**]"
+        except: pass
 
-        # 6. EARNINGS RADAR (PRIORITY SYSTEM)
+        # 6. EARNINGS RADAR
         earnings_msg = ""
         next_date = None
         source_label = ""
@@ -512,4 +515,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.6 - Turbo & UI Fix)")
+st.success("✅ System Ready (v3.7 - Reliability Update)")
