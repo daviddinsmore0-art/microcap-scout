@@ -18,7 +18,6 @@ except:
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
-if 'user_dates' not in st.session_state: st.session_state['user_dates'] = {}
 
 if "OPENAI_KEY" in st.secrets:
     OPENAI_KEY = st.secrets["OPENAI_KEY"]
@@ -26,8 +25,9 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 🗓️ ADMIN DEFAULT DATES (Priority 2) ---
-ADMIN_EARNINGS = {
+# --- 🗓️ MANUAL EARNINGS LIST (The Bulletproof Method) ---
+# Edit these dates directly here. No buttons required.
+MANUAL_EARNINGS = {
     "TMQ": "2026-02-13",
     "NFLX": "2026-01-20",
     "PG": "2026-01-22",
@@ -63,40 +63,6 @@ if user_input != saved_watchlist:
     st.query_params["watchlist"] = user_input
 
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
-
-st.sidebar.divider()
-
-# --- 🛠️ EARNINGS FIXER (DIRECT WRITE MODE) ---
-with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
-    st.caption("Override any date here.")
-    
-    # We use specific keys to read the data reliably
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        st.text_input("Ticker", placeholder="TMQ", key="fix_tick_input")
-    with c2:
-        st.date_input("Date", key="fix_date_input")
-    
-    if st.button("💾 Save Override"):
-        # Read directly from the widget state
-        tick_val = st.session_state.fix_tick_input.upper().strip()
-        date_val = st.session_state.fix_date_input
-        
-        if tick_val:
-            date_str = date_val.strftime("%Y-%m-%d")
-            st.session_state['user_dates'][tick_val] = date_str
-            st.success(f"Saved {tick_val}!")
-            time.sleep(0.5)
-            st.rerun()
-
-    if st.session_state['user_dates']:
-        st.divider()
-        st.caption("Active Overrides:")
-        st.write(st.session_state['user_dates'])
-        
-        if st.button("🗑️ Clear All"):
-            st.session_state['user_dates'] = {}
-            st.rerun()
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
@@ -151,27 +117,24 @@ def get_live_price(symbol):
         return price, delta
     except: return 0.0, 0.0
 
-def fetch_quant_data_v3(symbol):
+def fetch_quant_data_v4(symbol):
     try:
         ticker = yf.Ticker(symbol)
         clean_symbol = symbol.strip().upper()
         
-        # --- THE DOUBLE-TAP ENGINE (Reliability Fix) ---
+        # --- DOUBLE-TAP ENGINE (Speed + Reliability) ---
         reg_price = 0.0
         prev_close = 0.0
         data_found = False
         
-        # Attempt 1: Turbo Mode (Fast Info)
-        # Fast, but sometimes blocked by Yahoo for .TO tickers
+        # 1. Try Turbo (Fast)
         try:
             reg_price = ticker.fast_info['last_price']
             prev_close = ticker.fast_info['previous_close']
             if reg_price > 0: data_found = True
-        except:
-            pass
+        except: pass
 
-        # Attempt 2: Backup Mode (History)
-        # If Turbo failed, use this 100% reliable method
+        # 2. Try Standard (Backup)
         if not data_found:
             try:
                 hist = ticker.history(period="1d")
@@ -179,29 +142,26 @@ def fetch_quant_data_v3(symbol):
                     reg_price = hist['Close'].iloc[-1]
                     prev_close = hist['Open'].iloc[-1]
                     data_found = True
-            except:
-                pass
+            except: pass
 
         if not data_found:
-            return None # Truly broken ticker
+            return None # Skip broken tickers
 
-        # 2. IS THIS CRYPTO?
+        # 3. Calculate Stats
         is_crypto = symbol.endswith("-USD") or "BTC" in symbol or "ETH" in symbol
-
-        # 3. CALCULATE GAINS
+        
         if prev_close and prev_close > 0:
             day_pct = ((reg_price - prev_close) / prev_close) * 100
         else:
             day_pct = 0.0
             
-        # 4. FORMAT SECOND LINE
         if is_crypto:
             color = "green" if day_pct >= 0 else "red"
             ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
         else:
             ext_str = f"**🌙 Ext: ${reg_price:,.2f} (:gray[Market Closed])**"
 
-        # 5. FETCH HISTORY (For RSI)
+        # 4. Indicators (RSI/Trend)
         volume = 0
         rsi_val = 50
         trend_str = ":gray[**WAIT**]"
@@ -219,7 +179,6 @@ def fetch_quant_data_v3(symbol):
                 history['RSI'] = 100 - (100 / (1 + rs))
                 rsi_val = history['RSI'].iloc[-1]
                 
-                # Simple Trend
                 ema12 = history['Close'].ewm(span=12, adjust=False).mean()
                 ema26 = history['Close'].ewm(span=26, adjust=False).mean()
                 macd = ema12 - ema26
@@ -227,27 +186,17 @@ def fetch_quant_data_v3(symbol):
                 else: trend_str = ":red[**BEAR**]"
         except: pass
 
-        # 6. EARNINGS RADAR
+        # 5. EARNINGS RADAR (Bulletproof Manual Check)
         earnings_msg = ""
         next_date = None
-        source_label = ""
         
-        # PRIORITY 1: User Session Override
-        if clean_symbol in st.session_state['user_dates']:
-            date_str = st.session_state['user_dates'][clean_symbol]
+        # Priority 1: Check Manual List (Code)
+        if clean_symbol in MANUAL_EARNINGS:
             try:
-                next_date = datetime.strptime(date_str, "%Y-%m-%d")
-                source_label = " (User)"
+                next_date = datetime.strptime(MANUAL_EARNINGS[clean_symbol], "%Y-%m-%d")
             except: pass
-
-        # PRIORITY 2: Admin Code Override
-        if next_date is None and clean_symbol in ADMIN_EARNINGS:
-            try:
-                next_date = datetime.strptime(ADMIN_EARNINGS[clean_symbol], "%Y-%m-%d")
-                source_label = " (Admin)"
-            except: pass
-
-        # PRIORITY 3: Yahoo Calendar (Auto)
+            
+        # Priority 2: Check Yahoo (Auto)
         if next_date is None:
             try:
                 cal = ticker.calendar
@@ -266,20 +215,16 @@ def fetch_quant_data_v3(symbol):
                         elif 0 in cal: next_date = cal[0].iloc[0]
             except: pass
 
-        # --- CALCULATE BADGE ---
         if next_date:
-            if hasattr(next_date, "replace"):
-                next_date = next_date.replace(tzinfo=None)
-            
+            if hasattr(next_date, "replace"): next_date = next_date.replace(tzinfo=None)
             now = datetime.now().replace(tzinfo=None)
             days_diff = (next_date - now).days
             
-            # EXTENDED TO 90 DAYS
             if -1 <= days_diff <= 8:
                 earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
             elif 8 < days_diff <= 90:
                 fmt_date = next_date.strftime("%b %d")
-                earnings_msg = f":calendar: **Earn: {fmt_date}{source_label}**"
+                earnings_msg = f":calendar: **Earn: {fmt_date}**"
 
         return {
             "reg_price": reg_price,
@@ -362,8 +307,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
             with cols[i % 3]:
-                # USING NEW V3 TURBO FUNCTION
-                data = fetch_quant_data_v3(tick)
+                # USING V4 STABLE ENGINE
+                data = fetch_quant_data_v4(tick)
                 if data:
                     rsi_val = data['rsi']
                     if pd.isna(rsi_val): 
@@ -389,8 +334,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     st.divider()
                 else:
-                    # SHOW ERROR SO YOU KNOW IT FAILED
-                    st.error(f"⚠️ Failed to load {tick}")
+                    # Pass silently for small caps if they fail (Cleaner UI)
+                    pass
 
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -482,7 +427,7 @@ with tab2:
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            data = fetch_quant_data_v3(ticker)
+            data = fetch_quant_data_v4(ticker)
             if data:
                 current = data['reg_price'] 
                 entry = info['entry']
@@ -531,4 +476,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.7 - The Double-Tap Update)")
+st.success("✅ System Ready (v4.0 - Stable Core)")
