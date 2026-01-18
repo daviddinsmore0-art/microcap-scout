@@ -70,19 +70,22 @@ st.sidebar.divider()
 with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     st.caption("Override any date here.")
     
-    # Simple Direct Inputs (No Form to block saving)
+    # We use specific keys to read the data reliably
     c1, c2 = st.columns([1, 2])
     with c1:
-        fix_tick = st.text_input("Ticker", placeholder="TMQ", key="ft_input").upper().strip()
+        st.text_input("Ticker", placeholder="TMQ", key="fix_tick_input")
     with c2:
-        fix_date = st.date_input("Date", key="fd_input")
+        st.date_input("Date", key="fix_date_input")
     
     if st.button("💾 Save Override"):
-        if fix_tick:
-            # DIRECT WRITE TO MEMORY
-            date_str = fix_date.strftime("%Y-%m-%d")
-            st.session_state['user_dates'][fix_tick] = date_str
-            st.success(f"Saved {fix_tick}!")
+        # Read directly from the widget state
+        tick_val = st.session_state.fix_tick_input.upper().strip()
+        date_val = st.session_state.fix_date_input
+        
+        if tick_val:
+            date_str = date_val.strftime("%Y-%m-%d")
+            st.session_state['user_dates'][tick_val] = date_str
+            st.success(f"Saved {tick_val}!")
             time.sleep(0.5)
             st.rerun()
 
@@ -158,24 +161,29 @@ def fetch_quant_data_v3(symbol):
         prev_close = 0.0
         data_found = False
         
-        # Method 1: Turbo (Fast Info) - Fast but can be blocked
+        # Attempt 1: Turbo Mode (Fast Info)
+        # Fast, but sometimes blocked by Yahoo for .TO tickers
         try:
             reg_price = ticker.fast_info['last_price']
             prev_close = ticker.fast_info['previous_close']
-            data_found = True
+            if reg_price > 0: data_found = True
         except:
-            # Method 2: Backup (History) - Slower but reliable
+            pass
+
+        # Attempt 2: Backup Mode (History)
+        # If Turbo failed, use this 100% reliable method
+        if not data_found:
             try:
                 hist = ticker.history(period="1d")
                 if not hist.empty:
                     reg_price = hist['Close'].iloc[-1]
-                    prev_close = hist['Open'].iloc[-1] # Approximation for backup
+                    prev_close = hist['Open'].iloc[-1]
                     data_found = True
             except:
-                pass 
+                pass
 
         if not data_found:
-            return None # Both methods failed
+            return None # Truly broken ticker
 
         # 2. IS THIS CRYPTO?
         is_crypto = symbol.endswith("-USD") or "BTC" in symbol or "ETH" in symbol
