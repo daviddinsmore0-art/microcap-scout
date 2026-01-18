@@ -7,8 +7,10 @@ except: pass
 
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
+# NEW: Session state to track previous trends for flip detection
+if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
 
-# --- PORTFOLIO (Date Format: Month Day, Year) ---
+# --- PORTFOLIO ---
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024"},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025"},
@@ -24,16 +26,22 @@ st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
+# Watchlist Input
 qp = st.query_params
 w_str = qp.get("watchlist", "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ")
 u_in = st.sidebar.text_input("Add Tickers", value=w_str)
 if u_in != w_str: st.query_params["watchlist"] = u_in
 WATCH = [x.strip().upper() for x in u_in.split(",")]
 ALL = list(set(WATCH + list(PORT.keys())))
+
 st.sidebar.divider()
-a_tick = st.sidebar.selectbox("Alert Asset", sorted(ALL))
+st.sidebar.subheader("🔔 Smart Alerts")
+# 1. Price Alert
+a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL))
 a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5)
-a_on = st.sidebar.toggle("Activate Alert")
+a_on = st.sidebar.toggle("Active Price Alert")
+# 2. Trend Flip Alert (New)
+flip_on = st.sidebar.toggle("Alert on Trend Flip (Bull/Bear)")
 
 # --- DATA ENGINE ---
 def get_data(s):
@@ -54,31 +62,25 @@ def get_data(s):
                 if not h.empty: p, pv, f = h['Close'].iloc[-1], h['Close'].iloc[-2], True
             except: pass
     if not f: return None
+    
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
     
-    # METRICS
-    rsi, rl, tr, v_str, vol_tag = 50, "Neutral", "Neutral", "N/A", ""
+    rsi, rl, tr, v_str, vol_tag, raw_trend = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL"
     try:
         hm = tk.history(period="1mo")
         if not hm.empty:
-            # 1. Volume Logic
             cur_v = hm['Volume'].iloc[-1]
-            # Calculate 30-day average (excluding today to be accurate)
             avg_v = hm['Volume'].iloc[:-1].mean() if len(hm) > 1 else cur_v
-            
-            # Format Volume String
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
             
-            # Determine "Pulse" (Surge vs Quiet)
             if avg_v > 0:
                 ratio = cur_v / avg_v
                 if ratio >= 1.0: vol_tag = "⚡ SURGE"
                 elif ratio >= 0.5: vol_tag = "🌊 STEADY"
                 else: vol_tag = "💤 QUIET"
             
-            # 2. RSI & Trend
             if len(hm)>=14:
                 d = hm['Close'].diff()
                 g, l = d.where(d>0,0).rolling(14).mean(), (-d.where(d<0,0)).rolling(14).mean()
@@ -86,13 +88,17 @@ def get_data(s):
                 if rsi >= 70: rl = "🔥 HOT"
                 elif rsi <= 30: rl = "❄️ COLD"
                 else: rl = "😐 OK"
+                
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
+                # Determine Raw Trend for Logic
                 if macd.iloc[-1] > 0:
+                    raw_trend = "BULL"
                     tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
                 else:
+                    raw_trend = "BEAR"
                     tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
     except: pass
-    return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr}
+    return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend}
 
 # --- HEADER & COUNTDOWN ---
 st.title("⚡ Penny Pulse")
@@ -114,7 +120,7 @@ startTimer();
 </script>
 """, height=40)
 
-# --- TICKER (Standard Size & Speed) ---
+# --- TICKER (Standard) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
@@ -125,31 +131,52 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
 h = "".join(ti)
 st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 600s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
 
+# --- FLIP DETECTION LOGIC ---
+def check_flip(ticker, current_trend):
+    # Only run logic if feature is enabled
+    if not flip_on: return
+    
+    # If we have seen this stock before
+    if ticker in st.session_state['last_trends']:
+        prev = st.session_state['last_trends'][ticker]
+        # If it CHANGED (e.g. BEAR -> BULL)
+        if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
+            st.toast(f"🔀 TREND FLIP: {ticker} switched to {current_trend}!", icon="⚠️")
+    
+    # Update state for next loop
+    st.session_state['last_trends'][ticker] = current_trend
+
 # --- DASHBOARD ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
+
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
         with cols[i%3]:
             d = get_data(t)
             if d:
+                # Check for Flip
+                check_flip(t, d['raw_trend'])
+                
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
-                # UPDATED: Volume Tag (Surge/Quiet)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
             st.divider()
+
 with t2:
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]:
             d = get_data(t)
             if d:
+                # Check for Flip
+                check_flip(t, d['raw_trend'])
+
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
-                # UPDATED: Entry Date + Volume Tag
                 date_str = inf.get("d", "N/A")
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
@@ -162,7 +189,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS (SMART PROMPT) ---
+# --- NEWS ---
 def get_news():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html"]
@@ -190,13 +217,11 @@ with t3:
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    # Smart Prompt Logic
                     system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
                         {"role":"system", "content": system_instr},
                         {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
                     ], max_tokens=400)
-                    
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
                     idx = 0
