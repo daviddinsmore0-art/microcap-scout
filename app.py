@@ -8,7 +8,7 @@ except: pass
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
-# --- PORTFOLIO (Updated to your Date Format) ---
+# --- PORTFOLIO (Date Format: Month Day, Year) ---
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024"},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025"},
@@ -78,7 +78,7 @@ def get_data(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
-# --- HEADER & COUNTDOWN (SMALL) ---
+# --- HEADER & COUNTDOWN ---
 st.title("⚡ Penny Pulse")
 components.html("""
 <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 2px; border-radius: 5px;">
@@ -131,7 +131,6 @@ with t2:
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
-                # UPDATED: Entry + Your Custom Date Format
                 date_str = inf.get("d", "N/A")
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str}) | RSI: {d['rsi']:.0f}</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
@@ -143,7 +142,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ---
+# --- NEWS (SMART PROMPT) ---
 def get_news():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html"]
@@ -171,7 +170,13 @@ with t3:
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":f"Analyze {len(raw)} headlines. Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}], max_tokens=400)
+                    # --- UPDATED PROMPT LOGIC ---
+                    system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
+                        {"role":"system", "content": system_instr},
+                        {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
+                    ], max_tokens=400)
+                    
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
                     idx = 0
