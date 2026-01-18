@@ -5,9 +5,16 @@ import streamlit.components.v1 as components
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
+# --- SESSION STATE INITIALIZATION ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
+
+# Initialize Alert Persistence (So they survive reloads)
+if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "SPY"
+if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
+if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
+if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = False
 
 # --- PORTFOLIO ---
 PORT = {
@@ -33,15 +40,16 @@ WATCH = [x.strip().upper() for x in u_in.split(",")]
 ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts")
-a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL))
-a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5)
-a_on = st.sidebar.toggle("Active Price Alert")
-flip_on = st.sidebar.toggle("Alert on Trend Flip")
 
-# --- CACHED DATA ENGINE (INSTANT RELOAD) ---
-# This saves the data for 55 seconds. If you disconnect and come back, 
-# it loads instantly from memory instead of downloading again.
-@st.cache_data(ttl=55, show_spinner=False)
+# --- PERSISTENT WIDGETS ---
+# We use 'key' to bind these widgets to session_state so they remember their value
+a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_tick")
+a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5, key="saved_a_price")
+a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
+flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on")
+
+# --- CACHED DATA ENGINE ---
+@st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
     s = s.strip().upper()
     p, pv, f = 0.0, 0.0, False
@@ -94,25 +102,31 @@ def get_data_cached(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend}
 
-# --- HEADER & COUNTDOWN ---
-st.title("⚡ Penny Pulse")
-components.html("""
-<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 2px; border-radius: 5px;">
-    <span style="color: #BBBBBB; font-weight: bold; font-size: 14px;">Next Update: </span>
-    <span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span>
-    <span style="color: #BBBBBB; font-size: 14px;"> s</span>
-</div>
-<script>
-function startTimer() {
-    setInterval(function() {
-        var now = new Date();
-        var seconds = 60 - now.getSeconds();
-        document.getElementById("countdown").innerHTML = seconds;
-    }, 1000);
-}
-startTimer();
-</script>
-""", height=40)
+# --- HEADER ---
+c1, c2 = st.columns([2, 1])
+with c1:
+    st.title("⚡ Penny Pulse")
+    st.caption(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
+
+with c2:
+    components.html("""
+    <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 2px; border-radius: 5px; text-align:right;">
+        <span style="color: #BBBBBB; font-weight: bold; font-size: 14px;">Next Update: </span>
+        <span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span>
+        <span style="color: #BBBBBB; font-size: 14px;"> s</span>
+    </div>
+    <script>
+    function startTimer() {
+        var timer = setInterval(function() {
+            var now = new Date();
+            var seconds = 60 - now.getSeconds();
+            var el = document.getElementById("countdown");
+            if(el) { el.innerHTML = seconds; }
+        }, 1000);
+    }
+    startTimer();
+    </script>
+    """, height=50)
 
 # --- TICKER ---
 ti = []
@@ -218,16 +232,8 @@ with t3:
                     st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
                     st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
 
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider()
-
-# --- HEARTBEAT SYNC ---
+# --- RECONNECT LOGIC ---
 now = datetime.now()
 wait = 60 - now.second
-stop_time = time.time() + wait + 1
-while time.time() < stop_time:
-    time.sleep(0.1)
+time.sleep(wait + 1)
 st.rerun()
