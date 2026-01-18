@@ -38,8 +38,11 @@ a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5)
 a_on = st.sidebar.toggle("Active Price Alert")
 flip_on = st.sidebar.toggle("Alert on Trend Flip")
 
-# --- DATA ENGINE ---
-def get_data(s):
+# --- CACHED DATA ENGINE (INSTANT RELOAD) ---
+# This saves the data for 55 seconds. If you disconnect and come back, 
+# it loads instantly from memory instead of downloading again.
+@st.cache_data(ttl=55, show_spinner=False)
+def get_data_cached(s):
     s = s.strip().upper()
     p, pv, f = 0.0, 0.0, False
     tk = yf.Ticker(s)
@@ -114,7 +117,7 @@ startTimer();
 # --- TICKER ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
-    d = get_data(t)
+    d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
@@ -137,7 +140,7 @@ with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
         with cols[i%3]:
-            d = get_data(t)
+            d = get_data_cached(t)
             if d:
                 check_flip(t, d['raw_trend'])
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
@@ -151,7 +154,7 @@ with t2:
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]:
-            d = get_data(t)
+            d = get_data_cached(t)
             if d:
                 check_flip(t, d['raw_trend'])
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
@@ -163,13 +166,14 @@ with t2:
             st.divider()
 
 if a_on:
-    d = get_data(a_tick)
+    d = get_data_cached(a_tick)
     if d and d['p'] >= a_price and not st.session_state['alert_triggered']:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ---
-def get_news():
+# --- NEWS (CACHED) ---
+@st.cache_data(ttl=300, show_spinner=False)
+def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html"]
     it, seen = [], set()
@@ -188,7 +192,7 @@ with t3:
     st.subheader("🚨 Global Wire")
     if st.button("Generate Report", type="primary", key="news_btn"):
         with st.spinner("Scanning..."):
-            raw = get_news()
+            raw = get_news_cached()
             if not KEY:
                 st.warning("⚠️ No OpenAI Key. Showing Headlines.")
                 st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
@@ -220,14 +224,10 @@ with t3:
             st.caption(r['reason'])
             st.divider()
 
-# --- HEARTBEAT SYNC LOOP (Fixes Disconnects) ---
+# --- HEARTBEAT SYNC ---
 now = datetime.now()
 wait = 60 - now.second
-
-# Instead of freezing for 60 seconds (which kills the connection),
-# we sleep in tiny 0.1s increments to keep the app 'alive'.
 stop_time = time.time() + wait + 1
 while time.time() < stop_time:
     time.sleep(0.1)
-
 st.rerun()
