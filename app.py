@@ -114,7 +114,6 @@ def get_data_cached(s):
             f = True
         except: pass
 
-    # Always fetch history for chart
     try:
         h = tk.history(period="1d", interval="5m")
         if h.empty: h = tk.history(period="5d", interval="1h")
@@ -233,11 +232,11 @@ with t1:
                 rat_txt, rat_col = get_rating_cached(t)
                 sec, earn = get_meta_data(t)
                 
-                # FIXED HEADER HTML (Link inside H3)
+                # FIXED HEADER HTML: Removed 'color:white' so it works in Light Mode too
                 nm = NAMES.get(t, t)
                 sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
                 url = f"https://finance.yahoo.com/quote/{t}"
-                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:white;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>🔗</a></h3>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>🔗</a></h3>", unsafe_allow_html=True)
                 
                 st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
@@ -270,7 +269,7 @@ with t2:
                 nm = NAMES.get(t, t)
                 sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
                 url = f"https://finance.yahoo.com/quote/{t}"
-                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:white;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>🔗</a></h3>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>🔗</a></h3>", unsafe_allow_html=True)
                 
                 st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
@@ -299,57 +298,4 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://www.investing.com/rss/news.rss"]
-    it, seen = [], set()
-    for u in urls:
-        try:
-            r = requests.get(u, headers=head, timeout=5)
-            root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:5]:
-                t, l = i.find('title').text, i.find('link').text
-                if t and t not in seen:
-                    seen.add(t); it.append({"title":t,"link":l})
-        except: continue
-    return it
-
-with t3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate Report", type="primary", key="news_btn"):
-        with st.spinner("Scanning..."):
-            raw = get_news_cached()
-            if not raw: st.error("⚠️ No news sources responded.")
-            elif not KEY:
-                st.warning("⚠️ No OpenAI Key. Showing Headlines.")
-                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
-            else:
-                try:
-                    from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
-                        {"role":"system", "content": system_instr},
-                        {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
-                    ], max_tokens=400)
-                    enrich = []
-                    lines = res.choices[0].message.content.strip().split("\n")
-                    idx = 0
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts)>=3 and idx<len(raw):
-                            enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
-                            idx+=1
-                    st.session_state['news_results'] = enrich
-                except:
-                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider()
-
-# --- RECONNECT LOGIC ---
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www
