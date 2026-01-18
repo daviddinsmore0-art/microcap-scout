@@ -10,7 +10,7 @@ if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
 
-# Initialize Alert Persistence (So they survive reloads)
+# Initialize Alert Persistence (This memory keeps your settings alive)
 if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "SPY"
 if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
 if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
@@ -41,10 +41,10 @@ ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts")
 
-# --- PERSISTENT WIDGETS ---
-# We use 'key' to bind these widgets to session_state so they remember their value
+# --- PERSISTENT WIDGETS (Fixed Conflict) ---
+# We removed 'value=...' because the 'key' already handles the value from memory.
 a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_tick")
-a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5, key="saved_a_price")
+a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on")
 
