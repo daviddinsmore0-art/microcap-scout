@@ -302,7 +302,8 @@ def fetch_rss_items():
     urls = [
         "https://rss.app/feeds/tMfefT7whS1oe2VT.xml",
         "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
-        "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"
+        "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml",
+        "https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml"
     ]
     items = []
     seen_titles = set()
