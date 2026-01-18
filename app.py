@@ -4,16 +4,15 @@ import requests
 import xml.etree.ElementTree as ET
 import time
 import pandas as pd
-from datetime import datetime, timedelta
 from openai import OpenAI
 from PIL import Image
 
 # --- CONFIGURATION ---
 try:
     icon_img = Image.open("logo.png")
-    st.set_page_config(page_title="Penny Pulse", page_icon=icon_img, layout="wide")
+    st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
 except:
-    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
+    st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -27,11 +26,10 @@ else:
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "HIVE":     {"entry": 3.19,  "date": "Jan 7"},
-    "BAER":    {"entry": 1.86, "date": "Dec 31"},
-    "TX":    {"entry": 38.10, "date": "Dec 29"},
-    "IMNN": {"entry": 3.22, "date": "Dec 29"}, 
-    "RERE":    {"entry": 5.31, "date": "Dec 29"}
+    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
+    "NVDA":    {"entry": 130.50, "date": "Jan 12"},
+    "GME":     {"entry": 25.00,  "date": "Jan 14"},
+    "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
 }
 
 # --- SIDEBAR ---
@@ -39,7 +37,7 @@ st.sidebar.divider()
 try:
     st.sidebar.image("logo.png", width=150) 
 except:
-    st.sidebar.header("⚡ Penny Pulse")
+    st.sidebar.header("⚡ PennyPulse")
 
 # --- 🧠 MEMORY SYSTEM (URL Method) ---
 st.sidebar.header("👀 Watchlist")
@@ -80,21 +78,19 @@ TICKER_MAP = {
     "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
 }
 
-# --- SYMBOL NAMES ---
-SYMBOL_NAMES = {
-    "TSLA": "Tesla", "NVDA": "Nvidia", "GME": "GameStop", "BTC-USD": "Bitcoin",
-    "AMD": "AMD", "PLTR": "Palantir", "AAPL": "Apple", "MSFT": "Microsoft",
-    "GOOGL": "Google", "AMZN": "Amazon", "META": "Meta", "NFLX": "Netflix",
-    "SPY": "S&P 500", "QQQ": "Nasdaq", "IWM": "Russell 2k", "DIA": "Dow Jones",
-    "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
-    "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
-    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium"
-}
-
-# --- MACRO TAPE LIST ---
+# --- MACRO TAPE LIST (The "Whole Market" Desk) ---
 MACRO_TICKERS = [
-    "SPY", "^IXIC", "^DJI", "^GSPTSE", "IWM", 
-    "GC=F", "SI=F", "CL=F", "DX-Y.NYB", "^VIX", "BTC-USD"
+    "SPY",      # S&P 500
+    "^IXIC",    # Nasdaq Composite
+    "^DJI",     # Dow Jones
+    "^GSPTSE",  # TSX Composite
+    "IWM",      # Small Caps
+    "GC=F",     # Gold
+    "SI=F",     # Silver
+    "CL=F",     # Crude Oil
+    "DX-Y.NYB", # US Dollar Index
+    "^VIX",     # Fear Index
+    "BTC-USD"   # Bitcoin
 ]
 
 # --- FUNCTIONS ---
@@ -184,44 +180,13 @@ def fetch_quant_data(symbol):
             rsi_val = 50
             trend_str = ":gray[**WAIT**]"
 
-        # 6. EARNINGS RADAR
-        earnings_msg = ""
-        try:
-            # Check calendar for upcoming earnings
-            cal = ticker.calendar
-            if cal is not None and not cal.empty:
-                # Get the next Earnings Date
-                # Usually row 0 is next earnings, or column 'Earnings Date'
-                if 'Earnings Date' in cal:
-                    next_date = cal['Earnings Date'].iloc[0]
-                elif 0 in cal: # Sometimes it is indexed by 0
-                     next_date = cal[0].iloc[0]
-                else:
-                    next_date = None
-
-                if next_date:
-                    # Convert to simple date
-                    # Ensure next_date is a datetime object
-                    if isinstance(next_date, (datetime, pd.Timestamp)):
-                        now = datetime.now(next_date.tzinfo) # Match timezone
-                        days_diff = (next_date - now).days
-                        
-                        if 0 <= days_diff <= 7:
-                            earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
-                        elif 7 < days_diff <= 30:
-                            fmt_date = next_date.strftime("%b %d")
-                            earnings_msg = f":calendar: **Earn: {fmt_date}**"
-        except:
-            pass # Fail silently to keep app fast
-
         return {
             "reg_price": reg_price,
             "day_delta": day_pct,
             "ext_str": ext_str,
             "volume": volume,
             "rsi": rsi_val,
-            "trend": trend_str,
-            "earn_str": earnings_msg
+            "trend": trend_str
         }
     except: return None
 
@@ -230,17 +195,25 @@ def format_volume(num):
     if num >= 1_000: return f"{num/1_000:.1f}K"
     return str(num)
 
-# --- MACRO TAPE ---
+# --- NEW: MACRO TAPE (Thick, GLIDING SLOW, Seamless) ---
 def render_ticker_tape(tickers):
     ticker_items = []
+    # Friendly Names for Macro
+    name_map = {
+        "GC=F": "GOLD", "SI=F": "SILVER", "CL=F": "OIL", 
+        "DX-Y.NYB": "USD", "^VIX": "VIX", "BTC-USD": "BTC",
+        "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "^DJI": "DOW" 
+    }
+    
     for tick in tickers:
         p, d = get_live_price(tick)
         color = "#4caf50" if d >= 0 else "#f44336"
         arrow = "▲" if d >= 0 else "▼"
-        display_name = SYMBOL_NAMES.get(tick, tick) 
+        display_name = name_map.get(tick, tick) 
         
         ticker_items.append(f"<span style='margin-right: 40px; font-weight: 900; font-size: 20px; color: white;'>{display_name}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
     
+    # We repeat the content 4 times to ensure no gaps on wide screens
     content_str = ' '.join(ticker_items)
     
     ticker_html = f"""
@@ -259,7 +232,7 @@ def render_ticker_tape(tickers):
     .ticker {{
         display: inline-block;
         white-space: nowrap;
-        animation: ticker 100s linear infinite; 
+        animation: ticker 100s linear infinite; /* 100s = Gliding Speed */
     }}
     @keyframes ticker {{
         0% {{ transform: translateX(0); }}
@@ -314,20 +287,14 @@ def display_ticker_grid(ticker_list, live_mode=False):
                         delta=f"{data['day_delta']:.2f}% (Close)"
                     )
                     st.markdown(data['ext_str'])
-                    
-                    # EARNINGS BADGE (New Feature)
-                    if data.get('earn_str'):
-                        st.markdown(data['earn_str'])
-                        
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     st.divider()
 
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = [
-        "https://rss.app/feeds/tMfefT7whS1oe2VT.xml",
-        "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
-        "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
+        "https://feeds.content.dowjones.io/public/rss/mw_topstories"
     ]
     items = []
     seen_titles = set()
@@ -394,21 +361,22 @@ def analyze_batch(items, client):
         return []
 
 # --- MAIN APP UI ---
-st.title("⚡ Penny Pulse")
+st.title("⚡ PennyPulse Pro")
 
+# RENDER MACRO TAPE (The Global Desk)
 render_ticker_tape(MACRO_TICKERS)
 
 # --- TABS LAYOUT ---
 tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 
 with tab1:
-    st.subheader("My Watchlist")
+    st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
     st.caption(f"Currently Tracking: {', '.join(watchlist_list)}")
     live_on = st.toggle("🔴 Enable Live Prices", key="live_market") 
     display_ticker_grid(watchlist_list, live_mode=live_on)
 
 with tab2:
-    st.subheader("My Picks")
+    st.subheader("My Positions")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
@@ -423,11 +391,6 @@ with tab2:
                     delta=f"{total_return:.2f}% (Total)"
                 )
                 if data['ext_str']: st.markdown(data['ext_str'])
-                
-                # EARNINGS BADGE (New Feature)
-                if data.get('earn_str'):
-                    st.markdown(data['earn_str'])
-                
                 st.caption(f"Entry: ${entry:,.2f}")
                 st.divider()
             else:
@@ -450,16 +413,15 @@ with tab3:
     if results:
         for res in results:
             tick = res['ticker']
-            display_name = SYMBOL_NAMES.get(tick, tick)
             b_color = "gray" if tick == "MACRO" else "blue"
             with st.container():
                 c1, c2 = st.columns([1, 4])
                 with c1:
-                    st.markdown(f"### :{b_color}[{display_name}]")
+                    st.markdown(f"### :{b_color}[{tick}]")
                     st.caption(f"{res['signal']}")
                 with c2:
                     st.markdown(f"**[{res['title']}]({res['link']})**")
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (Earnings Radar Active)")
+st.success("✅ System Ready (Macro Tape: Gliding Speed)")
