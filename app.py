@@ -23,13 +23,6 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 🗓️ OPTIONAL OVERRIDES (For stubborn stocks only) ---
-# Most stocks (like JNJ/NFLX) will now load automatically.
-# Only add dates here if Yahoo fails to find them.
-MANUAL_EARNINGS = {
-    "TMQ": "2026-02-13", # Kept TMQ because micro-caps often need help
-}
-
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
     "HIVE": {"entry": 3.19, "date": "Jan 7"},
@@ -52,7 +45,7 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    # GENERIC STARTER PACK (Good for any user)
+    # GENERIC STARTER PACK
     saved_watchlist = "SPY, AAPL, NVDA, TSLA, AMD, PLTR"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -171,51 +164,9 @@ def fetch_from_batch(symbol):
                 else: trend_str = ":red[**BEAR**]"
         except: pass
 
-        # Earnings Radar (Auto-Detect RESTORED)
-        earnings_msg = ""
-        next_date = None
-        
-        # 1. Manual Override
-        if clean_symbol in MANUAL_EARNINGS:
-            try:
-                next_date = datetime.strptime(MANUAL_EARNINGS[clean_symbol], "%Y-%m-%d")
-            except: pass
-        
-        # 2. Auto-Detect (Re-enabled for JNJ, etc.)
-        if next_date is None:
-            try:
-                # We fetch this individually per ticker. It's safe for 10-20 stocks.
-                ticker = yf.Ticker(symbol)
-                cal = ticker.calendar
-                if cal is not None:
-                    if isinstance(cal, dict):
-                        if 'Earnings Date' in cal:
-                            val = cal['Earnings Date']
-                            if isinstance(val, list): next_date = val[0]
-                            else: next_date = val
-                        elif 0 in cal:
-                            val = cal[0]
-                            if isinstance(val, list): next_date = val[0]
-                            else: next_date = val
-                    elif not cal.empty:
-                        if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
-                        elif 0 in cal: next_date = cal[0].iloc[0]
-            except: pass
-
-        if next_date:
-            if hasattr(next_date, "replace"): next_date = next_date.replace(tzinfo=None)
-            now = datetime.now().replace(tzinfo=None)
-            days_diff = (next_date - now).days
-            
-            if -1 <= days_diff <= 8:
-                earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
-            elif 8 < days_diff <= 90:
-                fmt_date = next_date.strftime("%b %d")
-                earnings_msg = f":calendar: **Earn: {fmt_date}**"
-
         return {
             "reg_price": reg_price, "day_delta": day_pct, "ext_str": ext_str,
-            "volume": volume, "rsi": rsi_val, "trend": trend_str, "earn_str": earnings_msg
+            "volume": volume, "rsi": rsi_val, "trend": trend_str
         }
     except: return None
 
@@ -349,6 +300,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
                 data = fetch_from_batch(tick)
                 if data:
                     vol_str = format_volume(data['volume'])
+                    
+                    # RSI Formatting
                     rsi_v = data['rsi']
                     if rsi_v > 70: rsi_disp = f"{rsi_v:.0f} (🔥 Over)"
                     elif rsi_v < 30: rsi_disp = f"{rsi_v:.0f} (🧊 Under)"
@@ -356,7 +309,6 @@ def display_ticker_grid(ticker_list, live_mode=False):
 
                     st.metric(label=f"{tick} (Vol: {vol_str})", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}% (Close)")
                     st.markdown(data['ext_str'])
-                    if data.get('earn_str'): st.markdown(data['earn_str'])
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     st.divider()
                 else: st.error(f"⚠️ {tick} No Data")
@@ -379,7 +331,6 @@ with tab2:
                 total_return = ((current - entry) / entry) * 100
                 st.metric(label=f"{ticker} (Since {info['date']})", value=f"${current:,.2f}", delta=f"{total_return:.2f}% (Total)")
                 if data['ext_str']: st.markdown(data['ext_str'])
-                if data.get('earn_str'): st.markdown(data['earn_str'])
                 st.caption(f"Entry: ${entry:,.2f}")
                 st.divider()
             else: st.warning(f"Loading {ticker}...")
@@ -413,4 +364,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v4.6 - Public Ready)")
+st.success("✅ System Ready (v4.7 - Streamlined Edition)")
