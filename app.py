@@ -12,7 +12,7 @@ try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- CRITICAL SESSION STATE INIT (Must be first) ---
+# --- CRITICAL SESSION STATE INIT ---
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'last_update' not in st.session_state: st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -69,7 +69,7 @@ SYMBOL_NAMES = {
     "JNJ": "Johnson & Johnson"
 }
 
-# --- TICKER MAP (Restored) ---
+# --- TICKER MAP ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -87,7 +87,7 @@ TICKER_MAP = {
 
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- ⚡ THE ENGINE (IRONCLAD) ---
+# --- ⚡ THE ENGINE (CRYPTO SPECIALIST) ---
 
 def fetch_stock_data(symbol):
     clean_symbol = symbol.strip().upper()
@@ -95,26 +95,37 @@ def fetch_stock_data(symbol):
     price = 0.0
     prev_close = 0.0
     found_price = False
-
-    # ATTEMPT 1: Fast Info (Best)
-    try:
-        ticker = yf.Ticker(clean_symbol)
-        price = ticker.fast_info['last_price']
-        prev_close = ticker.fast_info['previous_close']
-        found_price = True
-    except:
-        pass
     
-    # ATTEMPT 2: History (Backup)
-    if not found_price:
+    ticker = yf.Ticker(clean_symbol)
+
+    # === SPECIAL PATH FOR CRYPTO ===
+    if clean_symbol.endswith("-USD"):
         try:
-            hist = ticker.history(period="5d")
+            # Force 1-minute interval for fresh Crypto data
+            hist = ticker.history(period="1d", interval="1m")
             if not hist.empty:
                 price = hist['Close'].iloc[-1]
-                prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else hist['Open'].iloc[-1]
+                # Use open of the first candle as "previous" for the day context
+                prev_close = hist['Open'].iloc[0] 
                 found_price = True
+        except: pass
+
+    # === STANDARD PATH FOR STOCKS (Ironclad) ===
+    if not found_price:
+        try:
+            # Attempt 1: Fast Info
+            price = ticker.fast_info['last_price']
+            prev_close = ticker.fast_info['previous_close']
+            found_price = True
         except:
-            pass
+            try:
+                # Attempt 2: Daily History Fallback
+                hist = ticker.history(period="5d")
+                if not hist.empty:
+                    price = hist['Close'].iloc[-1]
+                    prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else hist['Open'].iloc[-1]
+                    found_price = True
+            except: pass
             
     # IF ALL FAILS: Return Zombie Data (Prevents Red Box)
     if not found_price:
@@ -201,8 +212,13 @@ def render_ticker_tape(tickers):
     for tick in tickers:
         try:
             t = yf.Ticker(tick)
+            # Try fast info first
             p = t.fast_info['last_price']
             pr = t.fast_info['previous_close']
+            if p is None and tick.endswith("-USD"): # Fallback for crypto in tape
+                h = t.history(period="1d", interval="1m")
+                p = h['Close'].iloc[-1]
+                pr = h['Open'].iloc[0]
             d = ((p - pr) / pr) * 100
         except: 
             p, d = 0.0, 0.0
@@ -245,7 +261,6 @@ with tab1:
             # IRONCLAD FETCH
             data = fetch_stock_data(tick)
             
-            # If valid price found (even if 0.0, better than error)
             # BOLD STATS LINE
             st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
             st.markdown(f"**Vol: {data['volume']} | RSI: {data['rsi']:.0f} | {data['trend']}**")
@@ -267,7 +282,7 @@ with tab2:
                 st.markdown(data['ext_str'])
                 st.divider()
 
-# --- NEWS TAB (Fixed) ---
+# --- NEWS TAB ---
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml", "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml", "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"]
@@ -332,4 +347,4 @@ if st.session_state['live_mode']:
     time.sleep(3) # Wait 3 seconds
     st.rerun()    # RESTART SCRIPT
 
-st.success("✅ System Ready (v5.7 - Ironclad)")
+st.success("✅ System Ready (v5.8 - Crypto Specialist)")
