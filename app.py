@@ -77,26 +77,28 @@ def get_data(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rsi_label, "tr":tr}
 
-# --- HEADER & FIXED TIMER ---
+# --- HEADER & BOLD TIMER ---
 c1, c2 = st.columns([3,1])
 with c1: st.title("⚡ Penny Pulse")
 with c2: 
-    # Timer - Updated styling to ensure 's' is visible
+    # Increased height to 80 to prevent cutoff
+    # Bold white text for the seconds
     components.html("""
-    <div style="font-family:sans-serif; color:#888; font-size:14px; text-align:right; margin-top:10px;">
-    Next Update: <span id="timer" style="color:white; font-weight:bold; font-size:16px;">--</span>
+    <div style="font-family:sans-serif; text-align:right; padding-top:15px;">
+        <span style="color:#888; font-size:14px;">Next Update:</span>
+        <span id="timer" style="color:white; font-weight:bold; font-size:22px; margin-left:5px;">--s</span>
     </div>
     <script>
     function updateTimer() {
         var now = new Date();
         var seconds = now.getSeconds();
         var left = 60 - seconds;
-        document.getElementById("timer").innerText = left + "s";
+        document.getElementById("timer").innerHTML = left + "s";
     }
     setInterval(updateTimer, 1000);
     updateTimer();
     </script>
-    """, height=60)
+    """, height=80)
 
 # --- TAPE (Slower Speed) ---
 ti = []
@@ -107,7 +109,6 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
         name = NAMES.get(t, t)
         ti.append(f"<span style='margin-right:40px;font-weight:bold;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-# Changed animation to 600s (10 minutes) for very smooth scrolling
 st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 600s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*30}</div></div>""", unsafe_allow_html=True)
 
 # --- TABS ---
@@ -119,7 +120,6 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                # BOLD RSI & MOMENTUM
                 st.markdown(f"**Momentum: {d['tr']}**")
                 st.markdown(f"**Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})**")
                 st.markdown(d['x'])
@@ -132,7 +132,6 @@ with t2:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-                # BOLD RSI & MOMENTUM
                 st.markdown(f"**Momentum: {d['tr']}**")
                 st.markdown(f"**Entry: ${inf['e']} | RSI: {d['rsi']:.0f}**")
                 st.markdown(d['x'])
