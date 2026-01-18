@@ -50,18 +50,14 @@ try:
 except:
     st.sidebar.header("⚡ Penny Pulse")
 
-# --- 🔴 HARD RESET (THE FIXER) ---
-if st.sidebar.button("🔴 HARD RESET (Click First)"):
-    st.session_state['user_dates'] = {}
-    st.rerun()
-
 # --- 🧠 MEMORY SYSTEM ---
 st.sidebar.header("👀 Watchlist")
 query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = "AMD, PLTR, NFLX, UAL, PG, TMQ, VCIG"
+    # YOUR FULL LIST RESTORED
+    saved_watchlist = "TD.TO, CCO.TO, IVN.TO, BN.TO, VCIG, TMQ, NKE, NFLX, UAL, PG"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 if user_input != saved_watchlist:
@@ -71,31 +67,34 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 
-# --- 🛠️ EARNINGS FIXER (X-RAY EDITION) ---
+# --- 🛠️ EARNINGS FIXER (DIRECT MODE) ---
 with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     st.caption("Override any date here.")
     
-    with st.form("earnings_form", clear_on_submit=True):
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            fix_tick = st.text_input("Ticker", placeholder="TMQ").upper().strip()
-        with c2:
-            fix_date = st.date_input("Date")
-        
-        submitted = st.form_submit_button("💾 Save Date Override")
-        
-        if submitted and fix_tick:
-            # FORCE STRING FORMAT
+    # NO FORM - DIRECT INPUTS
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        fix_tick = st.text_input("Ticker", placeholder="TMQ", key="fix_t").upper().strip()
+    with c2:
+        fix_date = st.date_input("Date", key="fix_d")
+    
+    if st.button("💾 Save Override"):
+        if fix_tick:
+            # Force String Save
             date_str = fix_date.strftime("%Y-%m-%d")
             st.session_state['user_dates'][fix_tick] = date_str
-            st.success(f"Saved {fix_tick} -> {date_str}")
+            st.success(f"Saved {fix_tick}!")
             time.sleep(0.5)
             st.rerun()
 
     if st.session_state['user_dates']:
         st.divider()
-        st.caption("Raw Memory (Debug):")
+        st.caption("Active Overrides:")
         st.write(st.session_state['user_dates'])
+        
+        if st.button("🗑️ Clear All"):
+            st.session_state['user_dates'] = {}
+            st.rerun()
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
@@ -131,7 +130,7 @@ SYMBOL_NAMES = {
     "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
     "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
     "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble",
-    "TMQ": "Trilogy Metals", "VCIG": "VCI Global"
+    "TMQ": "Trilogy Metals", "VCIG": "VCI Global", "TD.TO": "TD Bank", "CCO.TO": "Cameco", "IVN.TO": "Ivanhoe Mines", "BN.TO": "Brookfield", "NKE": "Nike"
 }
 
 # --- MACRO TAPE LIST ---
@@ -150,26 +149,18 @@ def get_live_price(symbol):
         return price, delta
     except: return 0.0, 0.0
 
-def fetch_quant_data_v2(symbol):
+def fetch_quant_data_v3(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        
-        # PARANOID CLEANING
         clean_symbol = symbol.strip().upper()
         
-        # 1. FETCH DEEP INFO
+        # --- TURBO MODE: Skip heavy .info call ---
+        # Get Price Data via fast_info (Reliable)
         try:
-            info = ticker.info
-            reg_price = info.get('regularMarketPrice', 0.0)
-            pre_price = info.get('preMarketPrice', None)
-            post_price = info.get('postMarketPrice', None)
-            curr_price = info.get('currentPrice', reg_price)
-            prev_close = info.get('regularMarketPreviousClose', 0.0)
-        except:
             reg_price = ticker.fast_info['last_price']
-            post_price = reg_price
             prev_close = ticker.fast_info['previous_close']
-            curr_price = reg_price
+        except:
+            return None # If we can't get price, the ticker is broken
 
         # 2. IS THIS CRYPTO?
         is_crypto = symbol.endswith("-USD") or "BTC" in symbol or "ETH" in symbol
@@ -185,68 +176,50 @@ def fetch_quant_data_v2(symbol):
             color = "green" if day_pct >= 0 else "red"
             ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
         else:
-            ext_price = reg_price
-            if post_price and post_price != reg_price:
-                ext_price = post_price
-            elif pre_price and pre_price != reg_price:
-                ext_price = pre_price
-            
-            if reg_price and reg_price > 0:
-                ext_diff = ext_price - reg_price
-                ext_pct = (ext_diff / reg_price) * 100
+            # Simple Ext logic to avoid crashes
+            ext_str = f"**🌙 Ext: ${reg_price:,.2f} (:gray[Market Closed])**"
+
+        # 5. FETCH HISTORY (For RSI)
+        try:
+            history = ticker.history(period="1mo", interval="1d", prepost=True)
+            if not history.empty:
+                volume = history['Volume'].iloc[-1]
+                if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
+
+                delta = history['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                rs = gain / loss
+                history['RSI'] = 100 - (100 / (1 + rs))
+                rsi_val = history['RSI'].iloc[-1]
+                
+                # Simple Trend
+                ema12 = history['Close'].ewm(span=12, adjust=False).mean()
+                ema26 = history['Close'].ewm(span=26, adjust=False).mean()
+                macd = ema12 - ema26
+                if macd.iloc[-1] > 0: trend_str = ":green[**BULL**]" 
+                else: trend_str = ":red[**BEAR**]"
             else:
-                ext_pct = 0.0
+                volume = 0
+                rsi_val = 50
+                trend_str = ":gray[**WAIT**]"
+        except:
+             volume = 0
+             rsi_val = 50
+             trend_str = ":gray[**DATA?**]"
 
-            if abs(ext_pct) > 0.001: 
-                color = "green" if ext_pct > 0 else "red"
-                icon = "🌙"
-                ext_str = f"**{icon} Ext: ${ext_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
-            else:
-                ext_str = f"**🌙 Ext: ${ext_price:,.2f} (:gray[Market Closed])**"
-
-        # 5. FETCH HISTORY
-        history = ticker.history(period="1mo", interval="1d", prepost=True)
-        if not history.empty:
-            volume = history['Volume'].iloc[-1]
-            if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
-
-            delta = history['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            history['RSI'] = 100 - (100 / (1 + rs))
-            rsi_val = history['RSI'].iloc[-1]
-            
-            ema12 = history['Close'].ewm(span=12, adjust=False).mean()
-            ema26 = history['Close'].ewm(span=26, adjust=False).mean()
-            macd = ema12 - ema26
-            signal = macd.ewm(span=9, adjust=False).mean()
-            if macd.iloc[-1] > signal.iloc[-1]: 
-                trend_str = ":green[**BULL**]" 
-            else: 
-                trend_str = ":red[**BEAR**]"
-        else:
-            volume = 0
-            rsi_val = 50
-            trend_str = ":gray[**WAIT**]"
-
-        # 6. EARNINGS RADAR (X-RAY VISION)
+        # 6. EARNINGS RADAR (PRIORITY SYSTEM)
         earnings_msg = ""
         next_date = None
         source_label = ""
-        debug_xray = ""
         
-        # X-RAY: What key are we looking for?
-        keys_in_memory = list(st.session_state['user_dates'].keys())
-        
-        # PRIORITY 1: User Session Override (Removed Silent Failures)
+        # PRIORITY 1: User Session Override
         if clean_symbol in st.session_state['user_dates']:
-            # DIRECT LOOKUP - NO TRY/EXCEPT SO WE SEE ERRORS
             date_str = st.session_state['user_dates'][clean_symbol]
-            next_date = datetime.strptime(date_str, "%Y-%m-%d")
-            source_label = " (User)"
-        else:
-            debug_xray = f"`X-RAY: Key '{clean_symbol}' not found in {keys_in_memory}`"
+            try:
+                next_date = datetime.strptime(date_str, "%Y-%m-%d")
+                source_label = " (User)"
+            except: pass
 
         # PRIORITY 2: Admin Code Override
         if next_date is None and clean_symbol in ADMIN_EARNINGS:
@@ -255,28 +228,24 @@ def fetch_quant_data_v2(symbol):
                 source_label = " (Admin)"
             except: pass
 
-        # PRIORITY 3: Yahoo Calendar
+        # PRIORITY 3: Yahoo Calendar (Auto)
         if next_date is None:
-            cal = ticker.calendar
-            if cal is not None:
-                if isinstance(cal, dict):
-                    if 'Earnings Date' in cal:
-                        val = cal['Earnings Date']
-                        if isinstance(val, list): next_date = val[0]
-                        else: next_date = val
-                    elif 0 in cal:
-                        val = cal[0]
-                        if isinstance(val, list): next_date = val[0]
-                        else: next_date = val
-                elif not cal.empty:
-                    if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
-                    elif 0 in cal: next_date = cal[0].iloc[0]
-
-        # PRIORITY 4: Deep Scan
-        if next_date is None:
-            dates = ticker.get_earnings_dates(limit=1)
-            if dates is not None and not dates.empty:
-                next_date = dates.index[0]
+            try:
+                cal = ticker.calendar
+                if cal is not None:
+                    if isinstance(cal, dict):
+                        if 'Earnings Date' in cal:
+                            val = cal['Earnings Date']
+                            if isinstance(val, list): next_date = val[0]
+                            else: next_date = val
+                        elif 0 in cal:
+                            val = cal[0]
+                            if isinstance(val, list): next_date = val[0]
+                            else: next_date = val
+                    elif not cal.empty:
+                        if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
+                        elif 0 in cal: next_date = cal[0].iloc[0]
+            except: pass
 
         # --- CALCULATE BADGE ---
         if next_date:
@@ -292,10 +261,6 @@ def fetch_quant_data_v2(symbol):
             elif 8 < days_diff <= 90:
                 fmt_date = next_date.strftime("%b %d")
                 earnings_msg = f":calendar: **Earn: {fmt_date}{source_label}**"
-        
-        # Append X-Ray Debug if User Override Failed
-        if debug_xray and source_label == " (Admin)":
-            earnings_msg += f" {debug_xray}"
 
         return {
             "reg_price": reg_price,
@@ -378,7 +343,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
             with cols[i % 3]:
-                data = fetch_quant_data_v2(tick)
+                # USING NEW V3 TURBO FUNCTION
+                data = fetch_quant_data_v3(tick)
                 if data:
                     rsi_val = data['rsi']
                     if pd.isna(rsi_val): 
@@ -403,6 +369,9 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     st.divider()
+                else:
+                    # SHOW ERROR SO YOU KNOW IT FAILED
+                    st.error(f"⚠️ Failed to load {tick}")
 
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -494,7 +463,7 @@ with tab2:
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            data = fetch_quant_data_v2(ticker)
+            data = fetch_quant_data_v3(ticker)
             if data:
                 current = data['reg_price'] 
                 entry = info['entry']
@@ -543,4 +512,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.5 - X-Ray Edition)")
+st.success("✅ System Ready (v3.6 - Turbo & UI Fix)")
