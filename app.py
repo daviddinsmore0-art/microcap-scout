@@ -57,12 +57,28 @@ def get_data(s):
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
-    rsi, rl, tr, v_str = 50, "Neutral", "Neutral", "N/A"
+    
+    # METRICS
+    rsi, rl, tr, v_str, vol_tag = 50, "Neutral", "Neutral", "N/A", ""
     try:
         hm = tk.history(period="1mo")
         if not hm.empty:
-            v = hm['Volume'].iloc[-1]
-            v_str = f"{v/1e6:.1f}M" if v>=1e6 else f"{v:,.0f}"
+            # 1. Volume Logic
+            cur_v = hm['Volume'].iloc[-1]
+            # Calculate 30-day average (excluding today to be accurate)
+            avg_v = hm['Volume'].iloc[:-1].mean() if len(hm) > 1 else cur_v
+            
+            # Format Volume String
+            v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
+            
+            # Determine "Pulse" (Surge vs Quiet)
+            if avg_v > 0:
+                ratio = cur_v / avg_v
+                if ratio >= 1.0: vol_tag = "⚡ SURGE"
+                elif ratio >= 0.5: vol_tag = "🌊 STEADY"
+                else: vol_tag = "💤 QUIET"
+            
+            # 2. RSI & Trend
             if len(hm)>=14:
                 d = hm['Close'].diff()
                 g, l = d.where(d>0,0).rolling(14).mean(), (-d.where(d<0,0)).rolling(14).mean()
@@ -76,7 +92,7 @@ def get_data(s):
                 else:
                     tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
     except: pass
-    return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
+    return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr}
 
 # --- HEADER & COUNTDOWN ---
 st.title("⚡ Penny Pulse")
@@ -119,7 +135,9 @@ with t1:
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
+                # UPDATED: Volume Tag (Surge/Quiet)
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
             st.divider()
@@ -131,8 +149,10 @@ with t2:
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
+                # UPDATED: Entry Date + Volume Tag
                 date_str = inf.get("d", "N/A")
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str}) | RSI: {d['rsi']:.0f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str})</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             st.divider()
 
@@ -170,7 +190,7 @@ with t3:
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    # --- UPDATED PROMPT LOGIC ---
+                    # Smart Prompt Logic
                     system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
                         {"role":"system", "content": system_instr},
