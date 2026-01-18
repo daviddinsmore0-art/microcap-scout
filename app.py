@@ -63,12 +63,15 @@ def get_data(s):
                 elif rsi <= 30: rl = "❄️ COLD"
                 else: rl = "😐 OK"
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
-                # Use raw HTML colors instead of Streamlit syntax for markdown embedding
-                tr = "<span style='color:#4caf50'>BULL</span>" if macd.iloc[-1]>0 else "<span style='color:#f44336'>BEAR</span>"
+                # PURE HTML COLORING (Fixes the :green[] text issue)
+                if macd.iloc[-1] > 0:
+                    tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
+                else:
+                    tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
-# --- HEADER & COUNTDOWN (FIXED) ---
+# --- HEADER & COUNTDOWN ---
 st.title("⚡ Penny Pulse")
 components.html("""
 <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px;">
@@ -88,18 +91,18 @@ startTimer();
 </script>
 """, height=60)
 
-# --- TICKER (Smaller & Faster) ---
+# --- TICKER (Smaller 16px & Faster 300s) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        # Font size reduced to 18px
-        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        # Font size reduced to 16px
+        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:16px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-# Animation speed increased (1500s -> 900s)
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 900s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
+# Speed increased (300s)
+st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:40px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 300s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
 
 # --- DASHBOARD ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -110,7 +113,8 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Momentum: {d['tr']}</div>", unsafe_allow_html=True)
+                # Using HTML span logic correctly
+                st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
@@ -122,7 +126,7 @@ with t2:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Momentum: {d['tr']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} | RSI: {d['rsi']:.0f}</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             st.divider()
@@ -133,7 +137,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS (CRASH PROOF) ---
+# --- NEWS ---
 def get_news():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html"]
