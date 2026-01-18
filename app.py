@@ -101,18 +101,19 @@ def get_data_cached(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend}
 
-# --- HEADER ---
-c1, c2 = st.columns([2, 1])
+# --- HEADER & COUNTDOWN (CENTERED) ---
+c1, c2 = st.columns([1, 1])
 with c1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
 
 with c2:
+    # Centered Countdown
     components.html("""
-    <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 2px; border-radius: 5px; text-align:right;">
-        <span style="color: #BBBBBB; font-weight: bold; font-size: 14px;">Next Update: </span>
+    <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;">
+        <span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span>
         <span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span>
-        <span style="color: #BBBBBB; font-size: 14px;"> s</span>
+        <span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span>
     </div>
     <script>
     function startTimer() {
@@ -125,44 +126,26 @@ with c2:
     }
     startTimer();
     </script>
-    """, height=50)
+    """, height=60)
 
-# --- TICKER (FIXED MOBILE CSS) ---
+# --- TICKER (MOBILE FRIENDLY - MARQUEE) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        ti.append(f"<span style='margin-right:25px;font-weight:900;font-size:16px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        ti.append(f"<span style='margin-right:25px;font-weight:900;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
 
-# CSS Update: Removed 'width:100%' and 'overflow:hidden' constraints that broke mobile.
-# Now uses a simple 'marquee-like' flexbox that ensures content stays centered or starts left.
+# We use the <marquee> tag here. It is old-school but works 100% perfectly on mobile for this specific use case.
+# scrollamount="6" is the speed. Lower = Slower.
 st.markdown(f"""
-<style>
-.tc {{
-    width: 100%;
-    background: #0e1117;
-    border-bottom: 2px solid #444;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-    position: relative;
-}}
-.tx {{
-    display: inline-block;
-    white-space: nowrap;
-    animation: scroll-left 120s linear infinite;
-    padding-left: 100%; /* Starts off-screen */
-}}
-@keyframes scroll-left {{
-    0% {{ transform: translateX(0); }}
-    100% {{ transform: translateX(-100%); }}
-}}
-</style>
-<div class="tc"><div class="tx">{h*20}</div></div>
+<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;">
+    <marquee scrollamount="6" style="width: 100%;">
+        {h}
+    </marquee>
+</div>
 """, unsafe_allow_html=True)
 
 # --- FLIP CHECK ---
