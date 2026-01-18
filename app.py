@@ -12,8 +12,7 @@ try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- SESSION STATE GUARD (Prevents Crashes) ---
-# We initialize these BEFORE anything else happens.
+# --- CRITICAL SESSION STATE INIT (Must be first) ---
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'last_update' not in st.session_state: st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -70,7 +69,7 @@ SYMBOL_NAMES = {
     "JNJ": "Johnson & Johnson"
 }
 
-# --- TICKER MAP (Essential for News) ---
+# --- TICKER MAP (Restored) ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -88,72 +87,87 @@ TICKER_MAP = {
 
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- ⚡ THE ENGINE (DIRECT CONNECT) ---
-# We removed the Batch Loader. We now fetch every stock individually.
-# This prevents one bad apple (like TD.TO) from breaking the whole basket.
+# --- ⚡ THE ENGINE (BULLETPROOF) ---
+# Strategy: Use 'fast_info' for price (Reliable). Use 'history' for RSI (Optional).
+# If history fails, we still show the price.
 
-def fetch_direct_data(symbol):
+def fetch_stock_data(symbol):
+    clean_symbol = symbol.strip().upper()
     try:
-        clean_symbol = symbol.strip().upper()
         ticker = yf.Ticker(clean_symbol)
         
-        # 1. Fetch History (1 Month for RSI)
-        df = ticker.history(period="1mo")
-        
-        if df.empty: return None
-        
-        # 2. Get Price
-        reg_price = df['Close'].iloc[-1]
-        
-        if len(df) > 1:
-            prev_close = df['Close'].iloc[-2]
-        else:
-            prev_close = df['Open'].iloc[-1]
+        # 1. GET PRICE (The Critical Part)
+        # fast_info is much more stable than .history for just current price
+        try:
+            price = ticker.fast_info['last_price']
+            prev_close = ticker.fast_info['previous_close']
+        except:
+            # Fallback to history if fast_info fails (rare)
+            hist = ticker.history(period="2d")
+            if hist.empty: return None
+            price = hist['Close'].iloc[-1]
+            prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else hist['Open'].iloc[-1]
 
-        # 3. Calculate Stats
-        is_crypto = clean_symbol.endswith("-USD") or "BTC" in clean_symbol
-        day_pct = ((reg_price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
+        # Calculate Change
+        day_pct = ((price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
         
+        # Crypto Color Logic
+        is_crypto = clean_symbol.endswith("-USD") or "BTC" in clean_symbol
         if is_crypto:
             color = "green" if day_pct >= 0 else "red"
-            ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
+            ext_str = f"**⚡ Live: ${price:,.2f} (:{color}[{day_pct:+.2f}%])**"
         else:
-            ext_str = f"**🌙 Ext: ${reg_price:,.2f} (:gray[Market Closed])**"
+            ext_str = f"**🌙 Ext: ${price:,.2f} (:gray[Market Closed])**"
 
-        volume = df['Volume'].iloc[-1]
-        
-        # 4. RSI & Trend
+        # 2. GET HISTORY (The Optional Part)
+        # We try to get history for RSI/Volume. If it fails, we default to "N/A" but keep the price.
         rsi_val = 50
         trend_str = "WAIT"
+        volume_str = "N/A"
         
-        if len(df) >= 14:
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            df['RSI'] = 100 - (100 / (1 + rs))
-            rsi_val = df['RSI'].iloc[-1]
-            
-            ema12 = df['Close'].ewm(span=12, adjust=False).mean()
-            ema26 = df['Close'].ewm(span=26, adjust=False).mean()
-            macd = ema12 - ema26
-            if macd.iloc[-1] > 0: trend_str = ":green[BULL]" 
-            else: trend_str = ":red[BEAR]"
+        try:
+            hist_month = ticker.history(period="1mo")
+            if not hist_month.empty:
+                # Volume
+                vol = hist_month['Volume'].iloc[-1]
+                volume_str = format_volume(vol)
+                
+                # RSI Calc
+                if len(hist_month) >= 14:
+                    delta = hist_month['Close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    rsi = 100 - (100 / (1 + rs))
+                    rsi_val = rsi.iloc[-1]
+                    
+                    # Trend Calc
+                    ema12 = hist_month['Close'].ewm(span=12, adjust=False).mean()
+                    ema26 = hist_month['Close'].ewm(span=26, adjust=False).mean()
+                    macd = ema12 - ema26
+                    if macd.iloc[-1] > 0: trend_str = ":green[BULL]" 
+                    else: trend_str = ":red[BEAR]"
+        except:
+            pass # It's okay if RSI fails, as long as we have price.
 
         return {
-            "reg_price": reg_price,
+            "reg_price": price,
             "day_delta": day_pct,
             "ext_str": ext_str,
-            "volume": volume,
+            "volume": volume_str,
             "rsi": rsi_val,
             "trend": trend_str
         }
-    except: return None
+
+    except Exception as e:
+        return None
 
 def format_volume(num):
-    if num >= 1_000_000: return f"{num/1_000_000:.1f}M"
-    if num >= 1_000: return f"{num/1_000:.1f}K"
-    return str(num)
+    try:
+        if num >= 1_000_000: return f"{num/1_000_000:.1f}M"
+        if num >= 1_000: return f"{num/1_000:.1f}K"
+        return str(num)
+    except: return "N/A"
 
 # --- UI HEADER ---
 c_head_1, c_head_2 = st.columns([3, 1])
@@ -167,7 +181,6 @@ with c_head_2:
     live_on = st.toggle("🔴 LIVE DATA", key="live_mode_toggle")
     if live_on: 
         st.session_state['live_mode'] = True
-        # If toggled on, update time immediately
         st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
     else: 
         st.session_state['live_mode'] = False
@@ -176,7 +189,6 @@ with c_head_2:
 def render_ticker_tape(tickers):
     ticker_items = []
     for tick in tickers:
-        # Simple fetch for tape
         try:
             t = yf.Ticker(tick)
             p = t.fast_info['last_price']
@@ -208,7 +220,7 @@ tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 # --- ALERT CHECK ---
 if alert_active:
     try:
-        res = fetch_direct_data(alert_ticker)
+        res = fetch_stock_data(alert_ticker)
         if res and res['reg_price'] >= alert_price and not st.session_state.get('alert_triggered', False):
             st.toast(f"🚨 ALERT: {alert_ticker} HIT ${res['reg_price']:,.2f}!", icon="🔥")
             st.session_state['alert_triggered'] = True
@@ -220,13 +232,12 @@ with tab1:
     cols = st.columns(3)
     for i, tick in enumerate(watchlist_list):
         with cols[i % 3]:
-            # DIRECT CONNECT FETCH
-            data = fetch_direct_data(tick)
+            # BULLETPROOF FETCH
+            data = fetch_stock_data(tick)
             if data:
-                vol = format_volume(data['volume'])
                 # BOLD STATS LINE
                 st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
-                st.markdown(f"**Vol: {vol} | RSI: {data['rsi']:.0f} | {data['trend']}**")
+                st.markdown(f"**Vol: {data['volume']} | RSI: {data['rsi']:.0f} | {data['trend']}**")
                 st.markdown(data['ext_str'])
                 st.divider()
             else: st.error(f"⚠️ {tick} Unreachable")
@@ -236,7 +247,7 @@ with tab2:
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            data = fetch_direct_data(ticker)
+            data = fetch_stock_data(ticker)
             if data:
                 curr = data['reg_price']
                 ret = ((curr - info['entry']) / info['entry']) * 100
@@ -311,4 +322,4 @@ if st.session_state['live_mode']:
     time.sleep(3) # Wait 3 seconds
     st.rerun()    # RESTART SCRIPT
 
-st.success("✅ System Ready (v5.5 - Direct Connect)")
+st.success("✅ System Ready (v5.6 - Bulletproof)")
