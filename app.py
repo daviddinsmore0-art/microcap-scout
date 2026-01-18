@@ -23,12 +23,11 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 🗓️ MANUAL EARNINGS LIST (Reliability Core) ---
+# --- 🗓️ OPTIONAL OVERRIDES (For stubborn stocks only) ---
+# Most stocks (like JNJ/NFLX) will now load automatically.
+# Only add dates here if Yahoo fails to find them.
 MANUAL_EARNINGS = {
-    "TMQ": "2026-02-13",
-    "NFLX": "2026-01-20",
-    "PG": "2026-01-22",
-    "UAL": "2026-01-21"
+    "TMQ": "2026-02-13", # Kept TMQ because micro-caps often need help
 }
 
 # --- 💼 SHARED PORTFOLIO ---
@@ -53,15 +52,14 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    # Your full preferred list
-    saved_watchlist = "TD.TO, CCO.TO, IVN.TO, BN.TO, VCIG, TMQ, NKE, NFLX, UAL, PG"
+    # GENERIC STARTER PACK (Good for any user)
+    saved_watchlist = "SPY, AAPL, NVDA, TSLA, AMD, PLTR"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 if user_input != saved_watchlist:
     st.query_params["watchlist"] = user_input
 
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
-# Combine lists for the Batch Loader
 ALL_ASSETS = list(set(watchlist_list + list(MY_PORTFOLIO.keys())))
 
 st.sidebar.divider()
@@ -82,7 +80,7 @@ SYMBOL_NAMES = {
     "TMQ": "Trilogy Metals", "VCIG": "VCI Global", "TD.TO": "TD Bank", "CCO.TO": "Cameco", "IVN.TO": "Ivanhoe Mines", "BN.TO": "Brookfield", "NKE": "Nike"
 }
 
-# --- TICKER MAP (Restored for News Tab) ---
+# --- TICKER MAP ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -99,12 +97,11 @@ TICKER_MAP = {
 
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "^GSPTSE", "IWM", "GC=F", "SI=F", "CL=F", "DX-Y.NYB", "^VIX", "BTC-USD"]
 
-# --- ⚡ BATCH LOADER (1 MONTH FIX) ---
+# --- ⚡ BATCH LOADER (1 MONTH) ---
 @st.cache_data(ttl=60)
 def load_market_data(tickers):
     if not tickers: return None
     try:
-        # Changed from "5d" to "1mo" to allow RSI-14 calculation
         data = yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
         return data
     except: return None
@@ -125,13 +122,13 @@ def fetch_from_batch(symbol):
     try:
         clean_symbol = symbol.strip().upper()
         
-        # Handle Batch Data Structure (MultiIndex vs Single)
+        # Batch Data Logic
         df = None
         if BATCH_DATA is not None:
             if isinstance(BATCH_DATA.columns, pd.MultiIndex):
                 if clean_symbol in BATCH_DATA.columns.levels[0]:
                     df = BATCH_DATA[clean_symbol].copy()
-            elif clean_symbol == ALL_ASSETS[0]: # Edge case for single ticker list
+            elif clean_symbol == ALL_ASSETS[0]: 
                 df = BATCH_DATA.copy()
 
         if df is None or df.empty: return None
@@ -154,7 +151,7 @@ def fetch_from_batch(symbol):
 
         volume = df['Volume'].iloc[-1]
         
-        # RSI & Trend Calculation (Requires >14 days data)
+        # RSI & Trend
         rsi_val = 50
         trend_str = ":gray[**WAIT**]"
         
@@ -174,12 +171,35 @@ def fetch_from_batch(symbol):
                 else: trend_str = ":red[**BEAR**]"
         except: pass
 
-        # Earnings Radar
+        # Earnings Radar (Auto-Detect RESTORED)
         earnings_msg = ""
         next_date = None
+        
+        # 1. Manual Override
         if clean_symbol in MANUAL_EARNINGS:
             try:
                 next_date = datetime.strptime(MANUAL_EARNINGS[clean_symbol], "%Y-%m-%d")
+            except: pass
+        
+        # 2. Auto-Detect (Re-enabled for JNJ, etc.)
+        if next_date is None:
+            try:
+                # We fetch this individually per ticker. It's safe for 10-20 stocks.
+                ticker = yf.Ticker(symbol)
+                cal = ticker.calendar
+                if cal is not None:
+                    if isinstance(cal, dict):
+                        if 'Earnings Date' in cal:
+                            val = cal['Earnings Date']
+                            if isinstance(val, list): next_date = val[0]
+                            else: next_date = val
+                        elif 0 in cal:
+                            val = cal[0]
+                            if isinstance(val, list): next_date = val[0]
+                            else: next_date = val
+                    elif not cal.empty:
+                        if 'Earnings Date' in cal: next_date = cal['Earnings Date'].iloc[0]
+                        elif 0 in cal: next_date = cal[0].iloc[0]
             except: pass
 
         if next_date:
@@ -234,7 +254,6 @@ def analyze_batch(items, client):
         hl = item['title']
         hint = ""
         upper_hl = hl.upper()
-        # TICKER_MAP is now correctly defined above
         for key, val in TICKER_MAP.items():
             if key in upper_hl:
                 hint = f"(Hint: {val})"
@@ -305,8 +324,15 @@ def display_ticker_grid(ticker_list, live_mode=False):
     if alert_active:
         try:
             if BATCH_DATA is not None:
-                # Basic alert check (simplified for robustness)
-                pass 
+                if isinstance(BATCH_DATA.columns, pd.MultiIndex):
+                    if alert_ticker in BATCH_DATA.columns.levels[0]:
+                        curr_price = BATCH_DATA[alert_ticker]['Close'].iloc[-1]
+                elif alert_ticker == ALL_ASSETS[0]:
+                     curr_price = BATCH_DATA['Close'].iloc[-1]
+                
+                if 'curr_price' in locals() and curr_price >= alert_price and not st.session_state.get('alert_triggered', False):
+                    st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr_price:,.2f}!", icon="🔥")
+                    st.session_state['alert_triggered'] = True
         except: pass
 
     if live_mode:
@@ -323,8 +349,6 @@ def display_ticker_grid(ticker_list, live_mode=False):
                 data = fetch_from_batch(tick)
                 if data:
                     vol_str = format_volume(data['volume'])
-                    
-                    # RSI Formatting
                     rsi_v = data['rsi']
                     if rsi_v > 70: rsi_disp = f"{rsi_v:.0f} (🔥 Over)"
                     elif rsi_v < 30: rsi_disp = f"{rsi_v:.0f} (🧊 Under)"
@@ -389,4 +413,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v4.4 - Goldilocks Update)")
+st.success("✅ System Ready (v4.6 - Public Ready)")
