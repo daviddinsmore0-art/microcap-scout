@@ -63,13 +63,13 @@ def get_data(s):
                 elif rsi <= 30: rl = "❄️ COLD"
                 else: rl = "😐 OK"
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
-                tr = ":green[BULL]" if macd.iloc[-1]>0 else ":red[BEAR]"
+                # Use raw HTML colors instead of Streamlit syntax for markdown embedding
+                tr = "<span style='color:#4caf50'>BULL</span>" if macd.iloc[-1]>0 else "<span style='color:#f44336'>BEAR</span>"
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
 # --- HEADER & COUNTDOWN (FIXED) ---
 st.title("⚡ Penny Pulse")
-# This is a robust HTML timer that calculates time locally
 components.html("""
 <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px;">
     <span style="color: #FAFAFA; font-weight: bold; font-size: 20px;">Next Update: </span>
@@ -88,17 +88,18 @@ startTimer();
 </script>
 """, height=60)
 
-# --- SLOW TICKER ---
+# --- TICKER (Smaller & Faster) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:20px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        # Font size reduced to 18px
+        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-# 1500s animation for super smooth/slow scrolling
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:60px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 1500s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
+# Animation speed increased (1500s -> 900s)
+st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 900s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
 
 # --- DASHBOARD ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -109,7 +110,6 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                # BOLD HTML TAGS FOR MAX VISIBILITY
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Momentum: {d['tr']}</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
@@ -145,46 +145,3 @@ def get_news():
             for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
                 if t and t not in seen:
-                    seen.add(t); it.append({"title":t,"link":l})
-        except: continue
-    return it
-
-with t3:
-    st.subheader("🚨 Global Wire")
-    # Added Unique Key to prevent "DuplicateID" error
-    if st.button("Generate Report", type="primary", key="news_btn"):
-        with st.spinner("Scanning..."):
-            raw = get_news()
-            if not KEY:
-                st.warning("⚠️ No OpenAI Key. Showing Headlines.")
-                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
-            else:
-                try:
-                    from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":f"Analyze {len(raw)} headlines. Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}], max_tokens=400)
-                    enrich = []
-                    lines = res.choices[0].message.content.strip().split("\n")
-                    idx = 0
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts)>=3 and idx<len(raw):
-                            enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
-                            idx+=1
-                    st.session_state['news_results'] = enrich
-                except:
-                    # Silent Fallback - No Error Box
-                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
-
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider()
-
-# --- SYNC LOOP ---
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
