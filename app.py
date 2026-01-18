@@ -11,6 +11,7 @@ if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'
 PORT = {"HIVE":{"e":3.19},"BAER":{"e":1.86},"TX":{"e":38.10},"IMNN":{"e":3.22},"RERE":{"e":5.31}}
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
+# --- SIDEBAR ---
 st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
@@ -26,6 +27,7 @@ a_tick = st.sidebar.selectbox("Alert Asset", sorted(ALL))
 a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5)
 a_on = st.sidebar.toggle("Activate Alert")
 
+# --- DATA ENGINE ---
 def get_data(s):
     s = s.strip().upper()
     p, pv, f = 0.0, 0.0, False
@@ -65,35 +67,40 @@ def get_data(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
-# --- LEFT ALIGNED TIMER & HEADER ---
+# --- HEADER & COUNTDOWN (FIXED) ---
 st.title("⚡ Penny Pulse")
+# This is a robust HTML timer that calculates time locally
 components.html("""
-<div style="font-family:sans-serif; text-align:left; padding-left:5px;">
-    <span style="color:#888; font-size:14px;">Next Update:</span>
-    <span id="timer" style="color:white; font-weight:900; font-size:24px; margin-left:8px;">--s</span>
+<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px;">
+    <span style="color: #FAFAFA; font-weight: bold; font-size: 20px;">Next Update: </span>
+    <span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 24px;">--</span>
+    <span style="color: #FAFAFA; font-size: 20px;"> seconds</span>
 </div>
 <script>
-function updateTimer() {
-    var now = new Date();
-    var seconds = now.getSeconds();
-    var left = 60 - seconds;
-    document.getElementById("timer").innerHTML = left + "s";
+function startTimer() {
+    setInterval(function() {
+        var now = new Date();
+        var seconds = 60 - now.getSeconds();
+        document.getElementById("countdown").innerHTML = seconds;
+    }, 1000);
 }
-setInterval(updateTimer, 1000);
-updateTimer();
+startTimer();
 </script>
-""", height=50)
+""", height=60)
 
+# --- SLOW TICKER ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        ti.append(f"<span style='margin-right:50px;font-weight:bold;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:20px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 800s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*40}</div></div>""", unsafe_allow_html=True)
+# 1500s animation for super smooth/slow scrolling
+st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:60px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 1500s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
 
+# --- DASHBOARD ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 with t1:
     cols = st.columns(3)
@@ -102,8 +109,9 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                st.markdown(f"<span style='font-weight:900'>Momentum: {d['tr']}</span>", unsafe_allow_html=True)
-                st.markdown(f"<span style='font-weight:900'>Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})</span>", unsafe_allow_html=True)
+                # BOLD HTML TAGS FOR MAX VISIBILITY
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Momentum: {d['tr']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
             st.divider()
@@ -114,8 +122,8 @@ with t2:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-                st.markdown(f"<span style='font-weight:900'>Momentum: {d['tr']}</span>", unsafe_allow_html=True)
-                st.markdown(f"<span style='font-weight:900'>Entry: ${inf['e']} | RSI: {d['rsi']:.0f}</span>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Momentum: {d['tr']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} | RSI: {d['rsi']:.0f}</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             st.divider()
 
@@ -125,6 +133,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
+# --- NEWS (CRASH PROOF) ---
 def get_news():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html"]
@@ -142,7 +151,8 @@ def get_news():
 
 with t3:
     st.subheader("🚨 Global Wire")
-    if st.button("Generate Report", type="primary"):
+    # Added Unique Key to prevent "DuplicateID" error
+    if st.button("Generate Report", type="primary", key="news_btn"):
         with st.spinner("Scanning..."):
             raw = get_news()
             if not KEY:
@@ -163,7 +173,8 @@ with t3:
                             idx+=1
                     st.session_state['news_results'] = enrich
                 except:
-                    st.warning(f"⚠️ AI Busy. Switched to Free Mode.")
+                    # Silent Fallback - No Error Box
+                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
                     st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
 
     if st.session_state.get('news_results'):
@@ -172,6 +183,7 @@ with t3:
             st.caption(r['reason'])
             st.divider()
 
+# --- SYNC LOOP ---
 now = datetime.now()
 wait = 60 - now.second
 time.sleep(wait + 1)
