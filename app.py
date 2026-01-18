@@ -2,23 +2,15 @@ import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as
 from datetime import datetime
 import streamlit.components.v1 as components
 
-# --- CONFIG ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- STATE INITIALIZATION ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
-# --- ASSETS ---
 PORT = {"HIVE":{"e":3.19},"BAER":{"e":1.86},"TX":{"e":38.10},"IMNN":{"e":3.22},"RERE":{"e":5.31}}
-NAMES = {
-    "TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", 
-    "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", 
-    "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", "BN.TO":"Brookfield", "JNJ":"J&J"
-}
+NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
-# --- SIDEBAR ---
 st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
@@ -34,14 +26,11 @@ a_tick = st.sidebar.selectbox("Alert Asset", sorted(ALL))
 a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5)
 a_on = st.sidebar.toggle("Activate Alert")
 
-# --- DATA ENGINE ---
 def get_data(s):
     s = s.strip().upper()
     p, pv, f = 0.0, 0.0, False
     tk = yf.Ticker(s)
     is_crypto = s.endswith("-USD")
-    
-    # 1. Try to get live price
     if is_crypto:
         try:
             h = tk.history(period="1d", interval="1m")
@@ -55,13 +44,10 @@ def get_data(s):
                 if not h.empty: p, pv, f = h['Close'].iloc[-1], h['Close'].iloc[-2], True
             except: pass
     if not f: return None
-    
-    # 2. Calc metrics
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
-        
-    rsi, rsi_label, tr, v_str = 50, "Neutral", "Neutral", "N/A"
+    rsi, rl, tr, v_str = 50, "Neutral", "Neutral", "N/A"
     try:
         hm = tk.history(period="1mo")
         if not hm.empty:
@@ -71,39 +57,33 @@ def get_data(s):
                 d = hm['Close'].diff()
                 g, l = d.where(d>0,0).rolling(14).mean(), (-d.where(d<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
-                # RSI Label
-                if rsi >= 70: rsi_label = "🔥 HOT"
-                elif rsi <= 30: rsi_label = "❄️ COLD"
-                else: rsi_label = "😐 OK"
-                # MACD Trend
+                if rsi >= 70: rl = "🔥 HOT"
+                elif rsi <= 30: rl = "❄️ COLD"
+                else: rl = "😐 OK"
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
                 tr = ":green[BULL]" if macd.iloc[-1]>0 else ":red[BEAR]"
     except: pass
-    return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rsi_label, "tr":tr}
+    return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
-# --- HEADER & BIG TIMER ---
-c1, c2 = st.columns([3,1])
-with c1: st.title("⚡ Penny Pulse")
-with c2: 
-    # Height=100 ensures the timer is never cut off
-    components.html("""
-    <div style="font-family:sans-serif; text-align:right; padding-top:10px; padding-right:10px;">
-        <div style="color:#888; font-size:14px; margin-bottom:4px;">Next Update</div>
-        <div id="timer" style="color:white; font-weight:bold; font-size:28px;">--s</div>
-    </div>
-    <script>
-    function updateTimer() {
-        var now = new Date();
-        var seconds = now.getSeconds();
-        var left = 60 - seconds;
-        document.getElementById("timer").innerHTML = left + "s";
-    }
-    setInterval(updateTimer, 1000);
-    updateTimer();
-    </script>
-    """, height=100)
+# --- LEFT ALIGNED TIMER & HEADER ---
+st.title("⚡ Penny Pulse")
+components.html("""
+<div style="font-family:sans-serif; text-align:left; padding-left:5px;">
+    <span style="color:#888; font-size:14px;">Next Update:</span>
+    <span id="timer" style="color:white; font-weight:900; font-size:24px; margin-left:8px;">--s</span>
+</div>
+<script>
+function updateTimer() {
+    var now = new Date();
+    var seconds = now.getSeconds();
+    var left = 60 - seconds;
+    document.getElementById("timer").innerHTML = left + "s";
+}
+setInterval(updateTimer, 1000);
+updateTimer();
+</script>
+""", height=50)
 
-# --- TICKER TAPE (Gap Fix) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
@@ -112,10 +92,8 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
         name = NAMES.get(t, t)
         ti.append(f"<span style='margin-right:50px;font-weight:bold;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-# 40x duplication + 800s duration = Smooth, infinite loop with no gaps
 st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 800s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*40}</div></div>""", unsafe_allow_html=True)
 
-# --- MAIN TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 with t1:
     cols = st.columns(3)
@@ -124,9 +102,8 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                # NEW LAYOUT: Split Momentum and RSI
-                st.markdown(f"**Momentum: {d['tr']}**")
-                st.markdown(f"**Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})**")
+                st.markdown(f"<span style='font-weight:900'>Momentum: {d['tr']}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='font-weight:900'>Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})</span>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
             st.divider()
@@ -137,9 +114,8 @@ with t2:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-                # NEW LAYOUT
-                st.markdown(f"**Momentum: {d['tr']}**")
-                st.markdown(f"**Entry: ${inf['e']} | RSI: {d['rsi']:.0f}**")
+                st.markdown(f"<span style='font-weight:900'>Momentum: {d['tr']}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='font-weight:900'>Entry: ${inf['e']} | RSI: {d['rsi']:.0f}</span>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             st.divider()
 
@@ -149,7 +125,6 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ENGINE (Anti-Crash) ---
 def get_news():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html"]
@@ -170,12 +145,10 @@ with t3:
     if st.button("Generate Report", type="primary"):
         with st.spinner("Scanning..."):
             raw = get_news()
-            # If no key, force Free Mode
             if not KEY:
                 st.warning("⚠️ No OpenAI Key. Showing Headlines.")
                 st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
             else:
-                # Try AI, but catch ANY error (Rate Limit, Auth, Connection)
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
@@ -189,9 +162,8 @@ with t3:
                             enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
                             idx+=1
                     st.session_state['news_results'] = enrich
-                except Exception as e: 
-                    # THE FIX: Silent Fallback to Free Mode on Error
-                    st.warning(f"⚠️ AI Busy/Limit Reached. Switched to Free Mode.")
+                except:
+                    st.warning(f"⚠️ AI Busy. Switched to Free Mode.")
                     st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
 
     if st.session_state.get('news_results'):
@@ -200,7 +172,6 @@ with t3:
             st.caption(r['reason'])
             st.divider()
 
-# --- SYNC LOOP ---
 now = datetime.now()
 wait = 60 - now.second
 time.sleep(wait + 1)
