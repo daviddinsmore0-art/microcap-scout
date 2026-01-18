@@ -10,7 +10,7 @@ if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
 
-# Initialize Alert Persistence (This memory keeps your settings alive)
+# Initialize Alert Persistence
 if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "SPY"
 if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
 if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
@@ -41,8 +41,7 @@ ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts")
 
-# --- PERSISTENT WIDGETS (Fixed Conflict) ---
-# We removed 'value=...' because the 'key' already handles the value from memory.
+# --- PERSISTENT WIDGETS ---
 a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_tick")
 a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
@@ -128,16 +127,43 @@ with c2:
     </script>
     """, height=50)
 
-# --- TICKER ---
+# --- TICKER (FIXED MOBILE CSS) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        ti.append(f"<span style='margin-right:25px;font-weight:900;font-size:16px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 600s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
+
+# CSS Update: Removed 'width:100%' and 'overflow:hidden' constraints that broke mobile.
+# Now uses a simple 'marquee-like' flexbox that ensures content stays centered or starts left.
+st.markdown(f"""
+<style>
+.tc {{
+    width: 100%;
+    background: #0e1117;
+    border-bottom: 2px solid #444;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    position: relative;
+}}
+.tx {{
+    display: inline-block;
+    white-space: nowrap;
+    animation: scroll-left 120s linear infinite;
+    padding-left: 100%; /* Starts off-screen */
+}}
+@keyframes scroll-left {{
+    0% {{ transform: translateX(0); }}
+    100% {{ transform: translateX(-100%); }}
+}}
+</style>
+<div class="tc"><div class="tx">{h*20}</div></div>
+""", unsafe_allow_html=True)
 
 # --- FLIP CHECK ---
 def check_flip(ticker, current_trend):
