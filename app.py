@@ -63,7 +63,7 @@ def get_data(s):
                 elif rsi <= 30: rl = "❄️ COLD"
                 else: rl = "😐 OK"
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
-                # PURE HTML COLORING (Fixes the :green[] text issue)
+                # PURE HTML COLORING
                 if macd.iloc[-1] > 0:
                     tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
                 else:
@@ -71,13 +71,13 @@ def get_data(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
-# --- HEADER & COUNTDOWN ---
+# --- HEADER & COUNTDOWN (SMALLER) ---
 st.title("⚡ Penny Pulse")
 components.html("""
-<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px;">
-    <span style="color: #FAFAFA; font-weight: bold; font-size: 20px;">Next Update: </span>
-    <span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 24px;">--</span>
-    <span style="color: #FAFAFA; font-size: 20px;"> seconds</span>
+<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 2px; border-radius: 5px;">
+    <span style="color: #BBBBBB; font-weight: bold; font-size: 14px;">Next Update: </span>
+    <span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span>
+    <span style="color: #BBBBBB; font-size: 14px;"> s</span>
 </div>
 <script>
 function startTimer() {
@@ -89,20 +89,18 @@ function startTimer() {
 }
 startTimer();
 </script>
-""", height=60)
+""", height=40)
 
-# --- TICKER (Smaller 16px & Faster 300s) ---
+# --- TICKER (Small & Fast) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        # Font size reduced to 16px
-        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:16px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:14px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-# Speed increased (300s)
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:40px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 300s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
+st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:35px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 150s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
 
 # --- DASHBOARD ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -113,7 +111,6 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                # Using HTML span logic correctly
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} | RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
