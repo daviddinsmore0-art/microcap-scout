@@ -224,7 +224,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 3. MAIN TABS
-tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
+tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 AI News"])
 
 if alert_active:
     data = fetch_stock_data(alert_ticker)
