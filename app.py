@@ -1,5 +1,5 @@
 import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -47,24 +47,66 @@ a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on")
 
-# --- ANALYST RATINGS ENGINE (Cached for 1 Hour) ---
+# --- SECTOR & EARNINGS ENGINE (Long Cache: 12 Hours) ---
+@st.cache_data(ttl=43200, show_spinner=False)
+def get_meta_data(s):
+    try:
+        tk = yf.Ticker(s)
+        
+        # 1. SECTOR MAPPING
+        sec_raw = tk.info.get('sector', 'N/A')
+        sec_map = {
+            "Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH",
+            "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND",
+            "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"
+        }
+        sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
+        
+        # 2. EARNINGS COUNTDOWN
+        earn_html = ""
+        try:
+            cal = tk.calendar
+            # Handle different yfinance calendar structures
+            if isinstance(cal, dict) and 'Earnings Date' in cal:
+                dates = cal['Earnings Date']
+                # If it's a list, pick the first one
+                if isinstance(dates, list) and len(dates) > 0:
+                    nxt = dates[0]
+                else: nxt = None
+            elif hasattr(cal, 'iloc'): # If DataFrame
+                 nxt = cal.iloc[0,0] if not cal.empty else None
+            else: nxt = None
+
+            if nxt:
+                # Ensure nxt is a date object
+                if hasattr(nxt, "date"): nxt = nxt.date()
+                days = (nxt - datetime.now().date()).days
+                
+                if 0 <= days <= 7:
+                    earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
+                elif 8 <= days <= 30:
+                    earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
+        except: pass
+        
+        return sector_code, earn_html
+    except:
+        return "", ""
+
+# --- ANALYST RATINGS (Cached 1 Hour) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_rating_cached(s):
     try:
-        # Tries to fetch analyst recommendation
         info = yf.Ticker(s).info
         rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
-        
-        if "STRONG BUY" in rec: return "🌟 STRONG BUY", "#00C805" # Bright Green
-        elif "BUY" in rec: return "✅ BUY", "#4caf50"             # Green
-        elif "HOLD" in rec: return "✋ HOLD", "#FFC107"            # Amber
-        elif "SELL" in rec: return "🔻 SELL", "#FF4B4B"            # Red
-        elif "STRONG SELL" in rec: return "🆘 STRONG SELL", "#FF0000" # Deep Red
+        if "STRONG BUY" in rec: return "🌟 STRONG BUY", "#00C805"
+        elif "BUY" in rec: return "✅ BUY", "#4caf50"
+        elif "HOLD" in rec: return "✋ HOLD", "#FFC107"
+        elif "SELL" in rec: return "🔻 SELL", "#FF4B4B"
+        elif "STRONG SELL" in rec: return "🆘 STRONG SELL", "#FF0000"
         else: return "N/A", "#888"
-    except:
-        return "N/A", "#888"
+    except: return "N/A", "#888"
 
-# --- LIVE PRICE ENGINE (Cached for 60s) ---
+# --- LIVE PRICE ENGINE (Cached 60s) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
     s = s.strip().upper()
@@ -85,7 +127,6 @@ def get_data_cached(s):
         try:
             h = tk.history(period="1d", interval="1m")
             if h.empty: h = tk.history(period="5d")
-            
             if not h.empty:
                 p = h['Close'].iloc[-1]
                 pv = h['Open'].iloc[0] if is_crypto else h['Close'].iloc[-2]
@@ -93,18 +134,13 @@ def get_data_cached(s):
                 dl = h['Low'].min()
                 f = True
         except: pass
-        
     if not f: return None
     
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
     
-    if dh > dl:
-        rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100
-    else:
-        rng_pct = 50
-    
+    rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100 if dh > dl else 50
     rng_html = f"""
     <div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;">
         <span style="margin-right:5px;">L</span>
@@ -170,7 +206,7 @@ with c2:
     </script>
     """, height=60)
 
-# --- TICKER (SEAMLESS LOOP) ---
+# --- TICKER (SEAMLESS) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data_cached(t)
@@ -179,14 +215,7 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
         name = NAMES.get(t, t)
         ti.append(f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-
-st.markdown(f"""
-<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;">
-    <marquee scrollamount="6" style="width: 100%;">
-        {h * 15}
-    </marquee>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True)
 
 # --- FLIP CHECK ---
 def check_flip(ticker, current_trend):
@@ -206,14 +235,20 @@ with t1:
             d = get_data_cached(t)
             if d:
                 check_flip(t, d['raw_trend'])
-                # Fetch Rating
                 rat_txt, rat_col = get_rating_cached(t)
+                sec, earn = get_meta_data(t) # Fetch Sector & Earnings
                 
-                st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
+                # Header with Sector Tag
+                nm = NAMES.get(t, t)
+                if sec: nm += f" <span style='color:#777; font-size:14px;'>[{sec}]</span>"
+                
+                st.markdown(f"<h3 style='margin:0; padding:0;'>{nm}</h3>", unsafe_allow_html=True)
+                st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
                 
-                # Combine Momentum and Rating into one line
-                st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>", unsafe_allow_html=True)
+                # Meta Line: Earnings + Rating + Momentum
+                meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
+                st.markdown(meta_html, unsafe_allow_html=True)
                 
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
@@ -227,14 +262,18 @@ with t2:
             d = get_data_cached(t)
             if d:
                 check_flip(t, d['raw_trend'])
-                # Fetch Rating
                 rat_txt, rat_col = get_rating_cached(t)
+                sec, earn = get_meta_data(t)
                 
-                st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
+                nm = NAMES.get(t, t)
+                if sec: nm += f" <span style='color:#777; font-size:14px;'>[{sec}]</span>"
+                
+                st.markdown(f"<h3 style='margin:0; padding:0;'>{nm}</h3>", unsafe_allow_html=True)
+                st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
                 
-                # Combine Momentum and Rating
-                st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>", unsafe_allow_html=True)
+                meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
+                st.markdown(meta_html, unsafe_allow_html=True)
                 
                 date_str = inf.get("d", "N/A")
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str})</div>", unsafe_allow_html=True)
@@ -248,15 +287,11 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS (ROBUST) ---
+# --- NEWS ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = [
-        "https://finance.yahoo.com/news/rssindex", 
-        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-        "https://www.investing.com/rss/news.rss"
-    ]
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://www.investing.com/rss/news.rss"]
     it, seen = [], set()
     for u in urls:
         try:
@@ -274,8 +309,7 @@ with t3:
     if st.button("Generate Report", type="primary", key="news_btn"):
         with st.spinner("Scanning..."):
             raw = get_news_cached()
-            if not raw:
-                st.error("⚠️ No news sources responded. Please try again.")
+            if not raw: st.error("⚠️ No news sources responded.")
             elif not KEY:
                 st.warning("⚠️ No OpenAI Key. Showing Headlines.")
                 st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
@@ -300,7 +334,6 @@ with t3:
                 except:
                     st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
                     st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
-
     if st.session_state.get('news_results'):
         for r in st.session_state['news_results']:
             st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
