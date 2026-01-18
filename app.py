@@ -66,18 +66,20 @@ watchlist_list = [x.strip().upper() for x in user_input.split(",")]
 
 st.sidebar.divider()
 
-# --- 🛠️ EARNINGS FIXER ---
+# --- 🛠️ EARNINGS FIXER (DIRECT WRITE MODE) ---
 with st.sidebar.expander("📅 Earnings Fixer", expanded=True):
     st.caption("Override any date here.")
     
+    # Simple Direct Inputs (No Form to block saving)
     c1, c2 = st.columns([1, 2])
     with c1:
-        fix_tick = st.text_input("Ticker", placeholder="TMQ", key="fix_t").upper().strip()
+        fix_tick = st.text_input("Ticker", placeholder="TMQ", key="ft_input").upper().strip()
     with c2:
-        fix_date = st.date_input("Date", key="fix_d")
+        fix_date = st.date_input("Date", key="fd_input")
     
     if st.button("💾 Save Override"):
         if fix_tick:
+            # DIRECT WRITE TO MEMORY
             date_str = fix_date.strftime("%Y-%m-%d")
             st.session_state['user_dates'][fix_tick] = date_str
             st.success(f"Saved {fix_tick}!")
@@ -154,20 +156,26 @@ def fetch_quant_data_v3(symbol):
         # --- THE DOUBLE-TAP ENGINE (Reliability Fix) ---
         reg_price = 0.0
         prev_close = 0.0
+        data_found = False
         
-        # Method 1: Turbo (Fast Info)
+        # Method 1: Turbo (Fast Info) - Fast but can be blocked
         try:
             reg_price = ticker.fast_info['last_price']
             prev_close = ticker.fast_info['previous_close']
+            data_found = True
         except:
-            # Method 2: Backup (History) - If Turbo Fails, Try This
+            # Method 2: Backup (History) - Slower but reliable
             try:
                 hist = ticker.history(period="1d")
                 if not hist.empty:
                     reg_price = hist['Close'].iloc[-1]
                     prev_close = hist['Open'].iloc[-1] # Approximation for backup
+                    data_found = True
             except:
-                return None # Both failed, give up
+                pass 
+
+        if not data_found:
+            return None # Both methods failed
 
         # 2. IS THIS CRYPTO?
         is_crypto = symbol.endswith("-USD") or "BTC" in symbol or "ETH" in symbol
@@ -515,4 +523,4 @@ with tab3:
                     st.info(f"{res['reason']}")
                 st.divider()
 
-st.success("✅ System Ready (v3.7 - Reliability Update)")
+st.success("✅ System Ready (v3.7 - The Double-Tap Update)")
