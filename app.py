@@ -1,22 +1,31 @@
 import streamlit as st
 import yfinance as yf
-import requests
-import xml.etree.ElementTree as ET
-import time
 import pandas as pd
+import requests
+import time
+import xml.etree.ElementTree as ET
+from datetime import datetime
 from openai import OpenAI
-from PIL import Image
 
 # --- CONFIGURATION ---
 try:
-    icon_img = Image.open("logo.png")
-    st.set_page_config(page_title="PennyPulse Pro", page_icon=icon_img, layout="wide")
-except:
-    st.set_page_config(page_title="PennyPulse Pro", page_icon="⚡", layout="wide")
+    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
+except: pass
 
+# --- SESSION STATE ---
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
+if 'last_update' not in st.session_state: st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
+
+# --- PORTFOLIO ---
+MY_PORTFOLIO = {
+    "HIVE": {"entry": 3.19, "date": "Jan 7"},
+    "BAER": {"entry": 1.86, "date": "Dec 31"},
+    "TX":   {"entry": 38.10, "date": "Dec 29"},
+    "IMNN": {"entry": 3.22, "date": "Dec 29"}, 
+    "RERE": {"entry": 5.31, "date": "Dec 29"}
+}
 
 if "OPENAI_KEY" in st.secrets:
     OPENAI_KEY = st.secrets["OPENAI_KEY"]
@@ -24,46 +33,41 @@ else:
     st.sidebar.header("🔑 Login")
     OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- 💼 SHARED PORTFOLIO ---
-MY_PORTFOLIO = {
-    "TSLA":    {"entry": 350.00, "date": "Dec 10"},
-    "NVDA":    {"entry": 130.50, "date": "Jan 12"},
-    "GME":     {"entry": 25.00,  "date": "Jan 14"},
-    "BTC-USD": {"entry": 92000.00, "date": "Jan 05"}
-}
-
 # --- SIDEBAR ---
-st.sidebar.divider()
-try:
-    st.sidebar.image("logo.png", width=150) 
-except:
-    st.sidebar.header("⚡ PennyPulse")
+st.sidebar.header("⚡ Penny Pulse")
 
-# --- 🧠 MEMORY SYSTEM (URL Method) ---
-st.sidebar.header("👀 Watchlist")
 query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = "AMD, PLTR"
+    saved_watchlist = "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 if user_input != saved_watchlist:
     st.query_params["watchlist"] = user_input
 
 watchlist_list = [x.strip().upper() for x in user_input.split(",")]
+ALL_ASSETS = list(set(watchlist_list + list(MY_PORTFOLIO.keys())))
 
 st.sidebar.divider()
 st.sidebar.header("🔔 Price Alert")
-all_assets = sorted(list(set(list(MY_PORTFOLIO.keys()) + watchlist_list)))
-alert_ticker = st.sidebar.selectbox("Alert Asset", all_assets)
+alert_ticker = st.sidebar.selectbox("Alert Asset", sorted(ALL_ASSETS))
 alert_price = st.sidebar.number_input("Target Price ($)", min_value=0.0, value=0.0, step=0.5)
 alert_active = st.sidebar.toggle("Activate Alert")
 
-if not alert_active:
-    st.session_state['alert_triggered'] = False 
+# --- NAMES & MAPS ---
+SYMBOL_NAMES = {
+    "TSLA": "Tesla", "NVDA": "Nvidia", "BTC-USD": "Bitcoin",
+    "AMD": "AMD", "PLTR": "Palantir", "AAPL": "Apple", "MSFT": "Microsoft",
+    "GOOGL": "Google", "AMZN": "Amazon", "META": "Meta", "NFLX": "Netflix",
+    "SPY": "S&P 500", "QQQ": "Nasdaq", "IWM": "Russell 2k", "DIA": "Dow Jones",
+    "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
+    "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
+    "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble",
+    "TMQ": "Trilogy Metals", "VCIG": "VCI Global", "TD.TO": "TD Bank", "CCO.TO": "Cameco", "IVN.TO": "Ivanhoe Mines", "BN.TO": "Brookfield", "NKE": "Nike",
+    "JNJ": "Johnson & Johnson"
+}
 
-# --- TICKER MAP ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -75,353 +79,254 @@ TICKER_MAP = {
     "NETFLIX": "NFLX", "DISNEY": "DIS",
     "BITCOIN": "BTC-USD", "CRYPTO": "BTC-USD", "COINBASE": "COIN",
     "GOLD": "GC=F", "OIL": "CL=F", "FED": "USD", "POWELL": "USD",
-    "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
+    "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA",
+    "JOHNSON": "JNJ", "J&J": "JNJ"
 }
 
-# --- MACRO TAPE LIST (The "Whole Market" Desk) ---
-MACRO_TICKERS = [
-    "SPY",      # S&P 500
-    "^IXIC",    # Nasdaq Composite
-    "^DJI",     # Dow Jones
-    "^GSPTSE",  # TSX Composite
-    "IWM",      # Small Caps
-    "GC=F",     # Gold
-    "SI=F",     # Silver
-    "CL=F",     # Crude Oil
-    "DX-Y.NYB", # US Dollar Index
-    "^VIX",     # Fear Index
-    "BTC-USD"   # Bitcoin
-]
+MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- FUNCTIONS ---
-def get_live_price(symbol):
-    try:
-        ticker = yf.Ticker(symbol)
-        price = ticker.fast_info['last_price']
-        prev = ticker.fast_info['previous_close']
-        delta = ((price - prev) / prev) * 100
-        return price, delta
-    except: return 0.0, 0.0
+# --- ⚡ THE UNIFIED ENGINE ---
+# Both Ticker Tape AND Watchlist use this same function now.
+# This prevents desync.
 
-def fetch_quant_data(symbol):
-    try:
-        ticker = yf.Ticker(symbol)
-        
-        # 1. FETCH DEEP INFO
+def fetch_stock_data(symbol):
+    clean_symbol = symbol.strip().upper()
+    price = 0.0
+    prev_close = 0.0
+    found_price = False
+    
+    ticker = yf.Ticker(clean_symbol)
+
+    # 1. CRYPTO PATH (The "Live" one)
+    if clean_symbol.endswith("-USD"):
         try:
-            info = ticker.info
-            reg_price = info.get('regularMarketPrice', 0.0)
-            pre_price = info.get('preMarketPrice', None)
-            post_price = info.get('postMarketPrice', None)
-            curr_price = info.get('currentPrice', reg_price)
-            prev_close = info.get('regularMarketPreviousClose', 0.0)
-        except:
-            reg_price = ticker.fast_info['last_price']
-            post_price = reg_price
-            prev_close = ticker.fast_info['previous_close']
-            curr_price = reg_price
-
-        # 2. IS THIS CRYPTO?
-        is_crypto = symbol.endswith("-USD")
-
-        # 3. CALCULATE GAINS
-        if prev_close and prev_close > 0:
-            day_pct = ((reg_price - prev_close) / prev_close) * 100
-        else:
-            day_pct = 0.0
-            
-        # 4. FORMAT SECOND LINE
-        if is_crypto:
-            color = "green" if day_pct >= 0 else "red"
-            ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
-        else:
-            ext_price = reg_price
-            if post_price and post_price != reg_price:
-                ext_price = post_price
-            elif pre_price and pre_price != reg_price:
-                ext_price = pre_price
-            
-            if reg_price and reg_price > 0:
-                ext_diff = ext_price - reg_price
-                ext_pct = (ext_diff / reg_price) * 100
-            else:
-                ext_pct = 0.0
-
-            if abs(ext_pct) > 0.001: 
-                color = "green" if ext_pct > 0 else "red"
-                icon = "🌙"
-                ext_str = f"**{icon} Ext: ${ext_price:,.2f} (:{color}[{ext_pct:+.2f}%])**"
-            else:
-                ext_str = f"**🌙 Ext: ${ext_price:,.2f} (:gray[Market Closed])**"
-
-        # 5. FETCH HISTORY FOR RSI
-        history = ticker.history(period="1mo", interval="1d", prepost=True)
-        if not history.empty:
-            volume = history['Volume'].iloc[-1]
-            if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
-
-            delta = history['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            history['RSI'] = 100 - (100 / (1 + rs))
-            rsi_val = history['RSI'].iloc[-1]
-            
-            ema12 = history['Close'].ewm(span=12, adjust=False).mean()
-            ema26 = history['Close'].ewm(span=26, adjust=False).mean()
-            macd = ema12 - ema26
-            signal = macd.ewm(span=9, adjust=False).mean()
-            if macd.iloc[-1] > signal.iloc[-1]: 
-                trend_str = ":green[**BULL**]" 
-            else: 
-                trend_str = ":red[**BEAR**]"
-        else:
-            volume = 0
-            rsi_val = 50
-            trend_str = ":gray[**WAIT**]"
-
-        return {
-            "reg_price": reg_price,
-            "day_delta": day_pct,
-            "ext_str": ext_str,
-            "volume": volume,
-            "rsi": rsi_val,
-            "trend": trend_str
-        }
-    except: return None
-
-def format_volume(num):
-    if num >= 1_000_000: return f"{num/1_000_000:.1f}M"
-    if num >= 1_000: return f"{num/1_000:.1f}K"
-    return str(num)
-
-# --- NEW: MACRO TAPE (Thick, GLIDING SLOW, Seamless) ---
-def render_ticker_tape(tickers):
-    ticker_items = []
-    # Friendly Names for Macro
-    name_map = {
-        "GC=F": "GOLD", "SI=F": "SILVER", "CL=F": "OIL", 
-        "DX-Y.NYB": "USD", "^VIX": "VIX", "BTC-USD": "BTC",
-        "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "^DJI": "DOW" 
-    }
-    
-    for tick in tickers:
-        p, d = get_live_price(tick)
-        color = "#4caf50" if d >= 0 else "#f44336"
-        arrow = "▲" if d >= 0 else "▼"
-        display_name = name_map.get(tick, tick) 
-        
-        ticker_items.append(f"<span style='margin-right: 40px; font-weight: 900; font-size: 20px; color: white;'>{display_name}: <span style='color: {color};'>${p:,.2f} {arrow} {d:.2f}%</span></span>")
-    
-    # We repeat the content 4 times to ensure no gaps on wide screens
-    content_str = ' '.join(ticker_items)
-    
-    ticker_html = f"""
-    <style>
-    .ticker-wrap {{
-        width: 100%;
-        overflow: hidden;
-        background-color: #0e1117;
-        border-bottom: 2px solid #444; 
-        white-space: nowrap;
-        box-sizing: border-box;
-        height: 50px; 
-        display: flex;
-        align-items: center;
-    }}
-    .ticker {{
-        display: inline-block;
-        white-space: nowrap;
-        animation: ticker 100s linear infinite; /* 100s = Gliding Speed */
-    }}
-    @keyframes ticker {{
-        0% {{ transform: translateX(0); }}
-        100% {{ transform: translateX(-100%); }}
-    }}
-    </style>
-    <div class="ticker-wrap">
-        <div class="ticker">
-            {content_str} {content_str} {content_str} {content_str}
-        </div>
-    </div>
-    """
-    st.markdown(ticker_html, unsafe_allow_html=True)
-
-def display_ticker_grid(ticker_list, live_mode=False):
-    if alert_active and not st.session_state['alert_triggered']:
-        try:
-            check_tick = yf.Ticker(alert_ticker)
-            curr_price = check_tick.fast_info['last_price']
-            if curr_price >= alert_price:
-                st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr_price:,.2f}!", icon="🔥")
-                st.session_state['alert_triggered'] = True
+            hist = ticker.history(period="1d", interval="1m")
+            if not hist.empty:
+                price = hist['Close'].iloc[-1]
+                prev_close = hist['Open'].iloc[0] 
+                found_price = True
         except: pass
 
-    if live_mode:
-        st.info("🔴 Live Streaming Active.")
-        cols = st.columns(4)
-        for i, tick in enumerate(ticker_list):
-            with cols[i % 4]:
-                price, delta = get_live_price(tick)
-                st.metric(label=tick, value=f"${price:,.2f}", delta=f"{delta:.2f}%")
-    else:
-        cols = st.columns(3)
-        for i, tick in enumerate(ticker_list):
-            with cols[i % 3]:
-                data = fetch_quant_data(tick)
-                if data:
-                    rsi_val = data['rsi']
-                    if pd.isna(rsi_val): 
-                        rsi_disp = "N/A"
-                    else:
-                        if rsi_val > 70:   rsi_sig = "🔥 Over"
-                        elif rsi_val < 30: rsi_sig = "🧊 Under"
-                        else:              rsi_sig = "⚪ Neut"
-                        rsi_disp = f"{rsi_val:.0f} ({rsi_sig})"
-                    
-                    vol_str = format_volume(data['volume'])
-
-                    st.metric(
-                        label=f"{tick} (Vol: {vol_str})", 
-                        value=f"${data['reg_price']:,.2f}", 
-                        delta=f"{data['day_delta']:.2f}% (Close)"
-                    )
-                    st.markdown(data['ext_str'])
-                    st.caption(f"{data['trend']} | RSI: {rsi_disp}")
-                    st.divider()
-
-def fetch_rss_items():
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    urls = [
-        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069",
-        "https://feeds.content.dowjones.io/public/rss/mw_topstories"
-    ]
-    items = []
-    seen_titles = set()
-    for url in urls:
+    # 2. STOCK PATH (The "Stable" one)
+    if not found_price:
         try:
-            response = requests.get(url, headers=headers, timeout=3)
-            root = ET.fromstring(response.content)
-            for item in root.findall('.//item'):
-                title = item.find('title').text
-                link = item.find('link').text
-                if title and title not in seen_titles:
-                    seen_titles.add(title)
-                    items.append({"title": title, "link": link})
-        except: continue
-    return items[:25]
+            # Fast Info is fastest for stocks
+            price = ticker.fast_info['last_price']
+            prev_close = ticker.fast_info['previous_close']
+            found_price = True
+        except:
+            try:
+                # Fallback to history
+                hist = ticker.history(period="5d")
+                if not hist.empty:
+                    price = hist['Close'].iloc[-1]
+                    prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else hist['Open'].iloc[-1]
+                    found_price = True
+            except: pass
+            
+    if not found_price:
+        return None # Return None so UI handles it gracefully
 
-def analyze_batch(items, client):
-    if not items: return []
-    prompt_list = ""
-    for i, item in enumerate(items):
-        hl = item['title']
-        hint = ""
-        upper_hl = hl.upper()
-        for key, val in TICKER_MAP.items():
-            if key in upper_hl:
-                hint = f"(Hint: {val})"
-                break
-        prompt_list += f"{i+1}. {hl} {hint}\n"
-    prompt = f"""
-    Analyze these {len(items)} headlines.
-    Task: Identify Ticker (or "MACRO"), Signal (🟢/🔴/⚪), and 3-word reason.
-    STRICT FORMAT: Ticker | Signal | Reason
-    Headlines:
-    {prompt_list}
-    """
+    # Math
+    day_pct = ((price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
+    
+    is_crypto = clean_symbol.endswith("-USD") or "BTC" in clean_symbol
+    if is_crypto:
+        color = "green" if day_pct >= 0 else "red"
+        ext_str = f"**⚡ Live: ${price:,.2f} (:{color}[{day_pct:+.2f}%])**"
+    else:
+        ext_str = f"**🌙 Ext: ${price:,.2f} (:gray[Market Closed])**"
+
+    # History (Only for Watchlist details, not needed for Tape)
+    rsi_val = 50
+    trend_str = "WAIT"
+    volume_str = "N/A"
+    
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=400
-        )
-        lines = response.choices[0].message.content.strip().split("\n")
-        enriched_results = []
-        item_index = 0
-        for line in lines:
-            clean_line = line.replace("```", "").replace("plaintext", "").strip()
-            if len(clean_line) > 0 and clean_line[0].isdigit():
-                parts = clean_line.split(".", 1)
-                if len(parts) > 1: clean_line = parts[1].strip()
-            if not clean_line: continue
-            if item_index >= len(items): break
-            parts = clean_line.split("|")
-            if len(parts) >= 3:
-                ticker = parts[0].strip()
-                if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
-                try:
-                    enriched_results.append({
-                        "ticker": ticker, "signal": parts[1].strip(), "reason": parts[2].strip(),
-                        "title": items[item_index]['title'], "link": items[item_index]['link']
-                    })
-                    item_index += 1
-                except IndexError: break
-        return enriched_results
-    except Exception as e:
-        st.session_state['news_error'] = str(e)
-        return []
+        # We only pull history if we really need RSI (Optional)
+        hist_month = ticker.history(period="1mo")
+        if not hist_month.empty:
+            vol = hist_month['Volume'].iloc[-1]
+            volume_str = format_volume(vol)
+            
+            if len(hist_month) >= 14:
+                delta = hist_month['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                rs = gain / loss
+                rsi = 100 - (100 / (1 + rs))
+                rsi_val = rsi.iloc[-1]
+                
+                ema12 = hist_month['Close'].ewm(span=12, adjust=False).mean()
+                ema26 = hist_month['Close'].ewm(span=26, adjust=False).mean()
+                macd = ema12 - ema26
+                if macd.iloc[-1] > 0: trend_str = ":green[BULL]" 
+                else: trend_str = ":red[BEAR]"
+    except: pass
 
-# --- MAIN APP UI ---
-st.title("⚡ PennyPulse Pro")
+    return {
+        "reg_price": price,
+        "day_delta": day_pct,
+        "ext_str": ext_str,
+        "volume": volume_str,
+        "rsi": rsi_val,
+        "trend": trend_str
+    }
 
-# RENDER MACRO TAPE (The Global Desk)
-render_ticker_tape(MACRO_TICKERS)
+def format_volume(num):
+    try:
+        if num >= 1_000_000: return f"{num/1_000_000:.1f}M"
+        if num >= 1_000: return f"{num/1_000:.1f}K"
+        return str(num)
+    except: return "N/A"
 
-# --- TABS LAYOUT ---
+# --- UI LAYOUT ---
+# 1. HEADER
+c1, c2 = st.columns([3, 1])
+with c1:
+    if st.session_state['live_mode']:
+        st.markdown(f"## ⚡ Penny Pulse :red[● LIVE] <span style='font-size:14px; color:gray'>Last Update: {st.session_state['last_update']}</span>", unsafe_allow_html=True)
+    else:
+        st.title("⚡ Penny Pulse")
+
+with c2:
+    live_on = st.toggle("🔴 LIVE DATA", key="live_mode_toggle")
+    if live_on: 
+        st.session_state['live_mode'] = True
+        st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
+    else: 
+        st.session_state['live_mode'] = False
+
+# 2. TICKER TAPE (Now uses Unified Fetcher)
+ticker_items = []
+for tick in MACRO_TICKERS:
+    data = fetch_stock_data(tick)
+    if data:
+        p = data['reg_price']
+        d = data['day_delta']
+        c = "#4caf50" if d >= 0 else "#f44336"
+        a = "▲" if d >= 0 else "▼"
+    else:
+        p, d = 0.0, 0.0
+        c, a = "gray", ""
+        
+    display_name = SYMBOL_NAMES.get(tick, tick) 
+    ticker_items.append(f"<span style='display:inline-block; margin-right:50px; font-weight:900; font-size:18px; color:white;'>{display_name}: <span style='color:{c};'>${p:,.2f} {a} {d:.2f}%</span></span>")
+
+content_str = "".join(ticker_items)
+st.markdown(f"""
+<style>
+.ticker-container {{ width: 100%; overflow: hidden; background-color: #0e1117; border-bottom: 2px solid #444; height: 50px; display: flex; align-items: center; }}
+.ticker-text {{ display: flex; white-space: nowrap; animation: ticker-slide 60s linear infinite; }}
+@keyframes ticker-slide {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(-100%); }} }}
+</style>
+<div class="ticker-container"><div class="ticker-text">{content_str} &nbsp;&nbsp;&nbsp; {content_str} &nbsp;&nbsp;&nbsp; {content_str}</div></div>
+""", unsafe_allow_html=True)
+
+# 3. MAIN TABS
 tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 
+if alert_active:
+    data = fetch_stock_data(alert_ticker)
+    if data and data['reg_price'] >= alert_price and not st.session_state.get('alert_triggered', False):
+        st.toast(f"🚨 ALERT: {alert_ticker} HIT ${data['reg_price']:,.2f}!", icon="🔥")
+        st.session_state['alert_triggered'] = True
+
 with tab1:
-    st.subheader("My Watchlist") # Renamed for clarity since Indices are now on Tape
-    st.caption(f"Currently Tracking: {', '.join(watchlist_list)}")
-    live_on = st.toggle("🔴 Enable Live Prices", key="live_market") 
-    display_ticker_grid(watchlist_list, live_mode=live_on)
+    st.subheader("My Watchlist")
+    st.caption(f"Tracking: {', '.join(watchlist_list)}")
+    cols = st.columns(3)
+    for i, tick in enumerate(watchlist_list):
+        with cols[i % 3]:
+            data = fetch_stock_data(tick)
+            if data:
+                st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
+                st.markdown(f"**Vol: {data['volume']} | RSI: {data['rsi']:.0f} | {data['trend']}**")
+                st.markdown(data['ext_str'])
+                st.divider()
+            else:
+                # Zombie Card (Prevents layout shift)
+                st.metric(label=f"{tick}", value="---", delta="0.0%")
+                st.caption("Data Unavailable")
+                st.divider()
 
 with tab2:
-    st.subheader("My Positions")
+    st.subheader("My Picks")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            data = fetch_quant_data(ticker)
+            data = fetch_stock_data(ticker)
             if data:
-                current = data['reg_price'] 
-                entry = info['entry']
-                total_return = ((current - entry) / entry) * 100
-                st.metric(
-                    label=f"{ticker} (Since {info['date']})",
-                    value=f"${current:,.2f}",
-                    delta=f"{total_return:.2f}% (Total)"
-                )
-                if data['ext_str']: st.markdown(data['ext_str'])
-                st.caption(f"Entry: ${entry:,.2f}")
+                curr = data['reg_price']
+                ret = ((curr - info['entry']) / info['entry']) * 100
+                st.metric(label=f"{ticker}", value=f"${curr:,.2f}", delta=f"{ret:.2f}% (Total)")
+                st.markdown(f"**Entry: ${info['entry']} | {data['trend']}**")
+                st.markdown(data['ext_str'])
                 st.divider()
-            else:
-                st.warning(f"Loading {ticker}...")
+
+# 4. NEWS TAB
+def fetch_rss_items():
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml", "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml", "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"]
+    items = []
+    seen = set()
+    for url in urls:
+        try:
+            r = requests.get(url, headers=headers, timeout=2)
+            root = ET.fromstring(r.content)
+            for item in root.findall('.//item'):
+                t = item.find('title').text
+                l = item.find('link').text
+                if t and t not in seen:
+                    seen.add(t)
+                    items.append({"title": t, "link": l})
+        except: continue
+    return items[:15]
+
+def analyze_batch(items, client):
+    if not items: return []
+    p_list = ""
+    for i, item in enumerate(items):
+        hint = ""
+        for k,v in TICKER_MAP.items():
+            if k in item['title'].upper():
+                hint = f"({v})"
+                break
+        p_list += f"{i+1}. {item['title']} {hint}\n"
+    
+    prompt = f"Analyze {len(items)} headlines. Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"
+    try:
+        resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}], max_tokens=400)
+        lines = resp.choices[0].message.content.strip().split("\n")
+        enrich = []
+        idx = 0
+        for l in lines:
+            parts = l.split("|")
+            if len(parts) >= 3 and idx < len(items):
+                enrich.append({"ticker": parts[0].strip(), "signal": parts[1].strip(), "reason": parts[2].strip(), "title": items[idx]['title'], "link": items[idx]['link']})
+                idx += 1
+        return enrich
+    except: return []
 
 with tab3:
     st.subheader("🚨 Global Wire")
     if st.button("Generate AI Report", type="primary"):
-        if not OPENAI_KEY: st.error("⚠️ Enter OpenAI Key!")
+        if not OPENAI_KEY: st.error("Enter OpenAI Key")
         else:
-            client = OpenAI(api_key=OPENAI_KEY)
-            with st.spinner("Scanning Global Markets..."):
-                raw_items = fetch_rss_items()
-                if raw_items:
-                    results = analyze_batch(raw_items, client)
-                    st.session_state['news_results'] = results
-                else: st.error("News feed unavailable.")
+            with st.spinner("Scanning..."):
+                raw = fetch_rss_items()
+                res = analyze_batch(raw, OpenAI(api_key=OPENAI_KEY))
+                st.session_state['news_results'] = res
     
-    results = st.session_state['news_results']
-    if results:
-        for res in results:
-            tick = res['ticker']
-            b_color = "gray" if tick == "MACRO" else "blue"
-            with st.container():
-                c1, c2 = st.columns([1, 4])
-                with c1:
-                    st.markdown(f"### :{b_color}[{tick}]")
-                    st.caption(f"{res['signal']}")
-                with c2:
-                    st.markdown(f"**[{res['title']}]({res['link']})**")
-                    st.info(f"{res['reason']}")
-                st.divider()
+    if st.session_state.get('news_results'):
+        for r in st.session_state['news_results']:
+            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            st.caption(r['reason'])
+            st.divider()
 
-st.success("✅ System Ready (Macro Tape: Gliding Speed)")
+# --- REFRESH LOGIC ---
+if st.session_state['live_mode']:
+    time.sleep(15) # 15s refresh for stability
+    st.rerun()
+
+st.success("✅ System Ready (v6.0 - Unified Sync)")
