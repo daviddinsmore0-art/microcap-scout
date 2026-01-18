@@ -96,6 +96,44 @@ def get_rating_cached(s):
         else: return "N/A", "#888"
     except: return "N/A", "#888"
 
+# --- AI SIGNAL ENGINE (Rule-Based) ---
+def get_ai_signal(rsi, vol_ratio, trend, price_change):
+    # This simulates "AI" logic using Technical Analysis rules
+    score = 0
+    reasons = []
+    
+    # RSI Logic
+    if rsi >= 80: 
+        score -= 3
+        reasons.append("Extreme Overbought")
+    elif rsi >= 70: 
+        score -= 2
+        reasons.append("Overbought")
+    elif rsi <= 20: 
+        score += 3
+        reasons.append("Extreme Oversold")
+    elif rsi <= 30: 
+        score += 2
+        reasons.append("Oversold")
+    
+    # Volume Logic
+    if vol_ratio > 2.0: 
+        if price_change > 0: score += 2; reasons.append("Vol Surge")
+        else: score -= 2; reasons.append("Panic Sell")
+    elif vol_ratio > 1.2:
+        score += 1 if price_change > 0 else -1
+
+    # Trend Logic
+    if trend == "BULL": score += 1
+    elif trend == "BEAR": score -= 1
+
+    # Final Classification
+    if score >= 3: return "🚀 RALLY LIKELY", "#00ff00", "Strong Buy Signal"
+    elif score >= 1: return "🟢 BULLISH BIAS", "#4caf50", "Positive Momentum"
+    elif score <= -3: return "⚠️ PULLBACK RISK", "#ff0000", "Correction Likely"
+    elif score <= -1: return "🔴 BEARISH BIAS", "#ff4b4b", "Negative Momentum"
+    else: return "💤 CONSOLIDATION", "#888", "Neutral Action"
+
 # --- LIVE PRICE ENGINE (Cached 60s) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
@@ -146,21 +184,22 @@ def get_data_cached(s):
     </div>
     """
 
-    rsi, rl, tr, v_str, vol_tag, raw_trend = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL"
+    rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col, ai_reas = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888", ""
     try:
         hm = tk.history(period="1mo")
         if not hm.empty:
             cur_v = hm['Volume'].iloc[-1]
             avg_v = hm['Volume'].iloc[:-1].mean() if len(hm) > 1 else cur_v
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
-            if avg_v > 0:
-                ratio = cur_v / avg_v
-                if ratio >= 1.0: vol_tag = "⚡ SURGE"
-                elif ratio >= 0.5: vol_tag = "🌊 STEADY"
-                else: vol_tag = "💤 QUIET"
+            ratio = cur_v / avg_v if avg_v > 0 else 1.0
+            
+            if ratio >= 1.0: vol_tag = "⚡ SURGE"
+            elif ratio >= 0.5: vol_tag = "🌊 STEADY"
+            else: vol_tag = "💤 QUIET"
+            
             if len(hm)>=14:
-                d = hm['Close'].diff()
-                g, l = d.where(d>0,0).rolling(14).mean(), (-d.where(d<0,0)).rolling(14).mean()
+                d_diff = hm['Close'].diff()
+                g, l = d_diff.where(d_diff>0,0).rolling(14).mean(), (-d_diff.where(d_diff<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
                 if rsi >= 70: rl = "🔥 HOT"
                 elif rsi <= 30: rl = "❄️ COLD"
@@ -172,8 +211,12 @@ def get_data_cached(s):
                 else:
                     raw_trend = "BEAR"
                     tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
+                    
+                # CALL AI ENGINE
+                ai_txt, ai_col, ai_reas = get_ai_signal(rsi, ratio, raw_trend, dp)
+
     except: pass
-    return {"p":p, "d":dp, "d_raw":d_raw, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data}
+    return {"p":p, "d":dp, "d_raw":d_raw, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "ai_reas":ai_reas}
 
 # --- HEADER & COUNTDOWN ---
 c1, c2 = st.columns([1, 1])
@@ -239,6 +282,10 @@ with t1:
                 st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
                 
                 st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
+                
+                # AI SIGNAL BADGE
+                st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
+                
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
                 
                 meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
@@ -271,7 +318,6 @@ with t2:
     c_day = "green" if day_pl >= 0 else "red"
     c_tot = "green" if tot_pl >= 0 else "red"
     
-    # FIXED FONT SIZE: 18px so it fits on mobile
     st.markdown(f"""
     <div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;">
         <div style="display:flex; justify-content:space-around; text-align:center;">
@@ -309,6 +355,10 @@ with t2:
                 st.caption(f"{q} Shares @ ${inf['e']}")
                 
                 st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
+                
+                # AI SIGNAL BADGE
+                st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
+
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
                 
                 meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
@@ -352,3 +402,38 @@ with t3:
         with st.spinner("Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
+            elif not KEY:
+                st.warning("⚠️ No OpenAI Key. Showing Headlines.")
+                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
+            else:
+                try:
+                    from openai import OpenAI
+                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
+                    system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
+                        {"role":"system", "content": system_instr},
+                        {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
+                    ], max_tokens=400)
+                    enrich = []
+                    lines = res.choices[0].message.content.strip().split("\n")
+                    idx = 0
+                    for l in lines:
+                        parts = l.split("|")
+                        if len(parts)>=3 and idx<len(raw):
+                            enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
+                            idx+=1
+                    st.session_state['news_results'] = enrich
+                except:
+                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
+                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
+    if st.session_state.get('news_results'):
+        for r in st.session_state['news_results']:
+            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            st.caption(r['reason'])
+            st.divider()
+
+# --- RECONNECT LOGIC ---
+now = datetime.now()
+wait = 60 - now.second
+time.sleep(wait + 1)
+st.rerun()
