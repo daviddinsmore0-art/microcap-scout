@@ -2,17 +2,15 @@ import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as
 from datetime import datetime
 import streamlit.components.v1 as components
 import pandas as pd
-import altair as alt  # <--- Added for better charts
+import altair as alt
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- SESSION STATE INITIALIZATION ---
+# --- SESSION STATE ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
-
-# Initialize Alert Persistence
 if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "SPY"
 if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
 if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
@@ -20,7 +18,7 @@ if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = 
 
 # --- PORTFOLIO ---
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Jan. 01, 2026", "q": 50},
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
     "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
     "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
@@ -49,44 +47,36 @@ a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on")
 
-# --- SECTOR & EARNINGS ENGINE (Long Cache: 12 Hours) ---
+# --- SECTOR & EARNINGS (Cached 12h) ---
 @st.cache_data(ttl=43200, show_spinner=False)
 def get_meta_data(s):
     try:
         tk = yf.Ticker(s)
         sec_raw = tk.info.get('sector', 'N/A')
-        sec_map = {
-            "Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH",
-            "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND",
-            "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"
-        }
+        sec_map = {"Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH", "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND", "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"}
         sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
-        
         earn_html = ""
         try:
             cal = tk.calendar
-            if isinstance(cal, dict) and 'Earnings Date' in cal:
-                dates = cal['Earnings Date']
-                if isinstance(dates, list) and len(dates) > 0: nxt = dates[0]
-                else: nxt = None
-            elif hasattr(cal, 'iloc'): nxt = cal.iloc[0,0] if not cal.empty else None
-            else: nxt = None
-
-            if nxt:
+            if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
+            elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
+            else: dates = []
+            
+            if len(dates) > 0:
+                nxt = dates[0]
                 if hasattr(nxt, "date"): nxt = nxt.date()
                 days = (nxt - datetime.now().date()).days
-                if 0 <= days <= 7:
-                    earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
-                elif 8 <= days <= 30:
-                    earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
+                if 0 <= days <= 7: earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
+                elif 8 <= days <= 30: earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
         except: pass
         return sector_code, earn_html
     except: return "", ""
 
-# --- ANALYST RATINGS (Cached 1 Hour) ---
+# --- ANALYST RATINGS (Cached 1h) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_rating_cached(s):
     try:
+        # Tries to fetch analyst rec. If this fails/blocks, returns N/A
         info = yf.Ticker(s).info
         rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
         if "STRONG BUY" in rec: return "🌟 STRONG BUY", "#00C805"
@@ -94,35 +84,28 @@ def get_rating_cached(s):
         elif "HOLD" in rec: return "✋ HOLD", "#FFC107"
         elif "SELL" in rec: return "🔻 SELL", "#FF4B4B"
         elif "STRONG SELL" in rec: return "🆘 STRONG SELL", "#FF0000"
-        else: return "N/A", "#888"
+        return "N/A", "#888"
     except: return "N/A", "#888"
 
-# --- AI SIGNAL ENGINE ---
+# --- AI SIGNAL LOGIC ---
 def get_ai_signal(rsi, vol_ratio, trend, price_change):
     score = 0
-    reasons = []
-    
-    if rsi >= 80: score -= 3; reasons.append("Extreme Overbought")
-    elif rsi >= 70: score -= 2; reasons.append("Overbought")
-    elif rsi <= 20: score += 3; reasons.append("Extreme Oversold")
-    elif rsi <= 30: score += 2; reasons.append("Oversold")
-    
-    if vol_ratio > 2.0: 
-        if price_change > 0: score += 2
-        else: score -= 2
-    elif vol_ratio > 1.2:
-        score += 1 if price_change > 0 else -1
-
+    if rsi >= 80: score -= 3
+    elif rsi >= 70: score -= 2
+    elif rsi <= 20: score += 3
+    elif rsi <= 30: score += 2
+    if vol_ratio > 2.0: score += 2 if price_change > 0 else -2
+    elif vol_ratio > 1.2: score += 1 if price_change > 0 else -1
     if trend == "BULL": score += 1
     elif trend == "BEAR": score -= 1
+    
+    if score >= 3: return "🚀 RALLY LIKELY", "#00ff00"
+    elif score >= 1: return "🟢 BULLISH BIAS", "#4caf50"
+    elif score <= -3: return "⚠️ PULLBACK RISK", "#ff0000"
+    elif score <= -1: return "🔴 BEARISH BIAS", "#ff4b4b"
+    return "💤 CONSOLIDATION", "#888"
 
-    if score >= 3: return "🚀 RALLY LIKELY", "#00ff00", "Strong Buy Signal"
-    elif score >= 1: return "🟢 BULLISH BIAS", "#4caf50", "Positive Momentum"
-    elif score <= -3: return "⚠️ PULLBACK RISK", "#ff0000", "Correction Likely"
-    elif score <= -1: return "🔴 BEARISH BIAS", "#ff4b4b", "Negative Momentum"
-    else: return "💤 CONSOLIDATION", "#888", "Neutral Action"
-
-# --- LIVE PRICE ENGINE (Cached 60s) ---
+# --- LIVE PRICE & CHART (Cached 60s) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
     s = s.strip().upper()
@@ -139,11 +122,9 @@ def get_data_cached(s):
             dl = tk.fast_info['day_low']
             f = True
         except: pass
-
     try:
         h = tk.history(period="1d", interval="5m")
         if h.empty: h = tk.history(period="5d", interval="1h")
-        
         if not h.empty:
             chart_data = h['Close']
             if not f or is_crypto:
@@ -153,7 +134,6 @@ def get_data_cached(s):
                 dl = h['Low'].min()
                 f = True
     except: pass
-        
     if not f: return None
     
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
@@ -162,17 +142,9 @@ def get_data_cached(s):
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
     
     rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100 if dh > dl else 50
-    rng_html = f"""
-    <div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;">
-        <span style="margin-right:5px;">L</span>
-        <div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;">
-            <div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div>
-        </div>
-        <span style="margin-left:5px;">H</span>
-    </div>
-    """
+    rng_html = f"""<div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;"><span style="margin-right:5px;">L</span><div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:5px;">H</span></div>"""
 
-    rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col, ai_reas = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888", ""
+    rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
     try:
         hm = tk.history(period="1mo")
         if not hm.empty:
@@ -180,7 +152,6 @@ def get_data_cached(s):
             avg_v = hm['Volume'].iloc[:-1].mean() if len(hm) > 1 else cur_v
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
             ratio = cur_v / avg_v if avg_v > 0 else 1.0
-            
             if ratio >= 1.0: vol_tag = "⚡ SURGE"
             elif ratio >= 0.5: vol_tag = "🌊 STEADY"
             else: vol_tag = "💤 QUIET"
@@ -189,54 +160,29 @@ def get_data_cached(s):
                 d_diff = hm['Close'].diff()
                 g, l = d_diff.where(d_diff>0,0).rolling(14).mean(), (-d_diff.where(d_diff<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
-                if rsi >= 70: rl = "🔥 HOT"
-                elif rsi <= 30: rl = "❄️ COLD"
-                else: rl = "😐 OK"
+                rl = "🔥 HOT" if rsi >= 70 else "❄️ COLD" if rsi <= 30 else "😐 OK"
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
-                if macd.iloc[-1] > 0:
-                    raw_trend = "BULL"
-                    tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
-                else:
-                    raw_trend = "BEAR"
-                    tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
-                ai_txt, ai_col, ai_reas = get_ai_signal(rsi, ratio, raw_trend, dp)
+                if macd.iloc[-1] > 0: raw_trend = "BULL"; tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
+                else: raw_trend = "BEAR"; tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
+                ai_txt, ai_col = get_ai_signal(rsi, ratio, raw_trend, dp)
     except: pass
-    return {"p":p, "d":dp, "d_raw":d_raw, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "ai_reas":ai_reas}
+    return {"p":p, "d":dp, "d_raw":d_raw, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col}
 
 # --- HEADER & COUNTDOWN ---
 c1, c2 = st.columns([1, 1])
 with c1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
-
 with c2:
-    components.html("""
-    <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;">
-        <span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span>
-        <span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span>
-        <span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span>
-    </div>
-    <script>
-    function startTimer() {
-        var timer = setInterval(function() {
-            var now = new Date();
-            var seconds = 60 - now.getSeconds();
-            var el = document.getElementById("countdown");
-            if(el) { el.innerHTML = seconds; }
-        }, 1000);
-    }
-    startTimer();
-    </script>
-    """, height=60)
+    components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60)
 
-# --- TICKER (SEAMLESS) ---
+# --- TICKER ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
-        name = NAMES.get(t, t)
-        ti.append(f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        ti.append(f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{NAMES.get(t,t)}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True)
 
@@ -249,105 +195,68 @@ def check_flip(ticker, current_trend):
             st.toast(f"🔀 TREND FLIP: {ticker} switched to {current_trend}!", icon="⚠️")
     st.session_state['last_trends'][ticker] = current_trend
 
-# --- DASHBOARD ---
+# --- DASHBOARD LOGIC ---
+def render_card(t, inf=None):
+    d = get_data_cached(t)
+    if d:
+        check_flip(t, d['raw_trend'])
+        # SMART FALLBACK: If Analyst Rating is N/A, use AI Signal
+        rat_txt, rat_col = get_rating_cached(t)
+        if rat_txt == "N/A":
+            rat_txt = f"🤖 {d['ai_txt']}"
+            rat_col = d['ai_col']
+            
+        sec, earn = get_meta_data(t)
+        nm = NAMES.get(t, t)
+        sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
+        url = f"https://finance.yahoo.com/quote/{t}"
+        st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
+        
+        if inf: # Portfolio Mode
+            q = inf.get("q", 100)
+            st.caption(f"{q} Shares @ ${inf['e']}")
+            st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
+        else: # Watchlist Mode
+            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
+        
+        st.markdown(d['rng_html'], unsafe_allow_html=True)
+        meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
+        st.markdown(meta_html, unsafe_allow_html=True)
+        st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
+        st.markdown(d['x'])
+        
+        with st.expander("📉 Chart"):
+            if d['chart'] is not None:
+                cdf = d['chart'].reset_index()
+                cdf.columns = ['Time', 'Price']
+                c = alt.Chart(cdf).mark_line().encode(x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')), y=alt.Y('Price', scale=alt.Scale(zero=False), title='')).properties(height=200)
+                st.altair_chart(c, use_container_width=True)
+            else: st.caption("Chart data unavailable")
+    else: st.metric(t, "---", "0.0%")
+    st.divider()
+
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
-        with cols[i%3]:
-            d = get_data_cached(t)
-            if d:
-                check_flip(t, d['raw_trend'])
-                rat_txt, rat_col = get_rating_cached(t)
-                sec, earn = get_meta_data(t)
-                
-                nm = NAMES.get(t, t)
-                sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
-                url = f"https://finance.yahoo.com/quote/{t}"
-                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
-                st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
-                st.markdown(d['rng_html'], unsafe_allow_html=True)
-                
-                meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
-                st.markdown(meta_html, unsafe_allow_html=True)
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
-                st.markdown(d['x'])
-                
-                # ALTAIR CHART FIX (ZERO=FALSE)
-                with st.expander("📉 Chart"):
-                    if d['chart'] is not None:
-                        cdf = d['chart'].reset_index()
-                        cdf.columns = ['Time', 'Price']
-                        c = alt.Chart(cdf).mark_line().encode(
-                            x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')),
-                            y=alt.Y('Price', scale=alt.Scale(zero=False), title='')
-                        ).properties(height=200)
-                        st.altair_chart(c, use_container_width=True)
-                    else: st.caption("Chart data unavailable")
-            else: st.metric(t, "---", "0.0%")
-            st.divider()
+        with cols[i%3]: render_card(t)
+
 with t2:
     tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
     for t, inf in PORT.items():
         d = get_data_cached(t)
         if d:
             q = inf.get("q", 100)
-            curr_val = d['p'] * q
-            cost_basis = inf['e'] * q
-            tot_val += curr_val
-            tot_pl += (curr_val - cost_basis)
+            curr = d['p'] * q
+            tot_val += curr
+            tot_pl += (curr - (inf['e'] * q))
             day_pl += (d['d_raw'] * q)
             
-    c_day = "green" if day_pl >= 0 else "red"
-    c_tot = "green" if tot_pl >= 0 else "red"
-    
-    st.markdown(f"""
-    <div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;">
-        <div style="display:flex; justify-content:space-around; text-align:center;">
-            <div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div>
-            <div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{c_day};">${day_pl:+,.2f}</div></div>
-            <div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{c_tot};">${tot_pl:+,.2f}</div></div>
-        </div>
-    </div>""", unsafe_allow_html=True)
-
+    st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
-        with cols[i%3]:
-            d = get_data_cached(t)
-            if d:
-                check_flip(t, d['raw_trend'])
-                rat_txt, rat_col = get_rating_cached(t)
-                sec, earn = get_meta_data(t)
-                
-                nm = NAMES.get(t, t)
-                sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
-                url = f"https://finance.yahoo.com/quote/{t}"
-                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
-                
-                q = inf.get("q", 100)
-                st.caption(f"{q} Shares @ ${inf['e']}")
-                st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-                st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
-                st.markdown(d['rng_html'], unsafe_allow_html=True)
-                
-                meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
-                st.markdown(meta_html, unsafe_allow_html=True)
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
-                st.markdown(d['x'])
-                
-                with st.expander("📉 Chart"):
-                    if d['chart'] is not None:
-                        cdf = d['chart'].reset_index()
-                        cdf.columns = ['Time', 'Price']
-                        c = alt.Chart(cdf).mark_line().encode(
-                            x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')),
-                            y=alt.Y('Price', scale=alt.Scale(zero=False), title='')
-                        ).properties(height=200)
-                        st.altair_chart(c, use_container_width=True)
-                    else: st.caption("Chart data unavailable")
-            st.divider()
+        with cols[i%3]: render_card(t, inf)
 
 if a_on:
     d = get_data_cached(a_tick)
@@ -355,7 +264,6 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -367,8 +275,7 @@ def get_news_cached():
             root = ET.fromstring(r.content)
             for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
-                if t and t not in seen:
-                    seen.add(t); it.append({"title":t,"link":l})
+                if t and t not in seen: seen.add(t); it.append({"title":t,"link":l})
         except: continue
     return it
 
@@ -385,19 +292,14 @@ with t3:
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
-                        {"role":"system", "content": system_instr},
-                        {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
-                    ], max_tokens=400)
+                    system_instr = "Analyze. If a headline compares stocks, ignore benchmark. Only tag main subject. If unsure, use 'MARKET'."
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}], max_tokens=400)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
                     idx = 0
                     for l in lines:
                         parts = l.split("|")
-                        if len(parts)>=3 and idx<len(raw):
-                            enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
-                            idx+=1
+                        if len(parts)>=3 and idx<len(raw): enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']}); idx+=1
                     st.session_state['news_results'] = enrich
                 except:
                     st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
@@ -408,7 +310,6 @@ with t3:
             st.caption(r['reason'])
             st.divider()
 
-# --- RECONNECT LOGIC ---
 now = datetime.now()
 wait = 60 - now.second
 time.sleep(wait + 1)
