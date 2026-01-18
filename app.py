@@ -8,9 +8,11 @@ from datetime import datetime
 from openai import OpenAI
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
+try:
+    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
+except: pass
 
-# --- SESSION STATE INITIALIZATION ---
+# --- SESSION STATE INITIALIZATION (Robust) ---
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'last_update' not in st.session_state: st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
@@ -21,7 +23,7 @@ MANUAL_EARNINGS = {
     "NFLX": "2026-01-20",
     "PG": "2026-01-22",
     "UAL": "2026-01-21",
-    "JNJ": "2026-01-21"
+    "JNJ": "2026-01-21" # Added JNJ
 }
 
 # --- 💼 SHARED PORTFOLIO ---
@@ -47,7 +49,7 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    saved_watchlist = "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD"
+    saved_watchlist = "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
 if user_input != saved_watchlist:
@@ -71,10 +73,11 @@ SYMBOL_NAMES = {
     "^DJI": "Dow Jones", "^IXIC": "Nasdaq", "^GSPTSE": "TSX Composite",
     "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "DX-Y.NYB": "USD Index", "^VIX": "VIX",
     "HIVE": "HIVE Digital", "RERE": "ATRenew", "TX": "Ternium", "UAL": "United Airlines", "PG": "Procter & Gamble",
-    "TMQ": "Trilogy Metals", "VCIG": "VCI Global", "TD.TO": "TD Bank", "CCO.TO": "Cameco", "IVN.TO": "Ivanhoe Mines", "BN.TO": "Brookfield", "NKE": "Nike"
+    "TMQ": "Trilogy Metals", "VCIG": "VCI Global", "TD.TO": "TD Bank", "CCO.TO": "Cameco", "IVN.TO": "Ivanhoe Mines", "BN.TO": "Brookfield", "NKE": "Nike",
+    "JNJ": "Johnson & Johnson"
 }
 
-# --- TICKER MAP (RESTORED TO FIX CRASH) ---
+# --- TICKER MAP (Restored) ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -86,24 +89,24 @@ TICKER_MAP = {
     "NETFLIX": "NFLX", "DISNEY": "DIS",
     "BITCOIN": "BTC-USD", "CRYPTO": "BTC-USD", "COINBASE": "COIN",
     "GOLD": "GC=F", "OIL": "CL=F", "FED": "USD", "POWELL": "USD",
-    "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
+    "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA",
+    "JOHNSON": "JNJ", "J&J": "JNJ"
 }
 
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- ⚡ THE ENGINE (CACHE BUSTER EDITION) ---
+# --- ⚡ THE ENGINE (CACHE BUSTER + 1 MONTH) ---
 
 @st.cache_data(ttl=60)
 def load_data_static(tickers):
-    # This runs when Live Mode is OFF (Saves resources)
+    # Live Mode OFF: Cached 1 Month Data
     try:
-        # 1mo period required for RSI calculation
         return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
     except: return None
 
 def load_data_live(tickers):
-    # This runs when Live Mode is ON (Forces Fresh Data)
-    st.cache_data.clear() # NUCLEAR OPTION: Clear cache to force update
+    # Live Mode ON: Fresh 1 Month Data
+    st.cache_data.clear() 
     try:
         return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
     except: return None
@@ -215,7 +218,7 @@ with c_head_2:
     if live_on: st.session_state['live_mode'] = True
     else: st.session_state['live_mode'] = False
 
-# --- TICKER TAPE (FLEXBOX) ---
+# --- TICKER TAPE ---
 def render_ticker_tape(tickers):
     ticker_items = []
     for tick in tickers:
@@ -226,7 +229,6 @@ def render_ticker_tape(tickers):
         ticker_items.append(f"<span style='display:inline-block; margin-right:50px; font-weight:900; font-size:18px; color:white;'>{display_name}: <span style='color:{c};'>${p:,.2f} {a} {d:.2f}%</span></span>")
     
     content_str = "".join(ticker_items)
-    
     st.markdown(f"""
     <style>
     .ticker-container {{ width: 100%; overflow: hidden; background-color: #0e1117; border-bottom: 2px solid #444; height: 50px; display: flex; align-items: center; }}
@@ -288,7 +290,7 @@ with tab2:
                 if data['earn_str']: st.markdown(data['earn_str'])
                 st.divider()
 
-# --- NEWS TAB (Fixed Ticker Map) ---
+# --- NEWS TAB (Fixed) ---
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml", "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml", "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"]
@@ -343,7 +345,8 @@ with tab3:
                 res = analyze_batch(raw, OpenAI(api_key=OPENAI_KEY))
                 st.session_state['news_results'] = res
     
-    if st.session_state['news_results']:
+    # Safe Access to Session State
+    if st.session_state.get('news_results'):
         for r in st.session_state['news_results']:
             st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
             st.caption(r['reason'])
@@ -354,4 +357,4 @@ if st.session_state['live_mode']:
     time.sleep(3) # Wait 3 seconds
     st.rerun()    # RESTART SCRIPT
 
-st.success("✅ System Ready (v5.1 - Restoration)")
+st.success("✅ System Ready (v5.2 - Stability Fix)")
