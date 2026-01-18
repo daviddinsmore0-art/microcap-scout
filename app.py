@@ -1,7 +1,8 @@
 import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime
 import streamlit.components.v1 as components
 
+# --- CONFIG ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
@@ -10,7 +11,11 @@ if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'
 
 # --- DATA & NAMES ---
 PORT = {"HIVE":{"e":3.19},"BAER":{"e":1.86},"TX":{"e":38.10},"IMNN":{"e":3.22},"RERE":{"e":5.31}}
-NAMES = {"TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", "BN.TO":"Brookfield"}
+NAMES = {
+    "TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", 
+    "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", 
+    "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", "BN.TO":"Brookfield", "JNJ":"J&J"
+}
 
 # --- SIDEBAR ---
 st.sidebar.header("⚡ Penny Pulse")
@@ -78,23 +83,26 @@ c1, c2 = st.columns([3,1])
 with c1: 
     st.title("⚡ Penny Pulse")
 with c2: 
-    # Fixed JS Timer
+    # Calculate seconds until next minute
     now = datetime.now()
     sec_left = 60 - now.second
+    # Javascript Timer
     components.html(f"""
     <div style="font-family:sans-serif; color:#888; font-size:14px; text-align:right; padding-top:20px;">
-    Next Update: <span id="time" style="color:white; font-weight:bold;">{sec_left}</span>s
+    Next Update: <span id="timer" style="color:white; font-weight:bold; font-size:16px;">{sec_left}</span>s
     </div>
     <script>
-    var sec = {sec_left};
-    function startTimer() {{
-        setInterval(function() {{
-            sec--;
-            if (sec < 0) sec = 60;
-            document.getElementById("time").innerText = sec;
-        }}, 1000);
+    var timeLeft = {sec_left};
+    var elem = document.getElementById('timer');
+    var timerId = setInterval(countdown, 1000);
+    function countdown() {{
+        if (timeLeft <= 0) {{
+            timeLeft = 60;
+        }} else {{
+            timeLeft--;
+        }}
+        elem.innerHTML = timeLeft;
     }}
-    startTimer();
     </script>
     """, height=50)
 
@@ -107,7 +115,8 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
         name = NAMES.get(t, t)
         ti.append(f"<span style='margin-right:40px;font-weight:bold;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 150s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*20}</div></div>""", unsafe_allow_html=True)
+# Increased duplication to 30x to kill any gap
+st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 150s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*30}</div></div>""", unsafe_allow_html=True)
 
 # --- TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -118,7 +127,7 @@ with t1:
             d = get_data(t)
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                # Added Trend (tr) back
+                # RESTORED: Trend (tr) is back next to Hot/Cold
                 st.markdown(f"**Vol: {d['v']} | RSI: {d['rsi']:.0f} | {d['rl']} | {d['tr']}**")
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
@@ -161,6 +170,7 @@ with t3:
     if st.button("Generate Report (Auto-Detect)", type="primary"):
         with st.spinner("Scanning..."):
             raw = get_news()
+            # If no key, skip AI
             if not KEY:
                 st.warning("⚠️ No OpenAI Key found. Showing headlines.")
                 st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
@@ -179,7 +189,8 @@ with t3:
                             idx+=1
                     st.session_state['news_results'] = enrich
                 except Exception as e: 
-                    st.warning(f"⚠️ AI Busy. Switched to Free Mode.")
+                    # FAIL SAFE: Use this block if Rate Limit (429) or other error occurs
+                    st.warning(f"⚠️ AI Busy/Limit Reached. Switched to Free Mode.")
                     st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
 
     if st.session_state.get('news_results'):
