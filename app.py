@@ -18,11 +18,11 @@ if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = 
 
 # --- PORTFOLIO ---
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Jan. 07, 2026", "q": 50},
-    "BAER": {"e": 1.86, "d": "Dec. 31, 2025", "q": 120},
-    "TX":   {"e": 38.10, "d": "Dec. 29, 2025", "q": 10},
-    "IMNN": {"e": 3.22, "d": "Dec. 29, 2025", "q": 100},
-    "RERE": {"e": 5.31, "d": "Dec. 29, 2025", "q": 100}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
 }
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
@@ -61,7 +61,6 @@ def get_meta_data(s):
             if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
             elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
             else: dates = []
-            
             if len(dates) > 0:
                 nxt = dates[0]
                 if hasattr(nxt, "date"): nxt = nxt.date()
@@ -76,7 +75,6 @@ def get_meta_data(s):
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_rating_cached(s):
     try:
-        # Tries to fetch analyst rec. If this fails/blocks, returns N/A
         info = yf.Ticker(s).info
         rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
         if "STRONG BUY" in rec: return "🌟 STRONG BUY", "#00C805"
@@ -200,27 +198,29 @@ def render_card(t, inf=None):
     d = get_data_cached(t)
     if d:
         check_flip(t, d['raw_trend'])
-        # SMART FALLBACK: If Analyst Rating is N/A, use AI Signal
         rat_txt, rat_col = get_rating_cached(t)
-        if rat_txt == "N/A":
-            rat_txt = f"🤖 {d['ai_txt']}"
-            rat_col = d['ai_col']
-            
         sec, earn = get_meta_data(t)
         nm = NAMES.get(t, t)
         sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
         url = f"https://finance.yahoo.com/quote/{t}"
         st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
         
-        if inf: # Portfolio Mode
+        if inf:
             q = inf.get("q", 100)
             st.caption(f"{q} Shares @ ${inf['e']}")
             st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-        else: # Watchlist Mode
+        else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
+        # --- AI SIGNAL IS BACK (ALWAYS VISIBLE) ---
+        st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
+
         st.markdown(d['rng_html'], unsafe_allow_html=True)
-        meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>{earn}</div>"
+        
+        # --- SMART RATING LINE (Only shows if valid) ---
+        rating_html = f" <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>" if rat_txt != "N/A" else ""
+        meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']}{rating_html}{earn}</div>"
+        
         st.markdown(meta_html, unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
@@ -267,7 +267,7 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://rss.app/feeds/T1dwxaFTbqidPRNW.xml","https://finance.yahoo.com/news/rssindex", "https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml","https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://www.investing.com/rss/news.rss"]
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://www.investing.com/rss/news.rss"]
     it, seen = [], set()
     for u in urls:
         try:
