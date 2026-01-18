@@ -1,11 +1,7 @@
 import streamlit as st
 import yfinance as yf
-import requests
-import xml.etree.ElementTree as ET
-import time
 import pandas as pd
-from datetime import datetime, timedelta
-from openai import OpenAI
+from datetime import datetime
 from PIL import Image
 
 # --- CONFIGURATION ---
@@ -16,17 +12,9 @@ except:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
-if 'news_results' not in st.session_state: st.session_state['news_results'] = []
-if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
-if "OPENAI_KEY" in st.secrets:
-    OPENAI_KEY = st.secrets["OPENAI_KEY"]
-else:
-    st.sidebar.header("🔑 Login")
-    OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
-
-# --- 🗓️ MANUAL EARNINGS LIST (The Bulletproof Method) ---
-# Edit these dates directly here. No buttons required.
+# --- 🗓️ MANUAL EARNINGS LIST (The "Back to Basics" Fix) ---
+# Edit this list directly to fix dates. It overrides everything else.
 MANUAL_EARNINGS = {
     "TMQ": "2026-02-13",
     "NFLX": "2026-01-20",
@@ -36,11 +24,11 @@ MANUAL_EARNINGS = {
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
-    "HIVE":     {"entry": 3.19,  "date": "Jan 7"},
-    "BAER":    {"entry": 1.86, "date": "Dec 31"},
-    "TX":    {"entry": 38.10, "date": "Dec 29"},
+    "HIVE": {"entry": 3.19, "date": "Jan 7"},
+    "BAER": {"entry": 1.86, "date": "Dec 31"},
+    "TX":   {"entry": 38.10, "date": "Dec 29"},
     "IMNN": {"entry": 3.22, "date": "Dec 29"}, 
-    "RERE":    {"entry": 5.31, "date": "Dec 29"}
+    "RERE": {"entry": 5.31, "date": "Dec 29"}
 }
 
 # --- SIDEBAR ---
@@ -56,6 +44,7 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
+    # YOUR FULL LIST
     saved_watchlist = "TD.TO, CCO.TO, IVN.TO, BN.TO, VCIG, TMQ, NKE, NFLX, UAL, PG"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -71,27 +60,9 @@ alert_ticker = st.sidebar.selectbox("Alert Asset", all_assets)
 alert_price = st.sidebar.number_input("Target Price ($)", min_value=0.0, value=0.0, step=0.5)
 alert_active = st.sidebar.toggle("Activate Alert")
 
-if not alert_active:
-    st.session_state['alert_triggered'] = False 
-
-# --- TICKER MAP ---
-TICKER_MAP = {
-    "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
-    "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
-    "APPLE": "AAPL", "IPHONE": "AAPL", "MAC": "AAPL",
-    "MICROSOFT": "MSFT", "WINDOWS": "MSFT", "OPENAI": "MSFT",
-    "GOOGLE": "GOOGL", "GEMINI": "GOOGL", "YOUTUBE": "GOOGL",
-    "AMAZON": "AMZN", "AWS": "AMZN", "PRIME": "AMZN",
-    "META": "META", "FACEBOOK": "META", "INSTAGRAM": "META",
-    "NETFLIX": "NFLX", "DISNEY": "DIS",
-    "BITCOIN": "BTC-USD", "CRYPTO": "BTC-USD", "COINBASE": "COIN",
-    "GOLD": "GC=F", "OIL": "CL=F", "FED": "USD", "POWELL": "USD",
-    "JPMORGAN": "JPM", "GOLDMAN": "GS", "BOEING": "BA"
-}
-
 # --- SYMBOL NAMES ---
 SYMBOL_NAMES = {
-    "TSLA": "Tesla", "NVDA": "Nvidia", "GME": "GameStop", "BTC-USD": "Bitcoin",
+    "TSLA": "Tesla", "NVDA": "Nvidia", "BTC-USD": "Bitcoin",
     "AMD": "AMD", "PLTR": "Palantir", "AAPL": "Apple", "MSFT": "Microsoft",
     "GOOGL": "Google", "AMZN": "Amazon", "META": "Meta", "NFLX": "Netflix",
     "SPY": "S&P 500", "QQQ": "Nasdaq", "IWM": "Russell 2k", "DIA": "Dow Jones",
@@ -111,92 +82,95 @@ MACRO_TICKERS = [
 def get_live_price(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        price = ticker.fast_info['last_price']
-        prev = ticker.fast_info['previous_close']
-        delta = ((price - prev) / prev) * 100
-        return price, delta
+        # Use history for macro too (Safer)
+        hist = ticker.history(period="2d")
+        if not hist.empty:
+            price = hist['Close'].iloc[-1]
+            prev = hist['Close'].iloc[-2] if len(hist) > 1 else price
+            delta = ((price - prev) / prev) * 100
+            return price, delta
+        return 0.0, 0.0
     except: return 0.0, 0.0
 
-def fetch_quant_data_v4(symbol):
+def fetch_quant_data_tank(symbol):
     try:
         ticker = yf.Ticker(symbol)
         clean_symbol = symbol.strip().upper()
         
-        # --- DOUBLE-TAP ENGINE (Speed + Reliability) ---
-        reg_price = 0.0
-        prev_close = 0.0
-        data_found = False
-        
-        # 1. Try Turbo (Fast)
+        # --- TANK MODE: HISTORY ONLY ---
+        # We request 5 days to ensure we get data even over weekends/holidays
         try:
-            reg_price = ticker.fast_info['last_price']
-            prev_close = ticker.fast_info['previous_close']
-            if reg_price > 0: data_found = True
-        except: pass
+            hist = ticker.history(period="5d")
+            if hist.empty:
+                return None
+            
+            reg_price = hist['Close'].iloc[-1]
+            # Use open or previous close
+            if len(hist) > 1:
+                prev_close = hist['Close'].iloc[-2]
+            else:
+                prev_close = hist['Open'].iloc[-1]
+                
+        except:
+            return None
 
-        # 2. Try Standard (Backup)
-        if not data_found:
-            try:
-                hist = ticker.history(period="1d")
-                if not hist.empty:
-                    reg_price = hist['Close'].iloc[-1]
-                    prev_close = hist['Open'].iloc[-1]
-                    data_found = True
-            except: pass
-
-        if not data_found:
-            return None # Skip broken tickers
-
-        # 3. Calculate Stats
+        # 2. IS THIS CRYPTO?
         is_crypto = symbol.endswith("-USD") or "BTC" in symbol or "ETH" in symbol
-        
+
+        # 3. CALCULATE GAINS
         if prev_close and prev_close > 0:
             day_pct = ((reg_price - prev_close) / prev_close) * 100
         else:
             day_pct = 0.0
             
+        # 4. FORMAT SECOND LINE
         if is_crypto:
             color = "green" if day_pct >= 0 else "red"
             ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
         else:
             ext_str = f"**🌙 Ext: ${reg_price:,.2f} (:gray[Market Closed])**"
 
-        # 4. Indicators (RSI/Trend)
+        # 5. INDICATORS (RSI / Trend)
         volume = 0
         rsi_val = 50
         trend_str = ":gray[**WAIT**]"
         
         try:
-            history = ticker.history(period="1mo", interval="1d", prepost=True)
-            if not history.empty:
-                volume = history['Volume'].iloc[-1]
-                if volume == 0 and len(history) > 1: volume = history['Volume'].iloc[-2]
-
-                delta = history['Close'].diff()
+            # We already have history, let's use it if it's long enough, else fetch more
+            if len(hist) < 20:
+                hist = ticker.history(period="1mo", interval="1d")
+            
+            if not hist.empty:
+                volume = hist['Volume'].iloc[-1]
+                
+                # RSI Calc
+                delta = hist['Close'].diff()
                 gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
                 loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
                 rs = gain / loss
-                history['RSI'] = 100 - (100 / (1 + rs))
-                rsi_val = history['RSI'].iloc[-1]
+                hist['RSI'] = 100 - (100 / (1 + rs))
+                rsi_val = hist['RSI'].iloc[-1]
                 
-                ema12 = history['Close'].ewm(span=12, adjust=False).mean()
-                ema26 = history['Close'].ewm(span=26, adjust=False).mean()
+                # MACD Trend
+                ema12 = hist['Close'].ewm(span=12, adjust=False).mean()
+                ema26 = hist['Close'].ewm(span=26, adjust=False).mean()
                 macd = ema12 - ema26
                 if macd.iloc[-1] > 0: trend_str = ":green[**BULL**]" 
                 else: trend_str = ":red[**BEAR**]"
         except: pass
 
-        # 5. EARNINGS RADAR (Bulletproof Manual Check)
+        # 6. EARNINGS RADAR (MANUAL OVERRIDE FIRST)
         earnings_msg = ""
         next_date = None
+        source_label = ""
         
-        # Priority 1: Check Manual List (Code)
+        # PRIORITY 1: Check Manual List (Line 30)
         if clean_symbol in MANUAL_EARNINGS:
             try:
                 next_date = datetime.strptime(MANUAL_EARNINGS[clean_symbol], "%Y-%m-%d")
             except: pass
             
-        # Priority 2: Check Yahoo (Auto)
+        # PRIORITY 2: Yahoo Calendar (Auto)
         if next_date is None:
             try:
                 cal = ticker.calendar
@@ -215,11 +189,15 @@ def fetch_quant_data_v4(symbol):
                         elif 0 in cal: next_date = cal[0].iloc[0]
             except: pass
 
+        # --- CALCULATE BADGE ---
         if next_date:
-            if hasattr(next_date, "replace"): next_date = next_date.replace(tzinfo=None)
+            if hasattr(next_date, "replace"):
+                next_date = next_date.replace(tzinfo=None)
+            
             now = datetime.now().replace(tzinfo=None)
             days_diff = (next_date - now).days
             
+            # EXTENDED TO 90 DAYS
             if -1 <= days_diff <= 8:
                 earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
             elif 8 < days_diff <= 90:
@@ -287,11 +265,11 @@ def render_ticker_tape(tickers):
     st.markdown(ticker_html, unsafe_allow_html=True)
 
 def display_ticker_grid(ticker_list, live_mode=False):
-    if alert_active and not st.session_state['alert_triggered']:
+    if alert_active:
         try:
             check_tick = yf.Ticker(alert_ticker)
             curr_price = check_tick.fast_info['last_price']
-            if curr_price >= alert_price:
+            if curr_price >= alert_price and not st.session_state.get('alert_triggered', False):
                 st.toast(f"🚨 ALERT: {alert_ticker} HIT ${curr_price:,.2f}!", icon="🔥")
                 st.session_state['alert_triggered'] = True
         except: pass
@@ -307,8 +285,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
         cols = st.columns(3)
         for i, tick in enumerate(ticker_list):
             with cols[i % 3]:
-                # USING V4 STABLE ENGINE
-                data = fetch_quant_data_v4(tick)
+                # USING TANK MODE ENGINE
+                data = fetch_quant_data_tank(tick)
                 if data:
                     rsi_val = data['rsi']
                     if pd.isna(rsi_val): 
@@ -334,79 +312,8 @@ def display_ticker_grid(ticker_list, live_mode=False):
                     st.caption(f"{data['trend']} | RSI: {rsi_disp}")
                     st.divider()
                 else:
-                    # Pass silently for small caps if they fail (Cleaner UI)
-                    pass
-
-def fetch_rss_items():
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    urls = [
-        "https://rss.app/feeds/tMfefT7whS1oe2VT.xml",
-        "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml",
-        "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"
-    ]
-    items = []
-    seen_titles = set()
-    for url in urls:
-        try:
-            response = requests.get(url, headers=headers, timeout=3)
-            root = ET.fromstring(response.content)
-            for item in root.findall('.//item'):
-                title = item.find('title').text
-                link = item.find('link').text
-                if title and title not in seen_titles:
-                    seen_titles.add(title)
-                    items.append({"title": title, "link": link})
-        except: continue
-    return items[:25]
-
-def analyze_batch(items, client):
-    if not items: return []
-    prompt_list = ""
-    for i, item in enumerate(items):
-        hl = item['title']
-        hint = ""
-        upper_hl = hl.upper()
-        for key, val in TICKER_MAP.items():
-            if key in upper_hl:
-                hint = f"(Hint: {val})"
-                break
-        prompt_list += f"{i+1}. {hl} {hint}\n"
-    prompt = f"""
-    Analyze these {len(items)} headlines.
-    Task: Identify Ticker (or "MACRO"), Signal (🟢/🔴/⚪), and 3-word reason.
-    STRICT FORMAT: Ticker | Signal | Reason
-    Headlines:
-    {prompt_list}
-    """
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=400
-        )
-        lines = response.choices[0].message.content.strip().split("\n")
-        enriched_results = []
-        item_index = 0
-        for line in lines:
-            clean_line = line.replace("```", "").replace("plaintext", "").strip()
-            if len(clean_line) > 0 and clean_line[0].isdigit():
-                parts = clean_line.split(".", 1)
-                if len(parts) > 1: clean_line = parts[1].strip()
-            if not clean_line: continue
-            if item_index >= len(items): break
-            parts = clean_line.split("|")
-            if len(parts) >= 3:
-                ticker = parts[0].strip()
-                if len(ticker) > 6 and ticker != "BTC-USD": ticker = "MACRO"
-                try:
-                    enriched_results.append({
-                        "ticker": ticker, "signal": parts[1].strip(), "reason": parts[2].strip(),
-                        "title": items[item_index]['title'], "link": items[item_index]['link']
-                    })
-                    item_index += 1
-                except IndexError: break
-        return enriched_results
-    except Exception as e:
-        st.session_state['news_error'] = str(e)
-        return []
+                    # If Tank Mode fails, show a clean error so we know WHICH one failed
+                    st.error(f"⚠️ {tick} Unreachable")
 
 # --- MAIN APP UI ---
 st.title("⚡ Penny Pulse")
@@ -414,7 +321,7 @@ st.title("⚡ Penny Pulse")
 render_ticker_tape(MACRO_TICKERS)
 
 # --- TABS LAYOUT ---
-tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
+tab1, tab2 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio"])
 
 with tab1:
     st.subheader("My Watchlist")
@@ -427,7 +334,7 @@ with tab2:
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            data = fetch_quant_data_v4(ticker)
+            data = fetch_quant_data_tank(ticker)
             if data:
                 current = data['reg_price'] 
                 entry = info['entry']
@@ -447,33 +354,4 @@ with tab2:
             else:
                 st.warning(f"Loading {ticker}...")
 
-with tab3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate AI Report", type="primary"):
-        if not OPENAI_KEY: st.error("⚠️ Enter OpenAI Key!")
-        else:
-            client = OpenAI(api_key=OPENAI_KEY)
-            with st.spinner("Scanning Global Markets..."):
-                raw_items = fetch_rss_items()
-                if raw_items:
-                    results = analyze_batch(raw_items, client)
-                    st.session_state['news_results'] = results
-                else: st.error("News feed unavailable.")
-    
-    results = st.session_state['news_results']
-    if results:
-        for res in results:
-            tick = res['ticker']
-            display_name = SYMBOL_NAMES.get(tick, tick)
-            b_color = "gray" if tick == "MACRO" else "blue"
-            with st.container():
-                c1, c2 = st.columns([1, 4])
-                with c1:
-                    st.markdown(f"### :{b_color}[{display_name}]")
-                    st.caption(f"{res['signal']}")
-                with c2:
-                    st.markdown(f"**[{res['title']}]({res['link']})**")
-                    st.info(f"{res['reason']}")
-                st.divider()
-
-st.success("✅ System Ready (v4.0 - Stable Core)")
+st.success("✅ System Ready (v4.0 - Tank Edition)")
