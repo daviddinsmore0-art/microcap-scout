@@ -299,4 +299,16 @@ with t3:
                     st.session_state['news_results'] = enrich
                 except:
                     st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable
+                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
+
+    if st.session_state.get('news_results'):
+        for r in st.session_state['news_results']:
+            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            st.caption(r['reason'])
+            st.divider()
+
+# --- RECONNECT LOGIC ---
+now = datetime.now()
+wait = 60 - now.second
+time.sleep(wait + 1)
+st.rerun()
