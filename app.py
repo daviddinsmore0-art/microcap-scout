@@ -267,7 +267,7 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://www.investing.com/rss/news.rss"]
+    urls = ["https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml","https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://www.investing.com/rss/news.rss"]
     it, seen = [], set()
     for u in urls:
         try:
