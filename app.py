@@ -12,19 +12,10 @@ try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- SESSION STATE INITIALIZATION (Robust) ---
+# --- SESSION STATE INITIALIZATION ---
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'last_update' not in st.session_state: st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
-
-# --- 🗓️ MANUAL EARNINGS LIST ---
-MANUAL_EARNINGS = {
-    "TMQ": "2026-02-13",
-    "NFLX": "2026-01-20",
-    "PG": "2026-01-22",
-    "UAL": "2026-01-21",
-    "JNJ": "2026-01-21" # Added JNJ
-}
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
@@ -77,7 +68,7 @@ SYMBOL_NAMES = {
     "JNJ": "Johnson & Johnson"
 }
 
-# --- TICKER MAP (Restored) ---
+# --- TICKER MAP (RESTORED TO FIX CRASH) ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -95,17 +86,17 @@ TICKER_MAP = {
 
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- ⚡ THE ENGINE (CACHE BUSTER + 1 MONTH) ---
+# --- ⚡ THE ENGINE ---
 
 @st.cache_data(ttl=60)
 def load_data_static(tickers):
-    # Live Mode OFF: Cached 1 Month Data
+    # Static Mode: Cache 1 Month Data
     try:
         return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
     except: return None
 
 def load_data_live(tickers):
-    # Live Mode ON: Fresh 1 Month Data
+    # Live Mode: Force New Data
     st.cache_data.clear() 
     try:
         return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
@@ -158,9 +149,9 @@ def fetch_from_batch(symbol):
 
         volume = df['Volume'].iloc[-1]
         
-        # RSI & TREND (Restored with 1mo data)
+        # RSI & TREND (Standardized)
         rsi_val = 50
-        trend_str = ":gray[**WAIT**]"
+        trend_str = "WAIT"
         try:
             if len(df) >= 14:
                 delta = df['Close'].diff()
@@ -173,30 +164,13 @@ def fetch_from_batch(symbol):
                 ema12 = df['Close'].ewm(span=12, adjust=False).mean()
                 ema26 = df['Close'].ewm(span=26, adjust=False).mean()
                 macd = ema12 - ema26
-                if macd.iloc[-1] > 0: trend_str = ":green[**BULL**]" 
-                else: trend_str = ":red[**BEAR**]"
+                if macd.iloc[-1] > 0: trend_str = ":green[BULL]" 
+                else: trend_str = ":red[BEAR]"
         except: pass
-
-        earnings_msg = ""
-        next_date = None
-        if clean_symbol in MANUAL_EARNINGS:
-            try:
-                next_date = datetime.strptime(MANUAL_EARNINGS[clean_symbol], "%Y-%m-%d")
-            except: pass
-
-        if next_date:
-            if hasattr(next_date, "replace"): next_date = next_date.replace(tzinfo=None)
-            now = datetime.now().replace(tzinfo=None)
-            days_diff = (next_date - now).days
-            if -1 <= days_diff <= 8:
-                earnings_msg = f":rotating_light: **Earnings: {days_diff} Days!**"
-            elif 8 < days_diff <= 90:
-                fmt_date = next_date.strftime("%b %d")
-                earnings_msg = f":calendar: **Earn: {fmt_date}**"
 
         return {
             "reg_price": reg_price, "day_delta": day_pct, "ext_str": ext_str,
-            "volume": volume, "rsi": rsi_val, "trend": trend_str, "earn_str": earnings_msg
+            "volume": volume, "rsi": rsi_val, "trend": trend_str
         }
     except: return None
 
@@ -271,8 +245,9 @@ with tab1:
                 else: rsi_s = f"{rsi:.0f}"
                 
                 st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
+                # STANDARDIZED DISPLAY STRING
                 st.caption(f"Vol: {vol} | RSI: {rsi_s} | {data['trend']}")
-                if data['earn_str']: st.markdown(data['earn_str'])
+                st.markdown(data['ext_str'])
                 st.divider()
             else: st.warning(f"{tick} Loading...")
 
@@ -287,7 +262,7 @@ with tab2:
                 ret = ((curr - info['entry']) / info['entry']) * 100
                 st.metric(label=f"{ticker}", value=f"${curr:,.2f}", delta=f"{ret:.2f}% (Total)")
                 st.caption(f"Entry: ${info['entry']} | {data['trend']}")
-                if data['earn_str']: st.markdown(data['earn_str'])
+                st.markdown(data['ext_str'])
                 st.divider()
 
 # --- NEWS TAB (Fixed) ---
@@ -314,7 +289,7 @@ def analyze_batch(items, client):
     p_list = ""
     for i, item in enumerate(items):
         hint = ""
-        # TICKER_MAP is now available
+        # TICKER_MAP is available now
         for k,v in TICKER_MAP.items():
             if k in item['title'].upper():
                 hint = f"({v})"
@@ -345,7 +320,6 @@ with tab3:
                 res = analyze_batch(raw, OpenAI(api_key=OPENAI_KEY))
                 st.session_state['news_results'] = res
     
-    # Safe Access to Session State
     if st.session_state.get('news_results'):
         for r in st.session_state['news_results']:
             st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
@@ -357,4 +331,4 @@ if st.session_state['live_mode']:
     time.sleep(3) # Wait 3 seconds
     st.rerun()    # RESTART SCRIPT
 
-st.success("✅ System Ready (v5.2 - Stability Fix)")
+st.success("✅ System Ready (v5.3 - Clean Slate)")
