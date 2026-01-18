@@ -3,7 +3,9 @@ import yfinance as yf
 import pandas as pd
 import requests
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime
+from openai import OpenAI
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -11,6 +13,7 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 # --- SESSION STATE INITIALIZATION ---
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'last_update' not in st.session_state: st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
+if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 
 # --- 🗓️ MANUAL EARNINGS LIST ---
 MANUAL_EARNINGS = {
@@ -29,6 +32,12 @@ MY_PORTFOLIO = {
     "IMNN": {"entry": 3.22, "date": "Dec 29"}, 
     "RERE": {"entry": 5.31, "date": "Dec 29"}
 }
+
+if "OPENAI_KEY" in st.secrets:
+    OPENAI_KEY = st.secrets["OPENAI_KEY"]
+else:
+    st.sidebar.header("🔑 Login")
+    OPENAI_KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
 # --- SIDEBAR ---
 st.sidebar.header("⚡ Penny Pulse")
@@ -65,7 +74,7 @@ SYMBOL_NAMES = {
     "TMQ": "Trilogy Metals", "VCIG": "VCI Global", "TD.TO": "TD Bank", "CCO.TO": "Cameco", "IVN.TO": "Ivanhoe Mines", "BN.TO": "Brookfield", "NKE": "Nike"
 }
 
-# --- TICKER MAP ---
+# --- TICKER MAP (RESTORED TO FIX CRASH) ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -88,6 +97,7 @@ MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 def load_data_static(tickers):
     # This runs when Live Mode is OFF (Saves resources)
     try:
+        # 1mo period required for RSI calculation
         return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
     except: return None
 
@@ -145,6 +155,7 @@ def fetch_from_batch(symbol):
 
         volume = df['Volume'].iloc[-1]
         
+        # RSI & TREND (Restored with 1mo data)
         rsi_val = 50
         trend_str = ":gray[**WAIT**]"
         try:
@@ -200,7 +211,6 @@ with c_head_1:
         st.title("⚡ Penny Pulse")
 
 with c_head_2:
-    # LIVE SWITCH (Top Right)
     live_on = st.toggle("🔴 LIVE DATA", key="live_mode_toggle")
     if live_on: st.session_state['live_mode'] = True
     else: st.session_state['live_mode'] = False
@@ -278,7 +288,7 @@ with tab2:
                 if data['earn_str']: st.markdown(data['earn_str'])
                 st.divider()
 
-# --- NEWS TAB ---
+# --- NEWS TAB (Fixed Ticker Map) ---
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml", "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml", "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"]
@@ -302,6 +312,7 @@ def analyze_batch(items, client):
     p_list = ""
     for i, item in enumerate(items):
         hint = ""
+        # TICKER_MAP is now available
         for k,v in TICKER_MAP.items():
             if k in item['title'].upper():
                 hint = f"({v})"
@@ -343,4 +354,4 @@ if st.session_state['live_mode']:
     time.sleep(3) # Wait 3 seconds
     st.rerun()    # RESTART SCRIPT
 
-st.success("✅ System Ready (v5.0 - Cache Buster)")
+st.success("✅ System Ready (v5.1 - Restoration)")
