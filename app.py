@@ -12,10 +12,12 @@ try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- SESSION STATE ---
+# --- SESSION STATE GUARD (Prevents Crashes) ---
+# We initialize these BEFORE anything else happens.
 if 'live_mode' not in st.session_state: st.session_state['live_mode'] = False
 if 'last_update' not in st.session_state: st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
+if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
 # --- 💼 SHARED PORTFOLIO ---
 MY_PORTFOLIO = {
@@ -68,7 +70,7 @@ SYMBOL_NAMES = {
     "JNJ": "Johnson & Johnson"
 }
 
-# --- TICKER MAP (Restored) ---
+# --- TICKER MAP (Essential for News) ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -86,83 +88,44 @@ TICKER_MAP = {
 
 MACRO_TICKERS = ["SPY", "^IXIC", "^DJI", "BTC-USD"]
 
-# --- ⚡ THE ENGINE (Safety Net Edition) ---
+# --- ⚡ THE ENGINE (DIRECT CONNECT) ---
+# We removed the Batch Loader. We now fetch every stock individually.
+# This prevents one bad apple (like TD.TO) from breaking the whole basket.
 
-@st.cache_data(ttl=60)
-def load_data_static(tickers):
+def fetch_direct_data(symbol):
     try:
-        return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
-    except: return None
+        clean_symbol = symbol.strip().upper()
+        ticker = yf.Ticker(clean_symbol)
+        
+        # 1. Fetch History (1 Month for RSI)
+        df = ticker.history(period="1mo")
+        
+        if df.empty: return None
+        
+        # 2. Get Price
+        reg_price = df['Close'].iloc[-1]
+        
+        if len(df) > 1:
+            prev_close = df['Close'].iloc[-2]
+        else:
+            prev_close = df['Open'].iloc[-1]
 
-def load_data_live(tickers):
-    st.cache_data.clear() 
-    try:
-        return yf.download(tickers, period="1mo", group_by='ticker', progress=False, threads=True)
-    except: return None
+        # 3. Calculate Stats
+        is_crypto = clean_symbol.endswith("-USD") or "BTC" in clean_symbol
+        day_pct = ((reg_price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
+        
+        if is_crypto:
+            color = "green" if day_pct >= 0 else "red"
+            ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
+        else:
+            ext_str = f"**🌙 Ext: ${reg_price:,.2f} (:gray[Market Closed])**"
 
-if st.session_state['live_mode']:
-    BATCH_DATA = load_data_live(ALL_ASSETS)
-    st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
-else:
-    BATCH_DATA = load_data_static(ALL_ASSETS)
-
-# --- FUNCTIONS ---
-def get_live_price_macro(symbol):
-    try:
-        ticker = yf.Ticker(symbol)
-        price = ticker.fast_info['last_price']
-        prev = ticker.fast_info['previous_close']
-        delta = ((price - prev) / prev) * 100
-        return price, delta
-    except: return 0.0, 0.0
-
-def fetch_data_safe(symbol):
-    # 1. TRY BATCH FIRST
-    clean_symbol = symbol.strip().upper()
-    df = None
-    
-    try:
-        if BATCH_DATA is not None:
-            if isinstance(BATCH_DATA.columns, pd.MultiIndex):
-                if clean_symbol in BATCH_DATA.columns.levels[0]:
-                    df = BATCH_DATA[clean_symbol].copy()
-            elif clean_symbol == ALL_ASSETS[0]: 
-                df = BATCH_DATA.copy()
-    except: pass
-
-    # 2. SAFETY NET: If Batch failed, fetch individually
-    if df is None or df.empty:
-        try:
-            # Force fetch for stubborn tickers
-            df = yf.Ticker(symbol).history(period="1mo")
-        except: return None
-
-    # 3. If still empty, give up
-    if df is None or df.empty: return None
-    
-    # 4. Clean & Process
-    df = df.dropna(subset=['Close'])
-    if df.empty: return None
-
-    reg_price = df['Close'].iloc[-1]
-    if len(df) > 1: prev_close = df['Close'].iloc[-2]
-    else: prev_close = df['Open'].iloc[-1]
-
-    is_crypto = symbol.endswith("-USD") or "BTC" in symbol
-    day_pct = ((reg_price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
-    
-    if is_crypto:
-        color = "green" if day_pct >= 0 else "red"
-        ext_str = f"**⚡ Live: ${reg_price:,.2f} (:{color}[{day_pct:+.2f}%])**"
-    else:
-        ext_str = f"**🌙 Ext: ${reg_price:,.2f} (:gray[Market Closed])**"
-
-    volume = df['Volume'].iloc[-1]
-    
-    # RSI & Trend
-    rsi_val = 50
-    trend_str = "WAIT"
-    try:
+        volume = df['Volume'].iloc[-1]
+        
+        # 4. RSI & Trend
+        rsi_val = 50
+        trend_str = "WAIT"
+        
         if len(df) >= 14:
             delta = df['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
@@ -176,19 +139,23 @@ def fetch_data_safe(symbol):
             macd = ema12 - ema26
             if macd.iloc[-1] > 0: trend_str = ":green[BULL]" 
             else: trend_str = ":red[BEAR]"
-    except: pass
 
-    return {
-        "reg_price": reg_price, "day_delta": day_pct, "ext_str": ext_str,
-        "volume": volume, "rsi": rsi_val, "trend": trend_str
-    }
+        return {
+            "reg_price": reg_price,
+            "day_delta": day_pct,
+            "ext_str": ext_str,
+            "volume": volume,
+            "rsi": rsi_val,
+            "trend": trend_str
+        }
+    except: return None
 
 def format_volume(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}M"
     if num >= 1_000: return f"{num/1_000:.1f}K"
     return str(num)
 
-# --- UI LAYOUT ---
+# --- UI HEADER ---
 c_head_1, c_head_2 = st.columns([3, 1])
 with c_head_1:
     if st.session_state['live_mode']:
@@ -198,18 +165,31 @@ with c_head_1:
 
 with c_head_2:
     live_on = st.toggle("🔴 LIVE DATA", key="live_mode_toggle")
-    if live_on: st.session_state['live_mode'] = True
-    else: st.session_state['live_mode'] = False
+    if live_on: 
+        st.session_state['live_mode'] = True
+        # If toggled on, update time immediately
+        st.session_state['last_update'] = datetime.now().strftime("%H:%M:%S")
+    else: 
+        st.session_state['live_mode'] = False
 
 # --- TICKER TAPE ---
 def render_ticker_tape(tickers):
     ticker_items = []
     for tick in tickers:
-        p, d = get_live_price_macro(tick)
+        # Simple fetch for tape
+        try:
+            t = yf.Ticker(tick)
+            p = t.fast_info['last_price']
+            pr = t.fast_info['previous_close']
+            d = ((p - pr) / pr) * 100
+        except: 
+            p, d = 0.0, 0.0
+            
         c = "#4caf50" if d >= 0 else "#f44336"
         a = "▲" if d >= 0 else "▼"
         display_name = SYMBOL_NAMES.get(tick, tick) 
         ticker_items.append(f"<span style='display:inline-block; margin-right:50px; font-weight:900; font-size:18px; color:white;'>{display_name}: <span style='color:{c};'>${p:,.2f} {a} {d:.2f}%</span></span>")
+    
     content_str = "".join(ticker_items)
     st.markdown(f"""
     <style>
@@ -225,9 +205,10 @@ render_ticker_tape(MACRO_TICKERS)
 # --- TABS ---
 tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "🚀 My Portfolio", "📰 News"])
 
+# --- ALERT CHECK ---
 if alert_active:
     try:
-        res = fetch_data_safe(alert_ticker)
+        res = fetch_direct_data(alert_ticker)
         if res and res['reg_price'] >= alert_price and not st.session_state.get('alert_triggered', False):
             st.toast(f"🚨 ALERT: {alert_ticker} HIT ${res['reg_price']:,.2f}!", icon="🔥")
             st.session_state['alert_triggered'] = True
@@ -239,32 +220,33 @@ with tab1:
     cols = st.columns(3)
     for i, tick in enumerate(watchlist_list):
         with cols[i % 3]:
-            data = fetch_data_safe(tick)
+            # DIRECT CONNECT FETCH
+            data = fetch_direct_data(tick)
             if data:
                 vol = format_volume(data['volume'])
-                # BOLDED STATS LINE
+                # BOLD STATS LINE
                 st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
                 st.markdown(f"**Vol: {vol} | RSI: {data['rsi']:.0f} | {data['trend']}**")
                 st.markdown(data['ext_str'])
                 st.divider()
-            else: st.warning(f"{tick} Loading...")
+            else: st.error(f"⚠️ {tick} Unreachable")
 
 with tab2:
     st.subheader("My Picks")
     cols = st.columns(3)
     for i, (ticker, info) in enumerate(MY_PORTFOLIO.items()):
         with cols[i % 3]:
-            data = fetch_data_safe(ticker)
+            data = fetch_direct_data(ticker)
             if data:
                 curr = data['reg_price']
                 ret = ((curr - info['entry']) / info['entry']) * 100
                 st.metric(label=f"{ticker}", value=f"${curr:,.2f}", delta=f"{ret:.2f}% (Total)")
-                # BOLDED STATS LINE
+                # BOLD STATS LINE
                 st.markdown(f"**Entry: ${info['entry']} | {data['trend']}**")
                 st.markdown(data['ext_str'])
                 st.divider()
 
-# --- NEWS TAB ---
+# --- NEWS TAB (Fixed) ---
 def fetch_rss_items():
     headers = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml", "https://rss.app/feeds/T1dwxaFTbqidPRNW.xml", "https://rss.app/feeds/jjNMcVmfZ51Jieij.xml"]
@@ -324,8 +306,9 @@ with tab3:
             st.caption(r['reason'])
             st.divider()
 
+# --- THE LOOP ---
 if st.session_state['live_mode']:
-    time.sleep(3)
-    st.rerun()
+    time.sleep(3) # Wait 3 seconds
+    st.rerun()    # RESTART SCRIPT
 
-st.success("✅ System Ready (v5.4 - Safety Net & Bold)")
+st.success("✅ System Ready (v5.5 - Direct Connect)")
