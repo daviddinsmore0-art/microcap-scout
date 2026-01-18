@@ -362,4 +362,32 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x
+                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
+                    system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
+                        {"role":"system", "content": system_instr},
+                        {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
+                    ], max_tokens=400)
+                    enrich = []
+                    lines = res.choices[0].message.content.strip().split("\n")
+                    idx = 0
+                    for l in lines:
+                        parts = l.split("|")
+                        if len(parts)>=3 and idx<len(raw):
+                            enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
+                            idx+=1
+                    st.session_state['news_results'] = enrich
+                except:
+                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
+                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
+    if st.session_state.get('news_results'):
+        for r in st.session_state['news_results']:
+            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            st.caption(r['reason'])
+            st.divider()
+
+# --- RECONNECT LOGIC ---
+now = datetime.now()
+wait = 60 - now.second
+time.sleep(wait + 1)
+st.rerun()
