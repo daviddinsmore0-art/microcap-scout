@@ -96,7 +96,7 @@ def get_rating_cached(s):
         else: return "N/A", "#888"
     except: return "N/A", "#888"
 
-# --- LIVE PRICE ENGINE (Now returns chart data) ---
+# --- LIVE PRICE ENGINE (Cached 60s) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
     s = s.strip().upper()
@@ -114,9 +114,9 @@ def get_data_cached(s):
             f = True
         except: pass
 
-    # Always fetch history for chart, even if fast_info worked
+    # Always fetch history for chart
     try:
-        h = tk.history(period="1d", interval="5m") # 5m interval is cleaner for mobile charts
+        h = tk.history(period="1d", interval="5m")
         if h.empty: h = tk.history(period="5d", interval="1h")
         
         if not h.empty:
@@ -148,7 +148,6 @@ def get_data_cached(s):
 
     rsi, rl, tr, v_str, vol_tag, raw_trend = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL"
     try:
-        # Fetch slightly longer history for indicators
         hm = tk.history(period="1mo")
         if not hm.empty:
             cur_v = hm['Volume'].iloc[-1]
@@ -234,11 +233,11 @@ with t1:
                 rat_txt, rat_col = get_rating_cached(t)
                 sec, earn = get_meta_data(t)
                 
-                # Linkable Header
+                # FIXED HEADER HTML (Link inside H3)
                 nm = NAMES.get(t, t)
                 sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
                 url = f"https://finance.yahoo.com/quote/{t}"
-                st.markdown(f"<a href='{url}' target='_blank' style='text-decoration:none; color:white;'><h3 style='margin:0; padding:0;'>{nm}{sec_tag} 🔗</h3></a>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:white;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>🔗</a></h3>", unsafe_allow_html=True)
                 
                 st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
@@ -250,12 +249,10 @@ with t1:
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
                 
-                # SLIDE DOWN CHART
                 with st.expander("📉 Chart"):
                     if d['chart'] is not None:
                         st.line_chart(d['chart'], height=200)
-                    else:
-                        st.caption("Chart data unavailable")
+                    else: st.caption("Chart data unavailable")
 
             else: st.metric(t, "---", "0.0%")
             st.divider()
@@ -269,10 +266,11 @@ with t2:
                 rat_txt, rat_col = get_rating_cached(t)
                 sec, earn = get_meta_data(t)
                 
+                # FIXED HEADER HTML
                 nm = NAMES.get(t, t)
                 sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
                 url = f"https://finance.yahoo.com/quote/{t}"
-                st.markdown(f"<a href='{url}' target='_blank' style='text-decoration:none; color:white;'><h3 style='margin:0; padding:0;'>{nm}{sec_tag} 🔗</h3></a>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:white;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>🔗</a></h3>", unsafe_allow_html=True)
                 
                 st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
@@ -285,12 +283,10 @@ with t2:
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
                 
-                # SLIDE DOWN CHART
                 with st.expander("📉 Chart"):
                     if d['chart'] is not None:
                         st.line_chart(d['chart'], height=200)
-                    else:
-                        st.caption("Chart data unavailable")
+                    else: st.caption("Chart data unavailable")
             st.divider()
 
 if a_on:
