@@ -266,7 +266,7 @@ if a_on:
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
     # UPDATED: Pure Finance Feeds
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml","https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     
     # NOISE FILTER FOR FREE MODE
