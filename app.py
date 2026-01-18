@@ -40,6 +40,7 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
+    # Standard starter list
     saved_watchlist = "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -68,7 +69,7 @@ SYMBOL_NAMES = {
     "JNJ": "Johnson & Johnson"
 }
 
-# --- TICKER MAP (RESTORED TO FIX CRASH) ---
+# --- TICKER MAP (RESTORED TO FIX NEWS CRASH) ---
 TICKER_MAP = {
     "TESLA": "TSLA", "MUSK": "TSLA", "CYBERTRUCK": "TSLA",
     "NVIDIA": "NVDA", "JENSEN": "NVDA", "AI CHIP": "NVDA",
@@ -149,7 +150,7 @@ def fetch_from_batch(symbol):
 
         volume = df['Volume'].iloc[-1]
         
-        # RSI & TREND (Standardized)
+        # RSI & TREND (Standardized Logic)
         rsi_val = 50
         trend_str = "WAIT"
         try:
@@ -167,6 +168,8 @@ def fetch_from_batch(symbol):
                 if macd.iloc[-1] > 0: trend_str = ":green[BULL]" 
                 else: trend_str = ":red[BEAR]"
         except: pass
+
+        # --- EARNINGS LOGIC HAS BEEN COMPLETELY REMOVED ---
 
         return {
             "reg_price": reg_price, "day_delta": day_pct, "ext_str": ext_str,
@@ -239,14 +242,10 @@ with tab1:
             data = fetch_from_batch(tick)
             if data:
                 vol = format_volume(data['volume'])
-                rsi = data['rsi']
-                if rsi > 70: rsi_s = f"{rsi:.0f} (🔥)"
-                elif rsi < 30: rsi_s = f"{rsi:.0f} (🧊)"
-                else: rsi_s = f"{rsi:.0f}"
-                
-                st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
                 # STANDARDIZED DISPLAY STRING
-                st.caption(f"Vol: {vol} | RSI: {rsi_s} | {data['trend']}")
+                # Format: Vol | RSI | Trend
+                st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
+                st.caption(f"Vol: {vol} | RSI: {data['rsi']:.0f} | {data['trend']}")
                 st.markdown(data['ext_str'])
                 st.divider()
             else: st.warning(f"{tick} Loading...")
