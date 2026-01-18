@@ -17,8 +17,7 @@ if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 
 if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
 if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = False
 
-# --- PORTFOLIO (Added 'q' for Quantity) ---
-# I added "q": 100 as a placeholder so the math works. Change these to your real share counts!
+# --- PORTFOLIO ---
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
@@ -132,7 +131,7 @@ def get_data_cached(s):
     if not f: return None
     
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
-    d_raw = p - pv # Dollar change raw
+    d_raw = p - pv
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
     
@@ -259,36 +258,34 @@ with t1:
 with t2:
     # --- PORTFOLIO CALCULATION LOOP ---
     tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
-    # First pass to calc totals
     for t, inf in PORT.items():
         d = get_data_cached(t)
         if d:
-            q = inf.get("q", 100) # Quantity
+            q = inf.get("q", 100)
             curr_val = d['p'] * q
             cost_basis = inf['e'] * q
-            
             tot_val += curr_val
             tot_pl += (curr_val - cost_basis)
             day_pl += (d['d_raw'] * q)
             
-    # DISPLAY TOTALS
     c_day = "green" if day_pl >= 0 else "red"
     c_tot = "green" if tot_pl >= 0 else "red"
     
+    # FIXED FONT SIZE: 18px so it fits on mobile
     st.markdown(f"""
     <div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;">
         <div style="display:flex; justify-content:space-around; text-align:center;">
             <div>
-                <div style="color:#aaa; font-size:14px;">Net Liq</div>
-                <div style="font-size:24px; font-weight:bold; color:white;">${tot_val:,.2f}</div>
+                <div style="color:#aaa; font-size:12px;">Net Liq</div>
+                <div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div>
             </div>
             <div>
-                <div style="color:#aaa; font-size:14px;">Day P/L</div>
-                <div style="font-size:24px; font-weight:bold; color:{c_day};">${day_pl:+,.2f}</div>
+                <div style="color:#aaa; font-size:12px;">Day P/L</div>
+                <div style="font-size:18px; font-weight:bold; color:{c_day};">${day_pl:+,.2f}</div>
             </div>
             <div>
-                <div style="color:#aaa; font-size:14px;">Total P/L</div>
-                <div style="font-size:24px; font-weight:bold; color:{c_tot};">${tot_pl:+,.2f}</div>
+                <div style="color:#aaa; font-size:12px;">Total P/L</div>
+                <div style="font-size:18px; font-weight:bold; color:{c_tot};">${tot_pl:+,.2f}</div>
             </div>
         </div>
     </div>
@@ -308,7 +305,6 @@ with t2:
                 url = f"https://finance.yahoo.com/quote/{t}"
                 st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
                 
-                # Show Quantity in Caption
                 q = inf.get("q", 100)
                 st.caption(f"{q} Shares @ ${inf['e']}")
                 
@@ -356,38 +352,3 @@ with t3:
         with st.spinner("Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
-            elif not KEY:
-                st.warning("⚠️ No OpenAI Key. Showing Headlines.")
-                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
-            else:
-                try:
-                    from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Analyze these headlines. If a headline compares two stocks (e.g. 'Better than NVDA'), ignore the benchmark ticker. Only tag the main subject. If unsure, use 'MARKET'."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[
-                        {"role":"system", "content": system_instr},
-                        {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}
-                    ], max_tokens=400)
-                    enrich = []
-                    lines = res.choices[0].message.content.strip().split("\n")
-                    idx = 0
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts)>=3 and idx<len(raw):
-                            enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']})
-                            idx+=1
-                    st.session_state['news_results'] = enrich
-                except:
-                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider()
-
-# --- RECONNECT LOGIC ---
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
