@@ -40,7 +40,6 @@ query_params = st.query_params
 if "watchlist" in query_params:
     saved_watchlist = query_params["watchlist"]
 else:
-    # Standard starter list
     saved_watchlist = "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ"
 
 user_input = st.sidebar.text_input("Add Tickers", value=saved_watchlist)
@@ -169,8 +168,6 @@ def fetch_from_batch(symbol):
                 else: trend_str = ":red[BEAR]"
         except: pass
 
-        # --- EARNINGS LOGIC HAS BEEN COMPLETELY REMOVED ---
-
         return {
             "reg_price": reg_price, "day_delta": day_pct, "ext_str": ext_str,
             "volume": volume, "rsi": rsi_val, "trend": trend_str
@@ -242,10 +239,13 @@ with tab1:
             data = fetch_from_batch(tick)
             if data:
                 vol = format_volume(data['volume'])
-                # STANDARDIZED DISPLAY STRING
-                # Format: Vol | RSI | Trend
+                rsi = data['rsi']
+                
+                # BOLD DISPLAY STRING (Requested Update)
+                stats_line = f"**Vol: {vol} | RSI: {rsi:.0f} | {data['trend']}**"
+                
                 st.metric(label=f"{tick}", value=f"${data['reg_price']:,.2f}", delta=f"{data['day_delta']:.2f}%")
-                st.caption(f"Vol: {vol} | RSI: {data['rsi']:.0f} | {data['trend']}")
+                st.markdown(stats_line) # Uses Markdown for BOLD
                 st.markdown(data['ext_str'])
                 st.divider()
             else: st.warning(f"{tick} Loading...")
@@ -259,8 +259,12 @@ with tab2:
             if data:
                 curr = data['reg_price']
                 ret = ((curr - info['entry']) / info['entry']) * 100
+                
+                # BOLD DISPLAY STRING
+                stats_line = f"**Entry: ${info['entry']} | {data['trend']}**"
+                
                 st.metric(label=f"{ticker}", value=f"${curr:,.2f}", delta=f"{ret:.2f}% (Total)")
-                st.caption(f"Entry: ${info['entry']} | {data['trend']}")
+                st.markdown(stats_line)
                 st.markdown(data['ext_str'])
                 st.divider()
 
@@ -330,4 +334,4 @@ if st.session_state['live_mode']:
     time.sleep(3) # Wait 3 seconds
     st.rerun()    # RESTART SCRIPT
 
-st.success("✅ System Ready (v5.3 - Clean Slate)")
+st.success("✅ System Ready (v5.4 - Bold & Clean)")
