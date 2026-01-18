@@ -7,7 +7,6 @@ except: pass
 
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
-# NEW: Session state to track previous trends for flip detection
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
 
 # --- PORTFOLIO ---
@@ -22,26 +21,22 @@ PORT = {
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
 # --- SIDEBAR ---
-st.sidebar.header("⚡ Penny Pulse")
+st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
-# Watchlist Input
 qp = st.query_params
 w_str = qp.get("watchlist", "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ")
 u_in = st.sidebar.text_input("Add Tickers", value=w_str)
 if u_in != w_str: st.query_params["watchlist"] = u_in
 WATCH = [x.strip().upper() for x in u_in.split(",")]
 ALL = list(set(WATCH + list(PORT.keys())))
-
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts")
-# 1. Price Alert
 a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL))
 a_price = st.sidebar.number_input("Target ($)", value=0.0, step=0.5)
 a_on = st.sidebar.toggle("Active Price Alert")
-# 2. Trend Flip Alert (New)
-flip_on = st.sidebar.toggle("Alert on Trend Flip (Bull/Bear)")
+flip_on = st.sidebar.toggle("Alert on Trend Flip")
 
 # --- DATA ENGINE ---
 def get_data(s):
@@ -74,13 +69,11 @@ def get_data(s):
             cur_v = hm['Volume'].iloc[-1]
             avg_v = hm['Volume'].iloc[:-1].mean() if len(hm) > 1 else cur_v
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
-            
             if avg_v > 0:
                 ratio = cur_v / avg_v
                 if ratio >= 1.0: vol_tag = "⚡ SURGE"
                 elif ratio >= 0.5: vol_tag = "🌊 STEADY"
                 else: vol_tag = "💤 QUIET"
-            
             if len(hm)>=14:
                 d = hm['Close'].diff()
                 g, l = d.where(d>0,0).rolling(14).mean(), (-d.where(d<0,0)).rolling(14).mean()
@@ -88,9 +81,7 @@ def get_data(s):
                 if rsi >= 70: rl = "🔥 HOT"
                 elif rsi <= 30: rl = "❄️ COLD"
                 else: rl = "😐 OK"
-                
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
-                # Determine Raw Trend for Logic
                 if macd.iloc[-1] > 0:
                     raw_trend = "BULL"
                     tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
@@ -120,7 +111,7 @@ startTimer();
 </script>
 """, height=40)
 
-# --- TICKER (Standard) ---
+# --- TICKER ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_data(t)
@@ -131,33 +122,24 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
 h = "".join(ti)
 st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 600s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
 
-# --- FLIP DETECTION LOGIC ---
+# --- FLIP CHECK ---
 def check_flip(ticker, current_trend):
-    # Only run logic if feature is enabled
     if not flip_on: return
-    
-    # If we have seen this stock before
     if ticker in st.session_state['last_trends']:
         prev = st.session_state['last_trends'][ticker]
-        # If it CHANGED (e.g. BEAR -> BULL)
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
             st.toast(f"🔀 TREND FLIP: {ticker} switched to {current_trend}!", icon="⚠️")
-    
-    # Update state for next loop
     st.session_state['last_trends'][ticker] = current_trend
 
 # --- DASHBOARD ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
-
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
         with cols[i%3]:
             d = get_data(t)
             if d:
-                # Check for Flip
                 check_flip(t, d['raw_trend'])
-                
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
@@ -165,16 +147,13 @@ with t1:
                 st.markdown(d['x'])
             else: st.metric(t, "---", "0.0%")
             st.divider()
-
 with t2:
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]:
             d = get_data(t)
             if d:
-                # Check for Flip
                 check_flip(t, d['raw_trend'])
-
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
                 date_str = inf.get("d", "N/A")
@@ -241,8 +220,14 @@ with t3:
             st.caption(r['reason'])
             st.divider()
 
-# --- SYNC LOOP ---
+# --- HEARTBEAT SYNC LOOP (Fixes Disconnects) ---
 now = datetime.now()
 wait = 60 - now.second
-time.sleep(wait + 1)
+
+# Instead of freezing for 60 seconds (which kills the connection),
+# we sleep in tiny 0.1s increments to keep the app 'alive'.
+stop_time = time.time() + wait + 1
+while time.time() < stop_time:
+    time.sleep(0.1)
+
 st.rerun()
