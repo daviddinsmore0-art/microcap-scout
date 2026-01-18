@@ -8,7 +8,16 @@ except: pass
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 
-PORT = {"HIVE":{"e":3.19},"BAER":{"e":1.86},"TX":{"e":38.10},"IMNN":{"e":3.22},"RERE":{"e":5.31}}
+# --- PORTFOLIO (Add your dates here) ---
+# Format: "TICKER": {"e": Entry Price, "d": "Purchase Date"}
+PORT = {
+    "HIVE": {"e": 3.19, "d": "2024-12-01"},
+    "BAER": {"e": 1.86, "d": "2025-01-10"},
+    "TX":   {"e": 38.10, "d": "2023-11-05"},
+    "IMNN": {"e": 3.22, "d": "2024-08-20"},
+    "RERE": {"e": 5.31, "d": "2024-10-12"}
+}
+
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
 # --- SIDEBAR ---
@@ -63,7 +72,6 @@ def get_data(s):
                 elif rsi <= 30: rl = "❄️ COLD"
                 else: rl = "😐 OK"
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
-                # PURE HTML COLORING
                 if macd.iloc[-1] > 0:
                     tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
                 else:
@@ -71,7 +79,7 @@ def get_data(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "rsi":rsi, "rl":rl, "tr":tr}
 
-# --- HEADER & COUNTDOWN (SMALL) ---
+# --- HEADER & COUNTDOWN ---
 st.title("⚡ Penny Pulse")
 components.html("""
 <div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 2px; border-radius: 5px;">
@@ -98,10 +106,8 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        # RESTORED: 18px Size
         ti.append(f"<span style='margin-right:60px;font-weight:900;font-size:18px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
-# RESTORED: 600s Speed (Smooth)
 st.markdown(f"""<style>.tc{{width:100%;overflow:hidden;background:#0e1117;border-bottom:2px solid #444;height:50px;display:flex;align-items:center;}}.tx{{display:flex;white-space:nowrap;animation:ts 600s linear infinite;}}@keyframes ts{{0%{{transform:translateX(0);}}100%{{transform:translateX(-100%);}}}}</style><div class="tc"><div class="tx">{h*50}</div></div>""", unsafe_allow_html=True)
 
 # --- DASHBOARD ---
@@ -126,7 +132,9 @@ with t2:
             if d:
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
                 st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} | RSI: {d['rsi']:.0f}</div>", unsafe_allow_html=True)
+                # UPDATED: Now shows Entry Price AND Date
+                date_str = inf.get("d", "N/A")
+                st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str}) | RSI: {d['rsi']:.0f}</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
             st.divider()
 
