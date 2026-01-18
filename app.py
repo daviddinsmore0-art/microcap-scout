@@ -134,11 +134,9 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
         name = NAMES.get(t, t)
-        # Font size increased to 22px
         ti.append(f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{name}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
 
-# Multiplying {h*15} creates a very long continuous string, eliminating the gap.
 st.markdown(f"""
 <div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;">
     <marquee scrollamount="6" style="width: 100%;">
@@ -193,15 +191,21 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS (CACHED) ---
+# --- NEWS (ROBUST + BACKUP) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html"]
+    # Added Investing.com as a backup source
+    urls = [
+        "https://finance.yahoo.com/news/rssindex", 
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "https://www.investing.com/rss/news.rss"
+    ]
     it, seen = [], set()
     for u in urls:
         try:
-            r = requests.get(u, headers=head, timeout=2)
+            # Increased timeout to 5 seconds to prevent empty lists
+            r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
             for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
@@ -215,7 +219,9 @@ with t3:
     if st.button("Generate Report", type="primary", key="news_btn"):
         with st.spinner("Scanning..."):
             raw = get_news_cached()
-            if not KEY:
+            if not raw:
+                st.error("⚠️ No news sources responded. Please try again.")
+            elif not KEY:
                 st.warning("⚠️ No OpenAI Key. Showing Headlines.")
                 st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
             else:
@@ -238,7 +244,14 @@ with t3:
                     st.session_state['news_results'] = enrich
                 except:
                     st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
+                    # Fallback to free headlines if AI fails
                     st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
+
+    if st.session_state.get('news_results'):
+        for r in st.session_state['news_results']:
+            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            st.caption(r['reason'])
+            st.divider()
 
 # --- RECONNECT LOGIC ---
 now = datetime.now()
