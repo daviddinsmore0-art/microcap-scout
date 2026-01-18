@@ -47,7 +47,24 @@ a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on")
 
-# --- CACHED DATA ENGINE ---
+# --- ANALYST RATINGS ENGINE (Cached for 1 Hour) ---
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_rating_cached(s):
+    try:
+        # Tries to fetch analyst recommendation
+        info = yf.Ticker(s).info
+        rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
+        
+        if "STRONG BUY" in rec: return "🌟 STRONG BUY", "#00C805" # Bright Green
+        elif "BUY" in rec: return "✅ BUY", "#4caf50"             # Green
+        elif "HOLD" in rec: return "✋ HOLD", "#FFC107"            # Amber
+        elif "SELL" in rec: return "🔻 SELL", "#FF4B4B"            # Red
+        elif "STRONG SELL" in rec: return "🆘 STRONG SELL", "#FF0000" # Deep Red
+        else: return "N/A", "#888"
+    except:
+        return "N/A", "#888"
+
+# --- LIVE PRICE ENGINE (Cached for 60s) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
     s = s.strip().upper()
@@ -55,7 +72,6 @@ def get_data_cached(s):
     tk = yf.Ticker(s)
     is_crypto = s.endswith("-USD")
     
-    # 1. Try Fast Info (Stocks)
     if not is_crypto:
         try:
             p = tk.fast_info['last_price']
@@ -65,11 +81,10 @@ def get_data_cached(s):
             f = True
         except: pass
 
-    # 2. Try History (Crypto or Fallback)
     if not f or is_crypto:
         try:
-            h = tk.history(period="1d", interval="1m") # 1m data for crypto precision
-            if h.empty: h = tk.history(period="5d") # Fallback
+            h = tk.history(period="1d", interval="1m")
+            if h.empty: h = tk.history(period="5d")
             
             if not h.empty:
                 p = h['Close'].iloc[-1]
@@ -81,19 +96,15 @@ def get_data_cached(s):
         
     if not f: return None
     
-    # Calc Metrics
     dp = ((p-pv)/pv)*100 if pv>0 else 0.0
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
     
-    # Calc Range Bar (0% to 100%)
     if dh > dl:
         rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100
     else:
-        rng_pct = 50 # Default middle if no range
+        rng_pct = 50
     
-    # Create HTML Range Bar
-    # Gradient from Red (Low) to Green (High)
     rng_html = f"""
     <div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;">
         <span style="margin-right:5px;">L</span>
@@ -133,7 +144,7 @@ def get_data_cached(s):
     except: pass
     return {"p":p, "d":dp, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html}
 
-# --- HEADER & COUNTDOWN (CENTERED) ---
+# --- HEADER & COUNTDOWN ---
 c1, c2 = st.columns([1, 1])
 with c1:
     st.title("⚡ Penny Pulse")
@@ -195,10 +206,15 @@ with t1:
             d = get_data_cached(t)
             if d:
                 check_flip(t, d['raw_trend'])
+                # Fetch Rating
+                rat_txt, rat_col = get_rating_cached(t)
+                
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-                # NEW: Range Bar
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
-                st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
+                
+                # Combine Momentum and Rating into one line
+                st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>", unsafe_allow_html=True)
+                
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
                 st.markdown(d['x'])
@@ -211,10 +227,15 @@ with t2:
             d = get_data_cached(t)
             if d:
                 check_flip(t, d['raw_trend'])
+                # Fetch Rating
+                rat_txt, rat_col = get_rating_cached(t)
+                
                 st.metric(NAMES.get(t, t), f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-                # NEW: Range Bar
                 st.markdown(d['rng_html'], unsafe_allow_html=True)
-                st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Momentum:</b> {d['tr']}</div>", unsafe_allow_html=True)
+                
+                # Combine Momentum and Rating
+                st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']} <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>", unsafe_allow_html=True)
+                
                 date_str = inf.get("d", "N/A")
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Entry: ${inf['e']} ({date_str})</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
@@ -278,16 +299,4 @@ with t3:
                     st.session_state['news_results'] = enrich
                 except:
                     st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
-
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider()
-
-# --- RECONNECT LOGIC ---
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
+                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable
