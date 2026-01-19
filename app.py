@@ -1,17 +1,15 @@
-import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
-import email.utils
+import streamlit as st, yfinance as yf, time, xml.etree.ElementTree as ET
+from datetime import datetime
 import streamlit.components.v1 as components
 
-# --- APP CONFIG ---
+# --- RECOVERY SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# INITIALIZE MEMORY (Session State)
+# MEMORY BANK: Prevents blank screens if Yahoo blocks us
 if 'price_cache' not in st.session_state: st.session_state['price_cache'] = {}
-if 'news_cache' not in st.session_state: st.session_state['news_cache'] = []
 
-# --- YOUR DATA ---
+# --- YOUR PORTFOLIO ---
 PORT = {"HIVE": {"e": 3.19, "q": 1000}, "BAER": {"e": 1.86, "q": 500}, "TX": {"e": 38.10, "q": 100}, "IMNN": {"e": 3.22, "q": 200}, "RERE": {"e": 5.31, "q": 300}}
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield"}
 
@@ -25,27 +23,27 @@ w_str = qp.get("watchlist", "TD.TO, IVN.TO, BTC-USD, HIVE, BAER, TX, IMNN, RERE"
 u_in = st.sidebar.text_input("Watchlist", value=w_str)
 WATCH = [x.strip().upper() for x in u_in.split(",")]
 
-# --- HEADER & TIMER ---
+# --- HEADER ---
 c1, c2 = st.columns([3, 1])
 with c1: st.title("⚡ Penny Pulse")
 with c2:
-    components.html("""<div style="background:#1e2127; padding:8px; border-radius:8px; text-align:center; border:1px solid #444; font-family:sans-serif;"><span style="color:#888; font-size:11px; font-weight:bold;">NEXT PULSE</span><br><span id="timer" style="color:#FF4B4B; font-size:22px; font-weight:900;">60</span><span style="color:#FF4B4B; font-size:12px;">s</span></div><script>let s=60; setInterval(()=>{s--; if(s<0)s=60; document.getElementById('timer').innerText=s;},1000);</script>""", height=75)
+    components.html("""<div style="background:#1e2127; padding:8px; border-radius:8px; text-align:center; border:1px solid #444; font-family:sans-serif;"><span style="color:#888; font-size:11px; font-weight:bold;">NEXT PULSE</span><br><span id="timer" style="color:#FF4B4B; font-size:22px; font-weight:900;">60</span><span style="color:#FF4B4B; font-size:14px;">s</span></div><script>let s=60; setInterval(()=>{s--; if(s<0)s=60; document.getElementById('timer').innerText=s;},1000);</script>""", height=75)
 
-# --- THE SURVIVOR ENGINE ---
+# --- THE STURDY ENGINE ---
 def get_safe_data(s):
     try:
-        # Use 2-day history to avoid the buggy .info part of yfinance
+        # Use 2-day history to avoid the unstable .info commands
         tk = yf.Ticker(s)
         h = tk.history(period="2d", interval="1h")
         if not h.empty and len(h) >= 2:
             p = h['Close'].iloc[-1]
             pv = h['Close'].iloc[-2]
             dp = ((p-pv)/pv)*100
-            # Save to Cache so we never lose it if Yahoo blocks us
+            # Save to Memory Bank
             st.session_state['price_cache'][s] = {"p": p, "d": dp, "chart": h['Close']}
             return st.session_state['price_cache'][s]
     except: pass
-    # Return the last known good data if the new pull fails
+    # If connection fails, show the last good data from memory
     return st.session_state['price_cache'].get(s, None)
 
 # --- MARKET BAR ---
@@ -62,18 +60,18 @@ if tape:
 def render_card(t, inf=None):
     d = get_safe_data(t)
     if not d:
-        st.info(f"⏳ {t}: Yahoo signal lost. Retrying...")
+        st.info(f"⏳ {t}: Searching for signal...")
         return
     with st.container():
         st.subheader(NAMES.get(t, t))
         if inf: st.caption(f"Owned: {inf['q']} @ ${inf['e']}")
         st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-        with st.expander("📉 Quick Chart"):
+        with st.expander("📉 View Chart"):
             st.line_chart(d['chart'])
     st.divider()
 
 # --- TABS ---
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News"])
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
@@ -81,10 +79,9 @@ with t1:
 with t2:
     for t, inf in PORT.items(): render_card(t, inf)
 with t3:
-    if st.button("Generate Fresh Report", type="primary"):
-        st.write("AI is scanning fresh headlines...")
-        # (Simplified News Logic)
+    st.write("News module is on standby to protect your credits.")
+    if st.button("Force News Scan"):
+        st.write("Scanning...")
 
-# --- AUTO-REFRESH ---
 time.sleep(60)
 st.rerun()
