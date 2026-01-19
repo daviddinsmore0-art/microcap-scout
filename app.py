@@ -58,25 +58,15 @@ def get_meta_data(s):
         earn_html = ""
         try:
             cal = tk.calendar
-            dates = []
-            # Robust calendar fetching
             if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
             elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
-            
+            else: dates = []
             if len(dates) > 0:
                 nxt = dates[0]
                 if hasattr(nxt, "date"): nxt = nxt.date()
                 days = (nxt - datetime.now().date()).days
-                
-                # UPDATED LOGIC: Always show date if valid
-                if 0 <= days <= 7: 
-                    earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
-                elif 8 <= days <= 30: 
-                    earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
-                elif days > 30:
-                    # New: Show date like "Mar 15" for distant earnings
-                    d_str = nxt.strftime("%b %d")
-                    earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {d_str}</span>"
+                if 0 <= days <= 7: earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
+                elif 8 <= days <= 30: earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
         except: pass
         return sector_code, earn_html
     except: return "", ""
@@ -275,19 +265,26 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
+    # UPDATED: Pure Finance Feeds
     urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
+    
+    # NOISE FILTER FOR FREE MODE
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
+    
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
             for i in root.findall('.//item')[:5]:
-                t, l = i.find('title').text, i.find('link').text
+                t = i.find('title').text
+                l = i.find('link').text
                 if t and t not in seen:
+                    # Apply "Noise Filter"
                     t_lower = t.lower()
                     if not any(b in t_lower for b in blacklist):
-                        seen.add(t); it.append({"title":t,"link":l})
+                        seen.add(t)
+                        it.append({"title":t,"link":l})
         except: continue
     return it
 
@@ -304,13 +301,17 @@ with t3:
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Filter: stocks/finance only. Format: Ticker | Signal (🟢/🔴/⚪) | Reason."
+                    # UPDATED PROMPT: STRICT GATEKEEPER
+                    system_instr = "You are a financial news filter. Analyze these headlines. DISCARD any headline that is NOT about stocks, economics, or finance (e.g. discard sports, war, crime). For the remaining, format as: Ticker | Signal (🟢/🔴/⚪) | Reason. If unsure, use 'MARKET'."
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=400)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
+                    idx = 0
                     for l in lines:
                         parts = l.split("|")
-                        if len(parts)>=3: enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":parts[0],"link":"#"})
+                        if len(parts)>=3: # Flexible matching
+                             enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":parts[0],"link":"#"})
+                    # Fallback if AI format breaks: just show raw but filtered
                     if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw]
                     else: st.session_state['news_results'] = enrich
                 except:
