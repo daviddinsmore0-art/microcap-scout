@@ -116,26 +116,33 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- Calendar (Deep Fetch) ---
-            earn_html = ""
+            # --- Calendar (The "Deep Dig" Method) ---
+            earn_html = "<span style='color:#444; font-size:11px; margin-left:5px;'>📅 N/A</span>" # Default
             try:
-                # Try method 1: calendar attribute
-                cal = tk.calendar
+                # We try 3 different ways to find the date
                 nxt = None
-                if isinstance(cal, dict) and 'Earnings Date' in cal:
-                    nxt = cal['Earnings Date'][0]
-                # Try method 2: earnings_dates dataframe
-                if not nxt:
-                    ed = tk.get_earnings_dates(limit=1)
-                    if ed is not None and not ed.empty:
-                        nxt = ed.index[0]
                 
+                # 1. Standard Dictionary
+                if isinstance(tk.calendar, dict) and 'Earnings Date' in tk.calendar:
+                    nxt = tk.calendar['Earnings Date'][0]
+                
+                # 2. Earnings Dates DataFrame
+                if not nxt:
+                    try: 
+                        edf = tk.get_earnings_dates(limit=1)
+                        if edf is not None and not edf.empty: nxt = edf.index[0]
+                    except: pass
+                
+                # 3. Old List Method
+                if not nxt and hasattr(tk, 'calendar') and isinstance(tk.calendar, list):
+                     nxt = tk.calendar[0]
+
                 if nxt:
                     days = (nxt.date() - datetime.now().date()).days
-                    if 0 <= days <= 30:
-                        earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
+                    if 0 <= days <= 14:
+                        earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>⚠️ {days}d</span>"
                     else:
-                         earn_html = f"<span style='background:#222; color:#777; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {nxt.strftime('%b %d')}</span>"
+                         earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {nxt.strftime('%b %d')}</span>"
             except: pass
 
             data = {
@@ -190,9 +197,9 @@ def render_card(t, inf=None):
 
         st.markdown(f"<div style='margin-bottom:5px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
         
-        # UPDATED: Trend capitalized, Rating on new line with Calendar
+        # UPDATED: Bold Analyst Rating & Layout
         st.markdown(f"<div style='font-size:16px; margin-bottom:2px;'><b>TREND:</b> {d['tr']} {d['earn']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:14px; margin-bottom:5px; color:#ccc;'>ANALYST RATING: <span style='color:{d['rat_col']}; font-weight:bold;'>{d['rat_txt']}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:14px; margin-bottom:5px; color:white;'><b>ANALYST RATING:</b> <span style='color:{d['rat_col']}; font-weight:bold;'>{d['rat_txt']}</span></div>", unsafe_allow_html=True)
         
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['vol']} ({d['vt']})</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
@@ -235,7 +242,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ENGINE (Fixed Links) ---
+# --- NEWS ENGINE (The "Detective" Update) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -258,7 +265,7 @@ def get_news_cached():
 with t3:
     st.subheader("🚨 Global AI Wire")
     if st.button("Generate AI Report", type="primary", key="news_btn"):
-        with st.spinner("AI Scanning Market News..."):
+        with st.spinner("AI Detective Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
             elif not KEY:
@@ -267,10 +274,17 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    # FIX: We pass index so we can map back to the real link later
-                    p_list = "\n".join([f"{i}. {x['title']}" for i,x in enumerate(raw[:25])]) 
-                    system_instr = "Format: Index | Ticker | Signal (🟢/🔴/⚪) | Reason"
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze these headlines:\n{p_list}"}], max_tokens=600)
+                    # FIX: We pass index to map back to the real link
+                    p_list = "\n".join([f"{i}. {x['title']}" for i,x in enumerate(raw[:30])]) 
+                    # THE DETECTIVE PROMPT:
+                    system_instr = """You are a financial news detective. 
+                    1. Read the headline.
+                    2. IDENTIFY the ticker symbol implied (e.g. "iPhone" -> AAPL, "Galaxy" -> SSNLF). If unknown, use the most relevant US ticker.
+                    3. Determine sentiment (🟢/🔴/⚪).
+                    4. Provide a very short reason.
+                    Format exactly: Index | Ticker | Signal | Reason"""
+                    
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=600)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
                     for l in lines:
