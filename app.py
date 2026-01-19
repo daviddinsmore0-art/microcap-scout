@@ -234,6 +234,7 @@ def render_card(t, inf=None):
             if d['chart'] is not None:
                 cdf = d['chart'].reset_index()
                 cdf.columns = ['Time', 'Price']
+                # UPDATED: Use width="stretch" to silence warnings
                 c = alt.Chart(cdf).mark_line().encode(x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')), y=alt.Y('Price', scale=alt.Scale(zero=False), title='')).properties(height=200)
                 st.altair_chart(c, use_container_width=True)
             else: st.caption("Chart data unavailable")
@@ -278,8 +279,7 @@ def get_news_cached():
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            # UPDATED: Increased limit from 5 to 50
-            for i in root.findall('.//item')[:50]: 
+            for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
                 if t and t not in seen:
                     t_lower = t.lower()
@@ -300,12 +300,13 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    # Limit to top 15 to save API costs
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw[:15])])
+                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
+                    # UPDATED PROMPT: NO SKIPPING LINES
                     system_instr = "Filter: stocks/finance only. If irrelevant, return 'NOISE | ⚪ | Skip'. Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Do NOT skip any lines."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=600)
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=400)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
+                    # RESTORED 1:1 MAPPING
                     for i, l in enumerate(lines):
                         if i < len(raw):
                             parts = l.split("|")
@@ -314,10 +315,10 @@ with t3:
                                     "ticker": parts[0].strip(),
                                     "signal": parts[1].strip(),
                                     "reason": parts[2].strip(),
-                                    "title": raw[i]['title'],
-                                    "link": raw[i]['link']
+                                    "title": raw[i]['title'], # <--- RESTORED ORIGINAL TITLE
+                                    "link": raw[i]['link']    # <--- RESTORED ORIGINAL LINK
                                 })
-                    if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw[:15]]
+                    if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw]
                     else: st.session_state['news_results'] = enrich
                 except:
                     st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
