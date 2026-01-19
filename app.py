@@ -236,7 +236,7 @@ def render_card(t, inf=None):
     else: st.metric(t, "---", "0.0%")
     st.divider()
 
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 AI Market News"])
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
