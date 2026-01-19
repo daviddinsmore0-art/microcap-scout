@@ -3,11 +3,12 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt
+import re # Added for robust AI parsing
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- THE BRAIN (Session State) ---
+# --- BRAIN (Session State) ---
 if 'news_cache' not in st.session_state: st.session_state['news_cache'] = []
 if 'news_processed' not in st.session_state: st.session_state['news_processed'] = False
 if 'price_mem' not in st.session_state: st.session_state['price_mem'] = {}
@@ -15,7 +16,7 @@ if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "S
 if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
 if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
 
-# --- YOUR PORTFOLIO ---
+# --- PORTFOLIO ---
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 120},
@@ -26,12 +27,12 @@ PORT = {
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
-# --- SIDEBAR ---
+# --- SIDEBAR & WATCHLIST ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
-# Persistent Watchlist Logic
+# Robust Watchlist Memory
 if 'user_watchlist' not in st.session_state: 
     st.session_state['user_watchlist'] = "SPY, BTC-USD, TD.TO"
 
@@ -49,15 +50,14 @@ a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_ti
 a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 
-# --- HYBRID DATA ENGINE (v32.0) ---
+# --- HYBRID ENGINE ---
 def get_hybrid_data(s):
     try:
         tk = yf.Ticker(s)
-        # 1. Main History Pull
         h = tk.history(period="1mo", interval="1d")
         
         if not h.empty:
-            # --- Price & Basics ---
+            # Price
             p = h['Close'].iloc[-1]
             if s == "SPY" and p > 650:
                 h_daily = tk.history(period="1d")
@@ -66,7 +66,7 @@ def get_hybrid_data(s):
             dp = ((p - prev)/prev)*100
             d_raw = p - prev
             
-            # --- Volume ---
+            # Volume
             vol = h['Volume'].iloc[-1]
             avg_vol = h['Volume'].mean()
             vol_str = f"{vol/1e6:.1f}M" if vol > 1e6 else f"{vol/1e3:.0f}K"
@@ -75,7 +75,7 @@ def get_hybrid_data(s):
             elif ratio >= 0.8: vol_tag = "🌊 STEADY"
             else: vol_tag = "💤 QUIET"
             
-            # --- RSI ---
+            # RSI
             delta = h['Close'].diff()
             up = delta.clip(lower=0)
             down = -1 * delta.clip(upper=0)
@@ -85,20 +85,12 @@ def get_hybrid_data(s):
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             rsi_tag = "🔥 HOT" if rsi > 70 else "❄️ COLD" if rsi < 30 else "😐 OK"
             
-            # --- Trend ---
+            # Trend
             macd = h['Close'].ewm(span=12).mean() - h['Close'].ewm(span=26).mean()
             raw_trend = "BULL" if macd.iloc[-1] > 0 else "BEAR"
             tr_html = f"<span style='color:{'#00C805' if raw_trend=='BULL' else '#FF2B2B'}; font-weight:bold;'>{raw_trend}</span>"
 
-            # --- Daily Price Bar ---
-            dh = h['High'].iloc[-1]
-            dl = h['Low'].iloc[-1]
-            if dh > dl:
-                rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100
-            else: rng_pct = 50
-            rng_html = f"""<div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;"><span style="margin-right:5px;">L</span><div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:5px;">H</span></div>"""
-
-            # --- Technical Rating ---
+            # Rating
             score = 0
             if rsi > 60: score += 1
             if rsi < 40: score -= 1
@@ -111,7 +103,7 @@ def get_hybrid_data(s):
             elif score <= -3: rat_txt, rat_col = "STRONG SELL", "#FF0000"
             else: rat_txt, rat_col = "HOLD", "#FFC107"
 
-            # --- AI Signal ---
+            # AI Signal
             ai_score = 0
             if rsi >= 70: ai_score -= 2
             elif rsi <= 30: ai_score += 2
@@ -120,31 +112,34 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- Calendar (Timestamp Method) ---
+            # Calendar (Debug Mode)
             earn_html = "<span style='color:#333; font-size:11px; margin-left:5px; font-weight:bold;'>📅 N/A</span>"
+            debug_msg = ""
             try:
-                # Attempt to get the raw QuoteType or Calendar data without triggering full .info
-                # This often contains the raw timestamp
                 nxt = None
-                
-                # Check 1: Calendar dictionary
-                if isinstance(tk.calendar, dict):
-                    c = tk.calendar.get('Earnings Date')
-                    if c: nxt = c[0]
-                
-                # Check 2: Fast Info (sometimes has 'year_high' etc, might have earnings timestamp hidden)
-                # If that fails, we stick with N/A to avoid crashing
-                
+                # Try 1
+                if isinstance(tk.calendar, dict): nxt = tk.calendar.get('Earnings Date', [None])[0]
+                # Try 2
+                if not nxt: 
+                    try:
+                        edf = tk.get_earnings_dates(limit=1)
+                        if edf is not None and not edf.empty: nxt = edf.index[0]
+                    except Exception as e: debug_msg = str(e)
+
                 if nxt:
-                    if hasattr(nxt, 'date'): d_obj = nxt.date()
-                    else: d_obj = nxt.date()
-                    
+                    d_obj = nxt.date() if hasattr(nxt, 'date') else nxt.date()
                     days = (d_obj - datetime.now().date()).days
                     if 0 <= days <= 14:
                         earn_html = f"<span style='background:#ffebee; color:#d32f2f; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>⚠️ {days}d</span>"
                     else:
                          earn_html = f"<span style='background:#f1f1f1; color:#333; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>📅 {d_obj.strftime('%b %d')}</span>"
             except: pass
+
+            # Chart
+            dh = h['High'].iloc[-1]
+            dl = h['Low'].iloc[-1]
+            rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100 if dh > dl else 50
+            rng_html = f"""<div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;"><span style="margin-right:5px;">L</span><div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:5px;">H</span></div>"""
 
             data = {
                 "p": p, "d": dp, "d_raw": d_raw, 
@@ -161,7 +156,7 @@ def get_hybrid_data(s):
     except: pass
     return st.session_state['price_mem'].get(s)
 
-# --- HEADER & COUNTDOWN ---
+# --- HEADER ---
 est_now = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1, 1])
 with c1:
@@ -180,7 +175,7 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
 h = "".join(ti)
 if h: st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True)
 
-# --- RENDER CARD ---
+# --- CARD RENDERER ---
 def render_card(t, inf=None):
     d = get_hybrid_data(t)
     if d:
@@ -264,7 +259,6 @@ def get_news_cached():
 
 with t3:
     st.subheader("🚨 Global AI Wire")
-    # THE REFRESH FIX IS HERE
     if st.button("Generate AI Report", type="primary", key="news_btn"):
         with st.spinner("AI Detective Scanning..."):
             raw = get_news_cached()
@@ -273,33 +267,36 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    p_list = "\n".join([f"{i}. HEADLINE: {x['title']} | SUMMARY: {x['desc'][:150]}..." for i,x in enumerate(raw[:25])]) 
+                    p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}..." for i,x in enumerate(raw[:25])]) 
                     
                     system_instr = """You are a financial news detective.
-                    1. Read Headline + Summary.
-                    2. INFER the ticker. If unknown, guess the most likely public company. If absolutely none, use "MARKET".
-                    3. Format: Index | Ticker | Signal (🟢/🔴/⚪) | Reason"""
+                    1. Read the line.
+                    2. Infer the Ticker. If generic, use 'MARKET'.
+                    3. Determine Sentiment (🟢/🔴/⚪).
+                    4. Output EXACTLY: Index|Ticker|Signal|Reason
+                    Example: 0|AAPL|🟢|New iPhone launch success."""
                     
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze:\n{p_list}"}], max_tokens=800)
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze:\n{p_list}"}], max_tokens=1000)
                     lines = res.choices[0].message.content.strip().split("\n")
                     
                     for l in lines:
+                        # Robust Parsing Logic
                         parts = l.split("|")
-                        if len(parts)>=4:
+                        if len(parts) >= 4:
                             try:
-                                idx = int(parts[0].strip().replace(".",""))
+                                # Clean the index number of any weird dots or spaces
+                                idx_str = re.sub(r'[^0-9]', '', parts[0])
+                                idx = int(idx_str)
                                 if idx < len(raw):
                                     raw[idx]['ticker'] = parts[1].strip()
                                     raw[idx]['signal'] = parts[2].strip()
                                     raw[idx]['reason'] = parts[3].strip()
                             except: continue
                     
-                    # Update Memory
                     st.session_state['news_cache'] = raw
                     st.session_state['news_processed'] = True
-                    # FORCE REFRESH TO SHOW RESULTS IMMEDIATELY
                     st.rerun() 
-                except: st.error("AI Error.")
+                except Exception as e: st.error(f"AI Error: {e}")
 
     current_news = st.session_state.get('news_cache', [])
     if not current_news: current_news = get_news_cached()
@@ -307,10 +304,14 @@ with t3:
     for r in current_news:
         tick = r.get('ticker', 'NEWS')
         sig = r.get('signal', '⚪')
-        rsn = r.get('reason', 'Click to read full story.')
+        rsn = r.get('reason', 'Unanalyzed')
         
-        st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
-        st.caption(rsn)
+        # Color code only if analyzed
+        if sig == '⚪' and tick == 'NEWS':
+             st.markdown(f"<span style='opacity:0.6;'>**{tick} {sig}** - [{r['title']}]({r['link']})</span>", unsafe_allow_html=True)
+        else:
+             st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
+             st.caption(rsn)
         st.divider()
 
 now = datetime.now()
