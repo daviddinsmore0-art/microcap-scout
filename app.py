@@ -7,8 +7,7 @@ import altair as alt
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- THE BRAIN (SESSION STATE) ---
-# This ensures data persists even when you click buttons or change tabs
+# --- THE BRAIN (Session State) ---
 if 'news_cache' not in st.session_state: st.session_state['news_cache'] = []
 if 'news_processed' not in st.session_state: st.session_state['news_processed'] = False
 if 'price_mem' not in st.session_state: st.session_state['price_mem'] = {}
@@ -16,7 +15,7 @@ if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "S
 if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
 if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
 
-# --- YOUR PORTFOLIO (Hardcoded - Safe) ---
+# --- YOUR PORTFOLIO ---
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 120},
@@ -27,21 +26,19 @@ PORT = {
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
-# --- SIDEBAR & MEMORY FIX ---
+# --- SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
-# 1. Initialize the memory with a default ONLY if it's empty
+# Persistent Watchlist Logic
 if 'user_watchlist' not in st.session_state: 
     st.session_state['user_watchlist'] = "SPY, BTC-USD, TD.TO"
 
-# 2. Bind the input box directly to the memory
 def update_watchlist():
     st.session_state['user_watchlist'] = st.session_state.widget_watchlist
 
 u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['user_watchlist'], key="widget_watchlist", on_change=update_watchlist)
-
 WATCH = [x.strip().upper() for x in st.session_state['user_watchlist'].split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
@@ -52,11 +49,11 @@ a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_ti
 a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 
-# --- HYBRID DATA ENGINE (v31.0) ---
+# --- HYBRID DATA ENGINE (v32.0) ---
 def get_hybrid_data(s):
     try:
         tk = yf.Ticker(s)
-        # 1. Main History Pull (Safe & Fast)
+        # 1. Main History Pull
         h = tk.history(period="1mo", interval="1d")
         
         if not h.empty:
@@ -123,24 +120,22 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- Calendar (Triple Threat Method) ---
-            earn_html = "" 
+            # --- Calendar (Timestamp Method) ---
+            earn_html = "<span style='color:#333; font-size:11px; margin-left:5px; font-weight:bold;'>📅 N/A</span>"
             try:
+                # Attempt to get the raw QuoteType or Calendar data without triggering full .info
+                # This often contains the raw timestamp
                 nxt = None
-                # Method 1: 'calendar' dict
-                if not nxt and isinstance(tk.calendar, dict):
-                    nxt = tk.calendar.get('Earnings Date', [None])[0]
-                # Method 2: 'calendar' list (Legacy)
-                if not nxt and isinstance(tk.calendar, list):
-                    nxt = tk.calendar[0]
-                # Method 3: 'info' (The "Risky" fetch, but we need it)
-                if not nxt:
-                     # This might trigger a block, but we try it once
-                     nxt_ts = tk.info.get('nextEarningsDate')
-                     if nxt_ts: nxt = datetime.fromtimestamp(nxt_ts)
-
+                
+                # Check 1: Calendar dictionary
+                if isinstance(tk.calendar, dict):
+                    c = tk.calendar.get('Earnings Date')
+                    if c: nxt = c[0]
+                
+                # Check 2: Fast Info (sometimes has 'year_high' etc, might have earnings timestamp hidden)
+                # If that fails, we stick with N/A to avoid crashing
+                
                 if nxt:
-                    # Handle both datetime and Timestamp objects
                     if hasattr(nxt, 'date'): d_obj = nxt.date()
                     else: d_obj = nxt.date()
                     
@@ -167,7 +162,6 @@ def get_hybrid_data(s):
     return st.session_state['price_mem'].get(s)
 
 # --- HEADER & COUNTDOWN ---
-# EST Time Fix (UTC - 5)
 est_now = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1, 1])
 with c1:
@@ -245,7 +239,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ENGINE (Link-Lock Logic) ---
+# --- NEWS ENGINE ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -264,34 +258,31 @@ def get_news_cached():
                     t_lower = t.lower()
                     if not any(b in t_lower for b in blacklist):
                         seen.add(t)
-                        # We initialize the item with default values
                         it.append({"title": t, "link": l, "desc": desc, "ticker": "NEWS", "signal": "⚪", "reason": "Unanalyzed"})
         except: continue
     return it
 
 with t3:
     st.subheader("🚨 Global AI Wire")
+    # THE REFRESH FIX IS HERE
     if st.button("Generate AI Report", type="primary", key="news_btn"):
         with st.spinner("AI Detective Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
-            elif not KEY:
-                st.warning("⚠️ No OpenAI Key.")
+            elif not KEY: st.warning("⚠️ No OpenAI Key.")
             else:
                 try:
                     from openai import OpenAI
-                    # We pass the index so we can update the original list
                     p_list = "\n".join([f"{i}. HEADLINE: {x['title']} | SUMMARY: {x['desc'][:150]}..." for i,x in enumerate(raw[:25])]) 
                     
                     system_instr = """You are a financial news detective.
                     1. Read Headline + Summary.
-                    2. INFER the ticker. If unknown, guess the most likely public company (e.g. "ChatGPT" -> MSFT). If none, use "MARKET".
+                    2. INFER the ticker. If unknown, guess the most likely public company. If absolutely none, use "MARKET".
                     3. Format: Index | Ticker | Signal (🟢/🔴/⚪) | Reason"""
                     
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze:\n{p_list}"}], max_tokens=800)
                     lines = res.choices[0].message.content.strip().split("\n")
                     
-                    # Update the raw list with AI data
                     for l in lines:
                         parts = l.split("|")
                         if len(parts)>=4:
@@ -302,18 +293,18 @@ with t3:
                                     raw[idx]['signal'] = parts[2].strip()
                                     raw[idx]['reason'] = parts[3].strip()
                             except: continue
+                    
+                    # Update Memory
                     st.session_state['news_cache'] = raw
                     st.session_state['news_processed'] = True
-                except:
-                    st.error("AI Error.")
-    
-    # Display logic: If processed, show AI data. If not, show defaults.
-    # CRITICAL: This loop uses the 'link' from the original object, so it NEVER vanishes.
+                    # FORCE REFRESH TO SHOW RESULTS IMMEDIATELY
+                    st.rerun() 
+                except: st.error("AI Error.")
+
     current_news = st.session_state.get('news_cache', [])
     if not current_news: current_news = get_news_cached()
 
     for r in current_news:
-        # Fallback for display if AI hasn't run yet
         tick = r.get('ticker', 'NEWS')
         sig = r.get('signal', '⚪')
         rsn = r.get('reason', 'Click to read full story.')
