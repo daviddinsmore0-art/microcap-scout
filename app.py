@@ -7,7 +7,8 @@ import altair as alt
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- SESSION STATE & PERSISTENCE ---
+# --- THE BRAIN (SESSION STATE) ---
+# This ensures data persists even when you click buttons or change tabs
 if 'news_cache' not in st.session_state: st.session_state['news_cache'] = []
 if 'news_processed' not in st.session_state: st.session_state['news_processed'] = False
 if 'price_mem' not in st.session_state: st.session_state['price_mem'] = {}
@@ -26,22 +27,22 @@ PORT = {
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
-# --- SIDEBAR & WATCHLIST RESTORATION ---
+# --- SIDEBAR & MEMORY FIX ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
-# RESTORED: Simple Input Logic that won't override you constantly
-# We use session state to remember your input across reruns
+# 1. Initialize the memory with a default ONLY if it's empty
 if 'user_watchlist' not in st.session_state: 
     st.session_state['user_watchlist'] = "SPY, BTC-USD, TD.TO"
 
-u_in = st.sidebar.text_input("📝 Edit Watchlist (Comma Separated)", value=st.session_state['user_watchlist'])
-if u_in != st.session_state['user_watchlist']:
-    st.session_state['user_watchlist'] = u_in
-    st.rerun()
+# 2. Bind the input box directly to the memory
+def update_watchlist():
+    st.session_state['user_watchlist'] = st.session_state.widget_watchlist
 
-WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
+u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['user_watchlist'], key="widget_watchlist", on_change=update_watchlist)
+
+WATCH = [x.strip().upper() for x in st.session_state['user_watchlist'].split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
 
@@ -51,11 +52,11 @@ a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_ti
 a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 
-# --- HYBRID DATA ENGINE (v31) ---
+# --- HYBRID DATA ENGINE (v31.0) ---
 def get_hybrid_data(s):
     try:
         tk = yf.Ticker(s)
-        # 1. Main History Pull (Safe)
+        # 1. Main History Pull (Safe & Fast)
         h = tk.history(period="1mo", interval="1d")
         
         if not h.empty:
@@ -123,7 +124,7 @@ def get_hybrid_data(s):
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
             # --- Calendar (Triple Threat Method) ---
-            earn_html = "" # Default to hidden if not found
+            earn_html = "" 
             try:
                 nxt = None
                 # Method 1: 'calendar' dict
