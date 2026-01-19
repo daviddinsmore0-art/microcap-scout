@@ -59,7 +59,6 @@ def get_meta_data(s):
         try:
             cal = tk.calendar
             dates = []
-            # Robust calendar fetching
             if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
             elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
             
@@ -67,14 +66,11 @@ def get_meta_data(s):
                 nxt = dates[0]
                 if hasattr(nxt, "date"): nxt = nxt.date()
                 days = (nxt - datetime.now().date()).days
-                
-                # UPDATED LOGIC: Always show date if valid
                 if 0 <= days <= 7: 
                     earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
                 elif 8 <= days <= 30: 
                     earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
                 elif days > 30:
-                    # New: Show date like "Mar 15" for distant earnings
                     d_str = nxt.strftime("%b %d")
                     earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {d_str}</span>"
         except: pass
@@ -238,6 +234,7 @@ def render_card(t, inf=None):
             if d['chart'] is not None:
                 cdf = d['chart'].reset_index()
                 cdf.columns = ['Time', 'Price']
+                # UPDATED: Use width="stretch" to silence warnings
                 c = alt.Chart(cdf).mark_line().encode(x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')), y=alt.Y('Price', scale=alt.Scale(zero=False), title='')).properties(height=200)
                 st.altair_chart(c, use_container_width=True)
             else: st.caption("Chart data unavailable")
@@ -304,13 +301,23 @@ with t3:
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Filter: stocks/finance only. Format: Ticker | Signal (🟢/🔴/⚪) | Reason."
+                    # UPDATED PROMPT: NO SKIPPING LINES
+                    system_instr = "Filter: stocks/finance only. If irrelevant, return 'NOISE | ⚪ | Skip'. Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Do NOT skip any lines."
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=400)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts)>=3: enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":parts[0],"link":"#"})
+                    # RESTORED 1:1 MAPPING
+                    for i, l in enumerate(lines):
+                        if i < len(raw):
+                            parts = l.split("|")
+                            if len(parts)>=3 and "NOISE" not in parts[0]:
+                                enrich.append({
+                                    "ticker": parts[0].strip(),
+                                    "signal": parts[1].strip(),
+                                    "reason": parts[2].strip(),
+                                    "title": raw[i]['title'], # <--- RESTORED ORIGINAL TITLE
+                                    "link": raw[i]['link']    # <--- RESTORED ORIGINAL LINK
+                                })
                     if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw]
                     else: st.session_state['news_results'] = enrich
                 except:
