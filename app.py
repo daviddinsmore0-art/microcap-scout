@@ -39,14 +39,13 @@ u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['my_w
 WATCH = [x.strip().upper() for x in st.session_state['my_watchlist'].split(",") if x.strip()]
 st.sidebar.caption("Alerts removed for stability.")
 
-# --- MAIN ENGINE (Restored Calendar) ---
+# --- MAIN ENGINE ---
 def get_hybrid_data(s):
     try:
         tk = yf.Ticker(s)
         h = tk.history(period="1mo", interval="1d")
         
         if not h.empty:
-            # Price
             p = h['Close'].iloc[-1]
             if s == "SPY" and p > 650:
                 h_daily = tk.history(period="1d")
@@ -55,7 +54,6 @@ def get_hybrid_data(s):
             dp = ((p - prev)/prev)*100
             d_raw = p - prev
             
-            # Volume
             vol = h['Volume'].iloc[-1]
             avg_vol = h['Volume'].mean()
             vol_str = f"{vol/1e6:.1f}M" if vol > 1e6 else f"{vol/1e3:.0f}K"
@@ -64,7 +62,6 @@ def get_hybrid_data(s):
             elif ratio >= 0.8: vol_tag = "🌊 STEADY"
             else: vol_tag = "💤 QUIET"
             
-            # RSI
             delta = h['Close'].diff()
             up = delta.clip(lower=0)
             down = -1 * delta.clip(upper=0)
@@ -74,12 +71,10 @@ def get_hybrid_data(s):
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             rsi_tag = "🔥 HOT" if rsi > 70 else "❄️ COLD" if rsi < 30 else "😐 OK"
             
-            # Trend
             macd = h['Close'].ewm(span=12).mean() - h['Close'].ewm(span=26).mean()
             raw_trend = "BULL" if macd.iloc[-1] > 0 else "BEAR"
             tr_html = f"<span style='color:{'#00C805' if raw_trend=='BULL' else '#FF2B2B'}; font-weight:bold;'>{raw_trend}</span>"
 
-            # Rating
             score = 0
             if rsi > 60: score += 1
             if rsi < 40: score -= 1
@@ -92,7 +87,6 @@ def get_hybrid_data(s):
             elif score <= -3: rat_txt, rat_col = "STRONG SELL", "#FF0000"
             else: rat_txt, rat_col = "HOLD", "#FFC107"
 
-            # AI Signal
             ai_score = 0
             if rsi >= 70: ai_score -= 2
             elif rsi <= 30: ai_score += 2
@@ -101,15 +95,11 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- CALENDAR RESTORED (The "Old Way") ---
             earn_html = ""
             try:
-                # This accesses the raw calendar data like we did in v23
+                # OLD SCHOOL CALENDAR FETCH
                 cal = tk.calendar
-                if not isinstance(cal, dict):
-                     # Try fallback if it's a list or other format
-                     cal = tk.get_calendar()
-                
+                if not isinstance(cal, dict): cal = tk.get_calendar()
                 if isinstance(cal, dict) and 'Earnings Date' in cal:
                     nxt = cal['Earnings Date'][0]
                     d_obj = nxt.date()
@@ -120,7 +110,6 @@ def get_hybrid_data(s):
                          earn_html = f"<span style='background:#f1f1f1; color:#333; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>📅 {d_obj.strftime('%b %d')}</span>"
             except: pass
 
-            # Chart
             dh = h['High'].iloc[-1]
             dl = h['Low'].iloc[-1]
             rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100 if dh > dl else 50
@@ -213,7 +202,7 @@ with t2:
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: render_card(t, inf)
 
-# --- NEWS ENGINE ---
+# --- NEWS ENGINE (The Fail-Safe Build) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_rss():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -236,58 +225,64 @@ def fetch_rss():
         except: continue
     return it
 
+# THE BACKUP BRAIN (Forces tickers if AI fails)
+def scan_fallback(text):
+    text = text.upper()
+    MAP = {"BITCOIN":"BTC-USD", "BTC":"BTC-USD", "NVIDIA":"NVDA", "TESLA":"TSLA", "APPLE":"AAPL", "MICROSOFT":"MSFT", "AMAZON":"AMZN", "META":"META", "GOOGLE":"GOOG", "S&P":"SPY", "GOLD":"GC=F"}
+    for k,v in MAP.items():
+        if k in text: return v
+    return "NEWS"
+
 with t3:
     st.subheader("🚨 Global AI Wire")
     if st.button("Generate AI Report", type="primary", key="news_btn"):
         with st.spinner("AI Detective Scanning..."):
             raw = fetch_rss()
             if not raw: st.error("⚠️ No news sources responded.")
-            elif not KEY: st.warning("⚠️ No OpenAI Key.")
             else:
-                try:
-                    from openai import OpenAI
-                    p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}..." for i,x in enumerate(raw[:25])]) 
-                    
-                    system_instr = """You are a financial news detective.
-                    1. Read the line.
-                    2. Infer the Ticker. If generic, use 'MARKET'.
-                    3. Determine Sentiment (🟢/🔴/⚪).
-                    4. Output EXACTLY: Index|Ticker|Signal|Reason"""
-                    
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze:\n{p_list}"}], max_tokens=1000)
-                    lines = res.choices[0].message.content.strip().split("\n")
-                    
-                    final_results = []
-                    for r in raw:
-                        r['ticker'] = "NEWS"
-                        r['signal'] = "⚪"
-                        r['reason'] = ""
-                        final_results.append(r)
+                final_results = []
+                # 1. Initialize with Fallback
+                for r in raw:
+                    fallback_tick = scan_fallback(r['title'] + " " + r['desc'])
+                    r['ticker'] = fallback_tick
+                    r['signal'] = "⚪"
+                    r['reason'] = "Scanning..."
+                    final_results.append(r)
 
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts) >= 4:
-                            try:
-                                idx_str = re.sub(r'[^0-9]', '', parts[0])
-                                idx = int(idx_str)
-                                if idx < len(final_results):
-                                    final_results[idx]['ticker'] = parts[1].strip()
-                                    final_results[idx]['signal'] = parts[2].strip()
-                                    final_results[idx]['reason'] = parts[3].strip()
-                            except: continue
-                    
-                    st.session_state['news_results'] = final_results
-                    st.session_state['news_run'] = True
-                    st.rerun() 
-                except Exception as e: st.error(f"AI Error: {e}")
+                # 2. Try OpenAI
+                if KEY:
+                    try:
+                        from openai import OpenAI
+                        p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}" for i,x in enumerate(raw[:25])]) 
+                        system_instr = "Return list: Index|Ticker|Signal(🟢/🔴/⚪)|Reason. Example: 0|AAPL|🟢|Earnings beat."
+                        res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":p_list}], max_tokens=1000)
+                        lines = res.choices[0].message.content.strip().split("\n")
+                        for l in lines:
+                            parts = l.split("|")
+                            if len(parts) >= 4:
+                                try:
+                                    idx = int(re.sub(r'[^0-9]', '', parts[0]))
+                                    if idx < len(final_results):
+                                        final_results[idx]['ticker'] = parts[1].strip()
+                                        final_results[idx]['signal'] = parts[2].strip()
+                                        final_results[idx]['reason'] = parts[3].strip()
+                                except: continue
+                    except Exception as e:
+                        st.error(f"AI Error: {e}")
+                
+                st.session_state['news_results'] = final_results
+                st.session_state['news_run'] = True
+                st.rerun()
 
     if st.session_state['news_run']:
         for r in st.session_state['news_results']:
             tick = r.get('ticker', 'NEWS')
             sig = r.get('signal', '⚪')
             rsn = r.get('reason', '')
+            
+            # Simple, clean display. No dimming.
             st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
-            if rsn: st.caption(rsn)
+            if rsn and rsn != "Scanning...": st.caption(rsn)
             st.divider()
     else:
         st.info("Tap 'Generate AI Report' to scan global feeds.")
