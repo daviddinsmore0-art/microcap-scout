@@ -18,7 +18,7 @@ if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = 
 
 # --- PORTFOLIO ---
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
     "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
     "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
