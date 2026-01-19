@@ -18,11 +18,11 @@ if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = 
 
 # --- PORTFOLIO ---
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 120},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 20},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
 }
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
@@ -58,15 +58,21 @@ def get_meta_data(s):
         earn_html = ""
         try:
             cal = tk.calendar
+            dates = []
             if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
             elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
-            else: dates = []
+            
             if len(dates) > 0:
                 nxt = dates[0]
                 if hasattr(nxt, "date"): nxt = nxt.date()
                 days = (nxt - datetime.now().date()).days
-                if 0 <= days <= 7: earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
-                elif 8 <= days <= 30: earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
+                if 0 <= days <= 7: 
+                    earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
+                elif 8 <= days <= 30: 
+                    earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
+                elif days > 30:
+                    d_str = nxt.strftime("%b %d")
+                    earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {d_str}</span>"
         except: pass
         return sector_code, earn_html
     except: return "", ""
@@ -212,12 +218,10 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        # --- AI SIGNAL IS BACK (ALWAYS VISIBLE) ---
         st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
 
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         
-        # --- SMART RATING LINE (Only shows if valid) ---
         rating_html = f" <span style='color:#666'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>" if rat_txt != "N/A" else ""
         meta_html = f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']}{rating_html}{earn}</div>"
         
@@ -230,6 +234,7 @@ def render_card(t, inf=None):
             if d['chart'] is not None:
                 cdf = d['chart'].reset_index()
                 cdf.columns = ['Time', 'Price']
+                # UPDATED: Use width="stretch" to silence warnings
                 c = alt.Chart(cdf).mark_line().encode(x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')), y=alt.Y('Price', scale=alt.Scale(zero=False), title='')).properties(height=200)
                 st.altair_chart(c, use_container_width=True)
             else: st.caption("Chart data unavailable")
@@ -267,22 +272,26 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/100003114/device/rss/rss.html", "https://www.investing.com/rss/news.rss"]
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
+    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
             for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
-                if t and t not in seen: seen.add(t); it.append({"title":t,"link":l})
+                if t and t not in seen:
+                    t_lower = t.lower()
+                    if not any(b in t_lower for b in blacklist):
+                        seen.add(t); it.append({"title":t,"link":l})
         except: continue
     return it
 
 with t3:
-    st.subheader("🚨 Global AI Wire")
-    if st.button("Generate AI Report", type="primary", key="news_btn"):
-        with st.spinner("AI Scanning Markets..."):
+    st.subheader("🚨 Global Wire")
+    if st.button("Generate Report", type="primary", key="news_btn"):
+        with st.spinner("Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
             elif not KEY:
@@ -292,15 +301,25 @@ with t3:
                 try:
                     from openai import OpenAI
                     p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Analyze. If a headline compares stocks, ignore benchmark. Only tag main subject. If unsure, use 'MARKET'."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Headlines:\n{p_list}"}], max_tokens=400)
+                    # UPDATED PROMPT: NO SKIPPING LINES
+                    system_instr = "Filter: stocks/finance only. If irrelevant, return 'NOISE | ⚪ | Skip'. Format: Ticker | Signal (🟢/🔴/⚪) | Reason. Do NOT skip any lines."
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=400)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
-                    idx = 0
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts)>=3 and idx<len(raw): enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":raw[idx]['title'],"link":raw[idx]['link']}); idx+=1
-                    st.session_state['news_results'] = enrich
+                    # RESTORED 1:1 MAPPING
+                    for i, l in enumerate(lines):
+                        if i < len(raw):
+                            parts = l.split("|")
+                            if len(parts)>=3 and "NOISE" not in parts[0]:
+                                enrich.append({
+                                    "ticker": parts[0].strip(),
+                                    "signal": parts[1].strip(),
+                                    "reason": parts[2].strip(),
+                                    "title": raw[i]['title'], # <--- RESTORED ORIGINAL TITLE
+                                    "link": raw[i]['link']    # <--- RESTORED ORIGINAL LINK
+                                })
+                    if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw]
+                    else: st.session_state['news_results'] = enrich
                 except:
                     st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
                     st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
