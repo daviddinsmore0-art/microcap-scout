@@ -18,11 +18,11 @@ if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = 
 
 # --- PORTFOLIO ---
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
 }
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
@@ -275,14 +275,14 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml","https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:15]:
+            for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
                 if t and t not in seen:
                     t_lower = t.lower()
@@ -292,9 +292,9 @@ def get_news_cached():
     return it
 
 with t3:
-    st.subheader("🚨 Global AI Wire")
-    if st.button("Generate AI Report", type="primary", key="news_btn"):
-        with st.spinner("AI Scanning News..."):
+    st.subheader("🚨 Global Wire")
+    if st.button("Generate Report", type="primary", key="news_btn"):
+        with st.spinner("Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
             elif not KEY:
