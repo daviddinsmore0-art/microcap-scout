@@ -273,7 +273,7 @@ def get_news_cached():
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:20]:
+            for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
                 if t and t not in seen: seen.add(t); it.append({"title":t,"link":l})
         except: continue
