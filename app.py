@@ -55,11 +55,9 @@ def get_hybrid_data(s):
         if not h.empty:
             # --- Price & Basics ---
             p = h['Close'].iloc[-1]
-            # SPY Glitch Fix
             if s == "SPY" and p > 650:
                 h_daily = tk.history(period="1d")
                 p = h_daily['Close'].iloc[-1]
-
             prev = h['Close'].iloc[-2]
             dp = ((p - prev)/prev)*100
             d_raw = p - prev
@@ -88,8 +86,7 @@ def get_hybrid_data(s):
             raw_trend = "BULL" if macd.iloc[-1] > 0 else "BEAR"
             tr_html = f"<span style='color:{'#00C805' if raw_trend=='BULL' else '#FF2B2B'}; font-weight:bold;'>{raw_trend}</span>"
 
-            # --- RESTORED: Daily Price Bar (Calculated from History) ---
-            # We use the daily High/Low from history instead of fast_info
+            # --- Daily Price Bar ---
             dh = h['High'].iloc[-1]
             dl = h['Low'].iloc[-1]
             if dh > dl:
@@ -97,8 +94,7 @@ def get_hybrid_data(s):
             else: rng_pct = 50
             rng_html = f"""<div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;"><span style="margin-right:5px;">L</span><div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:5px;">H</span></div>"""
 
-            # --- RESTORED: Technical Rating (Safe Replacement for Analyst Rating) ---
-            # Instead of asking Yahoo (risky), we calculate a score
+            # --- Technical Rating ---
             score = 0
             if rsi > 60: score += 1
             if rsi < 40: score -= 1
@@ -111,7 +107,7 @@ def get_hybrid_data(s):
             elif score <= -3: rat_txt, rat_col = "🆘 STRONG SELL", "#FF0000"
             else: rat_txt, rat_col = "✋ HOLD", "#FFC107"
 
-            # --- RESTORED: AI Signal ---
+            # --- AI Signal ---
             ai_score = 0
             if rsi >= 70: ai_score -= 2
             elif rsi <= 30: ai_score += 2
@@ -120,16 +116,26 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- RESTORED: Calendar (Safe Try) ---
+            # --- Calendar (Deep Fetch) ---
             earn_html = ""
             try:
-                # We try to get calendar, but pass silently if it fails
+                # Try method 1: calendar attribute
                 cal = tk.calendar
+                nxt = None
                 if isinstance(cal, dict) and 'Earnings Date' in cal:
                     nxt = cal['Earnings Date'][0]
+                # Try method 2: earnings_dates dataframe
+                if not nxt:
+                    ed = tk.get_earnings_dates(limit=1)
+                    if ed is not None and not ed.empty:
+                        nxt = ed.index[0]
+                
+                if nxt:
                     days = (nxt.date() - datetime.now().date()).days
                     if 0 <= days <= 30:
                         earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
+                    else:
+                         earn_html = f"<span style='background:#222; color:#777; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {nxt.strftime('%b %d')}</span>"
             except: pass
 
             data = {
@@ -180,14 +186,13 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        # RESTORED: Daily Price Bar
         st.markdown(d['rng_html'], unsafe_allow_html=True)
 
         st.markdown(f"<div style='margin-bottom:5px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
         
-        # RESTORED: Rating & Calendar
-        rat_html = f" <span style='color:#666'>|</span> <span style='color:{d['rat_col']}; font-weight:bold;'>{d['rat_txt']}</span>"
-        st.markdown(f"<div style='font-size:16px; margin-bottom:5px;'><b>Trend:</b> {d['tr']}{rat_html}{d['earn']}</div>", unsafe_allow_html=True)
+        # UPDATED: Trend capitalized, Rating on new line with Calendar
+        st.markdown(f"<div style='font-size:16px; margin-bottom:2px;'><b>TREND:</b> {d['tr']} {d['earn']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:14px; margin-bottom:5px; color:#ccc;'>ANALYST RATING: <span style='color:{d['rat_col']}; font-weight:bold;'>{d['rat_txt']}</span></div>", unsafe_allow_html=True)
         
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['vol']} ({d['vt']})</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
@@ -230,11 +235,10 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ENGINE (Restored URLs) ---
+# --- NEWS ENGINE (Fixed Links) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    # RESTORED: Your specific feeds
     urls = ["https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml","https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
@@ -263,14 +267,21 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw[:20])]) 
-                    system_instr = "Filter: stocks/finance only. Format: Ticker | Signal (🟢/🔴/⚪) | Reason."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=400)
+                    # FIX: We pass index so we can map back to the real link later
+                    p_list = "\n".join([f"{i}. {x['title']}" for i,x in enumerate(raw[:25])]) 
+                    system_instr = "Format: Index | Ticker | Signal (🟢/🔴/⚪) | Reason"
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze these headlines:\n{p_list}"}], max_tokens=600)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
                     for l in lines:
                         parts = l.split("|")
-                        if len(parts)>=3: enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":parts[0],"link":"#"})
+                        if len(parts)>=4:
+                            try:
+                                idx = int(parts[0].strip().replace(".",""))
+                                if idx < len(raw):
+                                    orig = raw[idx]
+                                    enrich.append({"ticker":parts[1].strip(),"signal":parts[2].strip(),"reason":parts[3].strip(),"title":orig['title'],"link":orig['link']})
+                            except: continue
                     if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw]
                     else: st.session_state['news_results'] = enrich
                 except:
