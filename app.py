@@ -1,5 +1,5 @@
 import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt
@@ -102,10 +102,10 @@ def get_hybrid_data(s):
             else: score -= 2
             if ratio > 1.2 and dp > 0: score += 1
             
-            if score >= 3: rat_txt, rat_col = "🌟 STRONG BUY", "#00C805"
-            elif score >= 1: rat_txt, rat_col = "✅ BUY", "#4caf50"
-            elif score <= -3: rat_txt, rat_col = "🆘 STRONG SELL", "#FF0000"
-            else: rat_txt, rat_col = "✋ HOLD", "#FFC107"
+            if score >= 3: rat_txt, rat_col = "STRONG BUY", "#00C805"
+            elif score >= 1: rat_txt, rat_col = "BUY", "#4caf50"
+            elif score <= -3: rat_txt, rat_col = "STRONG SELL", "#FF0000"
+            else: rat_txt, rat_col = "HOLD", "#FFC107"
 
             # --- AI Signal ---
             ai_score = 0
@@ -116,33 +116,21 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- Calendar (The "Deep Dig" Method) ---
-            earn_html = "<span style='color:#444; font-size:11px; margin-left:5px;'>📅 N/A</span>" # Default
+            # --- Calendar (Dark Text Fix) ---
+            earn_html = "<span style='color:#333; font-size:11px; margin-left:5px; font-weight:bold;'>📅 N/A</span>"
             try:
-                # We try 3 different ways to find the date
                 nxt = None
-                
-                # 1. Standard Dictionary
                 if isinstance(tk.calendar, dict) and 'Earnings Date' in tk.calendar:
                     nxt = tk.calendar['Earnings Date'][0]
+                elif hasattr(tk, 'calendar') and isinstance(tk.calendar, list) and len(tk.calendar)>0:
+                    nxt = tk.calendar[0]
                 
-                # 2. Earnings Dates DataFrame
-                if not nxt:
-                    try: 
-                        edf = tk.get_earnings_dates(limit=1)
-                        if edf is not None and not edf.empty: nxt = edf.index[0]
-                    except: pass
-                
-                # 3. Old List Method
-                if not nxt and hasattr(tk, 'calendar') and isinstance(tk.calendar, list):
-                     nxt = tk.calendar[0]
-
                 if nxt:
                     days = (nxt.date() - datetime.now().date()).days
                     if 0 <= days <= 14:
-                        earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>⚠️ {days}d</span>"
+                        earn_html = f"<span style='background:#ffebee; color:#d32f2f; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>⚠️ {days}d</span>"
                     else:
-                         earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {nxt.strftime('%b %d')}</span>"
+                         earn_html = f"<span style='background:#f1f1f1; color:#333; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>📅 {nxt.strftime('%b %d')}</span>"
             except: pass
 
             data = {
@@ -160,11 +148,13 @@ def get_hybrid_data(s):
     except: pass
     return st.session_state['price_mem'].get(s)
 
-# --- HEADER & COUNTDOWN ---
+# --- HEADER & COUNTDOWN (EST TIME) ---
+# Manual offset for EST (UTC-5)
+est_now = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1, 1])
 with c1:
     st.title("⚡ Penny Pulse")
-    st.caption(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
+    st.caption(f"Last Updated: {est_now.strftime('%H:%M:%S EST')}")
 with c2:
     components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60)
 
@@ -197,9 +187,9 @@ def render_card(t, inf=None):
 
         st.markdown(f"<div style='margin-bottom:5px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
         
-        # UPDATED: Bold Analyst Rating & Layout
+        # UPDATED: Trend capitalized, Rating is BLACK/DARK
         st.markdown(f"<div style='font-size:16px; margin-bottom:2px;'><b>TREND:</b> {d['tr']} {d['earn']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:14px; margin-bottom:5px; color:white;'><b>ANALYST RATING:</b> <span style='color:{d['rat_col']}; font-weight:bold;'>{d['rat_txt']}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:14px; margin-bottom:5px; color:#111;'><b>ANALYST RATING:</b> <span style='color:{d['rat_col']}; font-weight:bold;'>{d['rat_txt']}</span></div>", unsafe_allow_html=True)
         
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['vol']} ({d['vt']})</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
@@ -242,7 +232,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ENGINE (The "Detective" Update) ---
+# --- NEWS ENGINE (Enhanced Description Scanning) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -254,18 +244,24 @@ def get_news_cached():
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
             for i in root.findall('.//item')[:20]:
-                t, l = i.find('title').text, i.find('link').text
+                t = i.find('title').text
+                l = i.find('link').text
+                # FETCH DESCRIPTION for better AI context
+                desc = i.find('description').text if i.find('description') is not None else ""
+                
                 if t and t not in seen:
                     t_lower = t.lower()
                     if not any(b in t_lower for b in blacklist):
-                        seen.add(t); it.append({"title":t,"link":l})
+                        seen.add(t)
+                        # Store description in the title field for the AI to read, but keep display title separate if needed
+                        it.append({"title": t, "link": l, "desc": desc})
         except: continue
     return it
 
 with t3:
     st.subheader("🚨 Global AI Wire")
     if st.button("Generate AI Report", type="primary", key="news_btn"):
-        with st.spinner("AI Detective Scanning..."):
+        with st.spinner("AI Scanning Articles..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
             elif not KEY:
@@ -274,17 +270,15 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    # FIX: We pass index to map back to the real link
-                    p_list = "\n".join([f"{i}. {x['title']}" for i,x in enumerate(raw[:30])]) 
-                    # THE DETECTIVE PROMPT:
-                    system_instr = """You are a financial news detective. 
-                    1. Read the headline.
-                    2. IDENTIFY the ticker symbol implied (e.g. "iPhone" -> AAPL, "Galaxy" -> SSNLF). If unknown, use the most relevant US ticker.
-                    3. Determine sentiment (🟢/🔴/⚪).
-                    4. Provide a very short reason.
-                    Format exactly: Index | Ticker | Signal | Reason"""
+                    # FEED TITLE + DESCRIPTION TO AI
+                    p_list = "\n".join([f"{i}. HEADLINE: {x['title']} | SUMMARY: {x['desc'][:100]}..." for i,x in enumerate(raw[:30])]) 
                     
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=600)
+                    system_instr = """You are a financial news detective. 
+                    1. Read the Headline AND Summary.
+                    2. IDENTIFY the specific company/ticker being discussed (e.g. "Tech company outshining Nvidia" -> likely SMCI or AMD).
+                    3. Format: Index | Ticker | Signal (🟢/🔴/⚪) | Reason"""
+                    
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze these articles:\n{p_list}"}], max_tokens=800)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
                     for l in lines:
