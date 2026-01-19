@@ -12,9 +12,6 @@ except: pass
 if 'news_results' not in st.session_state: st.session_state['news_results'] = [] 
 if 'news_run' not in st.session_state: st.session_state['news_run'] = False 
 if 'price_mem' not in st.session_state: st.session_state['price_mem'] = {}
-if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "SPY"
-if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
-if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
 
 # --- PORTFOLIO ---
 PORT = {
@@ -27,7 +24,7 @@ PORT = {
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
-# --- SIDEBAR & WATCHLIST ---
+# --- SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
@@ -40,16 +37,9 @@ def update_wl():
 
 u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['my_watchlist'], key="wl_input", on_change=update_wl)
 WATCH = [x.strip().upper() for x in st.session_state['my_watchlist'].split(",") if x.strip()]
-ALL = list(set(WATCH + list(PORT.keys())))
-st.sidebar.divider()
+st.sidebar.caption("Alerts removed for stability.")
 
-# --- ALERTS ---
-st.sidebar.subheader("🔔 Smart Alerts")
-a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_tick")
-a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
-a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
-
-# --- HYBRID ENGINE ---
+# --- MAIN ENGINE (Restored Calendar) ---
 def get_hybrid_data(s):
     try:
         tk = yf.Ticker(s)
@@ -111,22 +101,18 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # Calendar (Silent Mode)
-            # We default to empty string. If we find a date, we fill it.
+            # --- CALENDAR RESTORED (The "Old Way") ---
             earn_html = ""
             try:
-                nxt = None
-                # Aggressive Fetch
-                try: 
-                    edf = tk.get_earnings_dates(limit=1)
-                    if edf is not None and not edf.empty: nxt = edf.index[0]
-                except: pass
+                # This accesses the raw calendar data like we did in v23
+                cal = tk.calendar
+                if not isinstance(cal, dict):
+                     # Try fallback if it's a list or other format
+                     cal = tk.get_calendar()
                 
-                # Fallback
-                if not nxt and isinstance(tk.calendar, dict): nxt = tk.calendar.get('Earnings Date', [None])[0]
-
-                if nxt:
-                    d_obj = nxt.date() if hasattr(nxt, 'date') else nxt.date()
+                if isinstance(cal, dict) and 'Earnings Date' in cal:
+                    nxt = cal['Earnings Date'][0]
+                    d_obj = nxt.date()
                     days = (d_obj - datetime.now().date()).days
                     if 0 <= days <= 14:
                         earn_html = f"<span style='background:#ffebee; color:#d32f2f; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>⚠️ {days}d</span>"
@@ -227,12 +213,6 @@ with t2:
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: render_card(t, inf)
 
-if a_on:
-    d = get_hybrid_data(a_tick)
-    if d and d['p'] >= a_price and not st.session_state['alert_triggered']:
-        st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
-        st.session_state['alert_triggered'] = True
-
 # --- NEWS ENGINE ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_rss():
@@ -258,8 +238,6 @@ def fetch_rss():
 
 with t3:
     st.subheader("🚨 Global AI Wire")
-    
-    # THE TRIGGER
     if st.button("Generate AI Report", type="primary", key="news_btn"):
         with st.spinner("AI Detective Scanning..."):
             raw = fetch_rss()
@@ -279,12 +257,11 @@ with t3:
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze:\n{p_list}"}], max_tokens=1000)
                     lines = res.choices[0].message.content.strip().split("\n")
                     
-                    # Rebuild list
                     final_results = []
                     for r in raw:
                         r['ticker'] = "NEWS"
                         r['signal'] = "⚪"
-                        r['reason'] = "Scanning..."
+                        r['reason'] = ""
                         final_results.append(r)
 
                     for l in lines:
@@ -304,15 +281,13 @@ with t3:
                     st.rerun() 
                 except Exception as e: st.error(f"AI Error: {e}")
 
-    # THE DISPLAY (Only if run is True)
     if st.session_state['news_run']:
         for r in st.session_state['news_results']:
             tick = r.get('ticker', 'NEWS')
             sig = r.get('signal', '⚪')
-            rsn = r.get('reason', '...')
-            # CLEAN DISPLAY - NO OPACITY/DIMMING
+            rsn = r.get('reason', '')
             st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
-            st.caption(rsn)
+            if rsn: st.caption(rsn)
             st.divider()
     else:
         st.info("Tap 'Generate AI Report' to scan global feeds.")
