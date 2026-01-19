@@ -8,9 +8,9 @@ import re
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-# --- BRAIN (Session State) ---
-if 'news_results' not in st.session_state: st.session_state['news_results'] = [] # Stores FINAL AI results
-if 'news_run' not in st.session_state: st.session_state['news_run'] = False # Tracks if we clicked button
+# --- SESSION STATE ---
+if 'news_results' not in st.session_state: st.session_state['news_results'] = [] 
+if 'news_run' not in st.session_state: st.session_state['news_run'] = False 
 if 'price_mem' not in st.session_state: st.session_state['price_mem'] = {}
 if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "SPY"
 if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
@@ -27,12 +27,11 @@ PORT = {
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
-# --- SIDEBAR ---
+# --- SIDEBAR & WATCHLIST ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
-# Watchlist Memory
 if 'my_watchlist' not in st.session_state: 
     st.session_state['my_watchlist'] = "SPY, BTC-USD, TD.TO"
 
@@ -113,7 +112,7 @@ def get_hybrid_data(s):
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
             # Calendar (Silent Mode)
-            # If we find it, we show it. If not, we show NOTHING (empty string).
+            # We default to empty string. If we find a date, we fill it.
             earn_html = ""
             try:
                 nxt = None
@@ -234,7 +233,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ENGINE (Only Runs When Clicked) ---
+# --- NEWS ENGINE ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_rss():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -260,7 +259,7 @@ def fetch_rss():
 with t3:
     st.subheader("🚨 Global AI Wire")
     
-    # 1. THE BUTTON (Trigger)
+    # THE TRIGGER
     if st.button("Generate AI Report", type="primary", key="news_btn"):
         with st.spinner("AI Detective Scanning..."):
             raw = fetch_rss()
@@ -280,10 +279,9 @@ with t3:
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze:\n{p_list}"}], max_tokens=1000)
                     lines = res.choices[0].message.content.strip().split("\n")
                     
-                    # We rebuild the list with AI data
+                    # Rebuild list
                     final_results = []
-                    for i, r in enumerate(raw):
-                        # Default values
+                    for r in raw:
                         r['ticker'] = "NEWS"
                         r['signal'] = "⚪"
                         r['reason'] = "Scanning..."
@@ -306,12 +304,13 @@ with t3:
                     st.rerun() 
                 except Exception as e: st.error(f"AI Error: {e}")
 
-    # 2. THE DISPLAY (Only if run)
+    # THE DISPLAY (Only if run is True)
     if st.session_state['news_run']:
         for r in st.session_state['news_results']:
             tick = r.get('ticker', 'NEWS')
             sig = r.get('signal', '⚪')
             rsn = r.get('reason', '...')
+            # CLEAN DISPLAY - NO OPACITY/DIMMING
             st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
             st.caption(rsn)
             st.divider()
