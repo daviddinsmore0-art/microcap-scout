@@ -1,9 +1,8 @@
-import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as ET
+import streamlit as st, yfinance as yf, requests, time, re
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt
-import re
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
@@ -13,7 +12,7 @@ if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'news_run' not in st.session_state: st.session_state['news_run'] = False 
 if 'price_mem' not in st.session_state: st.session_state['price_mem'] = {}
 
-# --- PORTFOLIO ---
+# --- PORTFOLIO (Hardcoded) ---
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 120},
@@ -22,29 +21,28 @@ PORT = {
     "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
 }
 
-NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
-
 # --- SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
+else: KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-if 'my_watchlist' not in st.session_state: 
-    st.session_state['my_watchlist'] = "SPY, BTC-USD, TD.TO"
+# --- WATCHLIST MEMORY (Hard Lock) ---
+if 'user_wl_lock' not in st.session_state:
+    st.session_state['user_wl_lock'] = "SPY, BTC-USD, TD.TO"
 
-def update_wl():
-    st.session_state['my_watchlist'] = st.session_state.wl_input
+def save_wl():
+    st.session_state['user_wl_lock'] = st.session_state.wl_input
 
-u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['my_watchlist'], key="wl_input", on_change=update_wl)
-WATCH = [x.strip().upper() for x in st.session_state['my_watchlist'].split(",") if x.strip()]
+u_in = st.sidebar.text_input("📝 Watchlist", value=st.session_state['user_wl_lock'], key="wl_input", on_change=save_wl)
+WATCH = [x.strip().upper() for x in st.session_state['user_wl_lock'].split(",") if x.strip()]
 st.sidebar.caption("Alerts removed for stability.")
 
 # --- MAIN ENGINE ---
 def get_hybrid_data(s):
     try:
         tk = yf.Ticker(s)
+        # 1. Price Data
         h = tk.history(period="1mo", interval="1d")
-        
         if not h.empty:
             p = h['Close'].iloc[-1]
             if s == "SPY" and p > 650:
@@ -52,8 +50,8 @@ def get_hybrid_data(s):
                 p = h_daily['Close'].iloc[-1]
             prev = h['Close'].iloc[-2]
             dp = ((p - prev)/prev)*100
-            d_raw = p - prev
             
+            # 2. Volume
             vol = h['Volume'].iloc[-1]
             avg_vol = h['Volume'].mean()
             vol_str = f"{vol/1e6:.1f}M" if vol > 1e6 else f"{vol/1e3:.0f}K"
@@ -62,31 +60,31 @@ def get_hybrid_data(s):
             elif ratio >= 0.8: vol_tag = "🌊 STEADY"
             else: vol_tag = "💤 QUIET"
             
+            # 3. RSI
             delta = h['Close'].diff()
-            up = delta.clip(lower=0)
-            down = -1 * delta.clip(upper=0)
-            ema_up = up.ewm(com=13, adjust=False).mean()
-            ema_down = down.ewm(com=13, adjust=False).mean()
-            rs = ema_up / ema_down
+            up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+            rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             rsi_tag = "🔥 HOT" if rsi > 70 else "❄️ COLD" if rsi < 30 else "😐 OK"
             
+            # 4. Trend
             macd = h['Close'].ewm(span=12).mean() - h['Close'].ewm(span=26).mean()
             raw_trend = "BULL" if macd.iloc[-1] > 0 else "BEAR"
             tr_html = f"<span style='color:{'#00C805' if raw_trend=='BULL' else '#FF2B2B'}; font-weight:bold;'>{raw_trend}</span>"
 
+            # 5. Rating
             score = 0
             if rsi > 60: score += 1
             if rsi < 40: score -= 1
             if raw_trend == "BULL": score += 2
             else: score -= 2
-            if ratio > 1.2 and dp > 0: score += 1
-            
+            rat_txt = "HOLD"
             if score >= 3: rat_txt, rat_col = "STRONG BUY", "#00C805"
             elif score >= 1: rat_txt, rat_col = "BUY", "#4caf50"
             elif score <= -3: rat_txt, rat_col = "STRONG SELL", "#FF0000"
             else: rat_txt, rat_col = "HOLD", "#FFC107"
 
+            # 6. AI Signal
             ai_score = 0
             if rsi >= 70: ai_score -= 2
             elif rsi <= 30: ai_score += 2
@@ -95,21 +93,22 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- CALENDAR: TIMESTAMP METHOD ---
-            earn_html = ""
+            # 7. CALENDAR (The Deep Dive)
+            earn_html = "" # Default to hidden
             try:
-                # This fetches the hidden timestamp from the 'info' block which is sometimes less protected
-                # than the full calendar object.
                 nxt = None
-                
-                # Check 1: Info Timestamp
+                # Method A: Info Timestamp (The most reliable hidden field)
                 if 'earningsTimestamp' in tk.info:
                     nxt = datetime.fromtimestamp(tk.info['earningsTimestamp']).date()
+                elif 'earningsTimestampStart' in tk.info:
+                    nxt = datetime.fromtimestamp(tk.info['earningsTimestampStart']).date()
                 
-                # Check 2: Calendar Dict (Fallback)
-                if not nxt and isinstance(tk.calendar, dict):
-                    c = tk.calendar.get('Earnings Date')
-                    if c: nxt = c[0].date()
+                # Method B: DataFrame Fallback
+                if not nxt:
+                    try:
+                        edf = tk.get_earnings_dates(limit=1)
+                        if edf is not None and not edf.empty: nxt = edf.index[0].date()
+                    except: pass
 
                 if nxt:
                     days = (nxt - datetime.now().date()).days
@@ -119,20 +118,16 @@ def get_hybrid_data(s):
                          earn_html = f"<span style='background:#f1f1f1; color:#333; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>📅 {nxt.strftime('%b %d')}</span>"
             except: pass
 
+            # 8. Chart Logic
             dh = h['High'].iloc[-1]
             dl = h['Low'].iloc[-1]
             rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100 if dh > dl else 50
             rng_html = f"""<div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;"><span style="margin-right:5px;">L</span><div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:5px;">H</span></div>"""
 
             data = {
-                "p": p, "d": dp, "d_raw": d_raw, 
-                "vol": vol_str, "vt": vol_tag, 
-                "rsi": rsi, "rl": rsi_tag, 
-                "ai_txt": ai_txt, "ai_col": ai_col,
-                "tr": tr_html, "chart": h['Close'],
-                "rng_html": rng_html,
-                "rat_txt": rat_txt, "rat_col": rat_col,
-                "earn": earn_html
+                "p": p, "d": dp, "d_raw": d_raw, "vol": vol_str, "vt": vol_tag, "rsi": rsi, "rl": rsi_tag, 
+                "ai_txt": ai_txt, "ai_col": ai_col, "tr": tr_html, "chart": h['Close'], "rng_html": rng_html,
+                "rat_txt": rat_txt, "rat_col": rat_col, "earn": earn_html
             }
             st.session_state['price_mem'][s] = data
             return data
@@ -154,7 +149,7 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
     d = get_hybrid_data(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
-        ti.append(f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{NAMES.get(t,t)}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
+        ti.append(f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{t}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
 h = "".join(ti)
 if h: st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True)
 
@@ -162,13 +157,10 @@ if h: st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; bo
 def render_card(t, inf=None):
     d = get_hybrid_data(t)
     if d:
-        nm = NAMES.get(t, t)
         url = f"https://finance.yahoo.com/quote/{t}"
-        st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a></h3>", unsafe_allow_html=True)
-        
+        st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{t}</a></h3>", unsafe_allow_html=True)
         if inf:
-            q = inf.get("q", 100)
-            st.caption(f"{q} Shares @ ${inf['e']}")
+            st.caption(f"{inf['q']} Shares @ ${inf['e']}")
             st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
@@ -201,11 +193,10 @@ with t2:
     for t, inf in PORT.items():
         d = get_hybrid_data(t)
         if d:
-            q = inf.get("q", 100)
-            curr = d['p'] * q
+            curr = d['p'] * inf['q']
             tot_val += curr
-            tot_pl += (curr - (inf['e'] * q))
-            day_pl += (d['d_raw'] * q)
+            tot_pl += (curr - (inf['e'] * inf['q']))
+            day_pl += (d['d_raw'] * inf['q'])
     st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
@@ -222,7 +213,7 @@ def fetch_rss():
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:20]:
+            for i in root.findall('.//item')[:25]:
                 t = i.find('title').text
                 l = i.find('link').text
                 desc = i.find('description').text if i.find('description') is not None else ""
@@ -234,29 +225,28 @@ def fetch_rss():
         except: continue
     return it
 
-# THE REGEX HUNTER (Finds (TICKER) in text)
+# THE REGEX HUNTER
 def hunt_ticker(text):
-    # Looks for pattern like (PLUG.CN) or (NVDA)
-    match = re.search(r'\(([A-Z]{2,5}(?:\.[A-Z]+)?)\)', text)
+    # This finds patterns like (PLUG.CN) or (NVDA)
+    match = re.search(r'\(([A-Z]{2,6}(?:\.[A-Z]+)?)\)', text)
     if match: return match.group(1)
     
-    # Backup: Basic Keyword Map
-    text = text.upper()
-    MAP = {"BITCOIN":"BTC-USD", "NVIDIA":"NVDA", "TESLA":"TSLA", "APPLE":"AAPL", "MICROSOFT":"MSFT"}
-    for k,v in MAP.items():
-        if k in text: return v
+    # Backup: Look for tickers after "Ticker:" or "Symbol:"
+    match2 = re.search(r'(?:Ticker|Symbol|Code):\s*([A-Z]{2,6})', text, re.IGNORECASE)
+    if match2: return match2.group(1)
+    
     return "NEWS"
 
 with t3:
     st.subheader("🚨 Global AI Wire")
     if st.button("Generate AI Report", type="primary", key="news_btn"):
-        with st.spinner("Analyzing Feed..."):
+        with st.spinner("Analyzing..."):
             raw = fetch_rss()
             if not raw: st.error("⚠️ No news sources responded.")
             else:
                 final_results = []
-                # 1. RUN THE HUNTER FIRST
                 for r in raw:
+                    # 1. RUN THE HUNTER
                     found_tick = hunt_ticker(r['title'] + " " + r['desc'])
                     r['ticker'] = found_tick
                     r['signal'] = "⚪"
@@ -267,8 +257,9 @@ with t3:
                 if KEY:
                     try:
                         from openai import OpenAI
-                        # Only send text, don't ask for tickers if we already found them
-                        p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}" for i,x in enumerate(raw[:25])]) 
+                        # We only send items where the Hunter failed (ticker="NEWS") to save tokens
+                        # But for now, let's send a batch to get Sentiment
+                        p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}" for i,x in enumerate(raw[:20])]) 
                         system_instr = "Return list: Index|Signal(🟢/🔴/⚪)|Reason. Determine sentiment."
                         res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":p_list}], max_tokens=1000)
                         lines = res.choices[0].message.content.strip().split("\n")
@@ -281,8 +272,7 @@ with t3:
                                         final_results[idx]['signal'] = parts[1].strip()
                                         final_results[idx]['reason'] = parts[2].strip()
                                 except: continue
-                    except Exception as e:
-                        st.error(f"AI Error: {e}")
+                    except Exception as e: st.error(f"AI Error: {e}")
                 
                 st.session_state['news_results'] = final_results
                 st.session_state['news_run'] = True
