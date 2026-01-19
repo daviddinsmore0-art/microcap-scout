@@ -3,14 +3,14 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt
-import re # Added for robust AI parsing
+import re
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
 # --- BRAIN (Session State) ---
-if 'news_cache' not in st.session_state: st.session_state['news_cache'] = []
-if 'news_processed' not in st.session_state: st.session_state['news_processed'] = False
+if 'news_results' not in st.session_state: st.session_state['news_results'] = [] # Stores FINAL AI results
+if 'news_run' not in st.session_state: st.session_state['news_run'] = False # Tracks if we clicked button
 if 'price_mem' not in st.session_state: st.session_state['price_mem'] = {}
 if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "SPY"
 if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
@@ -27,20 +27,20 @@ PORT = {
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
-# --- SIDEBAR & WATCHLIST ---
+# --- SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
-# Robust Watchlist Memory
-if 'user_watchlist' not in st.session_state: 
-    st.session_state['user_watchlist'] = "SPY, BTC-USD, TD.TO"
+# Watchlist Memory
+if 'my_watchlist' not in st.session_state: 
+    st.session_state['my_watchlist'] = "SPY, BTC-USD, TD.TO"
 
-def update_watchlist():
-    st.session_state['user_watchlist'] = st.session_state.widget_watchlist
+def update_wl():
+    st.session_state['my_watchlist'] = st.session_state.wl_input
 
-u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['user_watchlist'], key="widget_watchlist", on_change=update_watchlist)
-WATCH = [x.strip().upper() for x in st.session_state['user_watchlist'].split(",") if x.strip()]
+u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['my_watchlist'], key="wl_input", on_change=update_wl)
+WATCH = [x.strip().upper() for x in st.session_state['my_watchlist'].split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
 
@@ -112,19 +112,19 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # Calendar (Debug Mode)
-            earn_html = "<span style='color:#333; font-size:11px; margin-left:5px; font-weight:bold;'>📅 N/A</span>"
-            debug_msg = ""
+            # Calendar (Silent Mode)
+            # If we find it, we show it. If not, we show NOTHING (empty string).
+            earn_html = ""
             try:
                 nxt = None
-                # Try 1
-                if isinstance(tk.calendar, dict): nxt = tk.calendar.get('Earnings Date', [None])[0]
-                # Try 2
-                if not nxt: 
-                    try:
-                        edf = tk.get_earnings_dates(limit=1)
-                        if edf is not None and not edf.empty: nxt = edf.index[0]
-                    except Exception as e: debug_msg = str(e)
+                # Aggressive Fetch
+                try: 
+                    edf = tk.get_earnings_dates(limit=1)
+                    if edf is not None and not edf.empty: nxt = edf.index[0]
+                except: pass
+                
+                # Fallback
+                if not nxt and isinstance(tk.calendar, dict): nxt = tk.calendar.get('Earnings Date', [None])[0]
 
                 if nxt:
                     d_obj = nxt.date() if hasattr(nxt, 'date') else nxt.date()
@@ -234,9 +234,9 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ENGINE ---
+# --- NEWS ENGINE (Only Runs When Clicked) ---
 @st.cache_data(ttl=300, show_spinner=False)
-def get_news_cached():
+def fetch_rss():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml","https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
@@ -253,68 +253,20 @@ def get_news_cached():
                     t_lower = t.lower()
                     if not any(b in t_lower for b in blacklist):
                         seen.add(t)
-                        it.append({"title": t, "link": l, "desc": desc, "ticker": "NEWS", "signal": "⚪", "reason": "Unanalyzed"})
+                        it.append({"title": t, "link": l, "desc": desc})
         except: continue
     return it
 
 with t3:
     st.subheader("🚨 Global AI Wire")
+    
+    # 1. THE BUTTON (Trigger)
     if st.button("Generate AI Report", type="primary", key="news_btn"):
         with st.spinner("AI Detective Scanning..."):
-            raw = get_news_cached()
+            raw = fetch_rss()
             if not raw: st.error("⚠️ No news sources responded.")
             elif not KEY: st.warning("⚠️ No OpenAI Key.")
             else:
                 try:
                     from openai import OpenAI
-                    p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}..." for i,x in enumerate(raw[:25])]) 
-                    
-                    system_instr = """You are a financial news detective.
-                    1. Read the line.
-                    2. Infer the Ticker. If generic, use 'MARKET'.
-                    3. Determine Sentiment (🟢/🔴/⚪).
-                    4. Output EXACTLY: Index|Ticker|Signal|Reason
-                    Example: 0|AAPL|🟢|New iPhone launch success."""
-                    
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze:\n{p_list}"}], max_tokens=1000)
-                    lines = res.choices[0].message.content.strip().split("\n")
-                    
-                    for l in lines:
-                        # Robust Parsing Logic
-                        parts = l.split("|")
-                        if len(parts) >= 4:
-                            try:
-                                # Clean the index number of any weird dots or spaces
-                                idx_str = re.sub(r'[^0-9]', '', parts[0])
-                                idx = int(idx_str)
-                                if idx < len(raw):
-                                    raw[idx]['ticker'] = parts[1].strip()
-                                    raw[idx]['signal'] = parts[2].strip()
-                                    raw[idx]['reason'] = parts[3].strip()
-                            except: continue
-                    
-                    st.session_state['news_cache'] = raw
-                    st.session_state['news_processed'] = True
-                    st.rerun() 
-                except Exception as e: st.error(f"AI Error: {e}")
-
-    current_news = st.session_state.get('news_cache', [])
-    if not current_news: current_news = get_news_cached()
-
-    for r in current_news:
-        tick = r.get('ticker', 'NEWS')
-        sig = r.get('signal', '⚪')
-        rsn = r.get('reason', 'Unanalyzed')
-        
-        # Color code only if analyzed
-        if sig == '⚪' and tick == 'NEWS':
-             st.markdown(f"<span style='opacity:0.6;'>**{tick} {sig}** - [{r['title']}]({r['link']})</span>", unsafe_allow_html=True)
-        else:
-             st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
-             st.caption(rsn)
-        st.divider()
-
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
+                    p_list = "\n
