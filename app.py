@@ -281,7 +281,7 @@ def get_news_cached():
 
 with t3:
     st.subheader("🚨 Global AI Wire")
-    if st.button("Generate Report", type="primary", key="news_btn"):
+    if st.button("Generate AI Report", type="primary", key="news_btn"):
         with st.spinner("AI Scanning Markets..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
