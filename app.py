@@ -272,14 +272,14 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml", "https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml", "https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:5]:
+            for i in root.findall('.//item')[:15]:
                 t, l = i.find('title').text, i.find('link').text
                 if t and t not in seen:
                     t_lower = t.lower()
