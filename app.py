@@ -26,13 +26,15 @@ PORT = {
 
 NAMES = {"TSLA":"Tesla","NVDA":"Nvidia","BTC-USD":"Bitcoin","AMD":"AMD","PLTR":"Palantir","AAPL":"Apple","SPY":"S&P 500","^IXIC":"Nasdaq","^DJI":"Dow Jones","GC=F":"Gold","TD.TO":"TD Bank","IVN.TO":"Ivanhoe","BN.TO":"Brookfield","JNJ":"J&J"}
 
-# --- SIDEBAR ---
+# --- SIDEBAR & WATCHLIST FIX ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
+# RESTORED: This connects the input box back to the watchlist
 qp = st.query_params
-w_str = qp.get("watchlist", "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ")
+default_list = "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ"
+w_str = qp.get("watchlist", default_list)
 u_in = st.sidebar.text_input("Add Tickers", value=w_str)
 if u_in != w_str: st.query_params["watchlist"] = u_in
 WATCH = [x.strip().upper() for x in u_in.split(",")]
@@ -116,14 +118,19 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- Calendar (Dark Text Fix) ---
+            # --- Calendar (Dual Method) ---
             earn_html = "<span style='color:#333; font-size:11px; margin-left:5px; font-weight:bold;'>📅 N/A</span>"
             try:
                 nxt = None
+                # Method 1: The 'calendar' property
                 if isinstance(tk.calendar, dict) and 'Earnings Date' in tk.calendar:
                     nxt = tk.calendar['Earnings Date'][0]
-                elif hasattr(tk, 'calendar') and isinstance(tk.calendar, list) and len(tk.calendar)>0:
-                    nxt = tk.calendar[0]
+                # Method 2: The 'get_earnings_dates' dataframe (often works when Method 1 fails)
+                if not nxt:
+                    try:
+                        edf = tk.get_earnings_dates(limit=1)
+                        if edf is not None and not edf.empty: nxt = edf.index[0]
+                    except: pass
                 
                 if nxt:
                     days = (nxt.date() - datetime.now().date()).days
@@ -148,8 +155,8 @@ def get_hybrid_data(s):
     except: pass
     return st.session_state['price_mem'].get(s)
 
-# --- HEADER & COUNTDOWN (EST TIME) ---
-# Manual offset for EST (UTC-5)
+# --- HEADER & COUNTDOWN ---
+# EST Time Fix (UTC - 5)
 est_now = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1, 1])
 with c1:
@@ -187,9 +194,9 @@ def render_card(t, inf=None):
 
         st.markdown(f"<div style='margin-bottom:5px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
         
-        # UPDATED: Trend capitalized, Rating is BLACK/DARK
+        # FIXED: Analyst Rating is now BLACK (#000) for visibility
         st.markdown(f"<div style='font-size:16px; margin-bottom:2px;'><b>TREND:</b> {d['tr']} {d['earn']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:14px; margin-bottom:5px; color:#111;'><b>ANALYST RATING:</b> <span style='color:{d['rat_col']}; font-weight:bold;'>{d['rat_txt']}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:14px; margin-bottom:5px; color:#000000;'><b>ANALYST RATING:</b> <span style='color:{d['rat_col']}; font-weight:bold;'>{d['rat_txt']}</span></div>", unsafe_allow_html=True)
         
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['vol']} ({d['vt']})</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
@@ -232,7 +239,7 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True
 
-# --- NEWS ENGINE (Enhanced Description Scanning) ---
+# --- NEWS ENGINE (The "Detective" Logic) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -246,14 +253,13 @@ def get_news_cached():
             for i in root.findall('.//item')[:20]:
                 t = i.find('title').text
                 l = i.find('link').text
-                # FETCH DESCRIPTION for better AI context
+                # FETCH DESCRIPTION for AI Context
                 desc = i.find('description').text if i.find('description') is not None else ""
                 
                 if t and t not in seen:
                     t_lower = t.lower()
                     if not any(b in t_lower for b in blacklist):
                         seen.add(t)
-                        # Store description in the title field for the AI to read, but keep display title separate if needed
                         it.append({"title": t, "link": l, "desc": desc})
         except: continue
     return it
@@ -261,7 +267,7 @@ def get_news_cached():
 with t3:
     st.subheader("🚨 Global AI Wire")
     if st.button("Generate AI Report", type="primary", key="news_btn"):
-        with st.spinner("AI Scanning Articles..."):
+        with st.spinner("AI Detective Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
             elif not KEY:
@@ -270,13 +276,15 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    # FEED TITLE + DESCRIPTION TO AI
-                    p_list = "\n".join([f"{i}. HEADLINE: {x['title']} | SUMMARY: {x['desc'][:100]}..." for i,x in enumerate(raw[:30])]) 
+                    # FEED AI WITH TITLE + DESC
+                    p_list = "\n".join([f"{i}. HEADLINE: {x['title']} | SUMMARY: {x['desc'][:150]}..." for i,x in enumerate(raw[:30])]) 
                     
-                    system_instr = """You are a financial news detective. 
+                    # DETECTIVE PROMPT
+                    system_instr = """You are a financial news detective.
                     1. Read the Headline AND Summary.
-                    2. IDENTIFY the specific company/ticker being discussed (e.g. "Tech company outshining Nvidia" -> likely SMCI or AMD).
-                    3. Format: Index | Ticker | Signal (🟢/🔴/⚪) | Reason"""
+                    2. INFER the specific ticker being discussed (e.g. "Tech company outshining Nvidia" -> likely SMCI or AMD). If generic, say "MARKET".
+                    3. Determine sentiment (🟢/🔴/⚪).
+                    4. Format: Index | Ticker | Signal | Reason"""
                     
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze these articles:\n{p_list}"}], max_tokens=800)
                     enrich = []
