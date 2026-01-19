@@ -1,87 +1,95 @@
-import streamlit as st, yfinance as yf, requests, re, time
+import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as ET
 from datetime import datetime
+import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt
 
-# --- 1. PERMANENT WATCHLIST (EDIT THIS LINE!) ---
-# Type your tickers inside the quotes, separated by commas.
-# This ensures they NEVER get deleted, even if the internet cuts out.
-MY_WATCHLIST = "HIVE, BAER, TX, IMNN, RERE, PLUG.CN, VTX.V, TD.TO"
-
-# --- APP SETUP ---
+# --- APP CONFIG ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
 
-if 'news_results' not in st.session_state: st.session_state['news_results'] = []
-if 'news_run' not in st.session_state: st.session_state['news_run'] = False
+# --- SESSION STATE (The Memory) ---
+# This ensures your watchlist stays put when you refresh
+if 'user_watchlist' not in st.session_state: 
+    st.session_state['user_watchlist'] = "SPY, BTC-USD, TD.TO"
+if 'news_data' not in st.session_state: st.session_state['news_data'] = []
 
-# --- SIDEBAR ---
-st.sidebar.header("⚡ Pulse Settings")
+# --- PORTFOLIO (Your Specific Data) ---
+PORT = {
+    "HIVE": {"e": 3.19, "q": 50},
+    "BAER": {"e": 1.86, "q": 120},
+    "TX":   {"e": 38.10, "q": 40},
+    "IMNN": {"e": 3.22, "q": 100},
+    "RERE": {"e": 5.31, "q": 100}
+}
+
+# --- SIDEBAR (Restored Control) ---
+st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# Use the Hardcoded List
-WATCH = [x.strip().upper() for x in MY_WATCHLIST.split(",") if x.strip()]
-st.sidebar.info(f"Loaded {len(WATCH)} tickers from code.")
+# This binds the input box to the session state so it remembers your list
+def update_list():
+    st.session_state['user_watchlist'] = st.session_state.widget_input
 
-# --- DATA ENGINE ---
+u_in = st.sidebar.text_input("Add Tickers (Comma Separated)", 
+                             value=st.session_state['user_watchlist'], 
+                             key="widget_input", 
+                             on_change=update_list)
+
+# Combine Watchlist + Portfolio
+WATCH = [x.strip().upper() for x in st.session_state['user_watchlist'].split(",") if x.strip()]
+ALL_TICKERS = list(set(WATCH + list(PORT.keys())))
+
+# --- DATA ENGINE (Reliable Version) ---
 def get_data(s):
     try:
         tk = yf.Ticker(s)
+        # 1. Price History (Safe)
         h = tk.history(period="1mo", interval="1d")
         if h.empty: return None
         
-        # Price
         p = h['Close'].iloc[-1]
         prev = h['Close'].iloc[-2]
-        dp = ((p - prev)/prev)*100
+        change = ((p - prev)/prev)*100
         
-        # RSI
+        # 2. RSI (Manual Math = No API Blocks)
         delta = h['Close'].diff()
         up, down = delta.clip(lower=0), -1*delta.clip(upper=0)
         rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
         rsi = 100 - (100/(1+rs)).iloc[-1]
         
-        # Vol
-        vol = h['Volume'].iloc[-1]
-        avg_vol = h['Volume'].mean()
-        vol_str = f"{vol/1e6:.1f}M" if vol > 1e6 else f"{vol/1e3:.0f}K"
-        v_tag = "⚡ SURGE" if vol > avg_vol * 1.5 else "🌊 STEADY"
-
-        # Calendar (The "Kitchen Sink" Attempt)
-        earn_str = ""
+        # 3. Calendar (The "Yesterday" Logic)
+        # We try to grab the date. If Yahoo blocks it, we show nothing (no crash).
+        earn = ""
         try:
-            # Try 1: Calendar Dict
-            if tk.calendar and isinstance(tk.calendar, dict):
-                dates = tk.calendar.get('Earnings Date')
-                if dates: earn_str = dates[0].strftime("%b %d")
-            
-            # Try 2: Info Timestamp (often not blocked)
-            if not earn_str and 'earningsTimestamp' in tk.info:
-                ts = tk.info['earningsTimestamp']
-                earn_str = datetime.fromtimestamp(ts).strftime("%b %d")
-            
-            # Try 3: Earnings Dates DataFrame
-            if not earn_str:
-                e_df = tk.get_earnings_dates(limit=1)
-                if e_df is not None and not e_df.empty:
-                    earn_str = e_df.index[0].strftime("%b %d")
+            cal = tk.calendar
+            if isinstance(cal, dict) and 'Earnings Date' in cal:
+                dte = cal['Earnings Date'][0]
+                earn = dte.strftime("%b %d")
         except: pass
-        
-        if not earn_str: earn_str = "N/A"
 
-        return {
-            "p": p, "d": dp, "v": vol_str, "vt": v_tag, "rsi": int(rsi), 
-            "e": earn_str, "h": h['Close']
-        }
+        return {"p": p, "ch": change, "rsi": int(rsi), "e": earn, "h": h['Close']}
     except: return None
 
-# --- HEADER ---
-st.title("⚡ Penny Pulse")
-st.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
+# --- NEWS ENGINE (Robust) ---
+def fetch_news():
+    try:
+        # Using a reliable RSS feed
+        url = "https://finance.yahoo.com/news/rssindex"
+        r = requests.get(url, timeout=5)
+        root = ET.fromstring(r.content)
+        items = []
+        for i in root.findall('.//item')[:20]:
+            title = i.find('title').text
+            link = i.find('link').text
+            items.append({"title": title, "link": link})
+        return items
+    except: return []
 
-# --- DASHBOARD ---
-t1, t2 = st.tabs(["📊 Dashboard", "📰 Smart News"])
+# --- DASHBOARD UI ---
+st.title("⚡ Penny Pulse")
+t1, t2, t3 = st.tabs(["📊 Watchlist", "🚀 Portfolio", "📰 News"])
 
 with t1:
     cols = st.columns(3)
@@ -89,124 +97,47 @@ with t1:
         d = get_data(t)
         with cols[i % 3]:
             if d:
-                st.subheader(t)
-                st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:+.2f}%")
-                
-                # Visual Bar for Calendar/RSI
-                c_color = "#00FF00" if "N/A" not in d['e'] else "#555"
-                r_color = "red" if d['rsi']>70 else "green" if d['rsi']<30 else "orange"
-                
-                st.markdown(f"""
-                <div style='font-size:14px; margin-bottom:5px;'>
-                <b>Vol:</b> {d['v']} ({d['vt']}) <br>
-                <b>RSI:</b> <span style='color:{r_color}; font-weight:bold;'>{d['rsi']}</span> <br>
-                <b>Earn:</b> <span style='color:{c_color}; font-weight:bold;'>{d['e']}</span>
-                </div>
-                """, unsafe_allow_html=True)
-                
+                st.metric(t, f"${d['p']:,.2f}", f"{d['ch']:+.2f}%")
+                st.caption(f"RSI: {d['rsi']} | Earn: {d['e'] if d['e'] else '---'}")
                 st.line_chart(d['h'], height=100)
-                st.divider()
-            else:
-                st.error(f"Could not load {t}")
-
-# --- NEWS ENGINE (Browser Mimic) ---
-def get_news():
-    # Headers that look like a real Chrome browser to avoid blocks
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    }
-    # Using a reliable aggregator that usually includes full descriptions
-    url = "https://finance.yahoo.com/news/rssindex"
-    try:
-        r = requests.get(url, headers=headers, timeout=10)
-        root = ET.fromstring(r.content)
-        items = []
-        for i in root.findall('.//item')[:20]:
-            title = i.find('title').text
-            link = i.find('link').text
-            desc = i.find('description').text if i.find('description') is not None else ""
-            items.append({"title": title, "link": link, "desc": desc})
-        return items
-    except: return []
-
-# REGEX HUNTER (Looks for (TICKER) patterns)
-def hunt(text):
-    # Pattern: Uppercase, 2-5 letters, optional .suffix, inside ()
-    # e.g., (PLUG), (PLUG.CN), (NVDA)
-    m = re.search(r'\(([A-Z]{2,5}(?:\.[A-Z]{1,2})?)\)', text)
-    if m: return m.group(1)
-    
-    # Keyword fallback
-    if "BITCOIN" in text.upper(): return "BTC-USD"
-    if "GOLD" in text.upper(): return "GC=F"
-    return "NEWS"
+            st.divider()
 
 with t2:
-    st.write("Scan the latest wires for actionable signals.")
-    
-    if st.button("Generate AI Report", type="primary"):
-        # No spinner that blocks UI, just a status text
-        status = st.empty()
-        status.text("Fetching feeds...")
-        
-        raw = get_news()
-        if not raw:
-            st.error("Connection blocked. Try again in 60s.")
-        else:
-            status.text("Analyzing text...")
-            results = []
+    total_val = 0.0
+    for t, inf in PORT.items():
+        d = get_data(t)
+        if d:
+            val = d['p'] * inf['q']
+            cost = inf['e'] * inf['q']
+            gain = val - cost
+            total_val += val
             
-            # 1. Regex Pass (Instant)
-            for r in raw:
-                combo = r['title'] + " " + r['desc']
-                found = hunt(combo)
-                r['ticker'] = found
-                r['signal'] = "⚪"
-                results.append(r)
-            
-            # 2. AI Pass (If Key exists)
-            if KEY:
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                st.subheader(f"{t} ({inf['q']} @ ${inf['e']})")
+                st.metric("Value", f"${val:,.2f}", f"{gain:+.2f}")
+                if d['e']: st.caption(f"📅 Earnings: {d['e']}")
+            with c2:
+                st.line_chart(d['h'], height=80)
+            st.divider()
+
+with t3:
+    if st.button("Refresh News", type="primary"):
+        with st.spinner("Fetching..."):
+            raw = fetch_news()
+            if KEY and raw:
                 try:
                     from openai import OpenAI
-                    # We format the prompt to be extremely direct
-                    prompt = "Analyze these headlines. Return ONLY: Index|Signal(🟢/🔴/⚪)|Reason. \n"
-                    for i, r in enumerate(results[:20]):
-                        prompt += f"{i}. {r['title']}\n"
-                    
                     client = OpenAI(api_key=KEY)
-                    resp = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{"role":"user", "content": prompt}],
-                        max_tokens=500
-                    )
-                    
-                    lines = resp.choices[0].message.content.split('\n')
-                    for l in lines:
-                        parts = l.split('|')
-                        if len(parts) >= 3:
-                            try:
-                                idx = int(re.sub(r'\D', '', parts[0]))
-                                if idx < len(results):
-                                    results[idx]['signal'] = parts[1].strip()
-                                    results[idx]['reason'] = parts[2].strip()
-                            except: pass
-                except: pass
-            
-            st.session_state['news_results'] = results
-            st.session_state['news_run'] = True
-            status.empty() # Clear status message
-            st.rerun()
-
-    # DISPLAY
-    if st.session_state['news_run']:
-        for n in st.session_state['news_results']:
-            # Only show if we found a ticker OR if AI marked it significant
-            if n['ticker'] != "NEWS" or n['signal'] != "⚪":
-                st.markdown(f"**{n['ticker']} {n['signal']}** [{n['title']}]({n['link']})")
-                st.caption(f"{n['reason']}")
-                st.divider()
+                    # Simple, unbreakable prompt
+                    prompt = "Identify the ticker for each headline. If none, skip. Format: TICKER - HEADLINE. \n" + "\n".join([x['title'] for x in raw[:15]])
+                    resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content": prompt}])
+                    st.session_state['news_data'] = resp.choices[0].message.content
+                except: st.error("AI Error - Check Key")
+            elif raw:
+                st.session_state['news_data'] = "\n".join([f"- {x['title']}" for x in raw])
             else:
-                # Optional: Show generic news in grey
-                st.markdown(f"<span style='color:#777'>{n['title']}</span>", unsafe_allow_html=True)
-                st.divider()
+                st.error("News feed blocked.")
+                
+    if st.session_state['news_data']:
+        st.markdown(st.session_state['news_data'])
