@@ -54,7 +54,7 @@ with c2:
 def get_data_cached(s):
     try:
         tk = yf.Ticker(s)
-        # Using a more robust history call to prevent ValueError
+        # Using 2-day history to bypass buggy .info calls
         h = tk.history(period="2d", interval="1h")
         if h.empty or len(h) < 2: return None
         
@@ -62,7 +62,7 @@ def get_data_cached(s):
         pv = h['Close'].iloc[-2]
         dp = ((p-pv)/pv)*100
         
-        # Simple AI-like logic for Dashboard visuals
+        # Calculate a quick RSI for the AI Signal
         rsi = 50
         if len(h) > 5:
             diff = h['Close'].diff()
@@ -73,35 +73,36 @@ def get_data_cached(s):
         return {"p":p, "d":dp, "rsi":rsi, "chart":h['Close']}
     except: return None
 
-# --- MARKET TAPE ---
+# --- STABLE MARKET BAR ---
 tape_items = []
 for t in ["SPY", "^IXIC", "BTC-USD"]:
     d = get_data_cached(t)
     if d:
-        color = "green" if d['d'] >= 0 else "red"
-        tape_items.append(f"{t}: <span style='color:{color};'>${d['p']:,.2f} ({d['d']:.2f}%)</span>")
+        color = "#00ff00" if d['d'] >= 0 else "#ff4b4b"
+        tape_items.append(f"{t}: <span style='color:{color}; font-weight:bold;'>${d['p']:,.2f}</span>")
 if tape_items:
-    st.markdown(f"<div style='background:#0E1117; padding:10px; border:1px solid #333; text-align:center; font-weight:bold;'>{' | '.join(tape_items)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='background:#1e2127; padding:12px; border:1px solid #333; text-align:center; border-radius:5px;'>{' &nbsp; | &nbsp; '.join(tape_items)}</div>", unsafe_allow_html=True)
 
 # --- CARDS ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     if not d:
-        st.warning(f"⚠️ {t}: Data Delayed")
+        st.warning(f"⚠️ {t}: Syncing...")
         return
     
     with st.container():
         st.subheader(NAMES.get(t, t))
-        if inf: st.caption(f"Entry: ${inf['e']} | Shares: {inf['q']}")
+        if inf: st.caption(f"Owned: {inf['q']} Shares @ ${inf['e']}")
         
         col_p, col_r = st.columns(2)
         col_p.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        ai_col = "#00ff00" if d['rsi'] < 40 else "#ff4b4b" if d['rsi'] > 60 else "#888"
-        ai_txt = "BULLISH" if d['rsi'] < 40 else "BEARISH" if d['rsi'] > 60 else "NEUTRAL"
-        col_r.markdown(f"**AI Signal**<br><span style='color:{ai_col}; font-weight:bold;'>{ai_txt}</span>", unsafe_allow_html=True)
+        # Simple AI indicator based on momentum
+        ai_col = "#00ff00" if d['rsi'] < 45 else "#ff4b4b" if d['rsi'] > 55 else "#888"
+        ai_txt = "🟢 BULLISH" if d['rsi'] < 45 else "🔴 BEARISH" if d['rsi'] > 55 else "⚪ NEUTRAL"
+        col_r.markdown(f"**AI Bias**<br><span style='color:{ai_col}; font-weight:bold;'>{ai_txt}</span>", unsafe_allow_html=True)
         
-        with st.expander("View Chart"):
+        with st.expander("📉 Quick Chart"):
             st.line_chart(d['chart'])
     st.divider()
 
@@ -116,8 +117,8 @@ with t2:
     for t, inf in PORT.items(): render_card(t, inf)
 
 with t3:
-    if st.button("Generate Fresh Report", type="primary"):
-        st.info("Scanning fresh headlines (Last 48h)...")
+    if st.button("Generate Fresh News Report", type="primary"):
+        st.info("AI is scanning fresh headlines (Last 48h)...")
         # (News Logic)
 
 # --- AUTO-REFRESH ---
