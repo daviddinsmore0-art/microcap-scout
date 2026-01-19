@@ -22,6 +22,7 @@ PORT = {
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
     "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
     "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
+    "ZYME": {"e": 24.20, "d": "Aug. 20, 2024", "q": 20},
     "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
 }
 
@@ -275,7 +276,7 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml","https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
