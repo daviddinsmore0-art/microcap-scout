@@ -269,4 +269,56 @@ with t3:
             else:
                 try:
                     from openai import OpenAI
-                    p_list = "\n
+                    p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}..." for i,x in enumerate(raw[:25])]) 
+                    
+                    system_instr = """You are a financial news detective.
+                    1. Read the line.
+                    2. Infer the Ticker. If generic, use 'MARKET'.
+                    3. Determine Sentiment (🟢/🔴/⚪).
+                    4. Output EXACTLY: Index|Ticker|Signal|Reason"""
+                    
+                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Analyze:\n{p_list}"}], max_tokens=1000)
+                    lines = res.choices[0].message.content.strip().split("\n")
+                    
+                    # We rebuild the list with AI data
+                    final_results = []
+                    for i, r in enumerate(raw):
+                        # Default values
+                        r['ticker'] = "NEWS"
+                        r['signal'] = "⚪"
+                        r['reason'] = "Scanning..."
+                        final_results.append(r)
+
+                    for l in lines:
+                        parts = l.split("|")
+                        if len(parts) >= 4:
+                            try:
+                                idx_str = re.sub(r'[^0-9]', '', parts[0])
+                                idx = int(idx_str)
+                                if idx < len(final_results):
+                                    final_results[idx]['ticker'] = parts[1].strip()
+                                    final_results[idx]['signal'] = parts[2].strip()
+                                    final_results[idx]['reason'] = parts[3].strip()
+                            except: continue
+                    
+                    st.session_state['news_results'] = final_results
+                    st.session_state['news_run'] = True
+                    st.rerun() 
+                except Exception as e: st.error(f"AI Error: {e}")
+
+    # 2. THE DISPLAY (Only if run)
+    if st.session_state['news_run']:
+        for r in st.session_state['news_results']:
+            tick = r.get('ticker', 'NEWS')
+            sig = r.get('signal', '⚪')
+            rsn = r.get('reason', '...')
+            st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
+            st.caption(rsn)
+            st.divider()
+    else:
+        st.info("Tap 'Generate AI Report' to scan global feeds.")
+
+now = datetime.now()
+wait = 60 - now.second
+time.sleep(wait + 1)
+st.rerun()
