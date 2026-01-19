@@ -3,7 +3,7 @@ from datetime import datetime
 import streamlit.components.v1 as components
 import pandas as pd
 
-# --- 1. DATA LOCK (Your Specific Stocks) ---
+# --- 1. DATA LOCK ---
 MY_WATCHLIST = ["SPY", "BTC-USD", "TD.TO", "PLUG.CN", "VTX.V", "IVN.TO", "CCO.TO", "BN.TO", "INTC"]
 
 PORT = {
@@ -25,7 +25,7 @@ st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
-# --- ENGINE (The v24.1 Logic) ---
+# --- ENGINE (Verified v24.1 Logic) ---
 def get_card_data(s):
     try:
         tk = yf.Ticker(s)
@@ -37,7 +37,7 @@ def get_card_data(s):
         prev = h['Close'].iloc[-2]
         chg = ((curr - prev)/prev)*100
         
-        # Range Bar (Visual)
+        # Range Bar
         day_h = h['High'].iloc[-1]
         day_l = h['Low'].iloc[-1]
         rng_pct = 50
@@ -56,7 +56,7 @@ def get_card_data(s):
         v_str = f"{vol/1e6:.1f}M" if vol > 1e6 else f"{vol/1e3:.0f}K"
         v_tag = "⚡ SURGE" if vol > avg_vol * 1.5 else "🌊 STEADY" if vol > avg_vol * 0.8 else "💤 QUIET"
 
-        # Calendar (The specific command that works)
+        # Calendar (The Logic That Works)
         earn_date = "N/A"
         try:
             edt = tk.get_earnings_dates(limit=1)
@@ -76,7 +76,6 @@ def get_card_data(s):
         if rsi < 30: rating = "STRONG BUY"
         r_icon = "✅" if "BUY" in rating else "✋"
         
-        # AI Bias
         ai_txt = "BULLISH BIAS" if trend == "BULL" else "BEARISH BIAS"
         ai_dot = "🟢" if trend == "BULL" else "🔴"
 
@@ -93,7 +92,21 @@ c1, c2 = st.columns([3, 1])
 with c1: st.title("⚡ Penny Pulse")
 with c2: 
     st.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
-    st.markdown("<div style='background:#1e2127; padding:8px; border-radius:5px; text-align:center; border:1px solid #333;'>Next Update: <span style='color:#FF4B4B; font-weight:bold;'>60s</span></div>", unsafe_allow_html=True)
+    # Live Countdown Timer (The "Scroller" Fix)
+    components.html("""
+        <div style="font-family: sans-serif; text-align: center; background-color: #1e2127; padding: 5px; border-radius: 5px; border: 1px solid #333; color: #888;">
+            <span style="font-size: 12px; font-weight: bold;">NEXT UPDATE</span><br>
+            <span id="timer" style="color: #FF4B4B; font-size: 20px; font-weight: 900;">60</span><span style="color:#FF4B4B; font-size:14px; font-weight:bold;">s</span>
+        </div>
+        <script>
+            let time = 60;
+            setInterval(function() {
+                time--;
+                if (time < 0) time = 60;
+                document.getElementById('timer').innerText = time;
+            }, 1000);
+        </script>
+    """, height=65)
 
 # Ticker Tape
 tape = []
@@ -107,7 +120,7 @@ st.markdown(f"<div style='background:#1e2127; padding:8px; border-radius:5px; bo
 # --- TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
-# --- DASHBOARD ---
+# --- DASHBOARD (Modified Layout) ---
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(MY_WATCHLIST):
@@ -117,10 +130,10 @@ with t1:
                 st.markdown(f"### {t}")
                 st.metric("Price", f"${d['p']:,.2f}", f"{d['ch']:+.2f}%")
                 
-                # AI BIAS LINE
+                # AI Bias
                 st.markdown(f"<div style='font-size:12px; margin-bottom:5px;'>⚙️ AI: {d['ai_dot']} <span style='font-weight:bold; color:{'#ff4b4b' if 'BEAR' in d['ai_txt'] else '#4caf50'}'>{d['ai_txt']}</span></div>", unsafe_allow_html=True)
 
-                # RANGE BAR
+                # Range Bar
                 st.markdown(f"""
                 <div style="display:flex; align-items:center; font-size:12px; color:#888; margin-bottom:8px;">
                     <span style="margin-right:5px;">L</span>
@@ -131,7 +144,7 @@ with t1:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # --- YOUR LAYOUT REQUEST APPLIED HERE ---
+                # --- MODIFIED LAYOUT SECTION ---
                 st.markdown(f"""
                 <div style='font-size:14px; margin-bottom:4px; line-height:1.6;'>
                     <b>Trend:</b> <span style='color:{d['t_col']}; font-weight:bold;'>{d['trend']}</span>
@@ -175,7 +188,7 @@ with t2:
                 st.line_chart(d['chart'], height=80)
                 st.divider()
 
-# --- NEWS (Regex Hunter + AI) ---
+# --- NEWS (Reverted to v24.1 Logic) ---
 def fetch_news():
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
     try:
