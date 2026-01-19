@@ -29,15 +29,18 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
-if 'my_watchlist' not in st.session_state: 
-    st.session_state['my_watchlist'] = "SPY, BTC-USD, TD.TO"
+# --- WATCHLIST FIX (Prioritize User Input) ---
+# We use a unique key 'user_w' to store the input
+if 'user_w' not in st.session_state:
+    st.session_state['user_w'] = "SPY, BTC-USD, TD.TO"
 
-def update_wl():
-    st.session_state['my_watchlist'] = st.session_state.wl_input
+def save_wl():
+    st.session_state['user_w'] = st.session_state.wl_input
 
-u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['my_watchlist'], key="wl_input", on_change=update_wl)
-WATCH = [x.strip().upper() for x in st.session_state['my_watchlist'].split(",") if x.strip()]
-st.sidebar.caption("Alerts removed for stability.")
+u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['user_w'], key="wl_input", on_change=save_wl)
+WATCH = [x.strip().upper() for x in st.session_state['user_w'].split(",") if x.strip()]
+ALL = list(set(WATCH + list(PORT.keys())))
+st.sidebar.divider()
 
 # --- MAIN ENGINE ---
 def get_hybrid_data(s):
@@ -95,14 +98,24 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            earn_html = ""
+            # --- CALENDAR: AGGRESSIVE MODE ---
+            earn_html = "<span style='color:#333; font-size:11px; margin-left:5px; font-weight:bold;'>📅 N/A</span>"
             try:
-                # OLD SCHOOL CALENDAR FETCH
-                cal = tk.calendar
-                if not isinstance(cal, dict): cal = tk.get_calendar()
-                if isinstance(cal, dict) and 'Earnings Date' in cal:
-                    nxt = cal['Earnings Date'][0]
-                    d_obj = nxt.date()
+                nxt = None
+                # Try DataFrame method first (most reliable)
+                try: 
+                    edf = tk.get_earnings_dates(limit=1)
+                    if edf is not None and not edf.empty: nxt = edf.index[0]
+                except: pass
+                
+                # Try dictionary fallback
+                if not nxt:
+                     cal = tk.calendar
+                     if isinstance(cal, dict) and 'Earnings Date' in cal:
+                         nxt = cal['Earnings Date'][0]
+
+                if nxt:
+                    d_obj = nxt.date() if hasattr(nxt, 'date') else nxt.date()
                     days = (d_obj - datetime.now().date()).days
                     if 0 <= days <= 14:
                         earn_html = f"<span style='background:#ffebee; color:#d32f2f; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>⚠️ {days}d</span>"
@@ -202,7 +215,7 @@ with t2:
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: render_card(t, inf)
 
-# --- NEWS ENGINE (The Fail-Safe Build) ---
+# --- NEWS ENGINE ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_rss():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -228,6 +241,11 @@ def fetch_rss():
 # THE BACKUP BRAIN (Forces tickers if AI fails)
 def scan_fallback(text):
     text = text.upper()
+    # EXTENDED BLACKLIST
+    BAD_WORDS = ["PENNY", "STOCK", "BLUE", "CHIP", "SWING", "TRADE", "MARKET", "RALLY", "CRASH", "FUNDS", "ETF", "HIGH", "LOW"]
+    for b in BAD_WORDS: 
+        if text == b: return "NEWS"
+
     MAP = {"BITCOIN":"BTC-USD", "BTC":"BTC-USD", "NVIDIA":"NVDA", "TESLA":"TSLA", "APPLE":"AAPL", "MICROSOFT":"MSFT", "AMAZON":"AMZN", "META":"META", "GOOGLE":"GOOG", "S&P":"SPY", "GOLD":"GC=F"}
     for k,v in MAP.items():
         if k in text: return v
@@ -241,7 +259,6 @@ with t3:
             if not raw: st.error("⚠️ No news sources responded.")
             else:
                 final_results = []
-                # 1. Initialize with Fallback
                 for r in raw:
                     fallback_tick = scan_fallback(r['title'] + " " + r['desc'])
                     r['ticker'] = fallback_tick
@@ -249,12 +266,11 @@ with t3:
                     r['reason'] = "Scanning..."
                     final_results.append(r)
 
-                # 2. Try OpenAI
                 if KEY:
                     try:
                         from openai import OpenAI
                         p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}" for i,x in enumerate(raw[:25])]) 
-                        system_instr = "Return list: Index|Ticker|Signal(🟢/🔴/⚪)|Reason. Example: 0|AAPL|🟢|Earnings beat."
+                        system_instr = "Return list: Index|Ticker|Signal(🟢/🔴/⚪)|Reason. Ignore generic terms like 'Penny Stock'. If unknown, use 'NEWS'."
                         res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":p_list}], max_tokens=1000)
                         lines = res.choices[0].message.content.strip().split("\n")
                         for l in lines:
@@ -263,7 +279,11 @@ with t3:
                                 try:
                                     idx = int(re.sub(r'[^0-9]', '', parts[0]))
                                     if idx < len(final_results):
-                                        final_results[idx]['ticker'] = parts[1].strip()
+                                        # FILTER BOGUS TICKERS
+                                        cand = parts[1].strip().upper()
+                                        if cand in ["PENNY", "BLUE", "CHIP", "SWING", "STOCK", "MARKET"]: cand = "NEWS"
+                                        
+                                        final_results[idx]['ticker'] = cand
                                         final_results[idx]['signal'] = parts[2].strip()
                                         final_results[idx]['reason'] = parts[3].strip()
                                 except: continue
@@ -280,7 +300,6 @@ with t3:
             sig = r.get('signal', '⚪')
             rsn = r.get('reason', '')
             
-            # Simple, clean display. No dimming.
             st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
             if rsn and rsn != "Scanning...": st.caption(rsn)
             st.divider()
