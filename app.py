@@ -29,18 +29,15 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
-# --- WATCHLIST FIX (Prioritize User Input) ---
-# We use a unique key 'user_w' to store the input
-if 'user_w' not in st.session_state:
-    st.session_state['user_w'] = "SPY, BTC-USD, TD.TO"
+if 'my_watchlist' not in st.session_state: 
+    st.session_state['my_watchlist'] = "SPY, BTC-USD, TD.TO"
 
-def save_wl():
-    st.session_state['user_w'] = st.session_state.wl_input
+def update_wl():
+    st.session_state['my_watchlist'] = st.session_state.wl_input
 
-u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['user_w'], key="wl_input", on_change=save_wl)
-WATCH = [x.strip().upper() for x in st.session_state['user_w'].split(",") if x.strip()]
-ALL = list(set(WATCH + list(PORT.keys())))
-st.sidebar.divider()
+u_in = st.sidebar.text_input("📝 Edit Watchlist", value=st.session_state['my_watchlist'], key="wl_input", on_change=update_wl)
+WATCH = [x.strip().upper() for x in st.session_state['my_watchlist'].split(",") if x.strip()]
+st.sidebar.caption("Alerts removed for stability.")
 
 # --- MAIN ENGINE ---
 def get_hybrid_data(s):
@@ -98,29 +95,28 @@ def get_hybrid_data(s):
             elif ai_score <= -2: ai_txt, ai_col = "🔴 BEARISH BIAS", "#ff4b4b"
             else: ai_txt, ai_col = "⚪ NEUTRAL", "#888"
 
-            # --- CALENDAR: AGGRESSIVE MODE ---
-            earn_html = "<span style='color:#333; font-size:11px; margin-left:5px; font-weight:bold;'>📅 N/A</span>"
+            # --- CALENDAR: TIMESTAMP METHOD ---
+            earn_html = ""
             try:
+                # This fetches the hidden timestamp from the 'info' block which is sometimes less protected
+                # than the full calendar object.
                 nxt = None
-                # Try DataFrame method first (most reliable)
-                try: 
-                    edf = tk.get_earnings_dates(limit=1)
-                    if edf is not None and not edf.empty: nxt = edf.index[0]
-                except: pass
                 
-                # Try dictionary fallback
-                if not nxt:
-                     cal = tk.calendar
-                     if isinstance(cal, dict) and 'Earnings Date' in cal:
-                         nxt = cal['Earnings Date'][0]
+                # Check 1: Info Timestamp
+                if 'earningsTimestamp' in tk.info:
+                    nxt = datetime.fromtimestamp(tk.info['earningsTimestamp']).date()
+                
+                # Check 2: Calendar Dict (Fallback)
+                if not nxt and isinstance(tk.calendar, dict):
+                    c = tk.calendar.get('Earnings Date')
+                    if c: nxt = c[0].date()
 
                 if nxt:
-                    d_obj = nxt.date() if hasattr(nxt, 'date') else nxt.date()
-                    days = (d_obj - datetime.now().date()).days
+                    days = (nxt - datetime.now().date()).days
                     if 0 <= days <= 14:
                         earn_html = f"<span style='background:#ffebee; color:#d32f2f; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>⚠️ {days}d</span>"
                     else:
-                         earn_html = f"<span style='background:#f1f1f1; color:#333; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>📅 {d_obj.strftime('%b %d')}</span>"
+                         earn_html = f"<span style='background:#f1f1f1; color:#333; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>📅 {nxt.strftime('%b %d')}</span>"
             except: pass
 
             dh = h['High'].iloc[-1]
@@ -238,15 +234,15 @@ def fetch_rss():
         except: continue
     return it
 
-# THE BACKUP BRAIN (Forces tickers if AI fails)
-def scan_fallback(text):
+# THE REGEX HUNTER (Finds (TICKER) in text)
+def hunt_ticker(text):
+    # Looks for pattern like (PLUG.CN) or (NVDA)
+    match = re.search(r'\(([A-Z]{2,5}(?:\.[A-Z]+)?)\)', text)
+    if match: return match.group(1)
+    
+    # Backup: Basic Keyword Map
     text = text.upper()
-    # EXTENDED BLACKLIST
-    BAD_WORDS = ["PENNY", "STOCK", "BLUE", "CHIP", "SWING", "TRADE", "MARKET", "RALLY", "CRASH", "FUNDS", "ETF", "HIGH", "LOW"]
-    for b in BAD_WORDS: 
-        if text == b: return "NEWS"
-
-    MAP = {"BITCOIN":"BTC-USD", "BTC":"BTC-USD", "NVIDIA":"NVDA", "TESLA":"TSLA", "APPLE":"AAPL", "MICROSOFT":"MSFT", "AMAZON":"AMZN", "META":"META", "GOOGLE":"GOOG", "S&P":"SPY", "GOLD":"GC=F"}
+    MAP = {"BITCOIN":"BTC-USD", "NVIDIA":"NVDA", "TESLA":"TSLA", "APPLE":"AAPL", "MICROSOFT":"MSFT"}
     for k,v in MAP.items():
         if k in text: return v
     return "NEWS"
@@ -254,38 +250,36 @@ def scan_fallback(text):
 with t3:
     st.subheader("🚨 Global AI Wire")
     if st.button("Generate AI Report", type="primary", key="news_btn"):
-        with st.spinner("AI Detective Scanning..."):
+        with st.spinner("Analyzing Feed..."):
             raw = fetch_rss()
             if not raw: st.error("⚠️ No news sources responded.")
             else:
                 final_results = []
+                # 1. RUN THE HUNTER FIRST
                 for r in raw:
-                    fallback_tick = scan_fallback(r['title'] + " " + r['desc'])
-                    r['ticker'] = fallback_tick
+                    found_tick = hunt_ticker(r['title'] + " " + r['desc'])
+                    r['ticker'] = found_tick
                     r['signal'] = "⚪"
-                    r['reason'] = "Scanning..."
+                    r['reason'] = ""
                     final_results.append(r)
 
+                # 2. ASK AI TO FILL GAPS
                 if KEY:
                     try:
                         from openai import OpenAI
+                        # Only send text, don't ask for tickers if we already found them
                         p_list = "\n".join([f"{i}. {x['title']} - {x['desc'][:100]}" for i,x in enumerate(raw[:25])]) 
-                        system_instr = "Return list: Index|Ticker|Signal(🟢/🔴/⚪)|Reason. Ignore generic terms like 'Penny Stock'. If unknown, use 'NEWS'."
+                        system_instr = "Return list: Index|Signal(🟢/🔴/⚪)|Reason. Determine sentiment."
                         res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":p_list}], max_tokens=1000)
                         lines = res.choices[0].message.content.strip().split("\n")
                         for l in lines:
                             parts = l.split("|")
-                            if len(parts) >= 4:
+                            if len(parts) >= 3:
                                 try:
                                     idx = int(re.sub(r'[^0-9]', '', parts[0]))
                                     if idx < len(final_results):
-                                        # FILTER BOGUS TICKERS
-                                        cand = parts[1].strip().upper()
-                                        if cand in ["PENNY", "BLUE", "CHIP", "SWING", "STOCK", "MARKET"]: cand = "NEWS"
-                                        
-                                        final_results[idx]['ticker'] = cand
-                                        final_results[idx]['signal'] = parts[2].strip()
-                                        final_results[idx]['reason'] = parts[3].strip()
+                                        final_results[idx]['signal'] = parts[1].strip()
+                                        final_results[idx]['reason'] = parts[2].strip()
                                 except: continue
                     except Exception as e:
                         st.error(f"AI Error: {e}")
@@ -301,7 +295,7 @@ with t3:
             rsn = r.get('reason', '')
             
             st.markdown(f"**{tick} {sig}** - [{r['title']}]({r['link']})")
-            if rsn and rsn != "Scanning...": st.caption(rsn)
+            if rsn: st.caption(rsn)
             st.divider()
     else:
         st.info("Tap 'Generate AI Report' to scan global feeds.")
