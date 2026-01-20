@@ -8,56 +8,45 @@ import json
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- "STICKY" STATE ENGINE (THE MAGIC FIX) ---
-# This JavaScript handles the connection between URL, Browser Memory, and Python
-# 1. SAVE: When Python updates the URL, this saves it to Browser LocalStorage.
-# 2. LOAD: If the URL is empty, this checks LocalStorage and auto-redirects.
-sticky_js = """
+# --- JAVASCRIPT: BROWSER MEMORY BRIDGE (The "Sticky" Logic) ---
+# This invisibly saves your setup to your phone/PC's browser storage.
+js_bridge = """
 <script>
-    const STORAGE_KEY = "penny_pulse_v3_config";
-    
-    // Get current URL params
+    const KEY = "penny_pulse_v40_config";
     const params = new URLSearchParams(window.location.search);
     
-    // CASE A: We have data in URL -> Save it to Memory (The "Sticky" part)
+    // 1. SAVE: If URL has data, save to Browser Memory
     if (params.has("w")) {
-        const config = {
-            w: params.get("w"),
-            at: params.get("at"),
-            ap: params.get("ap"),
-            ao: params.get("ao"),
-            fo: params.get("fo"),
-            no: params.get("no")
+        const cfg = {
+            w: params.get("w"), at: params.get("at"), ap: params.get("ap"),
+            ao: params.get("ao"), fo: params.get("fo"), no: params.get("no")
         };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+        localStorage.setItem(KEY, JSON.stringify(cfg));
     } 
-    // CASE B: No data in URL -> Check Memory & Restore (The "Resurrection" part)
+    // 2. LOAD: If URL is empty, load from Browser Memory & Reload
     else {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const saved = localStorage.getItem(KEY);
         if (saved) {
             try {
                 const c = JSON.parse(saved);
-                // Build new URL
-                const newUrl = new URL(window.location);
-                newUrl.searchParams.set("w", c.w || "SPY, BTC-USD, TD.TO");
-                newUrl.searchParams.set("at", c.at || "SPY");
-                newUrl.searchParams.set("ap", c.ap || "0.0");
-                newUrl.searchParams.set("ao", c.ao || "false");
-                newUrl.searchParams.set("fo", c.fo || "false");
-                newUrl.searchParams.set("no", c.no || "false");
-                
-                // Redirect immediately
-                window.location.href = newUrl.toString();
-            } catch (e) { console.log("Cache Error"); }
+                const url = new URL(window.location);
+                url.searchParams.set("w", c.w || "SPY");
+                url.searchParams.set("at", c.at || "SPY");
+                url.searchParams.set("ap", c.ap || "0");
+                url.searchParams.set("ao", c.ao || "false");
+                url.searchParams.set("fo", c.fo || "false");
+                url.searchParams.set("no", c.no || "false");
+                window.location.href = url.toString();
+            } catch (e) {}
         }
     }
 </script>
 """
-components.html(sticky_js, height=0, width=0)
+components.html(js_bridge, height=0, width=0)
 
 # --- PYTHON STATE SYNC ---
-def sync_to_url():
-    """Push current Python widgets to URL Query Params."""
+def push_to_url():
+    """Update URL with current widget values."""
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
     st.query_params["ap"] = str(st.session_state.a_price_input)
@@ -65,16 +54,18 @@ def sync_to_url():
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
 
-# Load Initial State from URL (or Default)
+# --- INITIAL LOAD (Before UI Renders) ---
 qp = st.query_params
-default_w = qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
-default_at = qp.get("at", "SPY")
-default_ap = float(qp.get("ap", 0.0))
-default_ao = qp.get("ao", "false") == "true"
-default_fo = qp.get("fo", "false") == "true"
-default_no = qp.get("no", "false") == "true"
+# If URL is empty, we default to a simple list, BUT the JS above will auto-reload 
+# if it finds saved data. This minimizes the "Ghost" effect.
+init_w = qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
+init_at = qp.get("at", "SPY")
+init_ap = float(qp.get("ap", 0.0))
+init_ao = qp.get("ao", "false") == "true"
+init_fo = qp.get("fo", "false") == "true"
+init_no = qp.get("no", "false") == "true"
 
-# --- SESSION CACHE ---
+# --- SESSION STATE SETUP ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'scanned_count' not in st.session_state: st.session_state['scanned_count'] = 0
 if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None 
@@ -88,11 +79,11 @@ if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] 
 if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None
 
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
 } 
 
 NAMES = {
@@ -116,10 +107,10 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- WATCHLIST INPUT (Syncs to URL) ---
-st.sidebar.text_input("Add Tickers", value=default_w, key="w_input", on_change=sync_to_url)
+# --- WATCHLIST (Auto-Syncs) ---
+st.sidebar.text_input("Add Tickers (Comma Sep)", value=init_w, key="w_input", on_change=push_to_url)
 
-# Parse
+# Parse safely
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
@@ -156,32 +147,35 @@ def log_alert(msg, title="Penny Pulse Alert"):
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
 
-# --- ALERT WIDGETS (Sync to URL) ---
-# Ensure current ticker is valid, or fallback to first available
-if default_at not in ALL and ALL: default_at = sorted(ALL)[0]
+# --- ALERT WIDGETS (Syncs to URL) ---
+curr_tick = init_at
+if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
 
-st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=sorted(ALL).index(default_at) if default_at in sorted(ALL) else 0, key="a_tick_input", on_change=sync_to_url)
-st.sidebar.number_input("Target ($)", value=default_ap, step=0.5, key="a_price_input", on_change=sync_to_url)
-st.sidebar.toggle("Active Price Alert", value=default_ao, key="a_on_input", on_change=sync_to_url)
-st.sidebar.toggle("Alert on Trend Flip", value=default_fo, key="flip_on_input", on_change=sync_to_url) 
-st.sidebar.checkbox("Desktop Notifications", value=default_no, key="notify_input", on_change=sync_to_url, help="Works on Desktop/HTTPS only.")
+# IMPORTANT: We use 'index' to set default, but key/on_change to sync.
+idx = 0
+if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
 
-# Variables
-a_tick = st.session_state['a_tick_input']
-a_price = st.session_state['a_price_input']
-a_on = st.session_state['a_on_input']
-flip_on = st.session_state['flip_on_input']
+st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=push_to_url)
+st.sidebar.number_input("Target ($)", value=init_ap, step=0.5, key="a_price_input", on_change=push_to_url)
+st.sidebar.toggle("Active Price Alert", value=init_ao, key="a_on_input", on_change=push_to_url)
+st.sidebar.toggle("Alert on Trend Flip", value=init_fo, key="flip_on_input", on_change=push_to_url) 
+st.sidebar.checkbox("Desktop Notifications", value=init_no, key="notify_input", on_change=push_to_url, help="Works on Desktop/HTTPS only.")
+
+# Helpers for main logic
+a_tick = st.session_state.a_tick_input
+a_price = st.session_state.a_price_input
+a_on = st.session_state.a_on_input
+flip_on = st.session_state.flip_on_input
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
     st.sidebar.markdown("**📜 Recent Alerts**")
-    for msg in st.session_state['alert_log'][:5]: 
-        st.sidebar.caption(msg)
+    for msg in st.session_state['alert_log'][:5]: st.sidebar.caption(msg)
     if st.sidebar.button("Clear Log"):
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- SPY BENCHMARK FETCH (RAW) ---
+# --- SPY BENCHMARK FETCH ---
 def get_spy_benchmark():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
@@ -412,7 +406,7 @@ def check_flip(ticker, current_trend):
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
             msg = f"{ticker} flipped to {current_trend}"
             st.toast(msg, icon="⚠️")
-            log_alert(msg, title="Trend Flip Alert")
+            log_alert(msg)
     st.session_state['last_trends'][ticker] = current_trend 
 
 # --- DASHBOARD LOGIC (SMART CHART MERGE) ---
@@ -453,7 +447,7 @@ def render_card(t, inf=None):
 
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        # --- SMART CHART MERGING LOGIC ---
+        # --- ROBUST CHART MERGING LOGIC ---
         if d['chart'] is not None and not d['chart'].empty:
             # 1. Get Stock Data
             stock_series = d['chart']['Close'].tail(30)
