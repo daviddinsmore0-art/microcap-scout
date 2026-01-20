@@ -10,10 +10,11 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. SAFETY INITIALIZATION (CRASH PREVENTER) ---
-# This block ensures every variable exists immediately in the database.
+# --- 2. SAFETY INITIALIZATION (THE CRASH PREVENTER) ---
+# We initialize ALL variables here first. This guarantees they exist
+# before any widget or logic tries to use them.
 defaults = {
-    'initialized': False,
+    'initialized': True,
     'news_results': [],
     'scanned_count': 0,
     'market_mood': None,
@@ -26,7 +27,7 @@ defaults = {
     'spy_last_fetch': datetime.min,
     'banner_msg': None,
     'storm_cooldown': {},
-    # Widget Defaults (The keys used by the sidebar)
+    # Widget Keys (Pre-filled so Logic never fails)
     'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
     'a_tick_input': "SPY",
     'a_price_input': 0.0,
@@ -93,25 +94,8 @@ def inject_wake_lock(enable):
         """
         components.html(js, height=0, width=0)
 
-# --- 4. DATA CONSTANTS ---
-PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
-} 
-
-NAMES = {
-    "TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", 
-    "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", 
-    "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", 
-    "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"
-} 
-
-# --- 5. SIDEBAR (DRAWN FIRST TO PREVENT CRASHES) ---
+# --- 4. CORE LOGIC FUNCTIONS ---
 def update_params():
-    # Syncs session state to URL
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
     st.query_params["ap"] = str(st.session_state.a_price_input)
@@ -122,13 +106,21 @@ def update_params():
     if 'base_url_input' in st.session_state:
         st.query_params["bu"] = st.session_state.base_url_input
 
-st.sidebar.header("⚡ Pulse")
-if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
-
-st.sidebar.text_input("Add Tickers (Comma Sep)", value=st.session_state.w_input, key="w_input", on_change=update_params)
-WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
-ALL = list(set(WATCH + list(PORT.keys())))
+def restore_from_file(uploaded_file):
+    if uploaded_file is not None:
+        try:
+            data = json.load(uploaded_file)
+            st.session_state.w_input = data.get("w", "SPY")
+            st.session_state.a_tick_input = data.get("at", "SPY")
+            st.session_state.a_price_input = float(data.get("ap", 0.0))
+            st.session_state.a_on_input = data.get("ao", False)
+            st.session_state.flip_on_input = data.get("fo", False)
+            st.session_state.notify_input = data.get("no", False)
+            update_params()
+            st.toast("Profile Restored!", icon="✅")
+            time.sleep(1)
+            st.rerun()
+        except: st.error("Invalid Config File")
 
 def play_alert_sound():
     sound_html = """
@@ -137,6 +129,31 @@ def play_alert_sound():
     </audio>
     """
     components.html(sound_html, height=0, width=0)
+
+# --- 5. SIDEBAR (DRAWN FIRST) ---
+st.sidebar.header("⚡ Pulse")
+if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
+else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
+
+# NOTE: We do NOT pass a 'value=' argument because the key is already in session_state from Step 2.
+st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input", on_change=update_params)
+
+# PORTFOLIO DATA
+PORT = {
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
+} 
+NAMES = {
+    "TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", 
+    "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", 
+    "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", 
+    "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"
+} 
+WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
+ALL = list(set(WATCH + list(PORT.keys())))
 
 c1, c2 = st.sidebar.columns(2)
 with c1:
@@ -157,14 +174,14 @@ idx = 0
 if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
 
 st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
-st.sidebar.number_input("Target ($)", value=st.session_state.a_price_input, step=0.5, key="a_price_input", on_change=update_params)
-st.sidebar.toggle("Active Price Alert", value=st.session_state.a_on_input, key="a_on_input", on_change=update_params)
-st.sidebar.toggle("Alert on Trend Flip", value=st.session_state.flip_on_input, key="flip_on_input", on_change=update_params) 
-st.sidebar.toggle("💡 Keep Screen On", value=st.session_state.keep_on_input, key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
-st.sidebar.checkbox("Desktop Notifications", value=st.session_state.notify_input, key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
+st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=update_params)
+st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=update_params)
+st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=update_params) 
+st.sidebar.toggle("💡 Keep Screen On", key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
+st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
-# --- 6. JS SYNC (Must be after sidebar to capture inputs) ---
-# Prepare config for JS
+# --- 6. JS SYNC ---
+# We build the config from the NOW DEFINED session state
 current_config_export = {
     "w": st.session_state.w_input,
     "at": st.session_state.a_tick_input,
@@ -178,23 +195,7 @@ current_config_export = {
 sync_js(json.dumps(current_config_export))
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 7. BACKUP & SHARE MENUS ---
-def restore_from_file(uploaded_file):
-    if uploaded_file is not None:
-        try:
-            data = json.load(uploaded_file)
-            st.session_state.w_input = data.get("w", "SPY")
-            st.session_state.a_tick_input = data.get("at", "SPY")
-            st.session_state.a_price_input = float(data.get("ap", 0.0))
-            st.session_state.a_on_input = data.get("ao", False)
-            st.session_state.flip_on_input = data.get("fo", False)
-            st.session_state.notify_input = data.get("no", False)
-            update_params()
-            st.toast("Profile Restored!", icon="✅")
-            time.sleep(1)
-            st.rerun()
-        except: st.error("Invalid Config File")
-
+# --- 7. BACKUP & SHARE ---
 st.sidebar.divider()
 with st.sidebar.expander("📦 Backup & Restore"):
     st.caption("Download your profile to save it.")
@@ -204,14 +205,14 @@ with st.sidebar.expander("📦 Backup & Restore"):
     if uploaded: restore_from_file(uploaded)
 
 with st.sidebar.expander("🔗 Share & Invite"):
-    base_url = st.text_input("App Web Address (Paste Once)", value=st.session_state.base_url_input, placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
+    base_url = st.text_input("App Web Address (Paste Once)", placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
     if base_url:
         clean_base = base_url.split("?")[0].strip("/")
         params = f"?w={st.session_state.w_input}&at={st.session_state.a_tick_input}&ap={st.session_state.a_price_input}&ao={str(st.session_state.a_on_input).lower()}&fo={str(st.session_state.flip_on_input).lower()}"
         full_link = f"{clean_base}/{params}"
         st.code(full_link, language="text")
 
-# --- 8. ALERT SYSTEM & LOGIC ---
+# --- 8. ALERT LOGIC ---
 def send_notification(title, body):
     js_code = f"""
     <script>
@@ -246,7 +247,73 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- 9. CHARTING & ANALYSIS ---
+# --- 9. HELPERS (STATE SAFE) ---
+def check_flip(ticker, current_trend):
+    # DIRECT STATE ACCESS - NO VARIABLES
+    if not st.session_state.flip_on_input: return
+    if ticker in st.session_state['last_trends']:
+        prev = st.session_state['last_trends'][ticker]
+        if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
+            msg = f"{ticker} flipped to {current_trend}"
+            st.toast(msg, icon="⚠️")
+            log_alert(msg, title="Trend Flip Alert")
+    st.session_state['last_trends'][ticker] = current_trend 
+
+def get_spy_benchmark():
+    now = datetime.now()
+    if st.session_state['spy_cache'] is not None:
+        if (now - st.session_state['spy_last_fetch']).seconds < 60:
+            return st.session_state['spy_cache']
+    try:
+        spy = yf.Ticker("SPY")
+        h = spy.history(period="1d", interval="5m", prepost=True)
+        if not h.empty:
+            data = h[['Close']]
+            st.session_state['spy_cache'] = data
+            st.session_state['spy_last_fetch'] = now
+            return data
+    except: pass
+    return None
+
+def get_meta_data(s):
+    if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
+    try:
+        tk = yf.Ticker(s)
+        sec_raw = tk.info.get('sector', 'N/A')
+        sec_map = {"Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH", "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND", "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"}
+        sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
+        earn_html = "N/A"
+        cal = tk.calendar
+        dates = []
+        if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
+        elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
+        if len(dates) > 0:
+            nxt = dates[0]
+            if hasattr(nxt, "date"): nxt = nxt.date()
+            days = (nxt - datetime.now().date()).days
+            if 0 <= days <= 7: earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px;'>⚠️ {days}d</span>"
+            elif 8 <= days <= 30: earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {days}d</span>"
+            elif days > 30: earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {nxt.strftime('%b %d')}</span>"
+        res = (sector_code, earn_html)
+        st.session_state['mem_meta'][s] = res
+        return res
+    except: return "", "N/A" 
+
+def get_rating_cached(s):
+    if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
+    try:
+        info = yf.Ticker(s).info
+        rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
+        res = ("N/A", "#888")
+        if "STRONG BUY" in rec: res = ("🌟 STRONG BUY", "#00C805")
+        elif "BUY" in rec: res = ("✅ BUY", "#4caf50")
+        elif "HOLD" in rec: res = ("✋ HOLD", "#FFC107")
+        elif "SELL" in rec: res = ("🔻 SELL", "#FF4B4B")
+        elif "STRONG SELL" in rec: res = ("🆘 STRONG SELL", "#FF0000")
+        if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
+        return res
+    except: return "N/A", "#888"
+
 def calculate_storm_score(ticker, rsi, vol_ratio, trend, price_change):
     score = 0
     reasons = []
@@ -288,61 +355,6 @@ def get_ai_signal(rsi, vol_ratio, trend, price_change):
     elif score <= -3: return "⚠️ PULLBACK RISK", "#ff0000"
     elif score <= -1: return "🔴 BEARISH BIAS", "#ff4b4b"
     return "💤 CONSOLIDATION", "#888" 
-
-def get_spy_benchmark():
-    now = datetime.now()
-    if st.session_state['spy_cache'] is not None:
-        if (now - st.session_state['spy_last_fetch']).seconds < 60:
-            return st.session_state['spy_cache']
-    try:
-        spy = yf.Ticker("SPY")
-        h = spy.history(period="1d", interval="5m", prepost=True)
-        if not h.empty:
-            data = h[['Close']]
-            st.session_state['spy_cache'] = data
-            st.session_state['spy_last_fetch'] = now
-            return data
-    except: pass
-    return None
-
-def get_rating_cached(s):
-    if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
-    try:
-        info = yf.Ticker(s).info
-        rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
-        res = ("N/A", "#888")
-        if "STRONG BUY" in rec: res = ("🌟 STRONG BUY", "#00C805")
-        elif "BUY" in rec: res = ("✅ BUY", "#4caf50")
-        elif "HOLD" in rec: res = ("✋ HOLD", "#FFC107")
-        elif "SELL" in rec: res = ("🔻 SELL", "#FF4B4B")
-        elif "STRONG SELL" in rec: res = ("🆘 STRONG SELL", "#FF0000")
-        if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
-        return res
-    except: return "N/A", "#888"
-
-def get_meta_data(s):
-    if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
-    try:
-        tk = yf.Ticker(s)
-        sec_raw = tk.info.get('sector', 'N/A')
-        sec_map = {"Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH", "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND", "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"}
-        sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
-        earn_html = "N/A"
-        cal = tk.calendar
-        dates = []
-        if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
-        elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
-        if len(dates) > 0:
-            nxt = dates[0]
-            if hasattr(nxt, "date"): nxt = nxt.date()
-            days = (nxt - datetime.now().date()).days
-            if 0 <= days <= 7: earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px;'>⚠️ {days}d</span>"
-            elif 8 <= days <= 30: earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {days}d</span>"
-            elif days > 30: earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {nxt.strftime('%b %d')}</span>"
-        res = (sector_code, earn_html)
-        st.session_state['mem_meta'][s] = res
-        return res
-    except: return "", "N/A" 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
@@ -504,17 +516,7 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
 h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
 
-# --- CHECK FLIP FUNCTION (MODIFIED FOR STABILITY) ---
-def check_flip(ticker, current_trend):
-    if not st.session_state.flip_on_input: return
-    if ticker in st.session_state['last_trends']:
-        prev = st.session_state['last_trends'][ticker]
-        if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
-            msg = f"{ticker} flipped to {current_trend}"
-            st.toast(msg, icon="⚠️")
-            log_alert(msg, title="Trend Flip Alert")
-    st.session_state['last_trends'][ticker] = current_trend 
-
+# --- FLIP CHECK & NOTIFICATION TRIGGER ---
 if st.session_state.a_on_input:
     d = get_data_cached(st.session_state.a_tick_input)
     if d and d['p'] >= st.session_state.a_price_input:
