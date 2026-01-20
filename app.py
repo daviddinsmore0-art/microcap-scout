@@ -21,11 +21,11 @@ if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = 
 
 # --- PORTFOLIO ---
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 120},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
 } 
 
 NAMES = {
@@ -40,11 +40,17 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
+# --- FIXED: PERMANENT WATCHLIST ---
+# This list will ALWAYS load on startup. No more disappearing tickers.
+default_list = "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V, IVN.TO, CCO.TO, BN.TO"
+
 qp = st.query_params
-w_str = qp.get("watchlist", "SPY, AAPL, NVDA, TSLA, AMD, PLTR, BTC-USD, JNJ")
+w_str = qp.get("watchlist", default_list)
 u_in = st.sidebar.text_input("Add Tickers", value=w_str)
 if u_in != w_str: st.query_params["watchlist"] = u_in
-WATCH = [x.strip().upper() for x in u_in.split(",")]
+
+# --- CRASH FIX: Removes empty items ",," to prevent TypeError ---
+WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
@@ -55,7 +61,7 @@ a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on") 
 
-# --- SECTOR & EARNINGS (With Memory Backup) ---
+# --- SECTOR & EARNINGS ---
 def get_meta_data(s):
     try:
         tk = yf.Ticker(s)
@@ -90,7 +96,7 @@ def get_meta_data(s):
         if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
         return "", "" 
 
-# --- ANALYST RATINGS (With Memory Backup) ---
+# --- ANALYST RATINGS ---
 def get_rating_cached(s):
     try:
         info = yf.Ticker(s).info
@@ -128,20 +134,26 @@ def get_ai_signal(rsi, vol_ratio, trend, price_change):
 # --- LIVE PRICE & CHART (Cached 60s) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
+    # --- CRASH FIX: Basic Checks ---
+    if not s or s == "": return None
     s = s.strip().upper()
+    
     p, pv, dh, dl, f = 0.0, 0.0, 0.0, 0.0, False
     chart_data = None
     tk = yf.Ticker(s)
     is_crypto = s.endswith("-USD")
     
+    # 1. Try Fast Info
     if not is_crypto:
         try:
             p = tk.fast_info['last_price']
             pv = tk.fast_info['previous_close']
             dh = tk.fast_info['day_high']
             dl = tk.fast_info['day_low']
-            f = True
+            if p is not None and pv is not None: f = True
         except: pass
+        
+    # 2. Try History (Fallback)
     try:
         h = tk.history(period="1d", interval="5m")
         if h.empty: h = tk.history(period="5d", interval="1h")
@@ -154,14 +166,24 @@ def get_data_cached(s):
                 dl = h['Low'].min()
                 f = True
     except: pass
-    if not f: return None
     
-    dp = ((p-pv)/pv)*100 if pv>0 else 0.0
-    d_raw = p - pv
+    # --- CRASH FIX: Return None if data is bad ---
+    if not f or p is None or pv is None: return None
+    
+    # Calculate safely
+    try:
+        dp = ((p-pv)/pv)*100 if pv>0 else 0.0
+        d_raw = p - pv
+    except: return None # Catch any other math errors
+
     c = "green" if dp>=0 else "red"
     x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
     
-    rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100 if dh > dl else 50
+    # Range Bar safety
+    try:
+        rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100 if (dh and dl and dh > dl) else 50
+    except: rng_pct = 50
+        
     rng_html = f"""<div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;"><span style="margin-right:5px;">L</span><div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:5px;">H</span></div>""" 
 
     rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
@@ -194,11 +216,11 @@ with c1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
 with c2:
-    components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Pulse: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> </span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
+    components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
 
 # --- TICKER (WITH TSX) ---
 ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE", "GC=F"]:
+for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
@@ -265,7 +287,7 @@ def render_card(t, inf=None):
     else: st.metric(t, "---", "0.0%")
     st.divider() 
 
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News by AI"])
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
@@ -296,14 +318,14 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://rss.app/feeds/tMfefT7whS1oe2VT.xml","https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:30]:
+            for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
                 if t and t not in seen:
                     t_lower = t.lower()
@@ -313,8 +335,8 @@ def get_news_cached():
     return it 
 
 with t3:
-    st.subheader("🚨 Global AI Wire")
-    if st.button("AI Scanning Markets", type="primary", key="news_btn"):
+    st.subheader("🚨 Global Wire")
+    if st.button("Generate Report", type="primary", key="news_btn"):
         with st.spinner("Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
@@ -329,7 +351,6 @@ with t3:
                     res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=400)
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
-                    # --- FIXED LOOP ---
                     for i, l in enumerate(lines):
                         if i < len(raw):
                             parts = l.split("|")
@@ -338,10 +359,9 @@ with t3:
                                     "ticker": parts[0].strip(),
                                     "signal": parts[1].strip(),
                                     "reason": parts[2].strip(),
-                                    "title": raw[i]['title'],  # Use ORIGINAL Title
-                                    "link": raw[i]['link']     # Use ORIGINAL Link
+                                    "title": raw[i]['title'],
+                                    "link": raw[i]['link']
                                 })
-                    # ------------------
                     if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw]
                     else: st.session_state['news_results'] = enrich
                 except:
