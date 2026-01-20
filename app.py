@@ -24,17 +24,16 @@ if 'initialized' not in st.session_state:
     st.session_state['banner_msg'] = None
     st.session_state['storm_cooldown'] = {}
 
-# --- JAVASCRIPT: BROWSER MEMORY BRIDGE (THE "STICKY" FIX) ---
+# --- JAVASCRIPT: BROWSER MEMORY BRIDGE ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v45_master";
+        const KEY = "penny_pulse_v46_data";
         const fromPython = {config_json};
-        
-        // 1. RESTORE: If URL is empty (Fresh Load) but Browser has data -> Redirect
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
         
+        // 1. RESTORE
         if (!urlParams.has("w") && saved) {{
             try {{
                 const c = JSON.parse(saved);
@@ -51,7 +50,7 @@ def sync_js(config_json):
             }} catch(e) {{}}
         }}
         
-        // 2. SAVE: Always save current Python state to Browser Memory
+        // 2. SAVE
         if (fromPython.w) {{
             localStorage.setItem(KEY, JSON.stringify(fromPython));
         }}
@@ -59,17 +58,37 @@ def sync_js(config_json):
     """
     components.html(js, height=0, width=0)
 
+# --- JAVASCRIPT: WAKE LOCK (KEEP SCREEN ON) ---
+# This script keeps the mobile screen awake if the toggle is True
+def inject_wake_lock(enable):
+    if enable:
+        js = """
+        <script>
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('Wake Lock active!');
+            } catch (err) {
+                console.log(`${err.name}, ${err.message}`);
+            }
+        }
+        requestWakeLock();
+        </script>
+        """
+        components.html(js, height=0, width=0)
+
 # --- PYTHON STATE SYNC ---
 def update_params():
-    """Push Session State to URL."""
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
     st.query_params["ap"] = str(st.session_state.a_price_input)
     st.query_params["ao"] = str(st.session_state.a_on_input).lower()
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
+    st.query_params["ko"] = str(st.session_state.keep_on_input).lower() # New param for Wake Lock
 
-# --- RESTORE FROM FILE (THE "BLACK BOX") ---
+# --- RESTORE FROM FILE ---
 def restore_from_file(uploaded_file):
     if uploaded_file is not None:
         try:
@@ -95,12 +114,15 @@ current_config = {
     "ap": float(qp.get("ap", 0.0)),
     "ao": qp.get("ao", "false") == "true",
     "fo": qp.get("fo", "false") == "true",
-    "no": qp.get("no", "false") == "true"
+    "no": qp.get("no", "false") == "true",
+    "ko": qp.get("ko", "false") == "true" # Keep On default false
 }
 
-# Dump current config to JSON for the JS Bridge
 config_json = json.dumps(current_config)
 sync_js(config_json)
+
+# Apply Wake Lock if enabled
+inject_wake_lock(current_config["ko"])
 
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
@@ -118,8 +140,7 @@ NAMES = {
 } 
 
 # --- AUDIO SYSTEM ---
-def play_alert_sound(alert_type="normal"):
-    # Different sound for crash? For now same sound.
+def play_alert_sound():
     sound_html = """
     <audio autoplay>
     <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
@@ -173,7 +194,7 @@ def log_alert(msg, title="Penny Pulse Alert", is_crash=False):
     t_stamp = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M')
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
     play_alert_sound()
-    color = "#ff0000" if is_crash else "#ff4b4b" # Brighter red for crash
+    color = "#ff0000" if is_crash else "#ff4b4b"
     st.session_state['banner_msg'] = f"<span style='color:{color};'>🚨 {msg.upper()} 🚨</span>"
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
@@ -188,6 +209,8 @@ st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_i
 st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
 st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
 st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
+# --- NEW: WAKE LOCK TOGGLE ---
+st.sidebar.toggle("💡 Keep Screen On (Mobile)", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping so alerts keep running.")
 st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
 a_tick = st.session_state.a_tick_input
@@ -280,41 +303,23 @@ def get_rating_cached(s):
         return res
     except: return "N/A", "#888"
 
-# --- THE "STORM TRACKER" ENGINE (DUAL MODE) ---
 def calculate_storm_score(ticker, rsi, vol_ratio, trend, price_change):
     score = 0
     reasons = []
     mode = "NEUTRAL"
-    
-    # 1. Volume Explosion (Agitated State)
-    if vol_ratio >= 2.0:
-        score += 30
-        reasons.append("Volume Surge (2x)")
-    elif vol_ratio >= 1.5:
-        score += 15
-        reasons.append("High Volume")
-        
-    # 2. Directional Logic
+    if vol_ratio >= 2.0: score += 30; reasons.append("Volume Surge (2x)")
+    elif vol_ratio >= 1.5: score += 15; reasons.append("High Volume")
     if trend == "BULL" and price_change > 0:
-        # Bullish Path
-        if rsi <= 35: 
-            score += 25; reasons.append("Oversold (Bounce)")
-        if price_change > 2.0: 
-            score += 20; reasons.append("Strong Momentum")
+        if rsi <= 35: score += 25; reasons.append("Oversold (Bounce)")
+        if price_change > 2.0: score += 20; reasons.append("Strong Momentum")
         mode = "BULL"
-        
     elif trend == "BEAR" and price_change < 0:
-        # Bearish Path (Crash Logic)
-        if rsi >= 65: 
-            score += 25; reasons.append("Overbought (Dump)")
-        if price_change < -2.0: 
-            score += 25; reasons.append("Panic Selling")
+        if rsi >= 65: score += 25; reasons.append("Overbought (Dump)")
+        if price_change < -2.0: score += 25; reasons.append("Panic Selling")
         mode = "BEAR"
-        
-    # --- TRIGGER CHECK ---
     if score >= 70:
         last_time = st.session_state['storm_cooldown'].get(ticker, datetime.min)
-        if (datetime.now() - last_time).seconds > 300: # 5 min cooldown
+        if (datetime.now() - last_time).seconds > 300:
             if mode == "BULL":
                 msg = f"🚀 PERFECT STORM: {ticker} (Score: {score}) - Buying Opportunity!"
                 log_alert(msg, title="Bull Storm")
@@ -322,7 +327,6 @@ def calculate_storm_score(ticker, rsi, vol_ratio, trend, price_change):
                 msg = f"⚠️ CRASH WARNING: {ticker} (Score: {score}) - Selling Pressure!"
                 log_alert(msg, title="Crash Alert", is_crash=True)
             st.session_state['storm_cooldown'][ticker] = datetime.now()
-            
     return score, mode, reasons
 
 def get_ai_signal(rsi, vol_ratio, trend, price_change):
@@ -436,7 +440,6 @@ def get_data_cached(s):
                 else: raw_trend = "BEAR"; tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
                 ai_txt, ai_col = get_ai_signal(rsi, ratio, raw_trend, d_reg_pct)
                 
-                # --- RUN STORM TRACKER ---
                 s_score, s_mode, s_reasons = calculate_storm_score(s, rsi, ratio, raw_trend, d_reg_pct)
                 if s_score >= 50:
                     storm_color = "#4caf50" if s_mode == "BULL" else "#ff4b4b"
@@ -551,53 +554,35 @@ def render_card(t, inf=None):
 
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        # --- ROBUST CHART MERGING LOGIC ---
         if d['chart'] is not None and not d['chart'].empty:
-            # 1. Get Stock Data
             stock_series = d['chart']['Close'].tail(30)
-            
             if len(stock_series) > 1:
-                # Normalize Stock to start at 0
                 start_p = stock_series.iloc[0]
                 stock_norm = ((stock_series - start_p) / start_p) * 100
-                
-                # Create DataFrame with 'Time' from Index
                 plot_df = pd.DataFrame({'Stock': stock_norm})
                 plot_df = plot_df.reset_index().rename(columns={plot_df.index.name: 'Time'})
-                
-                # 2. Try to Align SPY
                 has_spy = False
                 if spy_data is not None and not spy_data.empty:
                     try:
-                        # Reindex SPY to match Stock timestamps exactly (nearest match within 10 min)
                         spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
-                        
                         if not spy_aligned['Close'].isnull().all():
                             spy_vals = spy_aligned['Close']
-                            # We must re-normalize SPY to start at 0 RELATIVE TO THIS WINDOW
                             valid_spy = spy_vals.dropna()
                             if not valid_spy.empty:
                                 spy_start = valid_spy.iloc[0]
                                 plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
                                 has_spy = True
                     except: pass
-
-                # 3. Plotting
                 line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
                 base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
-                
                 l_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
                 final_chart = l_stock
-                
                 if has_spy:
                     l_spy = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.8).encode(y='SPY')
                     final_chart = l_stock + l_spy
-                    
                 st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
-            else:
-                st.caption("Not enough intraday data.")
-        else:
-            st.caption("Chart data unavailable.")
+            else: st.caption("Not enough intraday data.")
+        else: st.caption("Chart data unavailable.")
         
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         st.markdown(d['vol_html'], unsafe_allow_html=True)
