@@ -198,7 +198,7 @@ with c2:
 
 # --- TICKER (WITH TSX) ---
 ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
+for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE", "GC=F"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
@@ -296,7 +296,7 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
@@ -313,8 +313,8 @@ def get_news_cached():
     return it 
 
 with t3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate Report", type="primary", key="news_btn"):
+    st.subheader("🚨 Global AI Wire")
+    if st.button("AI Scanning Markets", type="primary", key="news_btn"):
         with st.spinner("Scanning..."):
             raw = get_news_cached()
             if not raw: st.error("⚠️ No news sources responded.")
