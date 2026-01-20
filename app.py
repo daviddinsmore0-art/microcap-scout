@@ -13,7 +13,6 @@ except: pass
 CONFIG_FILE = "penny_pulse_data.json"
 
 def load_config():
-    """Loads user settings from local JSON file."""
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
@@ -22,8 +21,6 @@ def load_config():
     return {}
 
 def save_config():
-    """Saves current widget states to local JSON file."""
-    # We grab the current state of widgets directly
     config = {
         "watchlist": st.session_state.get("w_input", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
         "alert_ticker": st.session_state.get("a_tick_input", "SPY"),
@@ -34,10 +31,9 @@ def save_config():
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f)
 
-# --- LOAD STATE ON STARTUP ---
 user_config = load_config()
 
-# --- SESSION STATE INITIALIZATION ---
+# --- SESSION STATE ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'scanned_count' not in st.session_state: st.session_state['scanned_count'] = 0
 if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None 
@@ -49,7 +45,6 @@ if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
 if 'spy_cache' not in st.session_state: st.session_state['spy_cache'] = None
 if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] = datetime.min
 
-# --- PORTFOLIO (Hardcoded for now - editing requires complex UI) ---
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
@@ -70,16 +65,12 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- PERSISTENT WATCHLIST INPUT ---
-# We use 'value' from loaded config, and 'on_change' to trigger save
 default_w = user_config.get("watchlist", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
 u_in = st.sidebar.text_input("Add Tickers", value=default_w, key="w_input", on_change=save_config)
-
 WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
 
-# --- ALERT SYSTEM ---
 st.sidebar.subheader("🔔 Smart Alerts") 
 
 def play_alert_sound():
@@ -95,8 +86,6 @@ def log_alert(msg):
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
     play_alert_sound()
 
-# --- PERSISTENT ALERT WIDGETS ---
-# Loading defaults from config file
 def_a_tick = user_config.get("alert_ticker", "SPY")
 if def_a_tick not in ALL: def_a_tick = ALL[0] if ALL else "SPY"
 
@@ -114,7 +103,7 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- HELPER: FETCH SPY BENCHMARK ---
+# --- SPY BENCHMARK FETCH ---
 def get_spy_benchmark():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
@@ -125,14 +114,15 @@ def get_spy_benchmark():
         h = spy.history(period="1d", interval="5m", prepost=True)
         if not h.empty:
             start_price = h['Close'].iloc[0]
-            h['Normalized'] = ((h['Close'] - start_price) / start_price) * 100
-            st.session_state['spy_cache'] = h[['Normalized']]
+            # Keep timestamp index for alignment
+            h['Spy_Norm'] = ((h['Close'] - start_price) / start_price) * 100
+            st.session_state['spy_cache'] = h[['Spy_Norm']]
             st.session_state['spy_last_fetch'] = now
-            return h[['Normalized']]
+            return h[['Spy_Norm']]
     except: pass
     return None
 
-# --- METADATA & RATINGS (HARD CACHED) ---
+# --- METADATA ---
 def get_meta_data(s):
     if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
     try:
@@ -214,7 +204,8 @@ def get_data_cached(s):
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if not h.empty:
             start_price = h['Close'].iloc[0]
-            h['Normalized'] = ((h['Close'] - start_price) / start_price) * 100
+            # Store normalized value
+            h['Stock_Norm'] = ((h['Close'] - start_price) / start_price) * 100
             chart_data = h
             if not valid_data or is_crypto:
                 p_reg = h['Close'].iloc[-1]
@@ -319,7 +310,7 @@ def check_flip(ticker, current_trend):
             log_alert(msg)
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC (FIXED CHART) ---
+# --- DASHBOARD LOGIC (CLEAN CHART) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     spy_data = get_spy_benchmark()
@@ -354,24 +345,51 @@ def render_card(t, inf=None):
         """
         st.markdown(meta_html, unsafe_allow_html=True)
 
-        st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange)</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
+        
+        # --- ROBUST CHART MERGE ---
         if d['chart'] is not None:
-            subset = d['chart'].tail(30).reset_index()
-            spark_df = pd.DataFrame()
-            spark_df['Time'] = subset.iloc[:, 0]
-            spark_df['Normalized'] = subset['Normalized']
+            # 1. Prepare Stock Data
+            stock_sub = d['chart'].tail(30).reset_index()
+            # Rename columns to ensure consistency
+            stock_sub = stock_sub.rename(columns={stock_sub.columns[0]: 'Time', 'Stock_Norm': 'Stock'})
             
+            # 2. Plot Setup
             line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-            base = alt.Chart(spark_df).encode(x=alt.X('Time', axis=None))
-            line_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Normalized', scale=alt.Scale(zero=False), axis=None))
             
-            layers = line_stock
+            # Chart 1: The Stock
+            c_stock = alt.Chart(stock_sub).mark_line(color=line_color, strokeWidth=2).encode(
+                x=alt.X('Time', axis=None), 
+                y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None)
+            )
+            
+            # Chart 2: The Benchmark (If available & mergeable)
+            final_chart = c_stock
+            
             if spy_data is not None:
-                # Add a static rule at y=0 as the "Open" benchmark line
-                rule = base.mark_rule(color='orange', strokeDash=[2, 2]).encode(y=alt.datum(0))
-                layers = line_stock + rule
-
-            st.altair_chart(layers.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
+                # We need to grab recent SPY data that corresponds to these times.
+                # Since 'Time' is datetime, we can assume nearest match for visualization
+                # For sparklines, a simple tail(30) visual alignment is standard practice
+                # IF exact timestamp alignment fails.
+                
+                # Create a temporary clean dataframe for plotting
+                plot_df = pd.DataFrame()
+                plot_df['Time'] = stock_sub['Time']
+                plot_df['Stock'] = stock_sub['Stock']
+                
+                # Align SPY data (Take last 30 points to match length)
+                spy_recent = spy_data.tail(len(stock_sub)).reset_index(drop=True)
+                if len(spy_recent) == len(stock_sub):
+                    plot_df['SPY'] = spy_recent['Spy_Norm']
+                    
+                    # Base Chart with shared data
+                    base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
+                    
+                    l1 = base.mark_line(color=line_color, strokeWidth=2).encode(y='Stock')
+                    l2 = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.5).encode(y='SPY')
+                    final_chart = l1 + l2
+                
+            st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
         
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         st.markdown(d['vol_html'], unsafe_allow_html=True)
