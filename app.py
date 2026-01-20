@@ -1,4 +1,3 @@
-
 import streamlit as st, yfinance as yf, requests, time, re
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
@@ -6,6 +5,7 @@ import pandas as pd
 import altair as alt 
 import json
 import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
@@ -30,7 +30,7 @@ if 'initialized' not in st.session_state:
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v51_data";
+        const KEY = "penny_pulse_v53_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -657,29 +657,41 @@ def process_news_batch(raw_batch):
         for idx, item in enumerate(raw_batch):
             full_text = fetch_article_text(item['link'])
             content = full_text if len(full_text) > 200 else item['desc']
-            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}"
+            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}\nDate: {item['date_str']}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
-        system_instr = "You are a financial analyst. Read these articles. Identify specific stock tickers. Rank by sentiment. Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK"
-        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user", "content": batch_content}], max_tokens=700)
-        new_results = []
-        lines = res.choices[0].message.content.strip().split("\n")
-        green_count = 0
-        total_signals = 0
-        for l in lines:
-            parts = l.split("|")
-            if len(parts) >= 5: 
-                sig = parts[1].strip()
-                if "🟢" in sig: green_count += 1
-                if "🟢" in sig or "🔴" in sig: total_signals += 1
-                new_results.append({"ticker": parts[0].strip(), "signal": sig, "reason": parts[2].strip(), "title": parts[3].strip(), "link": parts[4].strip()})
-        if total_signals > 0:
-            bull_pct = int((green_count / total_signals) * 100)
-            if bull_pct >= 60: mood = f"🐂 {bull_pct}% BULLISH"
-            elif bull_pct <= 40: mood = f"🐻 {100-bull_pct}% BEARISH"
-            else: mood = f"⚖️ {bull_pct}% NEUTRAL"
-            st.session_state['market_mood'] = mood
+        
+        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL."
+        
+        res = client.chat.completions.create(
+            model="gpt-4o-mini", 
+            messages=[
+                {"role":"system", "content": system_instr}, 
+                {"role":"user", "content": batch_content}
+            ], 
+            response_format={"type": "json_object"},
+            max_tokens=1000
+        )
+        
+        data = json.loads(res.choices[0].message.content)
+        new_results = data.get("articles", [])
+        
+        valid_results = []
+        for r in new_results:
+            if r['link'].startswith("http"):
+                valid_results.append(r)
+        
+        if valid_results:
+            bull_cnt = sum(1 for r in valid_results if "🟢" in r['signal'])
+            tot = len(valid_results)
+            if tot > 0:
+                bull_pct = int((bull_cnt / tot) * 100)
+                if bull_pct >= 60: mood = f"🐂 {bull_pct}% BULLISH"
+                elif bull_pct <= 40: mood = f"🐻 {100-bull_pct}% BEARISH"
+                else: mood = f"⚖️ {bull_pct}% NEUTRAL"
+                st.session_state['market_mood'] = mood
+        
         progress_bar.empty()
-        return new_results
+        return valid_results
     except Exception as e:
         st.warning(f"⚠️ AI Error: {e}")
         return []
@@ -693,32 +705,27 @@ def get_news_cached():
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
-            if r.status_code != 200:
-                print(f"Failed to fetch {u}: {r.status_code}")
-                continue
+            if r.status_code != 200: continue
             
             root = ET.fromstring(r.content)
-            
-            # Robust Finder (RSS vs Atom)
             items = root.findall('.//item')
-            if not items:
-                items = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+            if not items: items = root.findall('.//{http://www.w3.org/2005/Atom}entry')
             
             for i in items[:50]:
                 t = i.find('title')
                 if t is None: t = i.find('{http://www.w3.org/2005/Atom}title')
                 
-                # --- LINK FIX ---
                 l = i.find('link')
                 if l is None: l = i.find('{http://www.w3.org/2005/Atom}link')
                 
-                # Check Text First, Then Href
                 url = None
                 if l is not None:
-                    if l.text and l.text.strip():
-                        url = l.text.strip()
-                    elif 'href' in l.attrib:
-                        url = l.attrib['href']
+                    if l.text and l.text.strip(): url = l.text.strip()
+                    elif 'href' in l.attrib: url = l.attrib['href']
+                
+                d = i.find('pubDate')
+                if d is None: d = i.find('{http://www.w3.org/2005/Atom}published')
+                date_str = d.text if d is not None else ""
                 
                 if url:
                     title_text = t.text if t is not None else "No Title"
@@ -729,11 +736,8 @@ def get_news_cached():
                     t_lower = title_text.lower()
                     if not any(b in t_lower for b in blacklist) and title_text not in seen:
                         seen.add(title_text)
-                        it.append({"title":title_text,"link":url, "desc": desc_text})
-        except Exception as e:
-            print(f"Error parsing {u}: {e}")
-            continue
-            
+                        it.append({"title":title_text,"link":url, "desc": desc_text, "date_str": date_str})
+        except: continue
     return it 
 
 with t3:
@@ -748,7 +752,7 @@ with t3:
         st.session_state['market_mood'] = None
         with st.spinner("Analyzing Top 10 Articles..."):
             raw_news = get_news_cached()
-            if not raw_news: st.error("⚠️ No news sources found. (Check feeds)")
+            if not raw_news: st.error("⚠️ No news sources found.")
             elif not KEY: st.warning("⚠️ No OpenAI Key.")
             else:
                 batch = raw_news[:10]
@@ -761,7 +765,9 @@ with t3:
                     st.info("No relevant tickers found in this batch.")
     if st.session_state.get('news_results'):
         for i, r in enumerate(st.session_state['news_results']):
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            # Display with Timestamp
+            time_tag = f"🕒 {r.get('date_display', 'Recent')}"
+            st.markdown(f"**{r['ticker']} {r['signal']}** | {time_tag} | [{r['title']}]({r['link']})")
             st.caption(r['reason'])
             st.divider() 
         if st.button("⬇️ Load More News (Next 10)", key="load_more_btn"):
