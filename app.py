@@ -4,6 +4,7 @@ import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
 import json
+import xml.etree.ElementTree as ET
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
@@ -28,7 +29,7 @@ if 'initialized' not in st.session_state:
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v49_data";
+        const KEY = "penny_pulse_v50_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -56,37 +57,22 @@ def sync_js(config_json):
     """
     components.html(js, height=0, width=0)
 
-# --- JAVASCRIPT: ROBUST WAKE LOCK (THE ANDROID FIX) ---
+# --- JAVASCRIPT: ROBUST WAKE LOCK ---
 def inject_wake_lock(enable):
     if enable:
         js = """
         <script>
-        // The "Stubborn" Wake Lock Pattern
         let wakeLock = null;
-
         async function requestWakeLock() {
             try {
                 wakeLock = await navigator.wakeLock.request('screen');
                 console.log('Wake Lock active!');
-                
-                // If the lock is broken by the system, try to re-acquire it
-                wakeLock.addEventListener('release', () => {
-                    console.log('Wake Lock released!');
-                });
-            } catch (err) {
-                console.log(`${err.name}, ${err.message}`);
-            }
+                wakeLock.addEventListener('release', () => { console.log('Wake Lock released!'); });
+            } catch (err) { console.log(`${err.name}, ${err.message}`); }
         }
-
-        // 1. Request immediately
         requestWakeLock();
-
-        // 2. Re-request instantly if the page becomes visible again
-        // (This fixes the issue where switching tabs breaks the lock)
         document.addEventListener('visibilitychange', async () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') {
-                requestWakeLock();
-            }
+            if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
         });
         </script>
         """
@@ -119,10 +105,9 @@ def restore_from_file(uploaded_file):
             st.toast("Profile Restored!", icon="✅")
             time.sleep(1)
             st.rerun()
-        except:
-            st.error("Invalid Config File")
+        except: st.error("Invalid Config File")
 
-# --- LOAD STATE FROM URL ---
+# --- LOAD STATE ---
 qp = st.query_params
 current_config = {
     "w": qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
@@ -170,7 +155,6 @@ else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password")
 
 # --- WATCHLIST INPUT ---
 st.sidebar.text_input("Add Tickers (Comma Sep)", value=current_config['w'], key="w_input", on_change=update_params)
-
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
@@ -503,11 +487,11 @@ with c1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Updated: {est_now.strftime('%H:%M:%S EST')}")
 with c2:
-    components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Pulse: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> </span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
+    components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
 
 # --- TICKER ---
 ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD","^GSPTSE","GD-F"]:
+for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
@@ -605,7 +589,7 @@ def render_card(t, inf=None):
     else: st.metric(t, "---", "0.0%")
     st.divider() 
 
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News AI Power"])
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
@@ -702,22 +686,50 @@ def process_news_batch(raw_batch):
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://rss.app/feeds/bTa1Sl4l31RjlKAW.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
+            # Tries to fix "no news sources found" by better error handling
+            if r.status_code != 200:
+                print(f"Failed to fetch {u}: {r.status_code}")
+                continue
+            
+            # Robust parsing for different XML structures (RSS vs Atom)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:50]:
-                t, l = i.find('title').text, i.find('link').text
-                desc = i.find('description').text if i.find('description') is not None else ""
-                if t and t not in seen:
-                    t_lower = t.lower()
-                    if not any(b in t_lower for b in blacklist):
-                        seen.add(t)
-                        it.append({"title":t,"link":l, "desc": desc})
-        except: continue
+            
+            # Find items (RSS uses 'item', Atom uses 'entry')
+            items = root.findall('.//item')
+            if not items:
+                items = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+            
+            for i in items[:50]:
+                # Handle namespaces for Title/Link
+                t = i.find('title')
+                if t is None: t = i.find('{http://www.w3.org/2005/Atom}title')
+                
+                l = i.find('link')
+                if l is None: l = i.find('{http://www.w3.org/2005/Atom}link')
+                
+                # Get text content
+                title_text = t.text if t is not None else "No Title"
+                link_text = l.text if l is not None else (l.attrib.get('href') if l is not None else "")
+                
+                desc = i.find('description')
+                if desc is None: desc = i.find('{http://www.w3.org/2005/Atom}summary')
+                desc_text = desc.text if desc is not None else ""
+
+                if title_text and link_text:
+                    t_lower = title_text.lower()
+                    if not any(b in t_lower for b in blacklist) and title_text not in seen:
+                        seen.add(title_text)
+                        it.append({"title":title_text,"link":link_text, "desc": desc_text})
+        except Exception as e:
+            print(f"Error parsing {u}: {e}")
+            continue
+            
     return it 
 
 with t3:
@@ -732,7 +744,7 @@ with t3:
         st.session_state['market_mood'] = None
         with st.spinner("Analyzing Top 10 Articles..."):
             raw_news = get_news_cached()
-            if not raw_news: st.error("⚠️ No news sources found.")
+            if not raw_news: st.error("⚠️ No news sources found. (Check feeds)")
             elif not KEY: st.warning("⚠️ No OpenAI Key.")
             else:
                 batch = raw_news[:10]
