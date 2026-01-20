@@ -28,12 +28,13 @@ if 'initialized' not in st.session_state:
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v46_data";
+        const KEY = "penny_pulse_v47_data";
         const fromPython = {config_json};
+        
+        // 1. RESTORE
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
         
-        // 1. RESTORE
         if (!urlParams.has("w") && saved) {{
             try {{
                 const c = JSON.parse(saved);
@@ -59,7 +60,6 @@ def sync_js(config_json):
     components.html(js, height=0, width=0)
 
 # --- JAVASCRIPT: WAKE LOCK (KEEP SCREEN ON) ---
-# This script keeps the mobile screen awake if the toggle is True
 def inject_wake_lock(enable):
     if enable:
         js = """
@@ -86,7 +86,7 @@ def update_params():
     st.query_params["ao"] = str(st.session_state.a_on_input).lower()
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
-    st.query_params["ko"] = str(st.session_state.keep_on_input).lower() # New param for Wake Lock
+    st.query_params["ko"] = str(st.session_state.keep_on_input).lower()
 
 # --- RESTORE FROM FILE ---
 def restore_from_file(uploaded_file):
@@ -115,13 +115,11 @@ current_config = {
     "ao": qp.get("ao", "false") == "true",
     "fo": qp.get("fo", "false") == "true",
     "no": qp.get("no", "false") == "true",
-    "ko": qp.get("ko", "false") == "true" # Keep On default false
+    "ko": qp.get("ko", "false") == "true"
 }
 
 config_json = json.dumps(current_config)
 sync_js(config_json)
-
-# Apply Wake Lock if enabled
 inject_wake_lock(current_config["ko"])
 
 PORT = {
@@ -209,8 +207,7 @@ st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_i
 st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
 st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
 st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
-# --- NEW: WAKE LOCK TOGGLE ---
-st.sidebar.toggle("💡 Keep Screen On (Mobile)", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping so alerts keep running.")
+st.sidebar.toggle("💡 Keep Screen On (Mobile)", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
 st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
 a_tick = st.session_state.a_tick_input
@@ -226,17 +223,6 @@ with st.sidebar.expander("📦 Backup & Restore"):
     st.download_button(label="📥 Download Backup", data=export_data, file_name="my_pulse_config.json", mime="application/json")
     uploaded = st.file_uploader("📤 Restore File", type=["json"])
     if uploaded: restore_from_file(uploaded)
-
-# --- SIMULATION MODES ---
-st.sidebar.divider()
-st.sidebar.caption("⚡ Simulation Mode")
-c_sim1, c_sim2 = st.sidebar.columns(2)
-with c_sim1:
-    if st.button("🚀 Bull Sim"):
-        log_alert("PERFECT STORM: HIVE.V (Score: 85) - 🚀 Buying Pressure!", title="Bull Storm")
-with c_sim2:
-    if st.button("⚠️ Crash Sim"):
-        log_alert("CRASH WARNING: TD.TO (Score: -85) - ⚠️ Dumping!", title="Crash Alert", is_crash=True)
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
@@ -513,7 +499,7 @@ def check_flip(ticker, current_trend):
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
             msg = f"{ticker} flipped to {current_trend}"
             st.toast(msg, icon="⚠️")
-            log_alert(msg)
+            log_alert(msg, title="Trend Flip Alert")
     st.session_state['last_trends'][ticker] = current_trend 
 
 # --- DASHBOARD LOGIC (SMART CHART MERGE) ---
