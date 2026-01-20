@@ -3,32 +3,53 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
-import base64
+import json
+import os
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- SESSION STATE ---
+# --- CONFIGURATION & PERSISTENCE ---
+CONFIG_FILE = "penny_pulse_data.json"
+
+def load_config():
+    """Loads user settings from local JSON file."""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except: pass
+    return {}
+
+def save_config():
+    """Saves current widget states to local JSON file."""
+    # We grab the current state of widgets directly
+    config = {
+        "watchlist": st.session_state.get("w_input", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
+        "alert_ticker": st.session_state.get("a_tick_input", "SPY"),
+        "alert_price": st.session_state.get("a_price_input", 0.0),
+        "alert_active": st.session_state.get("a_on_input", False),
+        "flip_active": st.session_state.get("flip_on_input", False)
+    }
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f)
+
+# --- LOAD STATE ON STARTUP ---
+user_config = load_config()
+
+# --- SESSION STATE INITIALIZATION ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'scanned_count' not in st.session_state: st.session_state['scanned_count'] = 0
 if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None 
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'alert_log' not in st.session_state: st.session_state['alert_log'] = [] 
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
-# Session Cache
 if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
 if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
-
-# --- CACHE FOR SPY BENCHMARK ---
 if 'spy_cache' not in st.session_state: st.session_state['spy_cache'] = None
 if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] = datetime.min
 
-if 'saved_a_tick' not in st.session_state: st.session_state['saved_a_tick'] = "SPY"
-if 'saved_a_price' not in st.session_state: st.session_state['saved_a_price'] = 0.0
-if 'saved_a_on' not in st.session_state: st.session_state['saved_a_on'] = False
-if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = False 
-
-# --- PORTFOLIO ---
+# --- PORTFOLIO (Hardcoded for now - editing requires complex UI) ---
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
@@ -49,13 +70,10 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- PERMANENT WATCHLIST ---
-default_list = "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V, IVN.TO, CCO.TO, BN.TO"
-
-qp = st.query_params
-w_str = qp.get("watchlist", default_list)
-u_in = st.sidebar.text_input("Add Tickers", value=w_str)
-if u_in != w_str: st.query_params["watchlist"] = u_in
+# --- PERSISTENT WATCHLIST INPUT ---
+# We use 'value' from loaded config, and 'on_change' to trigger save
+default_w = user_config.get("watchlist", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
+u_in = st.sidebar.text_input("Add Tickers", value=default_w, key="w_input", on_change=save_config)
 
 WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
@@ -77,11 +95,15 @@ def log_alert(msg):
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
     play_alert_sound()
 
-# --- PERSISTENT WIDGETS ---
-a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_tick")
-a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
-a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
-flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on") 
+# --- PERSISTENT ALERT WIDGETS ---
+# Loading defaults from config file
+def_a_tick = user_config.get("alert_ticker", "SPY")
+if def_a_tick not in ALL: def_a_tick = ALL[0] if ALL else "SPY"
+
+a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=sorted(ALL).index(def_a_tick) if def_a_tick in sorted(ALL) else 0, key="a_tick_input", on_change=save_config)
+a_price = st.sidebar.number_input("Target ($)", value=user_config.get("alert_price", 0.0), step=0.5, key="a_price_input", on_change=save_config)
+a_on = st.sidebar.toggle("Active Price Alert", value=user_config.get("alert_active", False), key="a_on_input", on_change=save_config)
+flip_on = st.sidebar.toggle("Alert on Trend Flip", value=user_config.get("flip_active", False), key="flip_on_input", on_change=save_config) 
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
@@ -92,13 +114,12 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- HELPER: FETCH SPY BENCHMARK (Intraday) ---
+# --- HELPER: FETCH SPY BENCHMARK ---
 def get_spy_benchmark():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
         if (now - st.session_state['spy_last_fetch']).seconds < 60:
             return st.session_state['spy_cache']
-    
     try:
         spy = yf.Ticker("SPY")
         h = spy.history(period="1d", interval="5m", prepost=True)
@@ -111,7 +132,7 @@ def get_spy_benchmark():
     except: pass
     return None
 
-# --- SECTOR & EARNINGS (HARD CACHED) ---
+# --- METADATA & RATINGS (HARD CACHED) ---
 def get_meta_data(s):
     if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
     try:
@@ -120,32 +141,22 @@ def get_meta_data(s):
         sec_map = {"Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH", "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND", "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"}
         sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
         earn_html = "N/A"
-        
         cal = tk.calendar
         dates = []
         if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
         elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
-        
         if len(dates) > 0:
             nxt = dates[0]
             if hasattr(nxt, "date"): nxt = nxt.date()
             days = (nxt - datetime.now().date()).days
-            
-            if 0 <= days <= 7: 
-                earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px;'>⚠️ {days}d</span>"
-            elif 8 <= days <= 30: 
-                earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {days}d</span>"
-            elif days > 30:
-                d_str = nxt.strftime("%b %d")
-                earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {d_str}</span>"
-        
+            if 0 <= days <= 7: earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px;'>⚠️ {days}d</span>"
+            elif 8 <= days <= 30: earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {days}d</span>"
+            elif days > 30: earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {nxt.strftime('%b %d')}</span>"
         res = (sector_code, earn_html)
         st.session_state['mem_meta'][s] = res
         return res
-    except:
-        return "", "N/A" 
+    except: return "", "N/A" 
 
-# --- ANALYST RATINGS (HARD CACHED) ---
 def get_rating_cached(s):
     if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
     try:
@@ -157,13 +168,10 @@ def get_rating_cached(s):
         elif "HOLD" in rec: res = ("✋ HOLD", "#FFC107")
         elif "SELL" in rec: res = ("🔻 SELL", "#FF4B4B")
         elif "STRONG SELL" in rec: res = ("🆘 STRONG SELL", "#FF0000")
-        
         if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
         return res
-    except:
-        return "N/A", "#888"
+    except: return "N/A", "#888"
 
-# --- AI SIGNAL LOGIC ---
 def get_ai_signal(rsi, vol_ratio, trend, price_change):
     score = 0
     if rsi >= 80: score -= 3
@@ -174,22 +182,18 @@ def get_ai_signal(rsi, vol_ratio, trend, price_change):
     elif vol_ratio > 1.2: score += 1 if price_change > 0 else -1
     if trend == "BULL": score += 1
     elif trend == "BEAR": score -= 1
-    
     if score >= 3: return "🚀 RALLY LIKELY", "#00ff00"
     elif score >= 1: return "🟢 BULLISH BIAS", "#4caf50"
     elif score <= -3: return "⚠️ PULLBACK RISK", "#ff0000"
     elif score <= -1: return "🔴 BEARISH BIAS", "#ff4b4b"
     return "💤 CONSOLIDATION", "#888" 
 
-# --- LIVE PRICE & CHART ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
     if not s or s == "": return None
     s = s.strip().upper()
-    
     p_reg, pv, dh, dl = 0.0, 0.0, 0.0, 0.0
     p_ext = 0.0
-    
     tk = yf.Ticker(s)
     is_crypto = s.endswith("-USD")
     valid_data = False
@@ -200,22 +204,18 @@ def get_data_cached(s):
             pv = tk.fast_info['previous_close']
             dh = tk.fast_info['day_high']
             dl = tk.fast_info['day_low']
-            if p_reg is not None and pv is not None: 
-                valid_data = True
+            if p_reg is not None and pv is not None: valid_data = True
         except: pass
     
     chart_data = None
     golden_cross_html = ""
-    
     try:
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
-        
         if not h.empty:
             start_price = h['Close'].iloc[0]
             h['Normalized'] = ((h['Close'] - start_price) / start_price) * 100
             chart_data = h
-            
             if not valid_data or is_crypto:
                 p_reg = h['Close'].iloc[-1]
                 if is_crypto: pv = h['Open'].iloc[0] 
@@ -225,23 +225,18 @@ def get_data_cached(s):
                 dl = h['Low'].min()
                 valid_data = True
             p_ext = h['Close'].iloc[-1]
-            
             try:
                 hist_long = tk.history(period="1y", interval="1d")
                 if len(hist_long) > 200:
                     ma50 = hist_long['Close'].rolling(window=50).mean().iloc[-1]
                     ma200 = hist_long['Close'].rolling(window=200).mean().iloc[-1]
-                    if ma50 > ma200:
-                        golden_cross_html = " <span style='background:#FFD700; color:black; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>🌟 GOLDEN CROSS</span>"
+                    if ma50 > ma200: golden_cross_html = " <span style='background:#FFD700; color:black; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px; font-weight:bold;'>🌟 GOLDEN CROSS</span>"
             except: pass
-
     except: pass
     
     if not valid_data or pv == 0: return None
-    
     try: d_reg_pct = ((p_reg - pv) / pv) * 100
     except: d_reg_pct = 0.0
-
     if p_ext == 0: p_ext = p_reg
     try: d_ext_pct = ((p_ext - pv) / pv) * 100
     except: d_ext_pct = 0.0
@@ -250,56 +245,44 @@ def get_data_cached(s):
     lbl = "⚡ LIVE"
     x_str = f"<b>{lbl}: ${p_ext:,.2f} <span style='color:{c_hex};'>({d_ext_pct:+.2f}%)</span></b>"
     
-    rng_pct = 50
-    rng_rate = "⚖️ Average"
+    rng_pct = 50; rng_rate = "⚖️ Average"
     if dh > dl:
-        raw_pct = (p_reg - dl) / (dh - dl)
-        rng_pct = max(0, min(1, raw_pct)) * 100
+        raw_pct = (p_reg - dl) / (dh - dl); rng_pct = max(0, min(1, raw_pct)) * 100
         if raw_pct >= 0.9: rng_rate = "🚀 Top (Peak)"
         elif raw_pct >= 0.7: rng_rate = "📈 Near Highs"
         elif raw_pct <= 0.1: rng_rate = "📉 Bottom (Dip)"
         elif raw_pct <= 0.3: rng_rate = "📉 Near Lows"
         else: rng_rate = "⚖️ Mid-Range"
-    
     rng_html = f"""<div style="font-size:11px; color:#666; margin-top:5px;">Day Range: <b>{rng_rate}</b></div><div style="display:flex; align-items:center; font-size:10px; color:#888; margin-top:2px;"><span style="margin-right:4px;">L</span><div style="flex-grow:1; height:4px; background:#333; border-radius:2px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:4px;">H</span></div>""" 
 
     rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
     rsi_html, vol_html = "", ""
-    
     try:
         hm = tk.history(period="1mo")
         if not hm.empty:
-            cur_v = hm['Volume'].iloc[-1]
-            avg_v = hm['Volume'].iloc[:-1].mean() if len(hm) > 1 else cur_v
+            cur_v = hm['Volume'].iloc[-1]; avg_v = hm['Volume'].iloc[:-1].mean() if len(hm) > 1 else cur_v
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
             ratio = cur_v / avg_v if avg_v > 0 else 1.0
-            
             if ratio >= 1.0: vol_tag = "⚡ Surge"
             elif ratio >= 0.5: vol_tag = "🌊 Steady"
             else: vol_tag = "💤 Quiet"
-            
             vol_pct = min(100, (ratio / 2.0) * 100)
             vol_color = "#2196F3" if ratio > 1.0 else "#555"
             vol_html = f"""<div style="font-size:11px; color:#666; margin-top:8px;">Volume Strength: <b>{vol_tag}</b></div><div style="width:100%; height:6px; background:#333; border-radius:3px; margin-top:2px;"><div style="width:{vol_pct}%; height:100%; background:{vol_color}; border-radius:3px;"></div></div>"""
-            
             if len(hm)>=14:
                 d_diff = hm['Close'].diff()
                 g, l = d_diff.where(d_diff>0,0).rolling(14).mean(), (-d_diff.where(d_diff<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
-                
                 rsi_color = "#4caf50" 
                 if rsi >= 70: rsi_color = "#ff4b4b"; rl = "Hot (Overbought)"
                 elif rsi <= 30: rsi_color = "#ff4b4b"; rl = "Cold (Oversold)"
                 else: rl = "Neutral (Safe)"
-                
                 rsi_html = f"""<div style="font-size:11px; color:#666; margin-top:8px;">RSI Momentum: <b>{rl}</b></div><div style="width:100%; height:6px; background:#333; border-radius:3px; margin-top:2px;"><div style="width:{rsi}%; height:100%; background:{rsi_color}; border-radius:3px;"></div></div>"""
-
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
                 if macd.iloc[-1] > 0: raw_trend = "BULL"; tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
                 else: raw_trend = "BEAR"; tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
                 ai_txt, ai_col = get_ai_signal(rsi, ratio, raw_trend, d_reg_pct)
     except: pass
-    
     return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "gc":golden_cross_html} 
 
 # --- HEADER ---
@@ -340,17 +323,14 @@ def check_flip(ticker, current_trend):
 def render_card(t, inf=None):
     d = get_data_cached(t)
     spy_data = get_spy_benchmark()
-    
     if d:
         check_flip(t, d['raw_trend'])
         rat_txt, rat_col = get_rating_cached(t)
         sec, earn = get_meta_data(t)
         nm = NAMES.get(t, t)
-        
         if t.endswith(".TO"): nm += " (TSX)"
         elif t.endswith(".V"): nm += " (TSXV)"
         elif t.endswith(".CN"): nm += " (CSE)"
-        
         sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
         url = f"https://finance.yahoo.com/quote/{t}"
         st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
@@ -376,29 +356,18 @@ def render_card(t, inf=None):
 
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange)</div>", unsafe_allow_html=True)
         if d['chart'] is not None:
-            # FIX: Only select what we need to prevent shape mismatch
             subset = d['chart'].tail(30).reset_index()
-            
-            # Create a clean minimal dataframe for plotting
             spark_df = pd.DataFrame()
             spark_df['Time'] = subset.iloc[:, 0]
             spark_df['Normalized'] = subset['Normalized']
             
             line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
             base = alt.Chart(spark_df).encode(x=alt.X('Time', axis=None))
-            
-            # Stock Line (Thick)
             line_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Normalized', scale=alt.Scale(zero=False), axis=None))
             
-            # SPY Overlay (Orange)
             layers = line_stock
             if spy_data is not None:
-                # Approximate overlay by mapping SPY recent data if available
-                # Note: Exact timestamp matching is complex in simple sparklines, 
-                # so we plot SPY as a separate layer if lengths match roughly or just use simpler approach.
-                # For v27.2 stability: We focus on just getting the stock line perfect first.
-                # If we want SPY, we need to join the dataframes. 
-                # Let's add a static rule at y=0 to show "Open Price" as the benchmark for now.
+                # Add a static rule at y=0 as the "Open" benchmark line
                 rule = base.mark_rule(color='orange', strokeDash=[2, 2]).encode(y=alt.datum(0))
                 layers = line_stock + rule
 
@@ -407,7 +376,6 @@ def render_card(t, inf=None):
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         st.markdown(d['vol_html'], unsafe_allow_html=True)
         st.markdown(d['rsi_html'], unsafe_allow_html=True)
-        
     else: st.metric(t, "---", "0.0%")
     st.divider() 
 
@@ -427,7 +395,6 @@ with t2:
             tot_val += curr
             tot_pl += (curr - (inf['e'] * q))
             day_pl += (d['d_raw'] * q)
-            
     st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
@@ -466,13 +433,8 @@ def process_news_batch(raw_batch):
             content = full_text if len(full_text) > 200 else item['desc']
             batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
-        
         system_instr = "You are a financial analyst. Read these articles. Identify specific stock tickers. Rank by sentiment. Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK"
-        res = client.chat.completions.create(
-            model="gpt-4o-mini", 
-            messages=[{"role":"system", "content": system_instr}, {"role":"user", "content": batch_content}], 
-            max_tokens=700
-        )
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user", "content": batch_content}], max_tokens=700)
         new_results = []
         lines = res.choices[0].message.content.strip().split("\n")
         green_count = 0
@@ -484,14 +446,12 @@ def process_news_batch(raw_batch):
                 if "🟢" in sig: green_count += 1
                 if "🟢" in sig or "🔴" in sig: total_signals += 1
                 new_results.append({"ticker": parts[0].strip(), "signal": sig, "reason": parts[2].strip(), "title": parts[3].strip(), "link": parts[4].strip()})
-        
         if total_signals > 0:
             bull_pct = int((green_count / total_signals) * 100)
             if bull_pct >= 60: mood = f"🐂 {bull_pct}% BULLISH"
             elif bull_pct <= 40: mood = f"🐻 {100-bull_pct}% BEARISH"
             else: mood = f"⚖️ {bull_pct}% NEUTRAL"
             st.session_state['market_mood'] = mood
-        
         progress_bar.empty()
         return new_results
     except Exception as e:
@@ -525,7 +485,6 @@ with t3:
     with c_n2: 
         if st.session_state['market_mood']:
             st.markdown(f"<div style='background:#333; color:white; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>Mood: {st.session_state['market_mood']}</div>", unsafe_allow_html=True)
-    
     if st.button("Deep Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
         st.session_state['news_results'] = [] 
         st.session_state['scanned_count'] = 0
@@ -543,13 +502,11 @@ with t3:
                     st.rerun()
                 else:
                     st.info("No relevant tickers found in this batch.")
-
     if st.session_state.get('news_results'):
         for i, r in enumerate(st.session_state['news_results']):
             st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
             st.caption(r['reason'])
             st.divider() 
-            
         if st.button("⬇️ Load More News (Next 10)", key="load_more_btn"):
             with st.spinner("Analyzing Next 10 Articles..."):
                 raw_news = get_news_cached()
