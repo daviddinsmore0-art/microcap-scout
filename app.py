@@ -12,36 +12,44 @@ except: pass
 # --- CONFIGURATION & PERSISTENCE ---
 CONFIG_FILE = "penny_pulse_data.json"
 
+def load_config():
+    """Load settings from JSON into a dictionary."""
+    default = {
+        "w_input": "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
+        "a_tick_input": "SPY",
+        "a_price_input": 0.0,
+        "a_on_input": False,
+        "flip_on_input": False,
+        "notify_input": False
+    }
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                saved = json.load(f)
+                default.update(saved)
+        except: pass
+    return default
+
 def save_config():
-    """Save current Session State to JSON."""
+    """Dump current Session State keys to JSON."""
     config = {
-        "watchlist": st.session_state.get("w_input"),
-        "alert_ticker": st.session_state.get("a_tick_input"),
-        "alert_price": st.session_state.get("a_price_input"),
-        "alert_active": st.session_state.get("a_on_input"),
-        "flip_active": st.session_state.get("flip_on_input"),
-        "notify_desktop": st.session_state.get("notify_input")
+        "w_input": st.session_state.get("w_input"),
+        "a_tick_input": st.session_state.get("a_tick_input"),
+        "a_price_input": st.session_state.get("a_price_input"),
+        "a_on_input": st.session_state.get("a_on_input"),
+        "flip_on_input": st.session_state.get("flip_on_input"),
+        "notify_input": st.session_state.get("notify_input")
     }
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f)
     except: pass
 
-# --- INITIALIZATION (RUNS ONCE) ---
+# --- INITIALIZATION (STRICT ONE-TIME LOAD) ---
 if 'initialized' not in st.session_state:
-    data = {}
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                data = json.load(f)
-        except: pass
-    
-    st.session_state['w_input'] = data.get('watchlist', "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
-    st.session_state['a_tick_input'] = data.get('alert_ticker', "SPY")
-    st.session_state['a_price_input'] = float(data.get('alert_price', 0.0))
-    st.session_state['a_on_input'] = data.get('alert_active', False)
-    st.session_state['flip_on_input'] = data.get('flip_active', False)
-    st.session_state['notify_input'] = data.get('notify_desktop', False)
+    user_conf = load_config()
+    for key, val in user_conf.items():
+        st.session_state[key] = val
     st.session_state['initialized'] = True
 
 # --- SESSION STATE SETUP ---
@@ -55,7 +63,7 @@ if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
 if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
 if 'spy_cache' not in st.session_state: st.session_state['spy_cache'] = None
 if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] = datetime.min
-if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None # For Visual Alarm
+if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None
 
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
@@ -77,9 +85,13 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
+# --- WATCHLIST INPUT ---
+# NOTE: We do NOT use 'value=' here. 'key=' binds it to the loaded session_state automatically.
 st.sidebar.text_input("Add Tickers", key="w_input", on_change=save_config)
-u_in = st.session_state['w_input']
-WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
+
+# Safe Parsing
+raw_w = st.session_state.get('w_input', "")
+WATCH = [x.strip().upper() for x in raw_w.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
 if st.sidebar.button("💾 Save Config"):
@@ -118,22 +130,15 @@ def log_alert(msg, title="Penny Pulse Alert"):
     t_stamp = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M')
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
     play_alert_sound()
-    # Trigger Visual Alarm
     st.session_state['banner_msg'] = f"🚨 {msg.upper()} 🚨"
-    # Try Desktop Notify (Best Effort)
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
 
-# --- AUDIO PRIMER FOR MOBILE ---
-if st.sidebar.button("🔊 Test Audio (Tap Once)"):
-    play_alert_sound()
-    st.toast("Audio System Armed!", icon="🔊")
-
 # --- ALERT WIDGETS ---
-curr_tick = st.session_state.get('a_tick_input', 'SPY')
-if curr_tick not in ALL and ALL: 
-    curr_tick = sorted(ALL)[0]
-    st.session_state['a_tick_input'] = curr_tick
+# Validate Ticker selection
+current_choice = st.session_state.get('a_tick_input')
+if current_choice not in ALL:
+    if ALL: st.session_state['a_tick_input'] = sorted(ALL)[0]
 
 st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="a_tick_input", on_change=save_config)
 st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=save_config)
@@ -141,6 +146,7 @@ st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=save_config)
 st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=save_config) 
 st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=save_config, help="Works on Desktop/HTTPS only.")
 
+# Short variables for easy access
 a_tick = st.session_state['a_tick_input']
 a_price = st.session_state['a_price_input']
 a_on = st.session_state['a_on_input']
@@ -351,8 +357,6 @@ if st.session_state['banner_msg']:
     }}
     </style>
     """, unsafe_allow_html=True)
-    # Clear after show so it doesn't persist forever on reload (Logic: user must dismiss manually or it clears next cycle)
-    # For now, we leave it for 1 cycle.
     if st.button("❌ Dismiss Alarm"):
         st.session_state['banner_msg'] = None
         st.rerun()
@@ -429,33 +433,35 @@ def render_card(t, inf=None):
 
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        # --- ROBUST CHART MERGING LOGIC ---
+        # --- SMART CHART MERGING LOGIC ---
         if d['chart'] is not None and not d['chart'].empty:
-            # 1. Prepare Stock Data (Index is DateTime)
+            # 1. Get Stock Data
             stock_series = d['chart']['Close'].tail(30)
             
-            # Ensure we have enough data points to plot a line
             if len(stock_series) > 1:
                 # Normalize Stock to start at 0
                 start_p = stock_series.iloc[0]
                 stock_norm = ((stock_series - start_p) / start_p) * 100
                 
-                # Create DataFrame
+                # Create DataFrame with 'Time' from Index
                 plot_df = pd.DataFrame({'Stock': stock_norm})
                 plot_df = plot_df.reset_index().rename(columns={plot_df.index.name: 'Time'})
                 
-                # 2. Try to Merge SPY
+                # 2. Try to Align SPY
                 has_spy = False
                 if spy_data is not None and not spy_data.empty:
                     try:
-                        # Reindex SPY to match Stock timestamps exactly (Nearest match tolerance)
+                        # Reindex SPY to match Stock timestamps exactly (nearest match within 10 min)
                         spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
                         
                         if not spy_aligned['Close'].isnull().all():
                             spy_vals = spy_aligned['Close']
-                            spy_start = spy_vals.iloc[0]
-                            plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
-                            has_spy = True
+                            # We must re-normalize SPY to start at 0 RELATIVE TO THIS WINDOW
+                            valid_spy = spy_vals.dropna()
+                            if not valid_spy.empty:
+                                spy_start = valid_spy.iloc[0]
+                                plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
+                                has_spy = True
                     except: pass
 
                 # 3. Plotting
@@ -471,7 +477,7 @@ def render_card(t, inf=None):
                     
                 st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
             else:
-                st.caption("Not enough intraday data for chart.")
+                st.caption("Not enough intraday data.")
         else:
             st.caption("Chart data unavailable.")
         
