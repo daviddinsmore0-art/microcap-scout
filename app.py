@@ -7,11 +7,10 @@ import altair as alt
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- SESSION STATE & MEMORY SAFETY NET ---
+# --- SESSION STATE ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
-# These two are the new "Safety Nets"
 if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
 if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
 
@@ -58,7 +57,6 @@ flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on")
 
 # --- SECTOR & EARNINGS (With Memory Backup) ---
 def get_meta_data(s):
-    # 1. Try to fetch fresh data
     try:
         tk = yf.Ticker(s)
         sec_raw = tk.info.get('sector', 'N/A')
@@ -84,40 +82,29 @@ def get_meta_data(s):
                 d_str = nxt.strftime("%b %d")
                 earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {d_str}</span>"
         
-        # Success? Save to memory
         if sector_code or earn_html:
             st.session_state['mem_meta'][s] = (sector_code, earn_html)
         return sector_code, earn_html
         
     except:
-        # 2. Failure? Load from memory
-        if s in st.session_state['mem_meta']:
-            return st.session_state['mem_meta'][s]
+        if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
         return "", "" 
 
 # --- ANALYST RATINGS (With Memory Backup) ---
 def get_rating_cached(s):
-    # 1. Try to fetch fresh data
     try:
         info = yf.Ticker(s).info
         rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
         res = ("N/A", "#888")
-        
         if "STRONG BUY" in rec: res = ("🌟 STRONG BUY", "#00C805")
         elif "BUY" in rec: res = ("✅ BUY", "#4caf50")
         elif "HOLD" in rec: res = ("✋ HOLD", "#FFC107")
         elif "SELL" in rec: res = ("🔻 SELL", "#FF4B4B")
         elif "STRONG SELL" in rec: res = ("🆘 STRONG SELL", "#FF0000")
-        
-        # Success? Save to memory
-        if res[0] != "N/A":
-            st.session_state['mem_ratings'][s] = res
+        if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
         return res
-        
     except:
-        # 2. Failure? Load from memory
-        if s in st.session_state['mem_ratings']:
-            return st.session_state['mem_ratings'][s]
+        if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
         return "N/A", "#888"
 
 # --- AI SIGNAL LOGIC ---
@@ -209,7 +196,7 @@ with c1:
 with c2:
     components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
 
-# --- TICKER (ADDED TSX) ---
+# --- TICKER (WITH TSX) ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
     d = get_data_cached(t)
@@ -257,14 +244,12 @@ def render_card(t, inf=None):
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
         st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
-
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         
         rating_html = f"<br><span style='font-weight:900; color:black;'>ANALYST RATING:</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>" if rat_txt != "N/A" else ""
         earn_display = f"<br><span style='font-weight:900; color:black;'>EARNINGS:</span> {earn}" if earn else ""
         
         meta_html = f"<div style='font-size:16px; margin-bottom:5px; line-height:1.6;'><b>Trend:</b> {d['tr']}{rating_html}{earn_display}</div>"
-        
         st.markdown(meta_html, unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
@@ -320,45 +305,4 @@ def get_news_cached():
             root = ET.fromstring(r.content)
             for i in root.findall('.//item')[:5]:
                 t, l = i.find('title').text, i.find('link').text
-                if t and t not in seen:
-                    t_lower = t.lower()
-                    if not any(b in t_lower for b in blacklist):
-                        seen.add(t); it.append({"title":t,"link":l})
-        except: continue
-    return it 
-
-with t3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate Report", type="primary", key="news_btn"):
-        with st.spinner("Scanning..."):
-            raw = get_news_cached()
-            if not raw: st.error("⚠️ No news sources responded.")
-            elif not KEY:
-                st.warning("⚠️ No OpenAI Key. Showing Headlines.")
-                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
-            else:
-                try:
-                    from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Filter: stocks/finance only. Format: Ticker | Signal (🟢/🔴/⚪) | Reason."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=400)
-                    enrich = []
-                    lines = res.choices[0].message.content.strip().split("\n")
-                    for l in lines:
-                        parts = l.split("|")
-                        if len(parts)>=3: enrich.append({"ticker":parts[0].strip(),"signal":parts[1].strip(),"reason":parts[2].strip(),"title":parts[0],"link":"#"})
-                    if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw]
-                    else: st.session_state['news_results'] = enrich
-                except:
-                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
-    if st.session_state.get('news_results'):
-        for r in st.session_state['news_results']:
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider() 
-
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
+                if t and t not in
