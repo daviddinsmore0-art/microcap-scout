@@ -10,7 +10,7 @@ except: pass
 # --- SESSION STATE ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'scanned_count' not in st.session_state: st.session_state['scanned_count'] = 0
-if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None # Stores "80% Bullish" string
+if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None 
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
 if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
@@ -183,16 +183,15 @@ def get_data_cached(s):
     c_ext = "green" if d_ext_pct >= 0 else "red"
     x_str = f"**Live: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**"
     
-    # --- VISUAL BAR HELPERS ---
-    
-    # 1. Day Range Bar
+    # --- VISUALS ---
+    # 1. Day Range
     try: rng_pct = max(0, min(1, (p_reg - dl) / (dh - dl))) * 100 if (dh > dl) else 50
     except: rng_pct = 50
-    rng_html = f"""<div style="display:flex; align-items:center; font-size:10px; color:#888; margin-top:2px;"><span style="margin-right:4px;">L</span><div style="flex-grow:1; height:4px; background:#333; border-radius:2px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:4px;">H</span></div>""" 
+    # Added "Day Range" label
+    rng_html = f"""<div style="font-size:11px; color:#666; margin-top:5px;">Day Range (Low - High)</div><div style="display:flex; align-items:center; font-size:10px; color:#888; margin-top:2px;"><span style="margin-right:4px;">L</span><div style="flex-grow:1; height:4px; background:#333; border-radius:2px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:4px;">H</span></div>""" 
 
     rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
-    rsi_html = ""
-    vol_html = ""
+    rsi_html, vol_html = "", ""
     
     try:
         hm = tk.history(period="1mo")
@@ -202,28 +201,30 @@ def get_data_cached(s):
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
             ratio = cur_v / avg_v if avg_v > 0 else 1.0
             
-            # 2. Volume Surge Bar (Blue)
-            # Cap at 2.0x (200%) for the visual bar
+            # 2. Volume Bar
+            if ratio >= 1.0: vol_tag = "⚡ Surge"
+            elif ratio >= 0.5: vol_tag = "🌊 Steady"
+            else: vol_tag = "💤 Quiet"
+            
             vol_pct = min(100, (ratio / 2.0) * 100)
             vol_color = "#2196F3" if ratio > 1.0 else "#555"
-            vol_html = f"""<div style="font-size:12px; font-weight:bold; margin-top:5px;">Vol: {v_str}</div><div style="width:100%; height:6px; background:#333; border-radius:3px; margin-top:2px;"><div style="width:{vol_pct}%; height:100%; background:{vol_color}; border-radius:3px;"></div></div>"""
-            
-            if ratio >= 1.0: vol_tag = "⚡ SURGE"
-            elif ratio >= 0.5: vol_tag = "🌊 STEADY"
-            else: vol_tag = "💤 QUIET"
+            # Added "Volume Strength" label
+            vol_html = f"""<div style="font-size:11px; color:#666; margin-top:8px;">Volume Strength: <b>{vol_tag}</b></div><div style="width:100%; height:6px; background:#333; border-radius:3px; margin-top:2px;"><div style="width:{vol_pct}%; height:100%; background:{vol_color}; border-radius:3px;"></div></div>"""
             
             if len(hm)>=14:
                 d_diff = hm['Close'].diff()
                 g, l = d_diff.where(d_diff>0,0).rolling(14).mean(), (-d_diff.where(d_diff<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
                 
-                # 3. RSI Bar (Gradient)
-                # Green in middle (50), Red at extremes (0, 100)
-                rsi_color = "#4caf50" # Default Green
-                if rsi >= 70 or rsi <= 30: rsi_color = "#ff4b4b" # Red
-                rsi_html = f"""<div style="font-size:12px; font-weight:bold; margin-top:5px;">RSI: {rsi:.0f}</div><div style="width:100%; height:6px; background:#333; border-radius:3px; margin-top:2px;"><div style="width:{rsi}%; height:100%; background:{rsi_color}; border-radius:3px;"></div></div>"""
+                # 3. RSI Bar
+                rsi_color = "#4caf50" 
+                if rsi >= 70: rsi_color = "#ff4b4b"; rl = "Hot (Overbought)"
+                elif rsi <= 30: rsi_color = "#ff4b4b"; rl = "Cold (Oversold)"
+                else: rl = "Neutral (Safe)"
+                
+                # Added "RSI Momentum" label
+                rsi_html = f"""<div style="font-size:11px; color:#666; margin-top:8px;">RSI Momentum: <b>{rl}</b></div><div style="width:100%; height:6px; background:#333; border-radius:3px; margin-top:2px;"><div style="width:{rsi}%; height:100%; background:{rsi_color}; border-radius:3px;"></div></div>"""
 
-                rl = "🔥 HOT" if rsi >= 70 else "❄️ COLD" if rsi <= 30 else "😐 OK"
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
                 if macd.iloc[-1] > 0: raw_trend = "BULL"; tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
                 else: raw_trend = "BEAR"; tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
@@ -232,7 +233,7 @@ def get_data_cached(s):
     
     return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col} 
 
-# --- HEADER & COUNTDOWN & EST TIME ---
+# --- HEADER ---
 est_now = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1, 1])
 with c1:
@@ -264,7 +265,7 @@ def check_flip(ticker, current_trend):
             st.toast(f"🔀 TREND FLIP: {ticker} switched to {current_trend}!", icon="⚠️")
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC (UPDATED WITH SPARKLINES & BARS) ---
+# --- DASHBOARD LOGIC (REORDERED) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     if d:
@@ -288,35 +289,29 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
+        # 1. AI Signal
+        st.markdown(f"<div style='margin-bottom:5px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
         
-        # --- NEW VISUALS SECTION ---
-        # 1. Sparkline (Tiny Chart)
+        # 2. Key Metadata (Trend / Rating / Earnings)
+        rating_html = f" <span style='color:#ccc;'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>" if rat_txt != "N/A" else ""
+        earn_display = f" <span style='color:#ccc;'>|</span> {earn}" if earn else ""
+        meta_html = f"<div style='font-size:13px; margin-bottom:10px; color:#ddd;'><b>Trend:</b> {d['tr']}{rating_html}{earn_display}</div>"
+        st.markdown(meta_html, unsafe_allow_html=True)
+
+        # 3. Sparkline
         if d['chart'] is not None:
-             # Limit to last 30 points for a clean "spark" look
             spark_data = d['chart'].tail(30).reset_index()
             spark_data.columns = ['Time', 'Price']
-            # Minimal chart: No axes, green/red line based on day performance
             line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-            
-            c = alt.Chart(spark_data).mark_line(color=line_color, strokeWidth=2).encode(
-                x=alt.X('Time', axis=None), 
-                y=alt.Y('Price', scale=alt.Scale(zero=False), axis=None)
-            ).properties(height=40, width='container').configure_view(strokeWidth=0)
-            
+            c = alt.Chart(spark_data).mark_line(color=line_color, strokeWidth=2).encode(x=alt.X('Time', axis=None), y=alt.Y('Price', scale=alt.Scale(zero=False), axis=None)).properties(height=40, width='container').configure_view(strokeWidth=0)
             st.altair_chart(c, use_container_width=True)
         
-        # 2. Progress Bars & Range Bar
-        st.markdown(d['rng_html'], unsafe_allow_html=True) # Range
-        st.markdown(d['vol_html'], unsafe_allow_html=True) # Volume Bar
-        st.markdown(d['rsi_html'], unsafe_allow_html=True) # RSI Bar
+        # 4. Visual Bars (Clearly Labeled)
+        st.markdown(d['rng_html'], unsafe_allow_html=True)
+        st.markdown(d['vol_html'], unsafe_allow_html=True)
+        st.markdown(d['rsi_html'], unsafe_allow_html=True)
         
-        # 3. Text Meta Data (Ratings, Trends)
-        rating_html = f"<br><span style='font-weight:900; color:black;'>ANALYST RATING:</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>" if rat_txt != "N/A" else ""
-        earn_display = f"<br><span style='font-weight:900; color:black;'>EARNINGS:</span> {earn}" if earn else ""
-        meta_html = f"<div style='font-size:14px; margin-top:8px; line-height:1.6;'><b>Trend:</b> {d['tr']}{rating_html}{earn_display}</div>"
-        st.markdown(meta_html, unsafe_allow_html=True)
-        st.markdown(d['x']) # Extended hours text
+        st.markdown(d['x']) 
         
     else: st.metric(t, "---", "0.0%")
     st.divider() 
@@ -415,7 +410,6 @@ def process_news_batch(raw_batch):
                     "link": parts[4].strip()
                 })
         
-        # --- MARKET MOOD CALCULATION ---
         if total_signals > 0:
             bull_pct = int((green_count / total_signals) * 100)
             if bull_pct >= 60: mood = f"🐂 {bull_pct}% BULLISH"
@@ -451,14 +445,12 @@ def get_news_cached():
     return it 
 
 with t3:
-    # --- HEADER WITH MOOD ---
     c_n1, c_n2 = st.columns([3, 1])
     with c_n1: st.subheader("🚨 Global Wire (Deep Scan)")
     with c_n2: 
         if st.session_state['market_mood']:
             st.markdown(f"<div style='background:#333; color:white; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>Mood: {st.session_state['market_mood']}</div>", unsafe_allow_html=True)
     
-    # --- DEEP SCAN BUTTON ---
     if st.button("Deep Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
         st.session_state['news_results'] = [] 
         st.session_state['scanned_count'] = 0
@@ -474,7 +466,7 @@ with t3:
                 if results:
                     st.session_state['news_results'] = results
                     st.session_state['scanned_count'] = 10
-                    st.rerun() # Rerun to show the Mood Score immediately
+                    st.rerun()
                 else:
                     st.info("No relevant tickers found in this batch.")
 
@@ -484,7 +476,6 @@ with t3:
             st.caption(r['reason'])
             st.divider() 
             
-        # --- LOAD MORE BUTTON ---
         if st.button("⬇️ Load More News (Next 10)", key="load_more_btn"):
             with st.spinner("Analyzing Next 10 Articles..."):
                 raw_news = get_news_cached()
