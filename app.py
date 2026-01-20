@@ -15,7 +15,7 @@ if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'alert_log' not in st.session_state: st.session_state['alert_log'] = [] 
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
-# These dictionaries now act as a Permanent Session Cache
+# Session Cache
 if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
 if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
 
@@ -90,11 +90,7 @@ if st.session_state['alert_log']:
 
 # --- SECTOR & EARNINGS (HARD CACHED) ---
 def get_meta_data(s):
-    # 1. CHECK MEMORY FIRST (Optimization)
-    if s in st.session_state['mem_meta']:
-        return st.session_state['mem_meta'][s]
-
-    # 2. IF MISSING, FETCH ONCE
+    if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
     try:
         tk = yf.Ticker(s)
         sec_raw = tk.info.get('sector', 'N/A')
@@ -120,21 +116,15 @@ def get_meta_data(s):
                 d_str = nxt.strftime("%b %d")
                 earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {d_str}</span>"
         
-        # Save to Cache so we never ask Yahoo again this session
         res = (sector_code, earn_html)
         st.session_state['mem_meta'][s] = res
         return res
-        
     except:
         return "", "N/A" 
 
 # --- ANALYST RATINGS (HARD CACHED) ---
 def get_rating_cached(s):
-    # 1. CHECK MEMORY FIRST
-    if s in st.session_state['mem_ratings']:
-        return st.session_state['mem_ratings'][s]
-
-    # 2. IF MISSING, FETCH ONCE
+    if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
     try:
         info = yf.Ticker(s).info
         rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
@@ -145,9 +135,7 @@ def get_rating_cached(s):
         elif "SELL" in rec: res = ("🔻 SELL", "#FF4B4B")
         elif "STRONG SELL" in rec: res = ("🆘 STRONG SELL", "#FF0000")
         
-        # Save to Cache
-        if res[0] != "N/A": 
-            st.session_state['mem_ratings'][s] = res
+        if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
         return res
     except:
         return "N/A", "#888"
@@ -219,9 +207,9 @@ def get_data_cached(s):
     try: d_ext_pct = ((p_ext - pv) / pv) * 100
     except: d_ext_pct = 0.0
 
-    # --- HTML COLOR FIX ---
+    # --- UPDATED LABEL: ALWAYS "LIVE" ---
     c_hex = "#4caf50" if d_ext_pct >= 0 else "#ff4b4b"
-    lbl = "Live" if is_crypto else "🌙 Ext"
+    lbl = "⚡ LIVE" 
     x_str = f"<b>{lbl}: ${p_ext:,.2f} <span style='color:{c_hex};'>({d_ext_pct:+.2f}%)</span></b>"
     
     # --- VISUALS & RATINGS ---
@@ -337,7 +325,7 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        # 1. Extended Hours
+        # 1. Extended Hours (ALWAYS LIVE)
         st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
         
         # 2. AI Signal
