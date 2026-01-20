@@ -140,11 +140,11 @@ sync_js(config_json)
 inject_wake_lock(current_config["ko"])
 
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
 } 
 
 NAMES = {
@@ -503,11 +503,11 @@ with c1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Updated: {est_now.strftime('%H:%M:%S EST')}")
 with c2:
-    components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
+    components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Pulse: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> </span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
 
 # --- TICKER ---
 ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
+for t in ["SPY","^IXIC","^DJI","BTC-USD","^GSPTSE","GD-F]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
@@ -605,7 +605,7 @@ def render_card(t, inf=None):
     else: st.metric(t, "---", "0.0%")
     st.divider() 
 
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News AI Power"])
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
@@ -702,7 +702,7 @@ def process_news_batch(raw_batch):
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://rss.app/feeds/bTa1Sl4l31RjlKAW.xml","https://rss.app/feeds/5JIQC7yOXxWPu7YB.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
@@ -722,11 +722,11 @@ def get_news_cached():
 
 with t3:
     c_n1, c_n2 = st.columns([3, 1])
-    with c_n1: st.subheader("🚨 Global Wire (Deep Scan)")
+    with c_n1: st.subheader("🚨 Global Wire (Deep AI Scan)")
     with c_n2: 
         if st.session_state['market_mood']:
             st.markdown(f"<div style='background:#333; color:white; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>Mood: {st.session_state['market_mood']}</div>", unsafe_allow_html=True)
-    if st.button("Deep Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
+    if st.button("Deep AI Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
         st.session_state['news_results'] = [] 
         st.session_state['scanned_count'] = 0
         st.session_state['market_mood'] = None
