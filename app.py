@@ -28,10 +28,8 @@ if 'initialized' not in st.session_state:
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v47_data";
+        const KEY = "penny_pulse_v49_data";
         const fromPython = {config_json};
-        
-        // 1. RESTORE
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
         
@@ -51,7 +49,6 @@ def sync_js(config_json):
             }} catch(e) {{}}
         }}
         
-        // 2. SAVE
         if (fromPython.w) {{
             localStorage.setItem(KEY, JSON.stringify(fromPython));
         }}
@@ -59,21 +56,38 @@ def sync_js(config_json):
     """
     components.html(js, height=0, width=0)
 
-# --- JAVASCRIPT: WAKE LOCK (KEEP SCREEN ON) ---
+# --- JAVASCRIPT: ROBUST WAKE LOCK (THE ANDROID FIX) ---
 def inject_wake_lock(enable):
     if enable:
         js = """
         <script>
+        // The "Stubborn" Wake Lock Pattern
         let wakeLock = null;
+
         async function requestWakeLock() {
             try {
                 wakeLock = await navigator.wakeLock.request('screen');
                 console.log('Wake Lock active!');
+                
+                // If the lock is broken by the system, try to re-acquire it
+                wakeLock.addEventListener('release', () => {
+                    console.log('Wake Lock released!');
+                });
             } catch (err) {
                 console.log(`${err.name}, ${err.message}`);
             }
         }
+
+        // 1. Request immediately
         requestWakeLock();
+
+        // 2. Re-request instantly if the page becomes visible again
+        // (This fixes the issue where switching tabs breaks the lock)
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+                requestWakeLock();
+            }
+        });
         </script>
         """
         components.html(js, height=0, width=0)
@@ -87,6 +101,8 @@ def update_params():
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
     st.query_params["ko"] = str(st.session_state.keep_on_input).lower()
+    if 'base_url_input' in st.session_state:
+        st.query_params["bu"] = st.session_state.base_url_input
 
 # --- RESTORE FROM FILE ---
 def restore_from_file(uploaded_file):
@@ -100,7 +116,7 @@ def restore_from_file(uploaded_file):
             st.session_state.flip_on_input = data.get("fo", False)
             st.session_state.notify_input = data.get("no", False)
             update_params()
-            st.toast("Profile Restored Successfully!", icon="✅")
+            st.toast("Profile Restored!", icon="✅")
             time.sleep(1)
             st.rerun()
         except:
@@ -115,7 +131,8 @@ current_config = {
     "ao": qp.get("ao", "false") == "true",
     "fo": qp.get("fo", "false") == "true",
     "no": qp.get("no", "false") == "true",
-    "ko": qp.get("ko", "false") == "true"
+    "ko": qp.get("ko", "false") == "true",
+    "bu": qp.get("bu", "")
 }
 
 config_json = json.dumps(current_config)
@@ -157,12 +174,12 @@ st.sidebar.text_input("Add Tickers (Comma Sep)", value=current_config['w'], key=
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
-# --- SAVE BUTTONS ---
+# --- SAVE & AUDIO ---
 c1, c2 = st.sidebar.columns(2)
 with c1:
     if st.button("💾 Save Settings"):
         update_params()
-        st.toast("Settings Saved to Browser!", icon="💾")
+        st.toast("Settings Saved!", icon="💾")
 with c2:
     if st.button("🔊 Test Audio"):
         play_alert_sound()
@@ -207,7 +224,7 @@ st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_i
 st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
 st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
 st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
-st.sidebar.toggle("💡 Keep Screen On (Mobile)", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
+st.sidebar.toggle("💡 Keep Screen On", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
 st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
 a_tick = st.session_state.a_tick_input
@@ -215,13 +232,24 @@ a_price = st.session_state.a_price_input
 a_on = st.session_state.a_on_input
 flip_on = st.session_state.flip_on_input
 
-# --- BACKUP & RESTORE ---
+# --- SHARE & EXPORT ---
 st.sidebar.divider()
-with st.sidebar.expander("📦 Backup & Restore"):
-    st.caption("Save your profile to a file to prevent data loss.")
+with st.sidebar.expander("🔗 Share & Invite"):
+    st.caption("Generate a Magic Link to share this exact dashboard with others.")
+    base_url = st.text_input("App Web Address (Paste Once)", value=current_config['bu'], placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
+    if base_url:
+        clean_base = base_url.split("?")[0].strip("/")
+        params = f"?w={st.session_state.w_input}&at={a_tick}&ap={a_price}&ao={str(a_on).lower()}&fo={str(flip_on).lower()}"
+        full_link = f"{clean_base}/{params}"
+        st.code(full_link, language="text")
+        st.caption("👆 Copy this link and text it to a friend.")
+    else:
+        st.info("Paste your app's URL above to generate a shareable link.")
+
+    st.divider()
     export_data = json.dumps(current_config, indent=2)
-    st.download_button(label="📥 Download Backup", data=export_data, file_name="my_pulse_config.json", mime="application/json")
-    uploaded = st.file_uploader("📤 Restore File", type=["json"])
+    st.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
+    uploaded = st.file_uploader("📤 Restore Profile", type=["json"])
     if uploaded: restore_from_file(uploaded)
 
 if st.session_state['alert_log']:
