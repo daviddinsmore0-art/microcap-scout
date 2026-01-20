@@ -91,11 +91,11 @@ if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] 
 if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None
 
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
 } 
 
 NAMES = {
@@ -128,11 +128,11 @@ ALL = list(set(WATCH + list(PORT.keys())))
 
 c1, c2 = st.sidebar.columns(2)
 with c1:
-    if st.button("💾 Save"):
+    if st.button("💾 Save Tickers"):
         save_config()
         st.toast("Saved!", icon="💾")
 with c2:
-    if st.button("🔊 Test"):
+    if st.button("🔊 Test Audio"):
         play_alert_sound()
         st.toast("Audio Armed!", icon="🔊")
 
@@ -394,13 +394,13 @@ est_now = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1, 1])
 with c1:
     st.title("⚡ Penny Pulse")
-    st.caption(f"Last Updated: {est_now.strftime('%H:%M:%S EST')}")
+    st.caption(f"Last Pulse: {est_now.strftime('%H:%M:%S EST')}")
 with c2:
     components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
 
 # --- TICKER ---
 ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
+for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE","GL-F"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
