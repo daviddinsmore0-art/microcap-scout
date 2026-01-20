@@ -13,9 +13,8 @@ except: pass
 CONFIG_FILE = "penny_pulse_data.json"
 
 def load_config():
-    """Load settings with Legacy Key Migration."""
-    # 1. Define Standard Defaults
-    final_config = {
+    """Load settings from JSON."""
+    default = {
         "w_input": "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
         "a_tick_input": "SPY",
         "a_price_input": 0.0,
@@ -23,40 +22,17 @@ def load_config():
         "flip_on_input": False,
         "notify_input": False
     }
-    
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
                 saved = json.load(f)
-                
-                # 2. MIGRATION LOGIC (Old Keys -> New Keys)
-                # If "w_input" is missing but "watchlist" exists, use "watchlist"
-                if "w_input" not in saved and "watchlist" in saved:
-                    final_config["w_input"] = saved["watchlist"]
-                elif "w_input" in saved:
-                    final_config["w_input"] = saved["w_input"]
-                    
-                if "a_tick_input" not in saved and "alert_ticker" in saved:
-                    final_config["a_tick_input"] = saved["alert_ticker"]
-                elif "a_tick_input" in saved:
-                    final_config["a_tick_input"] = saved["a_tick_input"]
-
-                if "a_price_input" not in saved and "alert_price" in saved:
-                    final_config["a_price_input"] = float(saved["alert_price"])
-                elif "a_price_input" in saved:
-                    final_config["a_price_input"] = float(saved["a_price_input"])
-
-                # Boolean Toggles
-                if "a_on_input" in saved: final_config["a_on_input"] = saved["a_on_input"]
-                if "flip_on_input" in saved: final_config["flip_on_input"] = saved["flip_on_input"]
-                if "notify_input" in saved: final_config["notify_input"] = saved["notify_input"]
-                
-        except: pass
-        
-    return final_config
+                default.update(saved)
+        except Exception as e:
+            st.error(f"Error loading config: {e}")
+    return default
 
 def save_config():
-    """Dump current Session State keys to JSON."""
+    """Dump current Session State to JSON with Error Reporting."""
     config = {
         "w_input": st.session_state.get("w_input"),
         "a_tick_input": st.session_state.get("a_tick_input"),
@@ -68,11 +44,13 @@ def save_config():
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f)
-    except: pass
+    except Exception as e:
+        st.sidebar.error(f"❌ SAVE FAILED: {e}")
 
-# --- INITIALIZATION (STRICT ONE-TIME LOAD) ---
+# --- INITIALIZATION (STRICT LOAD) ---
 if 'initialized' not in st.session_state:
     user_conf = load_config()
+    # Force load into session state
     for key, val in user_conf.items():
         st.session_state[key] = val
     st.session_state['initialized'] = True
@@ -91,11 +69,11 @@ if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] 
 if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None
 
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
 } 
 
 NAMES = {
@@ -119,25 +97,39 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- WATCHLIST INPUT ---
+# --- WATCHLIST INPUT (PERSISTENT) ---
+# Check if key exists, if not initialize it (double safety)
+if 'w_input' not in st.session_state: st.session_state['w_input'] = "SPY"
+
+# The Widget
 st.sidebar.text_input("Add Tickers", key="w_input", on_change=save_config)
 
+# Processing
 raw_w = st.session_state.get('w_input', "")
 WATCH = [x.strip().upper() for x in raw_w.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
+# --- SIDEBAR BUTTONS ---
 c1, c2 = st.sidebar.columns(2)
 with c1:
-    if st.button("💾 Save Tickers"):
+    if st.button("💾 Save"):
         save_config()
         st.toast("Saved!", icon="💾")
 with c2:
-    if st.button("🔊 Test Audio"):
+    if st.button("🔊 Test"):
         play_alert_sound()
         st.toast("Audio Armed!", icon="🔊")
 
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
+
+# --- RESET BUTTON (THE NUCLEAR FIX) ---
+if st.sidebar.button("⚠ Factory Reset"):
+    if os.path.exists(CONFIG_FILE):
+        os.remove(CONFIG_FILE)
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
 
 def send_notification(title, body):
     js_code = f"""
@@ -165,6 +157,7 @@ def log_alert(msg, title="Penny Pulse Alert"):
         send_notification(title, msg)
 
 # --- ALERT WIDGETS ---
+# Validation
 current_choice = st.session_state.get('a_tick_input')
 if current_choice not in ALL:
     if ALL: st.session_state['a_tick_input'] = sorted(ALL)[0]
@@ -394,13 +387,13 @@ est_now = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1, 1])
 with c1:
     st.title("⚡ Penny Pulse")
-    st.caption(f"Last Pulse: {est_now.strftime('%H:%M:%S EST')}")
+    st.caption(f"Last Updated: {est_now.strftime('%H:%M:%S EST')}")
 with c2:
     components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
 
 # --- TICKER ---
 ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE","GL-F"]:
+for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
