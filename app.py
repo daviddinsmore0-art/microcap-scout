@@ -405,6 +405,7 @@ def check_flip(ticker, current_trend):
 
 def render_card(t, inf=None):
     d = get_data_cached(t)
+    spy_data = get_spy_benchmark()
     
     if d:
         check_flip(t, d['raw_trend'])
@@ -439,7 +440,6 @@ def render_card(t, inf=None):
 
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        spy_data = get_spy_benchmark()
         if d['chart'] is not None and not d['chart'].empty:
             stock_series = d['chart']['Close'].tail(30)
             if len(stock_series) > 1:
