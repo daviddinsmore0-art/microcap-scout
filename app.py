@@ -30,7 +30,7 @@ if 'initialized' not in st.session_state:
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v54_data";
+        const KEY = "penny_pulse_v55_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -661,7 +661,7 @@ def process_news_batch(raw_batch):
             batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:700]}\nDate: {item['date_str']}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
         
-        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL."
+        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL. IMPORTANT: Ignore articles that are about general crime, police arrests, sports, gossip, or non-financial news. Only return financial, market, or company news."
         
         res = client.chat.completions.create(
             model="gpt-4o-mini", 
@@ -670,7 +670,7 @@ def process_news_batch(raw_batch):
                 {"role":"user", "content": batch_content}
             ], 
             response_format={"type": "json_object"},
-            max_tokens=3000  # TRIPLED THE LIMIT
+            max_tokens=3000  
         )
         
         data = json.loads(res.choices[0].message.content)
@@ -702,7 +702,7 @@ def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
     urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
-    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
+    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb", "jail", "prison", "sentence", "suspect", "court", "francais", "la", "le", "et", "pour"]
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
@@ -753,7 +753,7 @@ with t3:
         st.session_state['market_mood'] = None
         with st.spinner("Analyzing Top 10 Articles..."):
             raw_news = get_news_cached()
-            if not raw_news: st.error("⚠️ No news sources found. (Check feeds)")
+            if not raw_news: st.error("⚠️ No news sources found.")
             elif not KEY: st.warning("⚠️ No OpenAI Key.")
             else:
                 batch = raw_news[:10]
