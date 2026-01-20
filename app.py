@@ -10,8 +10,8 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. SESSION STATE INITIALIZATION ---
-# This ensures the app has memory before it tries to think.
+# --- 2. SAFETY INITIALIZATION ---
+# This guarantees the app has a brain before it tries to think.
 defaults = {
     'initialized': True,
     'news_results': [],
@@ -26,7 +26,7 @@ defaults = {
     'spy_last_fetch': datetime.min,
     'banner_msg': None,
     'storm_cooldown': {},
-    # Default Settings
+    # Widget Keys
     'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
     'a_tick_input': "SPY",
     'a_price_input': 0.0,
@@ -45,7 +45,7 @@ for key, val in defaults.items():
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v63_data";
+        const KEY = "penny_pulse_v64_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -129,15 +129,14 @@ def play_alert_sound():
     """
     components.html(sound_html, height=0, width=0)
 
-# --- 5. SIDEBAR (DRAWN FIRST) ---
+# --- 5. SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# NOTE: No 'value=' here. This fixes the yellow warning.
+# NOTE: NO 'value=' PARAMETERS HERE. This fixes the yellow warning.
 st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input", on_change=update_params)
 
-# PORTFOLIO DATA
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
@@ -179,16 +178,7 @@ st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=update_p
 st.sidebar.toggle("💡 Keep Screen On", key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
 st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
-# --- 6. VARIABLE MAPPING (THE "NAMEERROR" KILLER) ---
-# We explicitly create these variables so the rest of the code works like it used to.
-flip_on = st.session_state.flip_on_input
-a_on = st.session_state.a_on_input
-a_price = st.session_state.a_price_input
-a_tick = st.session_state.a_tick_input
-notify_on = st.session_state.notify_input
-keep_on = st.session_state.keep_on_input
-
-# --- 7. JS SYNC ---
+# --- 6. JS SYNC ---
 current_config_export = {
     "w": st.session_state.w_input,
     "at": st.session_state.a_tick_input,
@@ -202,7 +192,7 @@ current_config_export = {
 sync_js(json.dumps(current_config_export))
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 8. BACKUP & SHARE ---
+# --- 7. BACKUP & SHARE ---
 st.sidebar.divider()
 with st.sidebar.expander("📦 Backup & Restore"):
     st.caption("Download your profile to save it.")
@@ -219,7 +209,7 @@ with st.sidebar.expander("🔗 Share & Invite"):
         full_link = f"{clean_base}/{params}"
         st.code(full_link, language="text")
 
-# --- 9. ALERT LOGIC ---
+# --- 8. ALERT LOGIC ---
 def send_notification(title, body):
     js_code = f"""
     <script>
@@ -254,10 +244,11 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- 10. HELPERS ---
+# --- 9. HELPERS (FIXED) ---
 def check_flip(ticker, current_trend):
-    # This now uses the global variable 'flip_on' we defined in Step 6
-    if not flip_on: return
+    # CRITICAL FIX: Replaced 'flip_on' with session state lookup
+    if not st.session_state['flip_on_input']: return
+    
     if ticker in st.session_state['last_trends']:
         prev = st.session_state['last_trends'][ticker]
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
@@ -524,11 +515,11 @@ h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
 
 # --- FLIP CHECK & NOTIFICATION TRIGGER ---
-if a_on:
-    d = get_data_cached(a_tick)
-    if d and d['p'] >= a_price:
+if st.session_state.a_on_input:
+    d = get_data_cached(st.session_state.a_tick_input)
+    if d and d['p'] >= st.session_state.a_price_input:
         if not st.session_state['alert_triggered']:
-            msg = f"🚨 {a_tick} hit ${a_price:,.2f}!"
+            msg = f"🚨 {st.session_state.a_tick_input} hit ${st.session_state.a_price_input:,.2f}!"
             log_alert(msg, title="Price Target Hit")
             st.session_state['alert_triggered'] = True
     else:
@@ -570,12 +561,8 @@ def process_news_batch(raw_batch):
             max_tokens=3000  
         )
         
-        # --- JSON CLEANER: REMOVE MARKDOWN TICKS ---
-        raw_json = res.choices[0].message.content
-        raw_json = re.sub(r'```json|```', '', raw_json).strip()
-        
         try:
-            data = json.loads(raw_json)
+            data = json.loads(res.choices[0].message.content)
             new_results = data.get("articles", [])
         except json.JSONDecodeError:
             st.warning("⚠️ AI Analysis incomplete (Limit Reached). Showing partial results.")
@@ -646,6 +633,80 @@ def get_news_cached():
                         it.append({"title":title_text,"link":url, "desc": desc_text, "date_str": date_str})
         except: continue
     return it 
+
+def render_card(t, inf=None):
+    d = get_data_cached(t)
+    spy_data = get_spy_benchmark()
+    
+    if d:
+        check_flip(t, d['raw_trend'])
+        rat_txt, rat_col = get_rating_cached(t)
+        sec, earn = get_meta_data(t)
+        nm = NAMES.get(t, t)
+        if t.endswith(".TO"): nm += " (TSX)"
+        elif t.endswith(".V"): nm += " (TSXV)"
+        elif t.endswith(".CN"): nm += " (CSE)"
+        sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
+        url = f"https://finance.yahoo.com/quote/{t}"
+        st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
+        
+        if inf:
+            q = inf.get("q", 100)
+            st.caption(f"{q} Shares @ ${inf['e']}")
+            st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
+        else:
+            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
+        
+        st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
+        st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
+        
+        meta_html = f"""
+        <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
+            <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}{d['gc']}</div>
+            <div><b style='color:black; margin-right:8px;'>ANALYST RATING:</b> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>
+            <div><b style='color:black; margin-right:8px;'>EARNINGS:</b> {earn}</div>
+        </div>
+        """
+        st.markdown(meta_html, unsafe_allow_html=True)
+
+        st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
+        
+        if d['chart'] is not None and not d['chart'].empty:
+            stock_series = d['chart']['Close'].tail(30)
+            if len(stock_series) > 1:
+                start_p = stock_series.iloc[0]
+                stock_norm = ((stock_series - start_p) / start_p) * 100
+                plot_df = pd.DataFrame({'Stock': stock_norm})
+                plot_df = plot_df.reset_index().rename(columns={plot_df.index.name: 'Time'})
+                has_spy = False
+                if spy_data is not None and not spy_data.empty:
+                    try:
+                        spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
+                        if not spy_aligned['Close'].isnull().all():
+                            spy_vals = spy_aligned['Close']
+                            valid_spy = spy_vals.dropna()
+                            if not valid_spy.empty:
+                                spy_start = valid_spy.iloc[0]
+                                plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
+                                has_spy = True
+                    except: pass
+                line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+                base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
+                l_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
+                final_chart = l_stock
+                if has_spy:
+                    l_spy = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.8).encode(y='SPY')
+                    final_chart = l_stock + l_spy
+                st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
+            else: st.caption("Not enough intraday data.")
+        else: st.caption("Chart data unavailable.")
+        
+        st.markdown(d['rng_html'], unsafe_allow_html=True)
+        st.markdown(d['vol_html'], unsafe_allow_html=True)
+        st.markdown(d['rsi_html'], unsafe_allow_html=True)
+        st.markdown(d['storm_html'], unsafe_allow_html=True)
+    else: st.metric(t, "---", "0.0%")
+    st.divider() 
 
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 with t1:
