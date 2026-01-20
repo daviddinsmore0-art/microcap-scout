@@ -55,6 +55,7 @@ if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
 if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
 if 'spy_cache' not in st.session_state: st.session_state['spy_cache'] = None
 if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] = datetime.min
+if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None # For Visual Alarm
 
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
@@ -117,8 +118,16 @@ def log_alert(msg, title="Penny Pulse Alert"):
     t_stamp = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M')
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
     play_alert_sound()
+    # Trigger Visual Alarm
+    st.session_state['banner_msg'] = f"🚨 {msg.upper()} 🚨"
+    # Try Desktop Notify (Best Effort)
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
+
+# --- AUDIO PRIMER FOR MOBILE ---
+if st.sidebar.button("🔊 Test Audio (Tap Once)"):
+    play_alert_sound()
+    st.toast("Audio System Armed!", icon="🔊")
 
 # --- ALERT WIDGETS ---
 curr_tick = st.session_state.get('a_tick_input', 'SPY')
@@ -130,7 +139,7 @@ st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="a_tick_input", on_c
 st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=save_config)
 st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=save_config)
 st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=save_config) 
-st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=save_config, help="Must allow browser permissions!")
+st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=save_config, help="Works on Desktop/HTTPS only.")
 
 a_tick = st.session_state['a_tick_input']
 a_price = st.session_state['a_price_input']
@@ -156,7 +165,6 @@ def get_spy_benchmark():
         spy = yf.Ticker("SPY")
         h = spy.history(period="1d", interval="5m", prepost=True)
         if not h.empty:
-            # We only need the raw Close price and the Index (Time)
             data = h[['Close']]
             st.session_state['spy_cache'] = data
             st.session_state['spy_last_fetch'] = now
@@ -315,6 +323,40 @@ def get_data_cached(s):
     except: pass
     return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "gc":golden_cross_html} 
 
+# --- VISUAL ALARM BANNER (MOBILE FIX) ---
+if st.session_state['banner_msg']:
+    st.markdown(f"""
+    <div style="
+        background-color: #ff4b4b; 
+        color: white; 
+        padding: 15px; 
+        text-align: center; 
+        font-size: 20px; 
+        font-weight: bold; 
+        position: fixed; 
+        top: 50px; 
+        left: 0; 
+        width: 100%; 
+        z-index: 9999;
+        box-shadow: 0px 4px 6px rgba(0,0,0,0.3);
+        animation: pulse 1.5s infinite;
+    ">
+    {st.session_state['banner_msg']}
+    </div>
+    <style>
+    @keyframes pulse {{
+        0% {{ opacity: 1; }}
+        50% {{ opacity: 0.7; }}
+        100% {{ opacity: 1; }}
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+    # Clear after show so it doesn't persist forever on reload (Logic: user must dismiss manually or it clears next cycle)
+    # For now, we leave it for 1 cycle.
+    if st.button("❌ Dismiss Alarm"):
+        st.session_state['banner_msg'] = None
+        st.rerun()
+
 # --- HEADER ---
 est_now = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1, 1])
@@ -407,7 +449,6 @@ def render_card(t, inf=None):
                 if spy_data is not None and not spy_data.empty:
                     try:
                         # Reindex SPY to match Stock timestamps exactly (Nearest match tolerance)
-                        # We use 'asof' merge or reindex with 'nearest' if indices are close but not exact
                         spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
                         
                         if not spy_aligned['Close'].isnull().all():
@@ -466,7 +507,6 @@ if a_on:
     if d and d['p'] >= a_price:
         if not st.session_state['alert_triggered']:
             msg = f"🚨 {a_tick} hit ${a_price:,.2f}!"
-            st.toast(msg, icon="🔥")
             log_alert(msg, title="Price Target Hit")
             st.session_state['alert_triggered'] = True
     else:
