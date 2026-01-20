@@ -22,16 +22,16 @@ if 'initialized' not in st.session_state:
     st.session_state['spy_cache'] = None
     st.session_state['spy_last_fetch'] = datetime.min
     st.session_state['banner_msg'] = None
-    st.session_state['storm_cooldown'] = {} # Prevents spamming the same storm alert
+    st.session_state['storm_cooldown'] = {}
 
-# --- JAVASCRIPT: BROWSER MEMORY BRIDGE ---
+# --- JAVASCRIPT: BROWSER MEMORY BRIDGE (THE "STICKY" FIX) ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v44_data";
+        const KEY = "penny_pulse_v45_master";
         const fromPython = {config_json};
         
-        // 1. RESTORE
+        // 1. RESTORE: If URL is empty (Fresh Load) but Browser has data -> Redirect
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
         
@@ -51,7 +51,7 @@ def sync_js(config_json):
             }} catch(e) {{}}
         }}
         
-        // 2. SAVE
+        // 2. SAVE: Always save current Python state to Browser Memory
         if (fromPython.w) {{
             localStorage.setItem(KEY, JSON.stringify(fromPython));
         }}
@@ -61,6 +61,7 @@ def sync_js(config_json):
 
 # --- PYTHON STATE SYNC ---
 def update_params():
+    """Push Session State to URL."""
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
     st.query_params["ap"] = str(st.session_state.a_price_input)
@@ -68,7 +69,7 @@ def update_params():
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
 
-# --- RESTORE FROM FILE ---
+# --- RESTORE FROM FILE (THE "BLACK BOX") ---
 def restore_from_file(uploaded_file):
     if uploaded_file is not None:
         try:
@@ -97,6 +98,7 @@ current_config = {
     "no": qp.get("no", "false") == "true"
 }
 
+# Dump current config to JSON for the JS Bridge
 config_json = json.dumps(current_config)
 sync_js(config_json)
 
@@ -116,7 +118,8 @@ NAMES = {
 } 
 
 # --- AUDIO SYSTEM ---
-def play_alert_sound():
+def play_alert_sound(alert_type="normal"):
+    # Different sound for crash? For now same sound.
     sound_html = """
     <audio autoplay>
     <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
@@ -135,7 +138,7 @@ st.sidebar.text_input("Add Tickers (Comma Sep)", value=current_config['w'], key=
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
-# --- RESTORED SAVE BUTTON ---
+# --- SAVE BUTTONS ---
 c1, c2 = st.sidebar.columns(2)
 with c1:
     if st.button("💾 Save Settings"):
@@ -166,11 +169,12 @@ def send_notification(title, body):
     """
     components.html(js_code, height=0, width=0)
 
-def log_alert(msg, title="Penny Pulse Alert"):
+def log_alert(msg, title="Penny Pulse Alert", is_crash=False):
     t_stamp = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M')
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
     play_alert_sound()
-    st.session_state['banner_msg'] = f"🚨 {msg.upper()} 🚨"
+    color = "#ff0000" if is_crash else "#ff4b4b" # Brighter red for crash
+    st.session_state['banner_msg'] = f"<span style='color:{color};'>🚨 {msg.upper()} 🚨</span>"
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
 
@@ -186,25 +190,30 @@ st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_in
 st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
 st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
-# Helpers
 a_tick = st.session_state.a_tick_input
 a_price = st.session_state.a_price_input
 a_on = st.session_state.a_on_input
 flip_on = st.session_state.flip_on_input
 
-# --- SIMULATION MODE ---
-if st.sidebar.button("⚡ Sim 'Perfect Storm'"):
-    log_alert("PERFECT STORM: HIVE.V (Score: 85/100)", title="Storm Alert!")
-    st.toast("Simulation Fired!", icon="⚡")
-
-# --- IMPORT / EXPORT SYSTEM ---
+# --- BACKUP & RESTORE ---
 st.sidebar.divider()
 with st.sidebar.expander("📦 Backup & Restore"):
-    st.caption("Download your profile to save it forever.")
+    st.caption("Save your profile to a file to prevent data loss.")
     export_data = json.dumps(current_config, indent=2)
-    st.download_button(label="📥 Download Backup File", data=export_data, file_name="my_pulse_config.json", mime="application/json")
-    uploaded = st.file_uploader("📤 Restore from File", type=["json"])
+    st.download_button(label="📥 Download Backup", data=export_data, file_name="my_pulse_config.json", mime="application/json")
+    uploaded = st.file_uploader("📤 Restore File", type=["json"])
     if uploaded: restore_from_file(uploaded)
+
+# --- SIMULATION MODES ---
+st.sidebar.divider()
+st.sidebar.caption("⚡ Simulation Mode")
+c_sim1, c_sim2 = st.sidebar.columns(2)
+with c_sim1:
+    if st.button("🚀 Bull Sim"):
+        log_alert("PERFECT STORM: HIVE.V (Score: 85) - 🚀 Buying Pressure!", title="Bull Storm")
+with c_sim2:
+    if st.button("⚠️ Crash Sim"):
+        log_alert("CRASH WARNING: TD.TO (Score: -85) - ⚠️ Dumping!", title="Crash Alert", is_crash=True)
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
@@ -271,20 +280,13 @@ def get_rating_cached(s):
         return res
     except: return "N/A", "#888"
 
-# --- THE "STORM TRACKER" ENGINE ---
+# --- THE "STORM TRACKER" ENGINE (DUAL MODE) ---
 def calculate_storm_score(ticker, rsi, vol_ratio, trend, price_change):
     score = 0
     reasons = []
+    mode = "NEUTRAL"
     
-    # 1. RSI Extremes (Reversal Likely)
-    if rsi <= 30: 
-        score += 25
-        reasons.append("Oversold (Bounce)")
-    elif rsi >= 70:
-        score += 25
-        reasons.append("Overbought (Drop)")
-        
-    # 2. Volume Explosion
+    # 1. Volume Explosion (Agitated State)
     if vol_ratio >= 2.0:
         score += 30
         reasons.append("Volume Surge (2x)")
@@ -292,27 +294,36 @@ def calculate_storm_score(ticker, rsi, vol_ratio, trend, price_change):
         score += 15
         reasons.append("High Volume")
         
-    # 3. Trend Alignment
+    # 2. Directional Logic
     if trend == "BULL" and price_change > 0:
-        score += 20
-        reasons.append("Trend Align")
-    elif trend == "BEAR" and price_change < 0:
-        score += 20
-        reasons.append("Trend Align")
+        # Bullish Path
+        if rsi <= 35: 
+            score += 25; reasons.append("Oversold (Bounce)")
+        if price_change > 2.0: 
+            score += 20; reasons.append("Strong Momentum")
+        mode = "BULL"
         
-    # 4. Golden Cross Check (Simulated for speed)
-    # (In a real app, calculate MAs here)
-    
+    elif trend == "BEAR" and price_change < 0:
+        # Bearish Path (Crash Logic)
+        if rsi >= 65: 
+            score += 25; reasons.append("Overbought (Dump)")
+        if price_change < -2.0: 
+            score += 25; reasons.append("Panic Selling")
+        mode = "BEAR"
+        
     # --- TRIGGER CHECK ---
     if score >= 70:
-        # Check cooldown to avoid spam
         last_time = st.session_state['storm_cooldown'].get(ticker, datetime.min)
         if (datetime.now() - last_time).seconds > 300: # 5 min cooldown
-            msg = f"⚡ PERFECT STORM: {ticker} (Score: {score}/100) - {', '.join(reasons)}"
-            log_alert(msg, title="Perfect Storm Alert")
+            if mode == "BULL":
+                msg = f"🚀 PERFECT STORM: {ticker} (Score: {score}) - Buying Opportunity!"
+                log_alert(msg, title="Bull Storm")
+            elif mode == "BEAR":
+                msg = f"⚠️ CRASH WARNING: {ticker} (Score: {score}) - Selling Pressure!"
+                log_alert(msg, title="Crash Alert", is_crash=True)
             st.session_state['storm_cooldown'][ticker] = datetime.now()
             
-    return score, reasons
+    return score, mode, reasons
 
 def get_ai_signal(rsi, vol_ratio, trend, price_change):
     score = 0
@@ -426,10 +437,11 @@ def get_data_cached(s):
                 ai_txt, ai_col = get_ai_signal(rsi, ratio, raw_trend, d_reg_pct)
                 
                 # --- RUN STORM TRACKER ---
-                s_score, s_reasons = calculate_storm_score(s, rsi, ratio, raw_trend, d_reg_pct)
+                s_score, s_mode, s_reasons = calculate_storm_score(s, rsi, ratio, raw_trend, d_reg_pct)
                 if s_score >= 50:
-                    storm_color = "#FFD700" if s_score >= 70 else "#888"
-                    storm_html = f"<div style='margin-top:10px; padding:5px; border:1px solid {storm_color}; border-radius:5px; font-size:12px; color:{storm_color}; text-align:center;'><b>⚡ STORM SCORE: {s_score}/100</b><br><span style='font-size:10px; color:#aaa;'>{', '.join(s_reasons)}</span></div>"
+                    storm_color = "#4caf50" if s_mode == "BULL" else "#ff4b4b"
+                    icon = "🚀" if s_mode == "BULL" else "⚠️"
+                    storm_html = f"<div style='margin-top:10px; padding:5px; border:1px solid {storm_color}; border-radius:5px; font-size:12px; color:{storm_color}; text-align:center;'><b>{icon} {s_mode} STORM: {s_score}/100</b><br><span style='font-size:10px; color:#aaa;'>{', '.join(s_reasons)}</span></div>"
 
     except: pass
     return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "gc":golden_cross_html, "storm_html":storm_html} 
@@ -438,7 +450,7 @@ def get_data_cached(s):
 if st.session_state['banner_msg']:
     st.markdown(f"""
     <div style="
-        background-color: #ff4b4b; 
+        background-color: #222; 
         color: white; 
         padding: 15px; 
         text-align: center; 
@@ -449,15 +461,16 @@ if st.session_state['banner_msg']:
         left: 0; 
         width: 100%; 
         z-index: 9999;
-        box-shadow: 0px 4px 6px rgba(0,0,0,0.3);
+        box-shadow: 0px 4px 6px rgba(0,0,0,0.5);
         animation: pulse 1.5s infinite;
+        border-bottom: 3px solid white;
     ">
     {st.session_state['banner_msg']}
     </div>
     <style>
     @keyframes pulse {{
         0% {{ opacity: 1; }}
-        50% {{ opacity: 0.7; }}
+        50% {{ opacity: 0.8; }}
         100% {{ opacity: 1; }}
     }}
     </style>
@@ -497,7 +510,7 @@ def check_flip(ticker, current_trend):
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
             msg = f"{ticker} flipped to {current_trend}"
             st.toast(msg, icon="⚠️")
-            log_alert(msg, title="Trend Flip Alert")
+            log_alert(msg)
     st.session_state['last_trends'][ticker] = current_trend 
 
 # --- DASHBOARD LOGIC (SMART CHART MERGE) ---
@@ -601,6 +614,8 @@ with t1:
 
 with t2:
     tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
+    pie_data = []
+    
     for t, inf in PORT.items():
         d = get_data_cached(t)
         if d:
@@ -609,7 +624,21 @@ with t2:
             tot_val += curr
             tot_pl += (curr - (inf['e'] * q))
             day_pl += (d['d_raw'] * q)
+            pie_data.append({"Ticker": t, "Value": curr})
+            
     st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
+    
+    c_pie1, c_pie2 = st.columns([1, 2])
+    with c_pie1:
+        if pie_data:
+            df_pie = pd.DataFrame(pie_data)
+            pie_chart = alt.Chart(df_pie).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta(field="Value", type="quantitative"),
+                color=alt.Color(field="Ticker", type="nominal"),
+                tooltip=["Ticker", "Value"]
+            )
+            st.altair_chart(pie_chart, use_container_width=True)
+    
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: render_card(t, inf) 
