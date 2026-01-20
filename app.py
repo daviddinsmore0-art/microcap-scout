@@ -8,45 +8,59 @@ import json
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- JAVASCRIPT: BROWSER MEMORY BRIDGE (The "Sticky" Logic) ---
-# This invisibly saves your setup to your phone/PC's browser storage.
-js_bridge = """
-<script>
-    const KEY = "penny_pulse_v40_config";
-    const params = new URLSearchParams(window.location.search);
-    
-    // 1. SAVE: If URL has data, save to Browser Memory
-    if (params.has("w")) {
-        const cfg = {
-            w: params.get("w"), at: params.get("at"), ap: params.get("ap"),
-            ao: params.get("ao"), fo: params.get("fo"), no: params.get("no")
-        };
-        localStorage.setItem(KEY, JSON.stringify(cfg));
-    } 
-    // 2. LOAD: If URL is empty, load from Browser Memory & Reload
-    else {
+# --- SESSION STATE INITIALIZATION ---
+if 'initialized' not in st.session_state:
+    st.session_state['initialized'] = False
+    st.session_state['news_results'] = []
+    st.session_state['scanned_count'] = 0
+    st.session_state['market_mood'] = None 
+    st.session_state['alert_triggered'] = False
+    st.session_state['alert_log'] = [] 
+    st.session_state['last_trends'] = {}
+    st.session_state['mem_ratings'] = {}
+    st.session_state['mem_meta'] = {}
+    st.session_state['spy_cache'] = None
+    st.session_state['spy_last_fetch'] = datetime.min
+    st.session_state['banner_msg'] = None
+
+# --- JAVASCRIPT: BROWSER MEMORY BRIDGE ---
+def sync_js(config_json):
+    js = f"""
+    <script>
+        const KEY = "penny_pulse_v43_data";
+        const fromPython = {config_json};
+        
+        // 1. RESTORE: If URL is empty (Fresh Load) but Browser has data -> Redirect
         const saved = localStorage.getItem(KEY);
-        if (saved) {
-            try {
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        if (!urlParams.has("w") && saved) {{
+            try {{
                 const c = JSON.parse(saved);
-                const url = new URL(window.location);
-                url.searchParams.set("w", c.w || "SPY");
-                url.searchParams.set("at", c.at || "SPY");
-                url.searchParams.set("ap", c.ap || "0");
-                url.searchParams.set("ao", c.ao || "false");
-                url.searchParams.set("fo", c.fo || "false");
-                url.searchParams.set("no", c.no || "false");
-                window.location.href = url.toString();
-            } catch (e) {}
-        }
-    }
-</script>
-"""
-components.html(js_bridge, height=0, width=0)
+                if (c.w && c.w !== "SPY") {{
+                    const newUrl = new URL(window.location);
+                    newUrl.searchParams.set("w", c.w);
+                    newUrl.searchParams.set("at", c.at);
+                    newUrl.searchParams.set("ap", c.ap);
+                    newUrl.searchParams.set("ao", c.ao);
+                    newUrl.searchParams.set("fo", c.fo);
+                    newUrl.searchParams.set("no", c.no);
+                    window.location.href = newUrl.toString();
+                }}
+            }} catch(e) {{}}
+        }}
+        
+        // 2. SAVE: Always save current Python state to Browser Memory
+        if (fromPython.w) {{
+            localStorage.setItem(KEY, JSON.stringify(fromPython));
+        }}
+    </script>
+    """
+    components.html(js, height=0, width=0)
 
 # --- PYTHON STATE SYNC ---
-def push_to_url():
-    """Update URL with current widget values."""
+def update_params():
+    """Push Session State to URL."""
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
     st.query_params["ap"] = str(st.session_state.a_price_input)
@@ -54,29 +68,38 @@ def push_to_url():
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
 
-# --- INITIAL LOAD (Before UI Renders) ---
-qp = st.query_params
-# If URL is empty, we default to a simple list, BUT the JS above will auto-reload 
-# if it finds saved data. This minimizes the "Ghost" effect.
-init_w = qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
-init_at = qp.get("at", "SPY")
-init_ap = float(qp.get("ap", 0.0))
-init_ao = qp.get("ao", "false") == "true"
-init_fo = qp.get("fo", "false") == "true"
-init_no = qp.get("no", "false") == "true"
+# --- RESTORE FROM FILE UPLOAD ---
+def restore_from_file(uploaded_file):
+    if uploaded_file is not None:
+        try:
+            data = json.load(uploaded_file)
+            st.session_state.w_input = data.get("w", "SPY")
+            st.session_state.a_tick_input = data.get("at", "SPY")
+            st.session_state.a_price_input = float(data.get("ap", 0.0))
+            st.session_state.a_on_input = data.get("ao", False)
+            st.session_state.flip_on_input = data.get("fo", False)
+            st.session_state.notify_input = data.get("no", False)
+            update_params()
+            st.toast("Profile Restored Successfully!", icon="✅")
+            time.sleep(1)
+            st.rerun()
+        except:
+            st.error("Invalid Config File")
 
-# --- SESSION STATE SETUP ---
-if 'news_results' not in st.session_state: st.session_state['news_results'] = []
-if 'scanned_count' not in st.session_state: st.session_state['scanned_count'] = 0
-if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None 
-if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
-if 'alert_log' not in st.session_state: st.session_state['alert_log'] = [] 
-if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
-if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
-if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
-if 'spy_cache' not in st.session_state: st.session_state['spy_cache'] = None
-if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] = datetime.min
-if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None
+# --- LOAD STATE FROM URL ---
+qp = st.query_params
+current_config = {
+    "w": qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
+    "at": qp.get("at", "SPY"),
+    "ap": float(qp.get("ap", 0.0)),
+    "ao": qp.get("ao", "false") == "true",
+    "fo": qp.get("fo", "false") == "true",
+    "no": qp.get("no", "false") == "true"
+}
+
+# Dump current config to JSON for the JS Bridge
+config_json = json.dumps(current_config)
+sync_js(config_json)
 
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
@@ -107,17 +130,22 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- WATCHLIST (Auto-Syncs) ---
-st.sidebar.text_input("Add Tickers (Comma Sep)", value=init_w, key="w_input", on_change=push_to_url)
+# --- WATCHLIST INPUT ---
+st.sidebar.text_input("Add Tickers (Comma Sep)", value=current_config['w'], key="w_input", on_change=update_params)
 
-# Parse safely
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
-# --- AUDIO TEST ---
-if st.sidebar.button("🔊 Test Audio"):
-    play_alert_sound()
-    st.toast("Audio Armed!", icon="🔊")
+# --- RESTORED SAVE BUTTON ---
+c1, c2 = st.sidebar.columns(2)
+with c1:
+    if st.button("💾 Save Settings"):
+        update_params()
+        st.toast("Settings Saved to Browser!", icon="💾")
+with c2:
+    if st.button("🔊 Test Audio"):
+        play_alert_sound()
+        st.toast("Audio Armed!", icon="🔊")
 
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
@@ -147,25 +175,42 @@ def log_alert(msg, title="Penny Pulse Alert"):
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
 
-# --- ALERT WIDGETS (Syncs to URL) ---
-curr_tick = init_at
+# --- ALERT WIDGETS ---
+curr_tick = current_config['at']
 if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
-
-# IMPORTANT: We use 'index' to set default, but key/on_change to sync.
 idx = 0
 if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
 
-st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=push_to_url)
-st.sidebar.number_input("Target ($)", value=init_ap, step=0.5, key="a_price_input", on_change=push_to_url)
-st.sidebar.toggle("Active Price Alert", value=init_ao, key="a_on_input", on_change=push_to_url)
-st.sidebar.toggle("Alert on Trend Flip", value=init_fo, key="flip_on_input", on_change=push_to_url) 
-st.sidebar.checkbox("Desktop Notifications", value=init_no, key="notify_input", on_change=push_to_url, help="Works on Desktop/HTTPS only.")
+st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
+st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
+st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
+st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
+st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
-# Helpers for main logic
 a_tick = st.session_state.a_tick_input
 a_price = st.session_state.a_price_input
 a_on = st.session_state.a_on_input
 flip_on = st.session_state.flip_on_input
+
+# --- IMPORT / EXPORT SYSTEM (THE BLACK BOX) ---
+st.sidebar.divider()
+with st.sidebar.expander("📦 Backup & Restore"):
+    st.caption("Download your profile to save it forever. Upload it later to restore.")
+    
+    # 1. EXPORT
+    export_data = json.dumps(current_config, indent=2)
+    st.download_button(
+        label="📥 Download Backup File",
+        data=export_data,
+        file_name="my_pulse_config.json",
+        mime="application/json",
+        help="Saves your tickers and alerts to a file on your computer."
+    )
+    
+    # 2. IMPORT
+    uploaded = st.file_uploader("📤 Restore from File", type=["json"])
+    if uploaded:
+        restore_from_file(uploaded)
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
@@ -273,7 +318,7 @@ def get_data_cached(s):
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if not h.empty:
-            chart_data = h # Keep raw data frame with Index
+            chart_data = h 
             if not valid_data or is_crypto:
                 p_reg = h['Close'].iloc[-1]
                 if is_crypto: pv = h['Open'].iloc[0] 
@@ -527,7 +572,7 @@ if a_on:
     if d and d['p'] >= a_price:
         if not st.session_state['alert_triggered']:
             msg = f"🚨 {a_tick} hit ${a_price:,.2f}!"
-            log_alert(msg, title="Price Target Hit")
+            log_alert(msg)
             st.session_state['alert_triggered'] = True
     else:
         st.session_state['alert_triggered'] = False 
