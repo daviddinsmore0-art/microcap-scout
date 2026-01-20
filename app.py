@@ -328,7 +328,6 @@ def fetch_article_text(url):
     return ""
 
 def process_news_batch(raw_batch):
-    # This logic is shared between "Deep Scan" and "Load More"
     try:
         from openai import OpenAI
         client = OpenAI(api_key=KEY)
@@ -348,7 +347,7 @@ def process_news_batch(raw_batch):
         Identify specific stock tickers that are the SUBJECT or RECOMMENDATION of the article.
         If no specific ticker is found, use the main sector.
         Rank them by sentiment strength.
-        IMPORTANT: For the 'REASON' field, write a specific 5-10 word explanation of WHY. DO NOT use the word 'Reason'.
+        IMPORTANT: For the 'REASON' field, write a specific 5-10 word explanation of WHY (e.g., 'Strong earnings beat expectations' or 'CEO announced new partnership'). DO NOT use the word 'Reason'.
         Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK
         """
         
@@ -391,7 +390,6 @@ def get_news_cached():
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            # Increased limit to 50 to allow "Load More" to work for a while
             for i in root.findall('.//item')[:50]:
                 t, l = i.find('title').text, i.find('link').text
                 desc = i.find('description').text if i.find('description') is not None else ""
@@ -406,38 +404,36 @@ def get_news_cached():
 with t3:
     st.subheader("🚨 Global Wire (Deep Scan)")
     
-    # --- DEEP SCAN BUTTON (RESETS & STARTS FRESH) ---
-    if st.button("Deep Scan Reports (Top 5)", type="primary", key="deep_scan_btn"):
-        st.session_state['news_results'] = [] # Clear old results
-        st.session_state['scanned_count'] = 0 # Reset counter
+    # --- DEEP SCAN BUTTON (BATCH 10) ---
+    if st.button("Deep Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
+        st.session_state['news_results'] = [] 
+        st.session_state['scanned_count'] = 0
         
-        with st.spinner("Analyzing Top 5 Articles..."):
+        with st.spinner("Analyzing Top 10 Articles..."):
             raw_news = get_news_cached()
             if not raw_news: st.error("⚠️ No news sources found.")
             elif not KEY: st.warning("⚠️ No OpenAI Key.")
             else:
-                # Scan first 5
-                batch = raw_news[:5]
+                batch = raw_news[:10] # Grab 10
                 results = process_news_batch(batch)
                 if results:
                     st.session_state['news_results'] = results
-                    st.session_state['scanned_count'] = 5
+                    st.session_state['scanned_count'] = 10
                 else:
                     st.info("No relevant tickers found in this batch.")
 
-    # --- DISPLAY RESULTS ---
     if st.session_state.get('news_results'):
         for i, r in enumerate(st.session_state['news_results']):
             st.markdown(f"**{i+1}. {r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
             st.caption(r['reason'])
             st.divider() 
             
-        # --- LOAD MORE BUTTON (APPENDS NEXT 5) ---
-        if st.button("⬇️ Load More News", key="load_more_btn"):
-            with st.spinner("Analyzing Next 5 Articles..."):
+        # --- LOAD MORE BUTTON (NEXT 10) ---
+        if st.button("⬇️ Load More News (Next 10)", key="load_more_btn"):
+            with st.spinner("Analyzing Next 10 Articles..."):
                 raw_news = get_news_cached()
                 start = st.session_state['scanned_count']
-                end = start + 5
+                end = start + 10 # Grab next 10
                 
                 if start < len(raw_news):
                     batch = raw_news[start:end]
@@ -445,11 +441,11 @@ with t3:
                         new_results = process_news_batch(batch)
                         if new_results:
                             st.session_state['news_results'].extend(new_results)
-                            st.session_state['scanned_count'] += 5
-                            st.rerun() # Refresh to show new items at bottom
+                            st.session_state['scanned_count'] += 10
+                            st.rerun() 
                         else:
                             st.warning("No relevant tickers found in this batch. Try again.")
-                            st.session_state['scanned_count'] += 5 # Skip these 5 anyway
+                            st.session_state['scanned_count'] += 10 
                     else:
                         st.info("You have reached the end of the news feed.")
                 else:
