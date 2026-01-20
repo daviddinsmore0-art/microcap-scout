@@ -12,41 +12,39 @@ except: pass
 # --- CONFIGURATION & PERSISTENCE ---
 CONFIG_FILE = "penny_pulse_data.json"
 
-def load_config():
-    default_config = {
-        "watchlist": "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
-        "alert_ticker": "SPY",
-        "alert_price": 0.0,
-        "alert_active": False,
-        "flip_active": False,
-        "notify_desktop": False # New Setting
-    }
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                saved = json.load(f)
-                default_config.update(saved)
-                return default_config
-        except: pass
-    return default_config
-
 def save_config():
+    """Save current Session State to JSON."""
     config = {
         "watchlist": st.session_state.get("w_input"),
         "alert_ticker": st.session_state.get("a_tick_input"),
         "alert_price": st.session_state.get("a_price_input"),
         "alert_active": st.session_state.get("a_on_input"),
         "flip_active": st.session_state.get("flip_on_input"),
-        "notify_desktop": st.session_state.get("notify_input") # Save Notification State
+        "notify_desktop": st.session_state.get("notify_input")
     }
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f)
     except: pass
 
-user_config = load_config()
+# --- INITIALIZATION (RUNS ONCE) ---
+if 'initialized' not in st.session_state:
+    data = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                data = json.load(f)
+        except: pass
+    
+    st.session_state['w_input'] = data.get('watchlist', "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
+    st.session_state['a_tick_input'] = data.get('alert_ticker', "SPY")
+    st.session_state['a_price_input'] = float(data.get('alert_price', 0.0))
+    st.session_state['a_on_input'] = data.get('alert_active', False)
+    st.session_state['flip_on_input'] = data.get('flip_active', False)
+    st.session_state['notify_input'] = data.get('notify_desktop', False)
+    st.session_state['initialized'] = True
 
-# --- SESSION STATE ---
+# --- SESSION STATE SETUP ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'scanned_count' not in st.session_state: st.session_state['scanned_count'] = 0
 if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None 
@@ -78,8 +76,8 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- WATCHLIST INPUT ---
-u_in = st.sidebar.text_input("Add Tickers", value=user_config["watchlist"], key="w_input", on_change=save_config)
+st.sidebar.text_input("Add Tickers", key="w_input", on_change=save_config)
+u_in = st.session_state['w_input']
 WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
@@ -90,23 +88,15 @@ if st.sidebar.button("💾 Save Config"):
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
 
-# --- NOTIFICATION ENGINE ---
 def send_notification(title, body):
-    """
-    Injects JavaScript to request permission (if needed) and send a system notification.
-    """
     js_code = f"""
     <script>
     function notify() {{
-        if (!("Notification" in window)) {{
-            console.log("This browser does not support desktop notification");
-        }} else if (Notification.permission === "granted") {{
-            var notification = new Notification("{title}", {{ body: "{body}", icon: "https://cdn-icons-png.flaticon.com/512/2534/2534673.png" }});
-        }} else if (Notification.permission !== "denied") {{
+        if (!("Notification" in window)) {{ console.log("No support"); }} 
+        else if (Notification.permission === "granted") {{ new Notification("{title}", {{ body: "{body}" }}); }} 
+        else if (Notification.permission !== "denied") {{
             Notification.requestPermission().then(function (permission) {{
-                if (permission === "granted") {{
-                    var notification = new Notification("{title}", {{ body: "{body}", icon: "https://cdn-icons-png.flaticon.com/512/2534/2534673.png" }});
-                }}
+                if (permission === "granted") {{ new Notification("{title}", {{ body: "{body}" }}); }}
             }});
         }}
     }}
@@ -127,19 +117,25 @@ def log_alert(msg, title="Penny Pulse Alert"):
     t_stamp = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M')
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
     play_alert_sound()
-    # Check if Desktop Notifications are enabled
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
 
 # --- ALERT WIDGETS ---
-def_a_tick = user_config.get("alert_ticker", "SPY")
-if def_a_tick not in ALL and ALL: def_a_tick = sorted(ALL)[0]
+curr_tick = st.session_state.get('a_tick_input', 'SPY')
+if curr_tick not in ALL and ALL: 
+    curr_tick = sorted(ALL)[0]
+    st.session_state['a_tick_input'] = curr_tick
 
-a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=sorted(ALL).index(def_a_tick) if def_a_tick in sorted(ALL) else 0, key="a_tick_input", on_change=save_config)
-a_price = st.sidebar.number_input("Target ($)", value=float(user_config["alert_price"]), step=0.5, key="a_price_input", on_change=save_config)
-a_on = st.sidebar.toggle("Active Price Alert", value=user_config["alert_active"], key="a_on_input", on_change=save_config)
-flip_on = st.sidebar.toggle("Alert on Trend Flip", value=user_config["flip_active"], key="flip_on_input", on_change=save_config) 
-notify_on = st.sidebar.checkbox("Desktop Notifications", value=user_config.get("notify_desktop", False), key="notify_input", on_change=save_config, help="Must allow browser permissions!")
+st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="a_tick_input", on_change=save_config)
+st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=save_config)
+st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=save_config)
+st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=save_config) 
+st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=save_config, help="Must allow browser permissions!")
+
+a_tick = st.session_state['a_tick_input']
+a_price = st.session_state['a_price_input']
+a_on = st.session_state['a_on_input']
+flip_on = st.session_state['flip_on_input']
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
@@ -150,7 +146,7 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- SPY BENCHMARK FETCH ---
+# --- SPY BENCHMARK FETCH (RAW) ---
 def get_spy_benchmark():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
@@ -160,11 +156,11 @@ def get_spy_benchmark():
         spy = yf.Ticker("SPY")
         h = spy.history(period="1d", interval="5m", prepost=True)
         if not h.empty:
-            start_price = h['Close'].iloc[0]
-            h['Spy_Norm'] = ((h['Close'] - start_price) / start_price) * 100
-            st.session_state['spy_cache'] = h[['Spy_Norm']]
+            # We only need the raw Close price and the Index (Time)
+            data = h[['Close']]
+            st.session_state['spy_cache'] = data
             st.session_state['spy_last_fetch'] = now
-            return h[['Spy_Norm']]
+            return data
     except: pass
     return None
 
@@ -249,9 +245,7 @@ def get_data_cached(s):
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if not h.empty:
-            start_price = h['Close'].iloc[0]
-            h['Stock_Norm'] = ((h['Close'] - start_price) / start_price) * 100
-            chart_data = h
+            chart_data = h # Keep raw data frame with Index
             if not valid_data or is_crypto:
                 p_reg = h['Close'].iloc[-1]
                 if is_crypto: pv = h['Open'].iloc[0] 
@@ -355,10 +349,11 @@ def check_flip(ticker, current_trend):
             log_alert(msg, title="Trend Flip Alert")
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC ---
+# --- DASHBOARD LOGIC (SMART CHART MERGE) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     spy_data = get_spy_benchmark()
+    
     if d:
         check_flip(t, d['raw_trend'])
         rat_txt, rat_col = get_rating_cached(t)
@@ -392,27 +387,52 @@ def render_card(t, inf=None):
 
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        if d['chart'] is not None:
-            subset = d['chart'].tail(30).reset_index()
-            spark_df = pd.DataFrame()
-            spark_df['Time'] = subset.iloc[:, 0]
-            spark_df['Stock'] = subset['Stock_Norm']
+        # --- ROBUST CHART MERGING LOGIC ---
+        if d['chart'] is not None and not d['chart'].empty:
+            # 1. Prepare Stock Data (Index is DateTime)
+            stock_series = d['chart']['Close'].tail(30)
             
-            line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-            base = alt.Chart(spark_df).encode(x=alt.X('Time', axis=None))
-            line_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
-            final_chart = line_stock
-            
-            if spy_data is not None:
-                spy_recent = spy_data.tail(len(subset)).reset_index(drop=True)
-                if len(spy_recent) == len(subset):
-                    spark_df['SPY'] = spy_recent['Spy_Norm']
-                    base_merged = alt.Chart(spark_df).encode(x=alt.X('Time', axis=None))
-                    l1 = base_merged.mark_line(color=line_color, strokeWidth=2).encode(y='Stock')
-                    l2 = base_merged.mark_line(color='orange', strokeDash=[2,2], opacity=0.7).encode(y='SPY')
-                    final_chart = l1 + l2
+            # Ensure we have enough data points to plot a line
+            if len(stock_series) > 1:
+                # Normalize Stock to start at 0
+                start_p = stock_series.iloc[0]
+                stock_norm = ((stock_series - start_p) / start_p) * 100
                 
-            st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
+                # Create DataFrame
+                plot_df = pd.DataFrame({'Stock': stock_norm})
+                plot_df = plot_df.reset_index().rename(columns={plot_df.index.name: 'Time'})
+                
+                # 2. Try to Merge SPY
+                has_spy = False
+                if spy_data is not None and not spy_data.empty:
+                    try:
+                        # Reindex SPY to match Stock timestamps exactly (Nearest match tolerance)
+                        # We use 'asof' merge or reindex with 'nearest' if indices are close but not exact
+                        spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
+                        
+                        if not spy_aligned['Close'].isnull().all():
+                            spy_vals = spy_aligned['Close']
+                            spy_start = spy_vals.iloc[0]
+                            plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
+                            has_spy = True
+                    except: pass
+
+                # 3. Plotting
+                line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+                base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
+                
+                l_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
+                final_chart = l_stock
+                
+                if has_spy:
+                    l_spy = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.8).encode(y='SPY')
+                    final_chart = l_stock + l_spy
+                    
+                st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
+            else:
+                st.caption("Not enough intraday data for chart.")
+        else:
+            st.caption("Chart data unavailable.")
         
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         st.markdown(d['vol_html'], unsafe_allow_html=True)
