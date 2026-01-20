@@ -1,4 +1,4 @@
-import streamlit as st, yfinance as yf, requests, time, xml.etree.ElementTree as ET
+import streamlit as st, yfinance as yf, requests, time, re, xml.etree.ElementTree as ET
 from datetime import datetime
 import streamlit.components.v1 as components
 import pandas as pd
@@ -129,26 +129,21 @@ def get_ai_signal(rsi, vol_ratio, trend, price_change):
     elif score <= -1: return "🔴 BEARISH BIAS", "#ff4b4b"
     return "💤 CONSOLIDATION", "#888" 
 
-# --- LIVE PRICE & CHART (DECOUPLED LOGIC) ---
+# --- LIVE PRICE & CHART ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
     if not s or s == "": return None
     s = s.strip().upper()
     
-    # 1. Variables for "Official" (Main Metric) Data
     p_reg, pv, dh, dl = 0.0, 0.0, 0.0, 0.0
-    
-    # 2. Variables for "Extended/Live" (Ext Line) Data
     p_ext = 0.0
     
     tk = yf.Ticker(s)
     is_crypto = s.endswith("-USD")
     valid_data = False
     
-    # A. FETCH REGULAR DATA (For Main Metric)
     if not is_crypto:
         try:
-            # fast_info usually holds the Regular Market Close during Pre/Post market
             p_reg = tk.fast_info['last_price']
             pv = tk.fast_info['previous_close']
             dh = tk.fast_info['day_high']
@@ -157,66 +152,39 @@ def get_data_cached(s):
                 valid_data = True
         except: pass
     
-    # B. FETCH HISTORY (For Chart + Fallback)
     chart_data = None
     try:
-        # We request prepost=True to ensure we catch the LATEST trade for the Ext line
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
-        
         if not h.empty:
             chart_data = h['Close']
-            
-            # If fast_info failed (or it's crypto), use history for everything
             if not valid_data or is_crypto:
                 p_reg = h['Close'].iloc[-1]
                 if is_crypto: pv = h['Open'].iloc[0] 
-                else: pv = tk.fast_info['previous_close'] # Try to keep Anchor valid
-                
-                # Fallback Anchor if fast_info completely dead
+                else: pv = tk.fast_info['previous_close']
                 if pd.isna(pv) or pv == 0: pv = h['Close'].iloc[0]
-                
                 dh = h['High'].max()
                 dl = h['Low'].min()
                 valid_data = True
-            
-            # C. CAPTURE EXTENDED PRICE
-            # The last bar of 'prepost' history is the true live price
             p_ext = h['Close'].iloc[-1]
     except: pass
     
     if not valid_data or pv == 0: return None
     
-    # --- CALCULATIONS ---
-    
-    # 1. Official Change (Main Metric)
-    # Uses p_reg (Official Close) vs pv (Prev Close)
-    try:
-        d_reg_pct = ((p_reg - pv) / pv) * 100
+    try: d_reg_pct = ((p_reg - pv) / pv) * 100
     except: d_reg_pct = 0.0
 
-    # 2. Extended/Live Change (Ext Line)
-    # Uses p_ext (Live/Pre-market) vs pv (Prev Close)
-    # If p_ext wasn't found (no history), default to p_reg
     if p_ext == 0: p_ext = p_reg
-    
-    try:
-        d_ext_pct = ((p_ext - pv) / pv) * 100
+    try: d_ext_pct = ((p_ext - pv) / pv) * 100
     except: d_ext_pct = 0.0
 
-    # --- FORMATTING ---
-    
-    # X_STR uses the EXTENDED data (p_ext, d_ext_pct)
     c_ext = "green" if d_ext_pct >= 0 else "red"
     x_str = f"**Live: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**"
     
-    # RANGE BAR
-    try:
-        rng_pct = max(0, min(1, (p_reg - dl) / (dh - dl))) * 100 if (dh > dl) else 50
+    try: rng_pct = max(0, min(1, (p_reg - dl) / (dh - dl))) * 100 if (dh > dl) else 50
     except: rng_pct = 50
     rng_html = f"""<div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;"><span style="margin-right:5px;">L</span><div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:5px;">H</span></div>""" 
 
-    # --- INDICATORS ---
     rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
     try:
         hm = tk.history(period="1mo")
@@ -240,7 +208,6 @@ def get_data_cached(s):
                 ai_txt, ai_col = get_ai_signal(rsi, ratio, raw_trend, d_reg_pct)
     except: pass
     
-    # RETURN: p & d = Regular (Main Metric), x = Extended (Small Line)
     return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col} 
 
 # --- HEADER & COUNTDOWN ---
@@ -251,7 +218,7 @@ with c1:
 with c2:
     components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
 
-# --- TICKER (WITH TSX) ---
+# --- TICKER ---
 ti = []
 for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
     d = get_data_cached(t)
@@ -348,6 +315,20 @@ if a_on:
         st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
         st.session_state['alert_triggered'] = True 
 
+# --- DEEP DIVE NEWS AGENT ---
+def fetch_article_text(url):
+    # This "Stealth Fetcher" grabs the article content without getting blocked
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    try:
+        r = requests.get(url, headers=headers, timeout=3)
+        if r.status_code == 200:
+            # Strip HTML tags to get raw text
+            clean_text = re.sub(r'<[^>]+>', '', r.text)
+            # Limit to 3000 chars to save AI tokens but get the "meat" of the article
+            return clean_text[:3000]
+    except: pass
+    return ""
+
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
@@ -358,48 +339,92 @@ def get_news_cached():
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:5]:
+            for i in root.findall('.//item')[:6]: # Limit to top 6 for speed
                 t, l = i.find('title').text, i.find('link').text
+                desc = i.find('description').text if i.find('description') is not None else ""
                 if t and t not in seen:
                     t_lower = t.lower()
                     if not any(b in t_lower for b in blacklist):
-                        seen.add(t); it.append({"title":t,"link":l})
+                        seen.add(t)
+                        it.append({"title":t,"link":l, "desc": desc})
         except: continue
     return it 
 
 with t3:
-    st.subheader("🚨 Global Wire")
-    if st.button("Generate Report", type="primary", key="news_btn"):
-        with st.spinner("Scanning..."):
-            raw = get_news_cached()
-            if not raw: st.error("⚠️ No news sources responded.")
+    st.subheader("🚨 Global Wire (Deep Scan)")
+    st.caption("AI reads the articles to find hidden tickers. This takes ~10 seconds.")
+    
+    if st.button("Deep Scan Reports", type="primary", key="news_btn"):
+        with st.spinner("Visiting websites & Analyzing..."):
+            raw_news = get_news_cached()
+            
+            if not raw_news: st.error("⚠️ No news sources responded.")
             elif not KEY:
                 st.warning("⚠️ No OpenAI Key. Showing Headlines.")
-                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw]
+                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw_news]
             else:
                 try:
                     from openai import OpenAI
-                    p_list = "\n".join([f"{i+1}. {x['title']}" for i,x in enumerate(raw)])
-                    system_instr = "Filter: stocks/finance only. Format: Ticker | Signal (🟢/🔴/⚪) | Reason."
-                    res = OpenAI(api_key=KEY).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user","content":f"Headlines:\n{p_list}"}], max_tokens=400)
+                    client = OpenAI(api_key=KEY)
+                    
+                    # 1. PREPARE BATCH OF ARTICLES
+                    # We send the Title + Description + Fetched Content to OpenAI
+                    # We limit this to the top 5 articles to prevent timeouts
+                    
+                    progress_bar = st.progress(0)
+                    batch_content = ""
+                    
+                    for idx, item in enumerate(raw_news[:5]):
+                        # Fetch the "Deep" content
+                        full_text = fetch_article_text(item['link'])
+                        # Fallback to description if fetch fails
+                        content = full_text if len(full_text) > 200 else item['desc']
+                        
+                        batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}"
+                        progress_bar.progress((idx + 1) / 5)
+
+                    # 2. SEND TO AI
+                    system_instr = """
+                    You are a financial analyst. Read these articles.
+                    Identify specific stock tickers that are the SUBJECT or RECOMMENDATION of the article. 
+                    Ignore the main ticker (e.g. if title is 'Stocks to beat Nvidia', ignore 'NVDA', find the others).
+                    If no specific ticker is found, just use the main sector (e.g. 'Crypto', 'Tech').
+                    Rank them by sentiment strength.
+                    Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK
+                    """
+                    
+                    res = client.chat.completions.create(
+                        model="gpt-4o-mini", 
+                        messages=[
+                            {"role":"system", "content": system_instr}, 
+                            {"role":"user", "content": batch_content}
+                        ], 
+                        max_tokens=700
+                    )
+                    
+                    # 3. PARSE RESULTS
                     enrich = []
                     lines = res.choices[0].message.content.strip().split("\n")
-                    for i, l in enumerate(lines):
-                        if i < len(raw):
-                            parts = l.split("|")
-                            if len(parts)>=3: 
-                                enrich.append({
-                                    "ticker": parts[0].strip(),
-                                    "signal": parts[1].strip(),
-                                    "reason": parts[2].strip(),
-                                    "title": raw[i]['title'],
-                                    "link": raw[i]['link']
-                                })
-                    if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Filtered","title":x['title'],"link":x['link']} for x in raw]
+                    for l in lines:
+                        parts = l.split("|")
+                        if len(parts) >= 5: 
+                            enrich.append({
+                                "ticker": parts[0].strip(),
+                                "signal": parts[1].strip(),
+                                "reason": parts[2].strip(),
+                                "title": parts[3].strip(), # AI passes back the original title
+                                "link": parts[4].strip()   # AI passes back the original link
+                            })
+                    
+                    if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"No actionable tickers found","title":x['title'],"link":x['link']} for x in raw_news]
                     else: st.session_state['news_results'] = enrich
-                except:
-                    st.warning("⚠️ AI Limit Reached. Showing Free Headlines.")
-                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw]
+                    
+                    progress_bar.empty()
+                    
+                except Exception as e:
+                    st.warning(f"⚠️ AI Error: {e}")
+                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw_news]
+
     if st.session_state.get('news_results'):
         for r in st.session_state['news_results']:
             st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
