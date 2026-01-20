@@ -13,9 +13,10 @@ except: pass
 CONFIG_FILE = "penny_pulse_data.json"
 
 def load_config():
-    """Load settings from JSON."""
+    """Load settings from JSON. Returns minimal default if missing."""
+    # CHANGED: Minimal default to prove persistence works
     default = {
-        "w_input": "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
+        "w_input": "SPY", 
         "a_tick_input": "SPY",
         "a_price_input": 0.0,
         "a_on_input": False,
@@ -27,12 +28,12 @@ def load_config():
             with open(CONFIG_FILE, 'r') as f:
                 saved = json.load(f)
                 default.update(saved)
-        except Exception as e:
-            st.error(f"Error loading config: {e}")
-    return default
+                return default, True # Returns Data, Found_File=True
+        except: pass
+    return default, False # Returns Default, Found_File=False
 
-def save_config():
-    """Dump current Session State to JSON with Error Reporting."""
+def save_config_manual():
+    """Explicit Save triggered by button."""
     config = {
         "w_input": st.session_state.get("w_input"),
         "a_tick_input": st.session_state.get("a_tick_input"),
@@ -44,15 +45,17 @@ def save_config():
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f)
+        return True
     except Exception as e:
-        st.sidebar.error(f"❌ SAVE FAILED: {e}")
+        st.sidebar.error(f"Save Error: {e}")
+        return False
 
-# --- INITIALIZATION (STRICT LOAD) ---
+# --- INITIALIZATION (STRICT ONE-TIME LOAD) ---
 if 'initialized' not in st.session_state:
-    user_conf = load_config()
-    # Force load into session state
+    user_conf, file_found = load_config()
     for key, val in user_conf.items():
         st.session_state[key] = val
+    st.session_state['file_status'] = "Loaded from Disk" if file_found else "Using Defaults"
     st.session_state['initialized'] = True
 
 # --- SESSION STATE SETUP ---
@@ -69,7 +72,7 @@ if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] 
 if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None
 
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 100},
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
     "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
     "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
@@ -97,39 +100,29 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- WATCHLIST INPUT (PERSISTENT) ---
-# Check if key exists, if not initialize it (double safety)
-if 'w_input' not in st.session_state: st.session_state['w_input'] = "SPY"
+# --- WATCHLIST INPUT ---
+# Removed on_change to prevent auto-save conflicts. Manual Save Only.
+st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input")
 
-# The Widget
-st.sidebar.text_input("Add Tickers", key="w_input", on_change=save_config)
-
-# Processing
 raw_w = st.session_state.get('w_input', "")
 WATCH = [x.strip().upper() for x in raw_w.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
-# --- SIDEBAR BUTTONS ---
+# --- SIDEBAR CONTROLS ---
 c1, c2 = st.sidebar.columns(2)
 with c1:
-    if st.button("💾 Save"):
-        save_config()
-        st.toast("Saved!", icon="💾")
+    if st.button("💾 Save Settings"):
+        if save_config_manual():
+            st.toast("Configuration Saved!", icon="✅")
+            time.sleep(0.5) # Give it a moment to write
+            st.rerun() # Force reload to confirm save
 with c2:
-    if st.button("🔊 Test"):
+    if st.button("🔊 Test Audio"):
         play_alert_sound()
-        st.toast("Audio Armed!", icon="🔊")
+        st.toast("Audio Test Fired", icon="🔊")
 
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
-
-# --- RESET BUTTON (THE NUCLEAR FIX) ---
-if st.sidebar.button("⚠ Factory Reset"):
-    if os.path.exists(CONFIG_FILE):
-        os.remove(CONFIG_FILE)
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
 
 def send_notification(title, body):
     js_code = f"""
@@ -157,21 +150,35 @@ def log_alert(msg, title="Penny Pulse Alert"):
         send_notification(title, msg)
 
 # --- ALERT WIDGETS ---
-# Validation
-current_choice = st.session_state.get('a_tick_input')
-if current_choice not in ALL:
+curr_tick = st.session_state.get('a_tick_input', 'SPY')
+if curr_tick not in ALL:
     if ALL: st.session_state['a_tick_input'] = sorted(ALL)[0]
 
-st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="a_tick_input", on_change=save_config)
-st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=save_config)
-st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=save_config)
-st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=save_config) 
-st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=save_config, help="Works on Desktop/HTTPS only.")
+# Removed on_change logic. Relying on Session State + Manual Save button.
+st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="a_tick_input")
+st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input")
+st.sidebar.toggle("Active Price Alert", key="a_on_input")
+st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input") 
+st.sidebar.checkbox("Desktop Notifications", key="notify_input", help="Works on Desktop/HTTPS only.")
 
+# Variables
 a_tick = st.session_state['a_tick_input']
 a_price = st.session_state['a_price_input']
 a_on = st.session_state['a_on_input']
 flip_on = st.session_state['flip_on_input']
+
+# --- RESET BUTTON ---
+if st.sidebar.button("⚠ Factory Reset"):
+    if os.path.exists(CONFIG_FILE):
+        os.remove(CONFIG_FILE)
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
+
+# --- DEBUG INFO ---
+st.sidebar.divider()
+st.sidebar.caption(f"📂 Storage: {os.getcwd()}")
+st.sidebar.caption(f"📄 Status: {st.session_state.get('file_status', 'Unknown')}")
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
