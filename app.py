@@ -80,23 +80,36 @@ NAMES = {
     "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"
 } 
 
+# --- AUDIO SYSTEM ---
+def play_alert_sound():
+    sound_html = """
+    <audio autoplay>
+    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+    </audio>
+    """
+    components.html(sound_html, height=0, width=0)
+
 # --- SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
 # --- WATCHLIST INPUT ---
-# NOTE: We do NOT use 'value=' here. 'key=' binds it to the loaded session_state automatically.
 st.sidebar.text_input("Add Tickers", key="w_input", on_change=save_config)
 
-# Safe Parsing
 raw_w = st.session_state.get('w_input', "")
 WATCH = [x.strip().upper() for x in raw_w.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
-if st.sidebar.button("💾 Save Config"):
-    save_config()
-    st.toast("Settings Saved!", icon="💾")
+c1, c2 = st.sidebar.columns(2)
+with c1:
+    if st.button("💾 Save"):
+        save_config()
+        st.toast("Saved!", icon="💾")
+with c2:
+    if st.button("🔊 Test"):
+        play_alert_sound()
+        st.toast("Audio Armed!", icon="🔊")
 
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
@@ -118,14 +131,6 @@ def send_notification(title, body):
     """
     components.html(js_code, height=0, width=0)
 
-def play_alert_sound():
-    sound_html = """
-    <audio autoplay>
-    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-    </audio>
-    """
-    components.html(sound_html, height=0, width=0)
-
 def log_alert(msg, title="Penny Pulse Alert"):
     t_stamp = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M')
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
@@ -135,7 +140,6 @@ def log_alert(msg, title="Penny Pulse Alert"):
         send_notification(title, msg)
 
 # --- ALERT WIDGETS ---
-# Validate Ticker selection
 current_choice = st.session_state.get('a_tick_input')
 if current_choice not in ALL:
     if ALL: st.session_state['a_tick_input'] = sorted(ALL)[0]
@@ -146,7 +150,6 @@ st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=save_config)
 st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=save_config) 
 st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=save_config, help="Works on Desktop/HTTPS only.")
 
-# Short variables for easy access
 a_tick = st.session_state['a_tick_input']
 a_price = st.session_state['a_price_input']
 a_on = st.session_state['a_on_input']
@@ -329,7 +332,7 @@ def get_data_cached(s):
     except: pass
     return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "gc":golden_cross_html} 
 
-# --- VISUAL ALARM BANNER (MOBILE FIX) ---
+# --- VISUAL ALARM BANNER ---
 if st.session_state['banner_msg']:
     st.markdown(f"""
     <div style="
@@ -395,7 +398,7 @@ def check_flip(ticker, current_trend):
             log_alert(msg, title="Trend Flip Alert")
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC (SMART CHART MERGE) ---
+# --- DASHBOARD LOGIC ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     spy_data = get_spy_benchmark()
