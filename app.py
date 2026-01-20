@@ -13,8 +13,9 @@ except: pass
 CONFIG_FILE = "penny_pulse_data.json"
 
 def load_config():
-    """Load settings from JSON into a dictionary."""
-    default = {
+    """Load settings with Legacy Key Migration."""
+    # 1. Define Standard Defaults
+    final_config = {
         "w_input": "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
         "a_tick_input": "SPY",
         "a_price_input": 0.0,
@@ -22,13 +23,37 @@ def load_config():
         "flip_on_input": False,
         "notify_input": False
     }
+    
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
                 saved = json.load(f)
-                default.update(saved)
+                
+                # 2. MIGRATION LOGIC (Old Keys -> New Keys)
+                # If "w_input" is missing but "watchlist" exists, use "watchlist"
+                if "w_input" not in saved and "watchlist" in saved:
+                    final_config["w_input"] = saved["watchlist"]
+                elif "w_input" in saved:
+                    final_config["w_input"] = saved["w_input"]
+                    
+                if "a_tick_input" not in saved and "alert_ticker" in saved:
+                    final_config["a_tick_input"] = saved["alert_ticker"]
+                elif "a_tick_input" in saved:
+                    final_config["a_tick_input"] = saved["a_tick_input"]
+
+                if "a_price_input" not in saved and "alert_price" in saved:
+                    final_config["a_price_input"] = float(saved["alert_price"])
+                elif "a_price_input" in saved:
+                    final_config["a_price_input"] = float(saved["a_price_input"])
+
+                # Boolean Toggles
+                if "a_on_input" in saved: final_config["a_on_input"] = saved["a_on_input"]
+                if "flip_on_input" in saved: final_config["flip_on_input"] = saved["flip_on_input"]
+                if "notify_input" in saved: final_config["notify_input"] = saved["notify_input"]
+                
         except: pass
-    return default
+        
+    return final_config
 
 def save_config():
     """Dump current Session State keys to JSON."""
@@ -398,7 +423,7 @@ def check_flip(ticker, current_trend):
             log_alert(msg, title="Trend Flip Alert")
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC ---
+# --- DASHBOARD LOGIC (SMART CHART MERGE) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     spy_data = get_spy_benchmark()
