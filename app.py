@@ -22,15 +22,16 @@ if 'initialized' not in st.session_state:
     st.session_state['spy_cache'] = None
     st.session_state['spy_last_fetch'] = datetime.min
     st.session_state['banner_msg'] = None
+    st.session_state['storm_cooldown'] = {} # Prevents spamming the same storm alert
 
 # --- JAVASCRIPT: BROWSER MEMORY BRIDGE ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v43_data";
+        const KEY = "penny_pulse_v44_data";
         const fromPython = {config_json};
         
-        // 1. RESTORE: If URL is empty (Fresh Load) but Browser has data -> Redirect
+        // 1. RESTORE
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
         
@@ -50,7 +51,7 @@ def sync_js(config_json):
             }} catch(e) {{}}
         }}
         
-        // 2. SAVE: Always save current Python state to Browser Memory
+        // 2. SAVE
         if (fromPython.w) {{
             localStorage.setItem(KEY, JSON.stringify(fromPython));
         }}
@@ -60,7 +61,6 @@ def sync_js(config_json):
 
 # --- PYTHON STATE SYNC ---
 def update_params():
-    """Push Session State to URL."""
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
     st.query_params["ap"] = str(st.session_state.a_price_input)
@@ -68,7 +68,7 @@ def update_params():
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
 
-# --- RESTORE FROM FILE UPLOAD ---
+# --- RESTORE FROM FILE ---
 def restore_from_file(uploaded_file):
     if uploaded_file is not None:
         try:
@@ -97,7 +97,6 @@ current_config = {
     "no": qp.get("no", "false") == "true"
 }
 
-# Dump current config to JSON for the JS Bridge
 config_json = json.dumps(current_config)
 sync_js(config_json)
 
@@ -187,30 +186,25 @@ st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_in
 st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
 st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
+# Helpers
 a_tick = st.session_state.a_tick_input
 a_price = st.session_state.a_price_input
 a_on = st.session_state.a_on_input
 flip_on = st.session_state.flip_on_input
 
-# --- IMPORT / EXPORT SYSTEM (THE BLACK BOX) ---
+# --- SIMULATION MODE ---
+if st.sidebar.button("⚡ Sim 'Perfect Storm'"):
+    log_alert("PERFECT STORM: HIVE.V (Score: 85/100)", title="Storm Alert!")
+    st.toast("Simulation Fired!", icon="⚡")
+
+# --- IMPORT / EXPORT SYSTEM ---
 st.sidebar.divider()
 with st.sidebar.expander("📦 Backup & Restore"):
-    st.caption("Download your profile to save it forever. Upload it later to restore.")
-    
-    # 1. EXPORT
+    st.caption("Download your profile to save it forever.")
     export_data = json.dumps(current_config, indent=2)
-    st.download_button(
-        label="📥 Download Backup File",
-        data=export_data,
-        file_name="my_pulse_config.json",
-        mime="application/json",
-        help="Saves your tickers and alerts to a file on your computer."
-    )
-    
-    # 2. IMPORT
+    st.download_button(label="📥 Download Backup File", data=export_data, file_name="my_pulse_config.json", mime="application/json")
     uploaded = st.file_uploader("📤 Restore from File", type=["json"])
-    if uploaded:
-        restore_from_file(uploaded)
+    if uploaded: restore_from_file(uploaded)
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
@@ -276,6 +270,49 @@ def get_rating_cached(s):
         if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
         return res
     except: return "N/A", "#888"
+
+# --- THE "STORM TRACKER" ENGINE ---
+def calculate_storm_score(ticker, rsi, vol_ratio, trend, price_change):
+    score = 0
+    reasons = []
+    
+    # 1. RSI Extremes (Reversal Likely)
+    if rsi <= 30: 
+        score += 25
+        reasons.append("Oversold (Bounce)")
+    elif rsi >= 70:
+        score += 25
+        reasons.append("Overbought (Drop)")
+        
+    # 2. Volume Explosion
+    if vol_ratio >= 2.0:
+        score += 30
+        reasons.append("Volume Surge (2x)")
+    elif vol_ratio >= 1.5:
+        score += 15
+        reasons.append("High Volume")
+        
+    # 3. Trend Alignment
+    if trend == "BULL" and price_change > 0:
+        score += 20
+        reasons.append("Trend Align")
+    elif trend == "BEAR" and price_change < 0:
+        score += 20
+        reasons.append("Trend Align")
+        
+    # 4. Golden Cross Check (Simulated for speed)
+    # (In a real app, calculate MAs here)
+    
+    # --- TRIGGER CHECK ---
+    if score >= 70:
+        # Check cooldown to avoid spam
+        last_time = st.session_state['storm_cooldown'].get(ticker, datetime.min)
+        if (datetime.now() - last_time).seconds > 300: # 5 min cooldown
+            msg = f"⚡ PERFECT STORM: {ticker} (Score: {score}/100) - {', '.join(reasons)}"
+            log_alert(msg, title="Perfect Storm Alert")
+            st.session_state['storm_cooldown'][ticker] = datetime.now()
+            
+    return score, reasons
 
 def get_ai_signal(rsi, vol_ratio, trend, price_change):
     score = 0
@@ -360,6 +397,8 @@ def get_data_cached(s):
 
     rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
     rsi_html, vol_html = "", ""
+    storm_html = ""
+    
     try:
         hm = tk.history(period="1mo")
         if not hm.empty:
@@ -385,8 +424,15 @@ def get_data_cached(s):
                 if macd.iloc[-1] > 0: raw_trend = "BULL"; tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
                 else: raw_trend = "BEAR"; tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
                 ai_txt, ai_col = get_ai_signal(rsi, ratio, raw_trend, d_reg_pct)
+                
+                # --- RUN STORM TRACKER ---
+                s_score, s_reasons = calculate_storm_score(s, rsi, ratio, raw_trend, d_reg_pct)
+                if s_score >= 50:
+                    storm_color = "#FFD700" if s_score >= 70 else "#888"
+                    storm_html = f"<div style='margin-top:10px; padding:5px; border:1px solid {storm_color}; border-radius:5px; font-size:12px; color:{storm_color}; text-align:center;'><b>⚡ STORM SCORE: {s_score}/100</b><br><span style='font-size:10px; color:#aaa;'>{', '.join(s_reasons)}</span></div>"
+
     except: pass
-    return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "gc":golden_cross_html} 
+    return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "gc":golden_cross_html, "storm_html":storm_html} 
 
 # --- VISUAL ALARM BANNER ---
 if st.session_state['banner_msg']:
@@ -451,7 +497,7 @@ def check_flip(ticker, current_trend):
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
             msg = f"{ticker} flipped to {current_trend}"
             st.toast(msg, icon="⚠️")
-            log_alert(msg)
+            log_alert(msg, title="Trend Flip Alert")
     st.session_state['last_trends'][ticker] = current_trend 
 
 # --- DASHBOARD LOGIC (SMART CHART MERGE) ---
@@ -543,6 +589,7 @@ def render_card(t, inf=None):
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         st.markdown(d['vol_html'], unsafe_allow_html=True)
         st.markdown(d['rsi_html'], unsafe_allow_html=True)
+        st.markdown(d['storm_html'], unsafe_allow_html=True)
     else: st.metric(t, "---", "0.0%")
     st.divider() 
 
@@ -572,7 +619,7 @@ if a_on:
     if d and d['p'] >= a_price:
         if not st.session_state['alert_triggered']:
             msg = f"🚨 {a_tick} hit ${a_price:,.2f}!"
-            log_alert(msg)
+            log_alert(msg, title="Price Target Hit")
             st.session_state['alert_triggered'] = True
     else:
         st.session_state['alert_triggered'] = False 
