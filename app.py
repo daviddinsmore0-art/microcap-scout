@@ -180,8 +180,11 @@ def get_data_cached(s):
     try: d_ext_pct = ((p_ext - pv) / pv) * 100
     except: d_ext_pct = 0.0
 
-    c_ext = "green" if d_ext_pct >= 0 else "red"
-    x_str = f"**Live: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**"
+    # --- HTML COLOR FIX (NO MARKDOWN) ---
+    c_hex = "#4caf50" if d_ext_pct >= 0 else "#ff4b4b"
+    lbl = "Live" if is_crypto else "🌙 Ext"
+    # Using pure HTML string for the extended hours line
+    x_str = f"<b>{lbl}: ${p_ext:,.2f} <span style='color:{c_hex};'>({d_ext_pct:+.2f}%)</span></b>"
     
     # --- VISUALS ---
     try: rng_pct = max(0, min(1, (p_reg - dl) / (dh - dl))) * 100 if (dh > dl) else 50
@@ -259,7 +262,7 @@ def check_flip(ticker, current_trend):
             st.toast(f"🔀 TREND FLIP: {ticker} switched to {current_trend}!", icon="⚠️")
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC (COMPACT LAYOUT) ---
+# --- DASHBOARD LOGIC (COMPACT) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     if d:
@@ -283,14 +286,13 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        # 1. Extended Hours
+        # 1. Extended Hours (HTML COLOR FIX)
         st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
         
         # 2. AI Signal
         st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
         
-        # 3. Key Metadata (COMPACT: Label | Value)
-        # Removed "space-between" so items sit next to each other
+        # 3. Key Metadata (COMPACT)
         meta_html = f"""
         <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
             <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}</div>
@@ -300,7 +302,7 @@ def render_card(t, inf=None):
         """
         st.markdown(meta_html, unsafe_allow_html=True)
 
-        # 4. Sparkline (LABELED)
+        # 4. Sparkline
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY TREND (Last 2 Hours)</div>", unsafe_allow_html=True)
         if d['chart'] is not None:
             spark_data = d['chart'].tail(30).reset_index()
