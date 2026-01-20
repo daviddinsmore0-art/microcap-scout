@@ -305,4 +305,157 @@ with t2:
             tot_pl += (curr - (inf['e'] * q))
             day_pl += (d['d_raw'] * q)
             
-    st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:
+    st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
+    cols = st.columns(3)
+    for i, (t, inf) in enumerate(PORT.items()):
+        with cols[i%3]: render_card(t, inf) 
+
+if a_on:
+    d = get_data_cached(a_tick)
+    if d and d['p'] >= a_price and not st.session_state['alert_triggered']:
+        st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
+        st.session_state['alert_triggered'] = True 
+
+# --- DEEP DIVE NEWS AGENT ---
+def fetch_article_text(url):
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    try:
+        r = requests.get(url, headers=headers, timeout=3)
+        if r.status_code == 200:
+            clean_text = re.sub(r'<[^>]+>', '', r.text)
+            return clean_text[:3000]
+    except: pass
+    return ""
+
+def process_news_batch(raw_batch):
+    # This logic is shared between "Deep Scan" and "Load More"
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=KEY)
+        
+        progress_bar = st.progress(0)
+        batch_content = ""
+        total_items = len(raw_batch)
+        
+        for idx, item in enumerate(raw_batch):
+            full_text = fetch_article_text(item['link'])
+            content = full_text if len(full_text) > 200 else item['desc']
+            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}"
+            progress_bar.progress(min((idx + 1) / total_items, 1.0))
+        
+        system_instr = """
+        You are a financial analyst. Read these articles.
+        Identify specific stock tickers that are the SUBJECT or RECOMMENDATION of the article.
+        If no specific ticker is found, use the main sector.
+        Rank them by sentiment strength.
+        IMPORTANT: For the 'REASON' field, write a specific 5-10 word explanation of WHY. DO NOT use the word 'Reason'.
+        Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK
+        """
+        
+        res = client.chat.completions.create(
+            model="gpt-4o-mini", 
+            messages=[{"role":"system", "content": system_instr}, {"role":"user", "content": batch_content}], 
+            max_tokens=700
+        )
+        
+        new_results = []
+        lines = res.choices[0].message.content.strip().split("\n")
+        for l in lines:
+            parts = l.split("|")
+            if len(parts) >= 5: 
+                reason_text = parts[2].strip()
+                if not reason_text or reason_text.upper() == "REASON":
+                    reason_text = "Analysis based on article content."
+                
+                new_results.append({
+                    "ticker": parts[0].strip(),
+                    "signal": parts[1].strip(),
+                    "reason": reason_text,
+                    "title": parts[3].strip(),
+                    "link": parts[4].strip()
+                })
+        
+        progress_bar.empty()
+        return new_results
+    except Exception as e:
+        st.warning(f"⚠️ AI Error: {e}")
+        return []
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_news_cached():
+    head = {'User-Agent': 'Mozilla/5.0'}
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    it, seen = [], set()
+    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
+    for u in urls:
+        try:
+            r = requests.get(u, headers=head, timeout=5)
+            root = ET.fromstring(r.content)
+            # Increased limit to 50 to allow "Load More" to work for a while
+            for i in root.findall('.//item')[:50]:
+                t, l = i.find('title').text, i.find('link').text
+                desc = i.find('description').text if i.find('description') is not None else ""
+                if t and t not in seen:
+                    t_lower = t.lower()
+                    if not any(b in t_lower for b in blacklist):
+                        seen.add(t)
+                        it.append({"title":t,"link":l, "desc": desc})
+        except: continue
+    return it 
+
+with t3:
+    st.subheader("🚨 Global Wire (Deep Scan)")
+    
+    # --- DEEP SCAN BUTTON (RESETS & STARTS FRESH) ---
+    if st.button("Deep Scan Reports (Top 5)", type="primary", key="deep_scan_btn"):
+        st.session_state['news_results'] = [] # Clear old results
+        st.session_state['scanned_count'] = 0 # Reset counter
+        
+        with st.spinner("Analyzing Top 5 Articles..."):
+            raw_news = get_news_cached()
+            if not raw_news: st.error("⚠️ No news sources found.")
+            elif not KEY: st.warning("⚠️ No OpenAI Key.")
+            else:
+                # Scan first 5
+                batch = raw_news[:5]
+                results = process_news_batch(batch)
+                if results:
+                    st.session_state['news_results'] = results
+                    st.session_state['scanned_count'] = 5
+                else:
+                    st.info("No relevant tickers found in this batch.")
+
+    # --- DISPLAY RESULTS ---
+    if st.session_state.get('news_results'):
+        for i, r in enumerate(st.session_state['news_results']):
+            st.markdown(f"**{i+1}. {r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            st.caption(r['reason'])
+            st.divider() 
+            
+        # --- LOAD MORE BUTTON (APPENDS NEXT 5) ---
+        if st.button("⬇️ Load More News", key="load_more_btn"):
+            with st.spinner("Analyzing Next 5 Articles..."):
+                raw_news = get_news_cached()
+                start = st.session_state['scanned_count']
+                end = start + 5
+                
+                if start < len(raw_news):
+                    batch = raw_news[start:end]
+                    if batch:
+                        new_results = process_news_batch(batch)
+                        if new_results:
+                            st.session_state['news_results'].extend(new_results)
+                            st.session_state['scanned_count'] += 5
+                            st.rerun() # Refresh to show new items at bottom
+                        else:
+                            st.warning("No relevant tickers found in this batch. Try again.")
+                            st.session_state['scanned_count'] += 5 # Skip these 5 anyway
+                    else:
+                        st.info("You have reached the end of the news feed.")
+                else:
+                    st.info("No more news available right now.")
+
+now = datetime.now()
+wait = 60 - now.second
+time.sleep(wait + 1)
+st.rerun()
