@@ -1,64 +1,80 @@
-import streamlit as st, yfinance as yf, requests, time, re, xml.etree.ElementTree as ET
+import streamlit as st, yfinance as yf, requests, time, re
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
 import json
-import os
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- CONFIGURATION & PERSISTENCE ---
-CONFIG_FILE = "penny_pulse_data.json"
-
-def load_config():
-    """Load settings from JSON. Returns minimal default if missing."""
-    # CHANGED: Minimal default to prove persistence works
-    default = {
-        "w_input": "SPY", 
-        "a_tick_input": "SPY",
-        "a_price_input": 0.0,
-        "a_on_input": False,
-        "flip_on_input": False,
-        "notify_input": False
+# --- "STICKY" STATE ENGINE (THE MAGIC FIX) ---
+# This JavaScript handles the connection between URL, Browser Memory, and Python
+# 1. SAVE: When Python updates the URL, this saves it to Browser LocalStorage.
+# 2. LOAD: If the URL is empty, this checks LocalStorage and auto-redirects.
+sticky_js = """
+<script>
+    const STORAGE_KEY = "penny_pulse_v3_config";
+    
+    // Get current URL params
+    const params = new URLSearchParams(window.location.search);
+    
+    // CASE A: We have data in URL -> Save it to Memory (The "Sticky" part)
+    if (params.has("w")) {
+        const config = {
+            w: params.get("w"),
+            at: params.get("at"),
+            ap: params.get("ap"),
+            ao: params.get("ao"),
+            fo: params.get("fo"),
+            no: params.get("no")
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    } 
+    // CASE B: No data in URL -> Check Memory & Restore (The "Resurrection" part)
+    else {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            try {
+                const c = JSON.parse(saved);
+                // Build new URL
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.set("w", c.w || "SPY, BTC-USD, TD.TO");
+                newUrl.searchParams.set("at", c.at || "SPY");
+                newUrl.searchParams.set("ap", c.ap || "0.0");
+                newUrl.searchParams.set("ao", c.ao || "false");
+                newUrl.searchParams.set("fo", c.fo || "false");
+                newUrl.searchParams.set("no", c.no || "false");
+                
+                // Redirect immediately
+                window.location.href = newUrl.toString();
+            } catch (e) { console.log("Cache Error"); }
+        }
     }
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                saved = json.load(f)
-                default.update(saved)
-                return default, True # Returns Data, Found_File=True
-        except: pass
-    return default, False # Returns Default, Found_File=False
+</script>
+"""
+components.html(sticky_js, height=0, width=0)
 
-def save_config_manual():
-    """Explicit Save triggered by button."""
-    config = {
-        "w_input": st.session_state.get("w_input"),
-        "a_tick_input": st.session_state.get("a_tick_input"),
-        "a_price_input": st.session_state.get("a_price_input"),
-        "a_on_input": st.session_state.get("a_on_input"),
-        "flip_on_input": st.session_state.get("flip_on_input"),
-        "notify_input": st.session_state.get("notify_input")
-    }
-    try:
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f)
-        return True
-    except Exception as e:
-        st.sidebar.error(f"Save Error: {e}")
-        return False
+# --- PYTHON STATE SYNC ---
+def sync_to_url():
+    """Push current Python widgets to URL Query Params."""
+    st.query_params["w"] = st.session_state.w_input
+    st.query_params["at"] = st.session_state.a_tick_input
+    st.query_params["ap"] = str(st.session_state.a_price_input)
+    st.query_params["ao"] = str(st.session_state.a_on_input).lower()
+    st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
+    st.query_params["no"] = str(st.session_state.notify_input).lower()
 
-# --- INITIALIZATION (STRICT ONE-TIME LOAD) ---
-if 'initialized' not in st.session_state:
-    user_conf, file_found = load_config()
-    for key, val in user_conf.items():
-        st.session_state[key] = val
-    st.session_state['file_status'] = "Loaded from Disk" if file_found else "Using Defaults"
-    st.session_state['initialized'] = True
+# Load Initial State from URL (or Default)
+qp = st.query_params
+default_w = qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
+default_at = qp.get("at", "SPY")
+default_ap = float(qp.get("ap", 0.0))
+default_ao = qp.get("ao", "false") == "true"
+default_fo = qp.get("fo", "false") == "true"
+default_no = qp.get("no", "false") == "true"
 
-# --- SESSION STATE SETUP ---
+# --- SESSION CACHE ---
 if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'scanned_count' not in st.session_state: st.session_state['scanned_count'] = 0
 if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None 
@@ -72,7 +88,7 @@ if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] 
 if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None
 
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 100},
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
     "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
     "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
@@ -100,26 +116,17 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- WATCHLIST INPUT ---
-# Removed on_change to prevent auto-save conflicts. Manual Save Only.
-st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input")
+# --- WATCHLIST INPUT (Syncs to URL) ---
+st.sidebar.text_input("Add Tickers", value=default_w, key="w_input", on_change=sync_to_url)
 
-raw_w = st.session_state.get('w_input', "")
-WATCH = [x.strip().upper() for x in raw_w.split(",") if x.strip()]
+# Parse
+WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
-# --- SIDEBAR CONTROLS ---
-c1, c2 = st.sidebar.columns(2)
-with c1:
-    if st.button("💾 Save Settings"):
-        if save_config_manual():
-            st.toast("Configuration Saved!", icon="✅")
-            time.sleep(0.5) # Give it a moment to write
-            st.rerun() # Force reload to confirm save
-with c2:
-    if st.button("🔊 Test Audio"):
-        play_alert_sound()
-        st.toast("Audio Test Fired", icon="🔊")
+# --- AUDIO TEST ---
+if st.sidebar.button("🔊 Test Audio"):
+    play_alert_sound()
+    st.toast("Audio Armed!", icon="🔊")
 
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
@@ -149,36 +156,21 @@ def log_alert(msg, title="Penny Pulse Alert"):
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
 
-# --- ALERT WIDGETS ---
-curr_tick = st.session_state.get('a_tick_input', 'SPY')
-if curr_tick not in ALL:
-    if ALL: st.session_state['a_tick_input'] = sorted(ALL)[0]
+# --- ALERT WIDGETS (Sync to URL) ---
+# Ensure current ticker is valid, or fallback to first available
+if default_at not in ALL and ALL: default_at = sorted(ALL)[0]
 
-# Removed on_change logic. Relying on Session State + Manual Save button.
-st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="a_tick_input")
-st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input")
-st.sidebar.toggle("Active Price Alert", key="a_on_input")
-st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input") 
-st.sidebar.checkbox("Desktop Notifications", key="notify_input", help="Works on Desktop/HTTPS only.")
+st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=sorted(ALL).index(default_at) if default_at in sorted(ALL) else 0, key="a_tick_input", on_change=sync_to_url)
+st.sidebar.number_input("Target ($)", value=default_ap, step=0.5, key="a_price_input", on_change=sync_to_url)
+st.sidebar.toggle("Active Price Alert", value=default_ao, key="a_on_input", on_change=sync_to_url)
+st.sidebar.toggle("Alert on Trend Flip", value=default_fo, key="flip_on_input", on_change=sync_to_url) 
+st.sidebar.checkbox("Desktop Notifications", value=default_no, key="notify_input", on_change=sync_to_url, help="Works on Desktop/HTTPS only.")
 
 # Variables
 a_tick = st.session_state['a_tick_input']
 a_price = st.session_state['a_price_input']
 a_on = st.session_state['a_on_input']
 flip_on = st.session_state['flip_on_input']
-
-# --- RESET BUTTON ---
-if st.sidebar.button("⚠ Factory Reset"):
-    if os.path.exists(CONFIG_FILE):
-        os.remove(CONFIG_FILE)
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
-
-# --- DEBUG INFO ---
-st.sidebar.divider()
-st.sidebar.caption(f"📂 Storage: {os.getcwd()}")
-st.sidebar.caption(f"📄 Status: {st.session_state.get('file_status', 'Unknown')}")
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
