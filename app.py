@@ -40,8 +40,7 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- FIXED: PERMANENT WATCHLIST ---
-# This list will ALWAYS load on startup. No more disappearing tickers.
+# --- PERMANENT WATCHLIST ---
 default_list = "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V, IVN.TO, CCO.TO, BN.TO"
 
 qp = st.query_params
@@ -49,17 +48,10 @@ w_str = qp.get("watchlist", default_list)
 u_in = st.sidebar.text_input("Add Tickers", value=w_str)
 if u_in != w_str: st.query_params["watchlist"] = u_in
 
-# --- CRASH FIX: Removes empty items ",," to prevent TypeError ---
 WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
-
-# --- PERSISTENT WIDGETS ---
-a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_tick")
-a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
-a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
-flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on") 
 
 # --- SECTOR & EARNINGS ---
 def get_meta_data(s):
@@ -131,61 +123,94 @@ def get_ai_signal(rsi, vol_ratio, trend, price_change):
     elif score <= -1: return "🔴 BEARISH BIAS", "#ff4b4b"
     return "💤 CONSOLIDATION", "#888" 
 
-# --- LIVE PRICE & CHART (Cached 60s) ---
+# --- LIVE PRICE & CHART (DECOUPLED LOGIC) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
-    # --- CRASH FIX: Basic Checks ---
     if not s or s == "": return None
     s = s.strip().upper()
     
-    p, pv, dh, dl, f = 0.0, 0.0, 0.0, 0.0, False
-    chart_data = None
+    # 1. Variables for "Official" (Main Metric) Data
+    p_reg, pv, dh, dl = 0.0, 0.0, 0.0, 0.0
+    
+    # 2. Variables for "Extended/Live" (Ext Line) Data
+    p_ext = 0.0
+    
     tk = yf.Ticker(s)
     is_crypto = s.endswith("-USD")
+    valid_data = False
     
-    # 1. Try Fast Info
+    # A. FETCH REGULAR DATA (For Main Metric)
     if not is_crypto:
         try:
-            p = tk.fast_info['last_price']
+            # fast_info usually holds the Regular Market Close during Pre/Post market
+            p_reg = tk.fast_info['last_price']
             pv = tk.fast_info['previous_close']
             dh = tk.fast_info['day_high']
             dl = tk.fast_info['day_low']
-            if p is not None and pv is not None: f = True
+            if p_reg is not None and pv is not None: 
+                valid_data = True
         except: pass
-        
-    # 2. Try History (Fallback)
+    
+    # B. FETCH HISTORY (For Chart + Fallback)
+    chart_data = None
     try:
-        h = tk.history(period="1d", interval="5m")
-        if h.empty: h = tk.history(period="5d", interval="1h")
+        # We request prepost=True to ensure we catch the LATEST trade for the Ext line
+        h = tk.history(period="1d", interval="5m", prepost=True)
+        if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
+        
         if not h.empty:
             chart_data = h['Close']
-            if not f or is_crypto:
-                p = h['Close'].iloc[-1]
-                pv = h['Open'].iloc[0] if is_crypto else h['Close'].iloc[-2]
+            
+            # If fast_info failed (or it's crypto), use history for everything
+            if not valid_data or is_crypto:
+                p_reg = h['Close'].iloc[-1]
+                if is_crypto: pv = h['Open'].iloc[0] 
+                else: pv = tk.fast_info['previous_close'] # Try to keep Anchor valid
+                
+                # Fallback Anchor if fast_info completely dead
+                if pd.isna(pv) or pv == 0: pv = h['Close'].iloc[0]
+                
                 dh = h['High'].max()
                 dl = h['Low'].min()
-                f = True
+                valid_data = True
+            
+            # C. CAPTURE EXTENDED PRICE
+            # The last bar of 'prepost' history is the true live price
+            p_ext = h['Close'].iloc[-1]
     except: pass
     
-    # --- CRASH FIX: Return None if data is bad ---
-    if not f or p is None or pv is None: return None
+    if not valid_data or pv == 0: return None
     
-    # Calculate safely
+    # --- CALCULATIONS ---
+    
+    # 1. Official Change (Main Metric)
+    # Uses p_reg (Official Close) vs pv (Prev Close)
     try:
-        dp = ((p-pv)/pv)*100 if pv>0 else 0.0
-        d_raw = p - pv
-    except: return None # Catch any other math errors
+        d_reg_pct = ((p_reg - pv) / pv) * 100
+    except: d_reg_pct = 0.0
 
-    c = "green" if dp>=0 else "red"
-    x_str = f"**Live: ${p:,.2f} (:{c}[{dp:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p:,.2f} (:{c}[{dp:+.2f}%])**"
+    # 2. Extended/Live Change (Ext Line)
+    # Uses p_ext (Live/Pre-market) vs pv (Prev Close)
+    # If p_ext wasn't found (no history), default to p_reg
+    if p_ext == 0: p_ext = p_reg
     
-    # Range Bar safety
     try:
-        rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100 if (dh and dl and dh > dl) else 50
+        d_ext_pct = ((p_ext - pv) / pv) * 100
+    except: d_ext_pct = 0.0
+
+    # --- FORMATTING ---
+    
+    # X_STR uses the EXTENDED data (p_ext, d_ext_pct)
+    c_ext = "green" if d_ext_pct >= 0 else "red"
+    x_str = f"**Live: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**"
+    
+    # RANGE BAR
+    try:
+        rng_pct = max(0, min(1, (p_reg - dl) / (dh - dl))) * 100 if (dh > dl) else 50
     except: rng_pct = 50
-        
     rng_html = f"""<div style="display:flex; align-items:center; font-size:12px; color:#888; margin-top:5px; margin-bottom:2px;"><span style="margin-right:5px;">L</span><div style="flex-grow:1; height:6px; background:#333; border-radius:3px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:5px;">H</span></div>""" 
 
+    # --- INDICATORS ---
     rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
     try:
         hm = tk.history(period="1mo")
@@ -206,9 +231,11 @@ def get_data_cached(s):
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
                 if macd.iloc[-1] > 0: raw_trend = "BULL"; tr = "<span style='color:#00C805; font-weight:bold;'>BULL</span>"
                 else: raw_trend = "BEAR"; tr = "<span style='color:#FF2B2B; font-weight:bold;'>BEAR</span>"
-                ai_txt, ai_col = get_ai_signal(rsi, ratio, raw_trend, dp)
+                ai_txt, ai_col = get_ai_signal(rsi, ratio, raw_trend, d_reg_pct)
     except: pass
-    return {"p":p, "d":dp, "d_raw":d_raw, "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col} 
+    
+    # RETURN: p & d = Regular (Main Metric), x = Extended (Small Line)
+    return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col} 
 
 # --- HEADER & COUNTDOWN ---
 c1, c2 = st.columns([1, 1])
