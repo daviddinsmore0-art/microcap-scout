@@ -30,7 +30,7 @@ if 'initialized' not in st.session_state:
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v53_data";
+        const KEY = "penny_pulse_v54_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -657,7 +657,8 @@ def process_news_batch(raw_batch):
         for idx, item in enumerate(raw_batch):
             full_text = fetch_article_text(item['link'])
             content = full_text if len(full_text) > 200 else item['desc']
-            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}\nDate: {item['date_str']}"
+            # Limit article length to 700 chars to save tokens
+            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:700]}\nDate: {item['date_str']}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
         
         system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL."
@@ -669,7 +670,7 @@ def process_news_batch(raw_batch):
                 {"role":"user", "content": batch_content}
             ], 
             response_format={"type": "json_object"},
-            max_tokens=1000
+            max_tokens=3000  # TRIPLED THE LIMIT
         )
         
         data = json.loads(res.choices[0].message.content)
@@ -752,7 +753,7 @@ with t3:
         st.session_state['market_mood'] = None
         with st.spinner("Analyzing Top 10 Articles..."):
             raw_news = get_news_cached()
-            if not raw_news: st.error("⚠️ No news sources found.")
+            if not raw_news: st.error("⚠️ No news sources found. (Check feeds)")
             elif not KEY: st.warning("⚠️ No OpenAI Key.")
             else:
                 batch = raw_news[:10]
@@ -765,7 +766,6 @@ with t3:
                     st.info("No relevant tickers found in this batch.")
     if st.session_state.get('news_results'):
         for i, r in enumerate(st.session_state['news_results']):
-            # Display with Timestamp
             time_tag = f"🕒 {r.get('date_display', 'Recent')}"
             st.markdown(f"**{r['ticker']} {r['signal']}** | {time_tag} | [{r['title']}]({r['link']})")
             st.caption(r['reason'])
