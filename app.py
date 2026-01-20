@@ -274,4 +274,158 @@ def render_card(t, inf=None):
         meta_html = f"<div style='font-size:16px; margin-bottom:5px; line-height:1.6;'><b>Trend:</b> {d['tr']}{rating_html}{earn_display}</div>"
         st.markdown(meta_html, unsafe_allow_html=True)
         st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>Vol: {d['v']} ({d['vt']})</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {
+        st.markdown(f"<div style='font-weight:bold; font-size:16px; margin-bottom:5px;'>RSI: {d['rsi']:.0f} ({d['rl']})</div>", unsafe_allow_html=True)
+        st.markdown(d['x'])
+        
+        with st.expander("📉 Chart"):
+            if d['chart'] is not None:
+                cdf = d['chart'].reset_index()
+                cdf.columns = ['Time', 'Price']
+                c = alt.Chart(cdf).mark_line().encode(x=alt.X('Time', axis=alt.Axis(format='%H:%M', title='')), y=alt.Y('Price', scale=alt.Scale(zero=False), title='')).properties(height=200)
+                st.altair_chart(c, use_container_width=True)
+            else: st.caption("Chart data unavailable")
+    else: st.metric(t, "---", "0.0%")
+    st.divider() 
+
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
+with t1:
+    cols = st.columns(3)
+    for i, t in enumerate(WATCH):
+        with cols[i%3]: render_card(t) 
+
+with t2:
+    tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
+    for t, inf in PORT.items():
+        d = get_data_cached(t)
+        if d:
+            q = inf.get("q", 100)
+            curr = d['p'] * q
+            tot_val += curr
+            tot_pl += (curr - (inf['e'] * q))
+            day_pl += (d['d_raw'] * q)
+            
+    st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
+    cols = st.columns(3)
+    for i, (t, inf) in enumerate(PORT.items()):
+        with cols[i%3]: render_card(t, inf) 
+
+if a_on:
+    d = get_data_cached(a_tick)
+    if d and d['p'] >= a_price and not st.session_state['alert_triggered']:
+        st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
+        st.session_state['alert_triggered'] = True 
+
+# --- DEEP DIVE NEWS AGENT ---
+def fetch_article_text(url):
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    try:
+        r = requests.get(url, headers=headers, timeout=3)
+        if r.status_code == 200:
+            clean_text = re.sub(r'<[^>]+>', '', r.text)
+            return clean_text[:3000]
+    except: pass
+    return ""
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_news_cached():
+    head = {'User-Agent': 'Mozilla/5.0'}
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    it, seen = [], set()
+    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
+    for u in urls:
+        try:
+            r = requests.get(u, headers=head, timeout=5)
+            root = ET.fromstring(r.content)
+            for i in root.findall('.//item')[:10]: # Increased to 10
+                t, l = i.find('title').text, i.find('link').text
+                desc = i.find('description').text if i.find('description') is not None else ""
+                if t and t not in seen:
+                    t_lower = t.lower()
+                    if not any(b in t_lower for b in blacklist):
+                        seen.add(t)
+                        it.append({"title":t,"link":l, "desc": desc})
+        except: continue
+    return it 
+
+with t3:
+    st.subheader("🚨 Global Wire (Deep Scan)")
+    st.caption("AI reads the articles to find hidden tickers. This takes ~15 seconds.")
+    
+    if st.button("Deep Scan Reports", type="primary", key="news_btn"):
+        with st.spinner("Visiting websites & Analyzing..."):
+            raw_news = get_news_cached()
+            
+            if not raw_news: st.error("⚠️ No news sources responded.")
+            elif not KEY:
+                st.warning("⚠️ No OpenAI Key. Showing Headlines.")
+                st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"Free Mode","title":x['title'],"link":x['link']} for x in raw_news]
+            else:
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=KEY)
+                    
+                    progress_bar = st.progress(0)
+                    batch_content = ""
+                    
+                    # DYNAMIC: Only process up to 10 items
+                    items_to_process = raw_news[:10]
+                    total_items = len(items_to_process)
+                    
+                    for idx, item in enumerate(items_to_process):
+                        full_text = fetch_article_text(item['link'])
+                        content = full_text if len(full_text) > 200 else item['desc']
+                        batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}"
+                        
+                        # --- FIX: Dynamic Progress Calculation ---
+                        # Ensures the value is always between 0.0 and 1.0
+                        progress_value = (idx + 1) / total_items
+                        progress_bar.progress(min(progress_value, 1.0))
+                        # -----------------------------------------
+
+                    system_instr = """
+                    You are a financial analyst. Read these articles.
+                    Identify specific stock tickers that are the SUBJECT or RECOMMENDATION of the article. 
+                    Ignore the main ticker if it's just a comparison.
+                    If no specific ticker is found, use the main sector (e.g. 'Crypto', 'Tech').
+                    Rank them by sentiment strength.
+                    Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK
+                    """
+                    
+                    res = client.chat.completions.create(
+                        model="gpt-4o-mini", 
+                        messages=[{"role":"system", "content": system_instr}, {"role":"user", "content": batch_content}], 
+                        max_tokens=700
+                    )
+                    
+                    enrich = []
+                    lines = res.choices[0].message.content.strip().split("\n")
+                    for l in lines:
+                        parts = l.split("|")
+                        if len(parts) >= 5: 
+                            enrich.append({
+                                "ticker": parts[0].strip(),
+                                "signal": parts[1].strip(),
+                                "reason": parts[2].strip(),
+                                "title": parts[3].strip(),
+                                "link": parts[4].strip()
+                            })
+                    
+                    if not enrich: st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"No actionable tickers found","title":x['title'],"link":x['link']} for x in raw_news]
+                    else: st.session_state['news_results'] = enrich
+                    
+                    progress_bar.empty()
+                    
+                except Exception as e:
+                    st.warning(f"⚠️ AI Error: {e}")
+                    st.session_state['news_results'] = [{"ticker":"NEWS","signal":"⚪","reason":"AI Unavailable","title":x['title'],"link":x['link']} for x in raw_news]
+
+    if st.session_state.get('news_results'):
+        for r in st.session_state['news_results']:
+            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            st.caption(r['reason'])
+            st.divider() 
+
+now = datetime.now()
+wait = 60 - now.second
+time.sleep(wait + 1)
+st.rerun()
