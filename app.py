@@ -259,7 +259,7 @@ def check_flip(ticker, current_trend):
             st.toast(f"🔀 TREND FLIP: {ticker} switched to {current_trend}!", icon="⚠️")
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC (RESTRUCTURED) ---
+# --- DASHBOARD LOGIC (COMPACT LAYOUT) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     if d:
@@ -283,18 +283,19 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        # 1. Extended Hours (MOVED UP)
+        # 1. Extended Hours
         st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
         
         # 2. AI Signal
         st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
         
-        # 3. Key Metadata (SEPARATED LINES & BOLD BLACK CAPS)
+        # 3. Key Metadata (COMPACT: Label | Value)
+        # Removed "space-between" so items sit next to each other
         meta_html = f"""
         <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
-            <div style='display:flex; justify-content:space-between;'><span><b style='color:black;'>TREND:</b></span> <span>{d['tr']}</span></div>
-            <div style='display:flex; justify-content:space-between;'><span><b style='color:black;'>ANALYST RATING:</b></span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>
-            <div style='display:flex; justify-content:space-between;'><span><b style='color:black;'>EARNINGS:</b></span> <span>{earn}</span></div>
+            <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}</div>
+            <div><b style='color:black; margin-right:8px;'>ANALYST RATING:</b> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>
+            <div><b style='color:black; margin-right:8px;'>EARNINGS:</b> {earn}</div>
         </div>
         """
         st.markdown(meta_html, unsafe_allow_html=True)
