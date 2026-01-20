@@ -10,27 +10,42 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. SESSION STATE INITIALIZATION ---
-if 'initialized' not in st.session_state:
-    st.session_state['initialized'] = False
-    st.session_state['news_results'] = []
-    st.session_state['scanned_count'] = 0
-    st.session_state['market_mood'] = None 
-    st.session_state['alert_triggered'] = False
-    st.session_state['alert_log'] = [] 
-    st.session_state['last_trends'] = {}
-    st.session_state['mem_ratings'] = {}
-    st.session_state['mem_meta'] = {}
-    st.session_state['spy_cache'] = None
-    st.session_state['spy_last_fetch'] = datetime.min
-    st.session_state['banner_msg'] = None
-    st.session_state['storm_cooldown'] = {}
+# --- 2. SAFETY INITIALIZATION (CRASH PREVENTER) ---
+# This block ensures every variable exists immediately, preventing NameErrors.
+defaults = {
+    'initialized': False,
+    'news_results': [],
+    'scanned_count': 0,
+    'market_mood': None,
+    'alert_triggered': False,
+    'alert_log': [],
+    'last_trends': {},
+    'mem_ratings': {},
+    'mem_meta': {},
+    'spy_cache': None,
+    'spy_last_fetch': datetime.min,
+    'banner_msg': None,
+    'storm_cooldown': {},
+    # Widget Defaults
+    'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
+    'a_tick_input': "SPY",
+    'a_price_input': 0.0,
+    'a_on_input': False,
+    'flip_on_input': False, # <--- The culprit fixed here
+    'keep_on_input': False,
+    'notify_input': False,
+    'base_url_input': ""
+}
+
+for key, val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
 # --- 3. JAVASCRIPT BRIDGES ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v59_data";
+        const KEY = "penny_pulse_v60_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -87,8 +102,7 @@ def update_params():
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
     st.query_params["ko"] = str(st.session_state.keep_on_input).lower()
-    if 'base_url_input' in st.session_state:
-        st.query_params["bu"] = st.session_state.base_url_input
+    st.query_params["bu"] = st.session_state.base_url_input
 
 def restore_from_file(uploaded_file):
     if uploaded_file is not None:
@@ -390,92 +404,6 @@ st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_in
 st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
 st.sidebar.toggle("💡 Keep Screen On", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
 st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
-
-# --- HELPERS USING SESSION STATE DIRECTLY (CRASH FIX) ---
-def check_flip(ticker, current_trend):
-    # Fix: Use session state directly to avoid NameError if var is not in scope
-    if not st.session_state.get('flip_on_input', False): return
-    if ticker in st.session_state['last_trends']:
-        prev = st.session_state['last_trends'][ticker]
-        if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
-            msg = f"{ticker} flipped to {current_trend}"
-            st.toast(msg, icon="⚠️")
-            log_alert(msg, title="Trend Flip Alert")
-    st.session_state['last_trends'][ticker] = current_trend 
-
-def render_card(t, inf=None):
-    d = get_data_cached(t)
-    spy_data = get_spy_benchmark()
-    
-    if d:
-        check_flip(t, d['raw_trend'])
-        rat_txt, rat_col = get_rating_cached(t)
-        sec, earn = get_meta_data(t)
-        nm = NAMES.get(t, t)
-        if t.endswith(".TO"): nm += " (TSX)"
-        elif t.endswith(".V"): nm += " (TSXV)"
-        elif t.endswith(".CN"): nm += " (CSE)"
-        sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
-        url = f"https://finance.yahoo.com/quote/{t}"
-        st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
-        
-        if inf:
-            q = inf.get("q", 100)
-            st.caption(f"{q} Shares @ ${inf['e']}")
-            st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-        else:
-            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-        
-        st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
-        st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
-        
-        meta_html = f"""
-        <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
-            <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}{d['gc']}</div>
-            <div><b style='color:black; margin-right:8px;'>ANALYST RATING:</b> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>
-            <div><b style='color:black; margin-right:8px;'>EARNINGS:</b> {earn}</div>
-        </div>
-        """
-        st.markdown(meta_html, unsafe_allow_html=True)
-
-        st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
-        
-        if d['chart'] is not None and not d['chart'].empty:
-            stock_series = d['chart']['Close'].tail(30)
-            if len(stock_series) > 1:
-                start_p = stock_series.iloc[0]
-                stock_norm = ((stock_series - start_p) / start_p) * 100
-                plot_df = pd.DataFrame({'Stock': stock_norm})
-                plot_df = plot_df.reset_index().rename(columns={plot_df.index.name: 'Time'})
-                has_spy = False
-                if spy_data is not None and not spy_data.empty:
-                    try:
-                        spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
-                        if not spy_aligned['Close'].isnull().all():
-                            spy_vals = spy_aligned['Close']
-                            valid_spy = spy_vals.dropna()
-                            if not valid_spy.empty:
-                                spy_start = valid_spy.iloc[0]
-                                plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
-                                has_spy = True
-                    except: pass
-                line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-                base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
-                l_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
-                final_chart = l_stock
-                if has_spy:
-                    l_spy = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.8).encode(y='SPY')
-                    final_chart = l_stock + l_spy
-                st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
-            else: st.caption("Not enough intraday data.")
-        else: st.caption("Chart data unavailable.")
-        
-        st.markdown(d['rng_html'], unsafe_allow_html=True)
-        st.markdown(d['vol_html'], unsafe_allow_html=True)
-        st.markdown(d['rsi_html'], unsafe_allow_html=True)
-        st.markdown(d['storm_html'], unsafe_allow_html=True)
-    else: st.metric(t, "---", "0.0%")
-    st.divider() 
 
 # --- RESTORED BACKUP MENU (ABOVE SHARE) ---
 st.sidebar.divider()
