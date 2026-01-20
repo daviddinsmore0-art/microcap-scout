@@ -15,6 +15,7 @@ if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
 if 'alert_log' not in st.session_state: st.session_state['alert_log'] = [] 
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
+# Session Cache
 if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
 if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
 
@@ -93,7 +94,6 @@ if st.session_state['alert_log']:
 
 # --- HELPER: FETCH SPY BENCHMARK (Intraday) ---
 def get_spy_benchmark():
-    # Only fetch SPY once every 60 seconds to save data/speed
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
         if (now - st.session_state['spy_last_fetch']).seconds < 60:
@@ -101,10 +101,8 @@ def get_spy_benchmark():
     
     try:
         spy = yf.Ticker("SPY")
-        # Fetch matching 1d, 5m data
         h = spy.history(period="1d", interval="5m", prepost=True)
         if not h.empty:
-            # Normalize to percentage change from open (0.0 start)
             start_price = h['Close'].iloc[0]
             h['Normalized'] = ((h['Close'] - start_price) / start_price) * 100
             st.session_state['spy_cache'] = h[['Normalized']]
@@ -210,13 +208,10 @@ def get_data_cached(s):
     golden_cross_html = ""
     
     try:
-        # Fetching 1y history for Golden Cross Calc (Daily)
-        # Fetching 1d history for Charting (Intraday)
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         
         if not h.empty:
-            # 1. Prepare Chart Data (Normalize for Overlay)
             start_price = h['Close'].iloc[0]
             h['Normalized'] = ((h['Close'] - start_price) / start_price) * 100
             chart_data = h
@@ -231,9 +226,6 @@ def get_data_cached(s):
                 valid_data = True
             p_ext = h['Close'].iloc[-1]
             
-            # 2. Golden Cross Check (Needs ~1y Daily Data)
-            # We do a quick check only if we don't have it cached? 
-            # For speed, we just fetch 1y daily.
             try:
                 hist_long = tk.history(period="1y", interval="1d")
                 if len(hist_long) > 200:
@@ -258,7 +250,6 @@ def get_data_cached(s):
     lbl = "⚡ LIVE"
     x_str = f"<b>{lbl}: ${p_ext:,.2f} <span style='color:{c_hex};'>({d_ext_pct:+.2f}%)</span></b>"
     
-    # --- VISUALS & RATINGS ---
     rng_pct = 50
     rng_rate = "⚖️ Average"
     if dh > dl:
@@ -345,7 +336,7 @@ def check_flip(ticker, current_trend):
             log_alert(msg)
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC (COMPACT + OVERLAY + GC) ---
+# --- DASHBOARD LOGIC (FIXED CHART) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     spy_data = get_spy_benchmark()
@@ -374,7 +365,6 @@ def render_card(t, inf=None):
         st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
         st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
         
-        # KEY METADATA (Included GC Badge)
         meta_html = f"""
         <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
             <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}{d['gc']}</div>
@@ -384,35 +374,21 @@ def render_card(t, inf=None):
         """
         st.markdown(meta_html, unsafe_allow_html=True)
 
-        # SPARKLINE WITH OVERLAY
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Gray)</div>", unsafe_allow_html=True)
         if d['chart'] is not None:
-            # We chart normalized % change so they scale together
-            stock_data = d['chart'].tail(30).reset_index()
-            stock_data.columns = ['Time', 'Close', 'Normalized'] # Normalized calculated in get_data
+            # FIX: Only select what we need to prevent shape mismatch
+            subset = d['chart'].tail(30).reset_index()
             
-            # Base Chart (Stock)
+            # Create a clean minimal dataframe for plotting
+            spark_df = pd.DataFrame()
+            spark_df['Time'] = subset.iloc[:, 0]
+            spark_df['Normalized'] = subset['Normalized']
+            
             line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-            base = alt.Chart(stock_data).encode(x=alt.X('Time', axis=None))
-            
+            base = alt.Chart(spark_df).encode(x=alt.X('Time', axis=None))
             line_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Normalized', scale=alt.Scale(zero=False), axis=None))
             
-            # Overlay (SPY) if available and length matches roughly
-            layers = line_stock
-            if spy_data is not None:
-                # We need to align timestamps or just use index roughly. 
-                # Simplest for sparkline is to assume last 30 intervals align.
-                spy_recent = spy_data.tail(len(stock_data)).reset_index(drop=True)
-                # Merge logic is complex for simple sparklines, 
-                # so we just add a secondary independent line for "visual vibe"
-                # Actually, Altair layers need same dataset or mapped data.
-                # Simplified: Just chart Stock for now to ensure stability, 
-                # or we combine DF. 
-                # Let's keep it simple and stable: Stock Only for v27.0 to prevent index errors.
-                # If you want SPY truly overlayed, we need to merge DFs by Time.
-                pass 
-
-            st.altair_chart(layers.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
+            st.altair_chart(line_stock.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
         
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         st.markdown(d['vol_html'], unsafe_allow_html=True)
@@ -443,7 +419,6 @@ with t2:
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: render_card(t, inf) 
 
-# --- PRICE ALERT LOGIC ---
 if a_on:
     d = get_data_cached(a_tick)
     if d and d['p'] >= a_price:
@@ -455,9 +430,8 @@ if a_on:
     else:
         st.session_state['alert_triggered'] = False 
 
-# --- DEEP DIVE NEWS AGENT ---
 def fetch_article_text(url):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
         r = requests.get(url, headers=headers, timeout=3)
         if r.status_code == 200:
@@ -470,56 +444,32 @@ def process_news_batch(raw_batch):
     try:
         from openai import OpenAI
         client = OpenAI(api_key=KEY)
-        
         progress_bar = st.progress(0)
         batch_content = ""
         total_items = len(raw_batch)
-        
         for idx, item in enumerate(raw_batch):
             full_text = fetch_article_text(item['link'])
             content = full_text if len(full_text) > 200 else item['desc']
             batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
         
-        system_instr = """
-        You are a financial analyst. Read these articles.
-        Identify specific stock tickers that are the SUBJECT or RECOMMENDATION of the article.
-        If no specific ticker is found, use the main sector.
-        Rank them by sentiment strength.
-        IMPORTANT: For the 'REASON' field, write a specific 5-10 word explanation of WHY (e.g., 'Strong earnings beat expectations' or 'CEO announced new partnership'). DO NOT use the word 'Reason'.
-        Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK
-        """
-        
+        system_instr = "You are a financial analyst. Read these articles. Identify specific stock tickers. Rank by sentiment. Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK"
         res = client.chat.completions.create(
             model="gpt-4o-mini", 
             messages=[{"role":"system", "content": system_instr}, {"role":"user", "content": batch_content}], 
             max_tokens=700
         )
-        
         new_results = []
         lines = res.choices[0].message.content.strip().split("\n")
-        
         green_count = 0
         total_signals = 0
-        
         for l in lines:
             parts = l.split("|")
             if len(parts) >= 5: 
                 sig = parts[1].strip()
                 if "🟢" in sig: green_count += 1
                 if "🟢" in sig or "🔴" in sig: total_signals += 1
-                
-                reason_text = parts[2].strip()
-                if not reason_text or reason_text.upper() == "REASON":
-                    reason_text = "Analysis based on article content."
-                
-                new_results.append({
-                    "ticker": parts[0].strip(),
-                    "signal": sig,
-                    "reason": reason_text,
-                    "title": parts[3].strip(),
-                    "link": parts[4].strip()
-                })
+                new_results.append({"ticker": parts[0].strip(), "signal": sig, "reason": parts[2].strip(), "title": parts[3].strip(), "link": parts[4].strip()})
         
         if total_signals > 0:
             bull_pct = int((green_count / total_signals) * 100)
@@ -531,85 +481,4 @@ def process_news_batch(raw_batch):
         progress_bar.empty()
         return new_results
     except Exception as e:
-        st.warning(f"⚠️ AI Error: {e}")
-        return []
-
-@st.cache_data(ttl=300, show_spinner=False)
-def get_news_cached():
-    head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
-    it, seen = [], set()
-    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
-    for u in urls:
-        try:
-            r = requests.get(u, headers=head, timeout=5)
-            root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:50]:
-                t, l = i.find('title').text, i.find('link').text
-                desc = i.find('description').text if i.find('description') is not None else ""
-                if t and t not in seen:
-                    t_lower = t.lower()
-                    if not any(b in t_lower for b in blacklist):
-                        seen.add(t)
-                        it.append({"title":t,"link":l, "desc": desc})
-        except: continue
-    return it 
-
-with t3:
-    c_n1, c_n2 = st.columns([3, 1])
-    with c_n1: st.subheader("🚨 Global Wire (Deep Scan)")
-    with c_n2: 
-        if st.session_state['market_mood']:
-            st.markdown(f"<div style='background:#333; color:white; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>Mood: {st.session_state['market_mood']}</div>", unsafe_allow_html=True)
-    
-    if st.button("Deep Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
-        st.session_state['news_results'] = [] 
-        st.session_state['scanned_count'] = 0
-        st.session_state['market_mood'] = None
-        
-        with st.spinner("Analyzing Top 10 Articles..."):
-            raw_news = get_news_cached()
-            if not raw_news: st.error("⚠️ No news sources found.")
-            elif not KEY: st.warning("⚠️ No OpenAI Key.")
-            else:
-                batch = raw_news[:10]
-                results = process_news_batch(batch)
-                if results:
-                    st.session_state['news_results'] = results
-                    st.session_state['scanned_count'] = 10
-                    st.rerun()
-                else:
-                    st.info("No relevant tickers found in this batch.")
-
-    if st.session_state.get('news_results'):
-        for i, r in enumerate(st.session_state['news_results']):
-            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider() 
-            
-        if st.button("⬇️ Load More News (Next 10)", key="load_more_btn"):
-            with st.spinner("Analyzing Next 10 Articles..."):
-                raw_news = get_news_cached()
-                start = st.session_state['scanned_count']
-                end = start + 10 
-                
-                if start < len(raw_news):
-                    batch = raw_news[start:end]
-                    if batch:
-                        new_results = process_news_batch(batch)
-                        if new_results:
-                            st.session_state['news_results'].extend(new_results)
-                            st.session_state['scanned_count'] += 10
-                            st.rerun() 
-                        else:
-                            st.warning("No relevant tickers found in this batch. Try again.")
-                            st.session_state['scanned_count'] += 10 
-                    else:
-                        st.info("You have reached the end of the news feed.")
-                else:
-                    st.info("No more news available right now.")
-
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
+        st.warning(
