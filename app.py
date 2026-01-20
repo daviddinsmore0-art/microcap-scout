@@ -1,5 +1,5 @@
 import streamlit as st, yfinance as yf, requests, time, re, xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
@@ -211,11 +211,14 @@ def get_data_cached(s):
     
     return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col} 
 
-# --- HEADER & COUNTDOWN ---
+# --- HEADER & COUNTDOWN & EST TIME ---
+# FIX: Manually subtract 5 hours from UTC to get EST
+est_now = datetime.utcnow() - timedelta(hours=5)
+
 c1, c2 = st.columns([1, 1])
 with c1:
     st.title("⚡ Penny Pulse")
-    st.caption(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
+    st.caption(f"Last Updated: {est_now.strftime('%H:%M:%S EST')}") # Updated to EST
 with c2:
     components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
 
@@ -342,116 +345,4 @@ def process_news_batch(raw_batch):
             batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
         
-        system_instr = """
-        You are a financial analyst. Read these articles.
-        Identify specific stock tickers that are the SUBJECT or RECOMMENDATION of the article.
-        If no specific ticker is found, use the main sector.
-        Rank them by sentiment strength.
-        IMPORTANT: For the 'REASON' field, write a specific 5-10 word explanation of WHY (e.g., 'Strong earnings beat expectations' or 'CEO announced new partnership'). DO NOT use the word 'Reason'.
-        Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK
-        """
-        
-        res = client.chat.completions.create(
-            model="gpt-4o-mini", 
-            messages=[{"role":"system", "content": system_instr}, {"role":"user", "content": batch_content}], 
-            max_tokens=700
-        )
-        
-        new_results = []
-        lines = res.choices[0].message.content.strip().split("\n")
-        for l in lines:
-            parts = l.split("|")
-            if len(parts) >= 5: 
-                reason_text = parts[2].strip()
-                if not reason_text or reason_text.upper() == "REASON":
-                    reason_text = "Analysis based on article content."
-                
-                new_results.append({
-                    "ticker": parts[0].strip(),
-                    "signal": parts[1].strip(),
-                    "reason": reason_text,
-                    "title": parts[3].strip(),
-                    "link": parts[4].strip()
-                })
-        
-        progress_bar.empty()
-        return new_results
-    except Exception as e:
-        st.warning(f"⚠️ AI Error: {e}")
-        return []
-
-@st.cache_data(ttl=300, show_spinner=False)
-def get_news_cached():
-    head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
-    it, seen = [], set()
-    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
-    for u in urls:
-        try:
-            r = requests.get(u, headers=head, timeout=5)
-            root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:50]:
-                t, l = i.find('title').text, i.find('link').text
-                desc = i.find('description').text if i.find('description') is not None else ""
-                if t and t not in seen:
-                    t_lower = t.lower()
-                    if not any(b in t_lower for b in blacklist):
-                        seen.add(t)
-                        it.append({"title":t,"link":l, "desc": desc})
-        except: continue
-    return it 
-
-with t3:
-    st.subheader("🚨 Global Wire (Deep Scan)")
-    
-    # --- DEEP SCAN BUTTON (BATCH 10) ---
-    if st.button("Deep Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
-        st.session_state['news_results'] = [] 
-        st.session_state['scanned_count'] = 0
-        
-        with st.spinner("Analyzing Top 10 Articles..."):
-            raw_news = get_news_cached()
-            if not raw_news: st.error("⚠️ No news sources found.")
-            elif not KEY: st.warning("⚠️ No OpenAI Key.")
-            else:
-                batch = raw_news[:10] # Grab 10
-                results = process_news_batch(batch)
-                if results:
-                    st.session_state['news_results'] = results
-                    st.session_state['scanned_count'] = 10
-                else:
-                    st.info("No relevant tickers found in this batch.")
-
-    if st.session_state.get('news_results'):
-        for i, r in enumerate(st.session_state['news_results']):
-            st.markdown(f"**{i+1}. {r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
-            st.caption(r['reason'])
-            st.divider() 
-            
-        # --- LOAD MORE BUTTON (NEXT 10) ---
-        if st.button("⬇️ Load More News (Next 10)", key="load_more_btn"):
-            with st.spinner("Analyzing Next 10 Articles..."):
-                raw_news = get_news_cached()
-                start = st.session_state['scanned_count']
-                end = start + 10 # Grab next 10
-                
-                if start < len(raw_news):
-                    batch = raw_news[start:end]
-                    if batch:
-                        new_results = process_news_batch(batch)
-                        if new_results:
-                            st.session_state['news_results'].extend(new_results)
-                            st.session_state['scanned_count'] += 10
-                            st.rerun() 
-                        else:
-                            st.warning("No relevant tickers found in this batch. Try again.")
-                            st.session_state['scanned_count'] += 10 
-                    else:
-                        st.info("You have reached the end of the news feed.")
-                else:
-                    st.info("No more news available right now.")
-
-now = datetime.now()
-wait = 60 - now.second
-time.sleep(wait + 1)
-st.rerun()
+        system
