@@ -1,3 +1,4 @@
+
 import streamlit as st, yfinance as yf, requests, time, re
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
@@ -29,7 +30,7 @@ if 'initialized' not in st.session_state:
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v50_data";
+        const KEY = "penny_pulse_v51_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -692,40 +693,43 @@ def get_news_cached():
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
-            # Tries to fix "no news sources found" by better error handling
             if r.status_code != 200:
                 print(f"Failed to fetch {u}: {r.status_code}")
                 continue
             
-            # Robust parsing for different XML structures (RSS vs Atom)
             root = ET.fromstring(r.content)
             
-            # Find items (RSS uses 'item', Atom uses 'entry')
+            # Robust Finder (RSS vs Atom)
             items = root.findall('.//item')
             if not items:
                 items = root.findall('.//{http://www.w3.org/2005/Atom}entry')
             
             for i in items[:50]:
-                # Handle namespaces for Title/Link
                 t = i.find('title')
                 if t is None: t = i.find('{http://www.w3.org/2005/Atom}title')
                 
+                # --- LINK FIX ---
                 l = i.find('link')
                 if l is None: l = i.find('{http://www.w3.org/2005/Atom}link')
                 
-                # Get text content
-                title_text = t.text if t is not None else "No Title"
-                link_text = l.text if l is not None else (l.attrib.get('href') if l is not None else "")
+                # Check Text First, Then Href
+                url = None
+                if l is not None:
+                    if l.text and l.text.strip():
+                        url = l.text.strip()
+                    elif 'href' in l.attrib:
+                        url = l.attrib['href']
                 
-                desc = i.find('description')
-                if desc is None: desc = i.find('{http://www.w3.org/2005/Atom}summary')
-                desc_text = desc.text if desc is not None else ""
+                if url:
+                    title_text = t.text if t is not None else "No Title"
+                    desc = i.find('description')
+                    if desc is None: desc = i.find('{http://www.w3.org/2005/Atom}summary')
+                    desc_text = desc.text if desc is not None else ""
 
-                if title_text and link_text:
                     t_lower = title_text.lower()
                     if not any(b in t_lower for b in blacklist) and title_text not in seen:
                         seen.add(title_text)
-                        it.append({"title":title_text,"link":link_text, "desc": desc_text})
+                        it.append({"title":title_text,"link":url, "desc": desc_text})
         except Exception as e:
             print(f"Error parsing {u}: {e}")
             continue
