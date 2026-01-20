@@ -6,11 +6,11 @@ import altair as alt
 import json
 import xml.etree.ElementTree as ET
 
-# --- 1. CONFIG & SETUP (Must be first) ---
+# --- 1. CONFIG & SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- SESSION STATE INITIALIZATION ---
+# --- 2. SESSION STATE INITIALIZATION ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = False
     st.session_state['news_results'] = []
@@ -26,11 +26,11 @@ if 'initialized' not in st.session_state:
     st.session_state['banner_msg'] = None
     st.session_state['storm_cooldown'] = {}
 
-# --- 2. JAVASCRIPT BRIDGE ---
+# --- 3. JAVASCRIPT BRIDGES ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v58_data";
+        const KEY = "penny_pulse_v59_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -58,7 +58,6 @@ def sync_js(config_json):
     """
     components.html(js, height=0, width=0)
 
-# --- JAVASCRIPT: WAKE LOCK ---
 def inject_wake_lock(enable):
     if enable:
         js = """
@@ -79,7 +78,7 @@ def inject_wake_lock(enable):
         """
         components.html(js, height=0, width=0)
 
-# --- 3. CORE FUNCTIONS ---
+# --- 4. CORE LOGIC FUNCTIONS ---
 def update_params():
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
@@ -107,38 +106,6 @@ def restore_from_file(uploaded_file):
             st.rerun()
         except: st.error("Invalid Config File")
 
-# --- LOAD STATE ---
-qp = st.query_params
-current_config = {
-    "w": qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
-    "at": qp.get("at", "SPY"),
-    "ap": float(qp.get("ap", 0.0)),
-    "ao": qp.get("ao", "false") == "true",
-    "fo": qp.get("fo", "false") == "true",
-    "no": qp.get("no", "false") == "true",
-    "ko": qp.get("ko", "false") == "true",
-    "bu": qp.get("bu", "")
-}
-
-config_json = json.dumps(current_config)
-sync_js(config_json)
-inject_wake_lock(current_config["ko"])
-
-PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
-} 
-
-NAMES = {
-    "TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", 
-    "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", 
-    "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", 
-    "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"
-} 
-
 def play_alert_sound():
     sound_html = """
     <audio autoplay>
@@ -146,28 +113,6 @@ def play_alert_sound():
     </audio>
     """
     components.html(sound_html, height=0, width=0)
-
-# --- 4. SIDEBAR (ALWAYS VISIBLE) ---
-st.sidebar.header("⚡ Pulse")
-if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
-
-st.sidebar.text_input("Add Tickers (Comma Sep)", value=current_config['w'], key="w_input", on_change=update_params)
-WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
-ALL = list(set(WATCH + list(PORT.keys())))
-
-c1, c2 = st.sidebar.columns(2)
-with c1:
-    if st.button("💾 Save Settings"):
-        update_params()
-        st.toast("Settings Saved!", icon="💾")
-with c2:
-    if st.button("🔊 Test Audio"):
-        play_alert_sound()
-        st.toast("Audio Armed!", icon="🔊")
-
-st.sidebar.divider()
-st.sidebar.subheader("🔔 Smart Alerts") 
 
 def send_notification(title, body):
     js_code = f"""
@@ -194,100 +139,6 @@ def log_alert(msg, title="Penny Pulse Alert", is_crash=False):
     st.session_state['banner_msg'] = f"<span style='color:{color};'>🚨 {msg.upper()} 🚨</span>"
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
-
-curr_tick = current_config['at']
-if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
-idx = 0
-if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
-
-st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
-st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
-st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
-st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
-st.sidebar.toggle("💡 Keep Screen On", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
-st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
-
-# --- SEPARATE SHARE MENU ---
-st.sidebar.divider()
-with st.sidebar.expander("🔗 Share & Invite"):
-    base_url = st.text_input("App Web Address (Paste Once)", value=current_config['bu'], placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
-    if base_url:
-        clean_base = base_url.split("?")[0].strip("/")
-        params = f"?w={st.session_state.w_input}&at={a_tick}&ap={a_price}&ao={str(a_on).lower()}&fo={str(flip_on).lower()}"
-        full_link = f"{clean_base}/{params}"
-        st.code(full_link, language="text")
-
-# --- SEPARATE BACKUP MENU (RESTORED!) ---
-with st.sidebar.expander("📦 Backup & Restore"):
-    st.caption("Download your profile to save it.")
-    export_data = json.dumps(current_config, indent=2)
-    st.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
-    uploaded = st.file_uploader("📤 Restore Profile", type=["json"])
-    if uploaded: restore_from_file(uploaded)
-
-if st.session_state['alert_log']:
-    st.sidebar.divider()
-    st.sidebar.markdown("**📜 Recent Alerts**")
-    for msg in st.session_state['alert_log'][:5]: st.sidebar.caption(msg)
-    if st.sidebar.button("Clear Log"):
-        st.session_state['alert_log'] = []
-        st.rerun()
-
-# --- 5. LOGIC & DISPLAY ---
-def get_spy_benchmark():
-    now = datetime.now()
-    if st.session_state['spy_cache'] is not None:
-        if (now - st.session_state['spy_last_fetch']).seconds < 60:
-            return st.session_state['spy_cache']
-    try:
-        spy = yf.Ticker("SPY")
-        h = spy.history(period="1d", interval="5m", prepost=True)
-        if not h.empty:
-            data = h[['Close']]
-            st.session_state['spy_cache'] = data
-            st.session_state['spy_last_fetch'] = now
-            return data
-    except: pass
-    return None
-
-def get_meta_data(s):
-    if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
-    try:
-        tk = yf.Ticker(s)
-        sec_raw = tk.info.get('sector', 'N/A')
-        sec_map = {"Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH", "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND", "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"}
-        sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
-        earn_html = "N/A"
-        cal = tk.calendar
-        dates = []
-        if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
-        elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
-        if len(dates) > 0:
-            nxt = dates[0]
-            if hasattr(nxt, "date"): nxt = nxt.date()
-            days = (nxt - datetime.now().date()).days
-            if 0 <= days <= 7: earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px;'>⚠️ {days}d</span>"
-            elif 8 <= days <= 30: earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {days}d</span>"
-            elif days > 30: earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {nxt.strftime('%b %d')}</span>"
-        res = (sector_code, earn_html)
-        st.session_state['mem_meta'][s] = res
-        return res
-    except: return "", "N/A" 
-
-def get_rating_cached(s):
-    if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
-    try:
-        info = yf.Ticker(s).info
-        rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
-        res = ("N/A", "#888")
-        if "STRONG BUY" in rec: res = ("🌟 STRONG BUY", "#00C805")
-        elif "BUY" in rec: res = ("✅ BUY", "#4caf50")
-        elif "HOLD" in rec: res = ("✋ HOLD", "#FFC107")
-        elif "SELL" in rec: res = ("🔻 SELL", "#FF4B4B")
-        elif "STRONG SELL" in rec: res = ("🆘 STRONG SELL", "#FF0000")
-        if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
-        return res
-    except: return "N/A", "#888"
 
 def calculate_storm_score(ticker, rsi, vol_ratio, trend, price_change):
     score = 0
@@ -330,6 +181,45 @@ def get_ai_signal(rsi, vol_ratio, trend, price_change):
     elif score <= -3: return "⚠️ PULLBACK RISK", "#ff0000"
     elif score <= -1: return "🔴 BEARISH BIAS", "#ff4b4b"
     return "💤 CONSOLIDATION", "#888" 
+
+def get_rating_cached(s):
+    if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
+    try:
+        info = yf.Ticker(s).info
+        rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
+        res = ("N/A", "#888")
+        if "STRONG BUY" in rec: res = ("🌟 STRONG BUY", "#00C805")
+        elif "BUY" in rec: res = ("✅ BUY", "#4caf50")
+        elif "HOLD" in rec: res = ("✋ HOLD", "#FFC107")
+        elif "SELL" in rec: res = ("🔻 SELL", "#FF4B4B")
+        elif "STRONG SELL" in rec: res = ("🆘 STRONG SELL", "#FF0000")
+        if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
+        return res
+    except: return "N/A", "#888"
+
+def get_meta_data(s):
+    if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
+    try:
+        tk = yf.Ticker(s)
+        sec_raw = tk.info.get('sector', 'N/A')
+        sec_map = {"Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH", "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND", "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"}
+        sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
+        earn_html = "N/A"
+        cal = tk.calendar
+        dates = []
+        if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
+        elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
+        if len(dates) > 0:
+            nxt = dates[0]
+            if hasattr(nxt, "date"): nxt = nxt.date()
+            days = (nxt - datetime.now().date()).days
+            if 0 <= days <= 7: earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px;'>⚠️ {days}d</span>"
+            elif 8 <= days <= 30: earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {days}d</span>"
+            elif days > 30: earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {nxt.strftime('%b %d')}</span>"
+        res = (sector_code, earn_html)
+        st.session_state['mem_meta'][s] = res
+        return res
+    except: return "", "N/A" 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_cached(s):
@@ -435,64 +325,76 @@ def get_data_cached(s):
     except: pass
     return {"p":p_reg, "d":d_reg_pct, "d_raw": (p_reg - pv), "x":x_str, "v":v_str, "vt":vol_tag, "rsi":rsi, "rl":rl, "tr":tr, "raw_trend":raw_trend, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "chart":chart_data, "ai_txt":ai_txt, "ai_col":ai_col, "gc":golden_cross_html, "storm_html":storm_html} 
 
-# --- VISUAL ALARM BANNER ---
-if st.session_state['banner_msg']:
-    st.markdown(f"""
-    <div style="
-        background-color: #222; 
-        color: white; 
-        padding: 15px; 
-        text-align: center; 
-        font-size: 20px; 
-        font-weight: bold; 
-        position: fixed; 
-        top: 50px; 
-        left: 0; 
-        width: 100%; 
-        z-index: 9999;
-        box-shadow: 0px 4px 6px rgba(0,0,0,0.5);
-        animation: pulse 1.5s infinite;
-        border-bottom: 3px solid white;
-    ">
-    {st.session_state['banner_msg']}
-    </div>
-    <style>
-    @keyframes pulse {{
-        0% {{ opacity: 1; }}
-        50% {{ opacity: 0.8; }}
-        100% {{ opacity: 1; }}
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-    if st.button("❌ Dismiss Alarm"):
-        st.session_state['banner_msg'] = None
-        st.rerun()
+# --- 5. INITIAL CONFIG & SIDEBAR ---
+# Load URL State
+qp = st.query_params
+current_config = {
+    "w": qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
+    "at": qp.get("at", "SPY"),
+    "ap": float(qp.get("ap", 0.0)),
+    "ao": qp.get("ao", "false") == "true",
+    "fo": qp.get("fo", "false") == "true",
+    "no": qp.get("no", "false") == "true",
+    "ko": qp.get("ko", "false") == "true",
+    "bu": qp.get("bu", "")
+}
+config_json = json.dumps(current_config)
+sync_js(config_json)
+inject_wake_lock(current_config["ko"])
 
-# --- HEADER ---
-est_now = datetime.utcnow() - timedelta(hours=5)
-c1, c2 = st.columns([1, 1])
+PORT = {
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
+} 
+
+NAMES = {
+    "TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", 
+    "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", 
+    "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", 
+    "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"
+} 
+
+# --- SIDEBAR WIDGETS ---
+st.sidebar.header("⚡ Pulse")
+if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
+else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
+
+st.sidebar.text_input("Add Tickers (Comma Sep)", value=current_config['w'], key="w_input", on_change=update_params)
+WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
+ALL = list(set(WATCH + list(PORT.keys())))
+
+c1, c2 = st.sidebar.columns(2)
 with c1:
-    st.title("⚡ Penny Pulse")
-    st.caption(f"Last Updated: {est_now.strftime('%H:%M:%S EST')}")
+    if st.button("💾 Save Settings"):
+        update_params()
+        st.toast("Settings Saved!", icon="💾")
 with c2:
-    components.html("""<div style="font-family: 'Helvetica', sans-serif; background-color: #0E1117; padding: 5px; border-radius: 5px; text-align:center; display:flex; justify-content:center; align-items:center; height:100%;"><span style="color: #BBBBBB; font-weight: bold; font-size: 14px; margin-right:5px;">Next Update: </span><span id="countdown" style="color: #FF4B4B; font-weight: 900; font-size: 18px;">--</span><span style="color: #BBBBBB; font-size: 14px; margin-left:2px;"> s</span></div><script>function startTimer(){var timer=setInterval(function(){var now=new Date();var seconds=60-now.getSeconds();var el=document.getElementById("countdown");if(el){el.innerHTML=seconds;}},1000);}startTimer();</script>""", height=60) 
+    if st.button("🔊 Test Audio"):
+        play_alert_sound()
+        st.toast("Audio Armed!", icon="🔊")
 
-# --- TICKER ---
-ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
-    d = get_data_cached(t)
-    if d:
-        c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
-        nm = NAMES.get(t, t)
-        if t.endswith(".TO"): nm += " (TSX)"
-        elif t.endswith(".V"): nm += " (TSXV)"
-        elif t.endswith(".CN"): nm += " (CSE)"
-        ti.append(f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{nm}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>")
-h = "".join(ti)
-st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
+st.sidebar.divider()
+st.sidebar.subheader("🔔 Smart Alerts") 
 
+curr_tick = current_config['at']
+if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
+idx = 0
+if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
+
+st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
+st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
+st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
+st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
+st.sidebar.toggle("💡 Keep Screen On", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
+st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
+
+# --- HELPERS USING SESSION STATE DIRECTLY (CRASH FIX) ---
 def check_flip(ticker, current_trend):
-    if not flip_on: return
+    # Fix: Use session state directly to avoid NameError if var is not in scope
+    if not st.session_state.get('flip_on_input', False): return
     if ticker in st.session_state['last_trends']:
         prev = st.session_state['last_trends'][ticker]
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
@@ -503,7 +405,6 @@ def check_flip(ticker, current_trend):
 
 def render_card(t, inf=None):
     d = get_data_cached(t)
-    spy_data = get_spy_benchmark()
     
     if d:
         check_flip(t, d['raw_trend'])
@@ -538,6 +439,7 @@ def render_card(t, inf=None):
 
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
+        spy_data = get_spy_benchmark()
         if d['chart'] is not None and not d['chart'].empty:
             stock_series = d['chart']['Close'].tail(30)
             if len(stock_series) > 1:
@@ -575,52 +477,30 @@ def render_card(t, inf=None):
     else: st.metric(t, "---", "0.0%")
     st.divider() 
 
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
-with t1:
-    cols = st.columns(3)
-    for i, t in enumerate(WATCH):
-        with cols[i%3]: render_card(t) 
+# --- RESTORED BACKUP MENU (ABOVE SHARE) ---
+st.sidebar.divider()
+with st.sidebar.expander("📦 Backup & Restore"):
+    st.caption("Download your profile to save it.")
+    export_data = json.dumps(current_config, indent=2)
+    st.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
+    uploaded = st.file_uploader("📤 Restore Profile", type=["json"])
+    if uploaded: restore_from_file(uploaded)
 
-with t2:
-    tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
-    pie_data = []
-    
-    for t, inf in PORT.items():
-        d = get_data_cached(t)
-        if d:
-            q = inf.get("q", 100)
-            curr = d['p'] * q
-            tot_val += curr
-            tot_pl += (curr - (inf['e'] * q))
-            day_pl += (d['d_raw'] * q)
-            pie_data.append({"Ticker": t, "Value": curr})
-            
-    st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
-    
-    c_pie1, c_pie2 = st.columns([1, 2])
-    with c_pie1:
-        if pie_data:
-            df_pie = pd.DataFrame(pie_data)
-            pie_chart = alt.Chart(df_pie).mark_arc(innerRadius=50).encode(
-                theta=alt.Theta(field="Value", type="quantitative"),
-                color=alt.Color(field="Ticker", type="nominal"),
-                tooltip=["Ticker", "Value"]
-            )
-            st.altair_chart(pie_chart, use_container_width=True)
-    
-    cols = st.columns(3)
-    for i, (t, inf) in enumerate(PORT.items()):
-        with cols[i%3]: render_card(t, inf) 
+with st.sidebar.expander("🔗 Share & Invite"):
+    base_url = st.text_input("App Web Address (Paste Once)", value=current_config['bu'], placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
+    if base_url:
+        clean_base = base_url.split("?")[0].strip("/")
+        params = f"?w={st.session_state.w_input}&at={a_tick}&ap={a_price}&ao={str(a_on).lower()}&fo={str(flip_on).lower()}"
+        full_link = f"{clean_base}/{params}"
+        st.code(full_link, language="text")
 
-if a_on:
-    d = get_data_cached(a_tick)
-    if d and d['p'] >= a_price:
-        if not st.session_state['alert_triggered']:
-            msg = f"🚨 {a_tick} hit ${a_price:,.2f}!"
-            log_alert(msg, title="Price Target Hit")
-            st.session_state['alert_triggered'] = True
-    else:
-        st.session_state['alert_triggered'] = False 
+if st.session_state['alert_log']:
+    st.sidebar.divider()
+    st.sidebar.markdown("**📜 Recent Alerts**")
+    for msg in st.session_state['alert_log'][:5]: st.sidebar.caption(msg)
+    if st.sidebar.button("Clear Log"):
+        st.session_state['alert_log'] = []
+        st.rerun()
 
 def fetch_article_text(url):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -683,7 +563,6 @@ def process_news_batch(raw_batch):
         progress_bar.empty()
         return valid_results
     except Exception as e:
-        # --- CRASH GUARD: SILENT FAIL ---
         print(f"AI Error: {e}") 
         st.caption("⚠️ News Analysis unavailable at this moment.")
         return []
@@ -731,6 +610,43 @@ def get_news_cached():
                         it.append({"title":title_text,"link":url, "desc": desc_text, "date_str": date_str})
         except: continue
     return it 
+
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
+with t1:
+    cols = st.columns(3)
+    for i, t in enumerate(WATCH):
+        with cols[i%3]: render_card(t) 
+
+with t2:
+    tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
+    pie_data = []
+    
+    for t, inf in PORT.items():
+        d = get_data_cached(t)
+        if d:
+            q = inf.get("q", 100)
+            curr = d['p'] * q
+            tot_val += curr
+            tot_pl += (curr - (inf['e'] * q))
+            day_pl += (d['d_raw'] * q)
+            pie_data.append({"Ticker": t, "Value": curr})
+            
+    st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
+    
+    c_pie1, c_pie2 = st.columns([1, 2])
+    with c_pie1:
+        if pie_data:
+            df_pie = pd.DataFrame(pie_data)
+            pie_chart = alt.Chart(df_pie).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta(field="Value", type="quantitative"),
+                color=alt.Color(field="Ticker", type="nominal"),
+                tooltip=["Ticker", "Value"]
+            )
+            st.altair_chart(pie_chart, use_container_width=True)
+    
+    cols = st.columns(3)
+    for i, (t, inf) in enumerate(PORT.items()):
+        with cols[i%3]: render_card(t, inf) 
 
 with t3:
     c_n1, c_n2 = st.columns([3, 1])
