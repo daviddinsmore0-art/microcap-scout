@@ -220,7 +220,7 @@ with c2:
 
 # --- TICKER ---
 ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
+for t in ["SPY","^IXIC","^DJI","BTC-USD","^GSPTSE"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
@@ -332,14 +332,14 @@ def fetch_article_text(url):
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:6]: # Limit to top 6 for speed
+            for i in root.findall('.//item')[:10]: # Limit to top 6 for speed
                 t, l = i.find('title').text, i.find('link').text
                 desc = i.find('description').text if i.find('description') is not None else ""
                 if t and t not in seen:
@@ -354,7 +354,7 @@ with t3:
     st.subheader("🚨 Global Wire (Deep Scan)")
     st.caption("AI reads the articles to find hidden tickers. This takes ~10 seconds.")
     
-    if st.button("Deep Scan Reports", type="primary", key="news_btn"):
+    if st.button("Deep Dive AI Reports", type="primary", key="news_btn"):
         with st.spinner("Visiting websites & Analyzing..."):
             raw_news = get_news_cached()
             
@@ -374,7 +374,7 @@ with t3:
                     progress_bar = st.progress(0)
                     batch_content = ""
                     
-                    for idx, item in enumerate(raw_news[:5]):
+                    for idx, item in enumerate(raw_news[:10]):
                         # Fetch the "Deep" content
                         full_text = fetch_article_text(item['link'])
                         # Fallback to description if fetch fails
