@@ -5,8 +5,8 @@ import pandas as pd
 import altair as alt 
 import json
 import xml.etree.ElementTree as ET
-from email.utils import parsedate_to_datetime
 
+# --- 1. CONFIG & SETUP (Must be first) ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
@@ -26,11 +26,11 @@ if 'initialized' not in st.session_state:
     st.session_state['banner_msg'] = None
     st.session_state['storm_cooldown'] = {}
 
-# --- JAVASCRIPT: BROWSER MEMORY BRIDGE ---
+# --- 2. JAVASCRIPT BRIDGE ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v55_data";
+        const KEY = "penny_pulse_v58_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -58,7 +58,7 @@ def sync_js(config_json):
     """
     components.html(js, height=0, width=0)
 
-# --- JAVASCRIPT: ROBUST WAKE LOCK ---
+# --- JAVASCRIPT: WAKE LOCK ---
 def inject_wake_lock(enable):
     if enable:
         js = """
@@ -79,7 +79,7 @@ def inject_wake_lock(enable):
         """
         components.html(js, height=0, width=0)
 
-# --- PYTHON STATE SYNC ---
+# --- 3. CORE FUNCTIONS ---
 def update_params():
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
@@ -91,7 +91,6 @@ def update_params():
     if 'base_url_input' in st.session_state:
         st.query_params["bu"] = st.session_state.base_url_input
 
-# --- RESTORE FROM FILE ---
 def restore_from_file(uploaded_file):
     if uploaded_file is not None:
         try:
@@ -140,7 +139,6 @@ NAMES = {
     "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"
 } 
 
-# --- AUDIO SYSTEM ---
 def play_alert_sound():
     sound_html = """
     <audio autoplay>
@@ -149,17 +147,15 @@ def play_alert_sound():
     """
     components.html(sound_html, height=0, width=0)
 
-# --- SIDEBAR ---
+# --- 4. SIDEBAR (ALWAYS VISIBLE) ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# --- WATCHLIST INPUT ---
 st.sidebar.text_input("Add Tickers (Comma Sep)", value=current_config['w'], key="w_input", on_change=update_params)
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
-# --- SAVE & AUDIO ---
 c1, c2 = st.sidebar.columns(2)
 with c1:
     if st.button("💾 Save Settings"):
@@ -199,7 +195,6 @@ def log_alert(msg, title="Penny Pulse Alert", is_crash=False):
     if st.session_state.get("notify_input", False):
         send_notification(title, msg)
 
-# --- ALERT WIDGETS ---
 curr_tick = current_config['at']
 if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
 idx = 0
@@ -212,26 +207,19 @@ st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_o
 st.sidebar.toggle("💡 Keep Screen On", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
 st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
-a_tick = st.session_state.a_tick_input
-a_price = st.session_state.a_price_input
-a_on = st.session_state.a_on_input
-flip_on = st.session_state.flip_on_input
-
-# --- SHARE & EXPORT ---
+# --- SEPARATE SHARE MENU ---
 st.sidebar.divider()
 with st.sidebar.expander("🔗 Share & Invite"):
-    st.caption("Generate a Magic Link to share this exact dashboard with others.")
     base_url = st.text_input("App Web Address (Paste Once)", value=current_config['bu'], placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
     if base_url:
         clean_base = base_url.split("?")[0].strip("/")
         params = f"?w={st.session_state.w_input}&at={a_tick}&ap={a_price}&ao={str(a_on).lower()}&fo={str(flip_on).lower()}"
         full_link = f"{clean_base}/{params}"
         st.code(full_link, language="text")
-        st.caption("👆 Copy this link and text it to a friend.")
-    else:
-        st.info("Paste your app's URL above to generate a shareable link.")
 
-    st.divider()
+# --- SEPARATE BACKUP MENU (RESTORED!) ---
+with st.sidebar.expander("📦 Backup & Restore"):
+    st.caption("Download your profile to save it.")
     export_data = json.dumps(current_config, indent=2)
     st.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
     uploaded = st.file_uploader("📤 Restore Profile", type=["json"])
@@ -245,7 +233,7 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- SPY BENCHMARK FETCH ---
+# --- 5. LOGIC & DISPLAY ---
 def get_spy_benchmark():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
@@ -262,7 +250,6 @@ def get_spy_benchmark():
     except: pass
     return None
 
-# --- METADATA ---
 def get_meta_data(s):
     if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
     try:
@@ -504,7 +491,6 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
 h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
 
-# --- FLIP CHECK & NOTIFICATION TRIGGER ---
 def check_flip(ticker, current_trend):
     if not flip_on: return
     if ticker in st.session_state['last_trends']:
@@ -515,7 +501,6 @@ def check_flip(ticker, current_trend):
             log_alert(msg, title="Trend Flip Alert")
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC (SMART CHART MERGE) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     spy_data = get_spy_benchmark()
@@ -657,11 +642,11 @@ def process_news_batch(raw_batch):
         for idx, item in enumerate(raw_batch):
             full_text = fetch_article_text(item['link'])
             content = full_text if len(full_text) > 200 else item['desc']
-            # Limit article length to 700 chars to save tokens
-            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:700]}\nDate: {item['date_str']}"
+            # --- TOKEN SAVER: REDUCED TO 300 CHARS ---
+            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:300]}\nDate: {item['date_str']}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
         
-        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL. IMPORTANT: Ignore articles that are about general crime, police arrests, sports, gossip, or non-financial news. Only return financial, market, or company news."
+        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL. IMPORTANT: Ignore articles that are about general crime, police arrests, sports, gossip, or non-financial news. Only return financial, market, or company news. **KEEP REASONS EXTREMELY CONCISE (UNDER 10 WORDS).**"
         
         res = client.chat.completions.create(
             model="gpt-4o-mini", 
@@ -673,8 +658,12 @@ def process_news_batch(raw_batch):
             max_tokens=3000  
         )
         
-        data = json.loads(res.choices[0].message.content)
-        new_results = data.get("articles", [])
+        try:
+            data = json.loads(res.choices[0].message.content)
+            new_results = data.get("articles", [])
+        except json.JSONDecodeError:
+            st.warning("⚠️ AI Analysis incomplete (Limit Reached). Showing partial results.")
+            return []
         
         valid_results = []
         for r in new_results:
@@ -694,7 +683,9 @@ def process_news_batch(raw_batch):
         progress_bar.empty()
         return valid_results
     except Exception as e:
-        st.warning(f"⚠️ AI Error: {e}")
+        # --- CRASH GUARD: SILENT FAIL ---
+        print(f"AI Error: {e}") 
+        st.caption("⚠️ News Analysis unavailable at this moment.")
         return []
 
 @st.cache_data(ttl=300, show_spinner=False)
