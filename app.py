@@ -21,11 +21,11 @@ if 'saved_flip_on' not in st.session_state: st.session_state['saved_flip_on'] = 
 
 # --- PORTFOLIO ---
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 120},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
 } 
 
 NAMES = {
@@ -265,7 +265,7 @@ def render_card(t, inf=None):
     else: st.metric(t, "---", "0.0%")
     st.divider() 
 
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News by AI"])
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
@@ -296,14 +296,14 @@ if a_on:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://rss.app/feeds/tMfefT7whS1oe2VT.xml","https://rss.app/feeds/K6MyOnsQgG4k4MrG.xml","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
     for u in urls:
         try:
             r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
-            for i in root.findall('.//item')[:5]:
+            for i in root.findall('.//item')[:30]:
                 t, l = i.find('title').text, i.find('link').text
                 if t and t not in seen:
                     t_lower = t.lower()
