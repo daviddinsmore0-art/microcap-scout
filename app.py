@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
+import base64
 
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
@@ -12,7 +13,9 @@ if 'news_results' not in st.session_state: st.session_state['news_results'] = []
 if 'scanned_count' not in st.session_state: st.session_state['scanned_count'] = 0
 if 'market_mood' not in st.session_state: st.session_state['market_mood'] = None 
 if 'alert_triggered' not in st.session_state: st.session_state['alert_triggered'] = False
+if 'alert_log' not in st.session_state: st.session_state['alert_log'] = [] 
 if 'last_trends' not in st.session_state: st.session_state['last_trends'] = {}
+# These dictionaries now act as a Permanent Session Cache
 if 'mem_ratings' not in st.session_state: st.session_state['mem_ratings'] = {}
 if 'mem_meta' not in st.session_state: st.session_state['mem_meta'] = {}
 
@@ -53,7 +56,22 @@ if u_in != w_str: st.query_params["watchlist"] = u_in
 WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 st.sidebar.divider()
+
+# --- ALERT SYSTEM ---
 st.sidebar.subheader("🔔 Smart Alerts") 
+
+def play_alert_sound():
+    sound_html = """
+    <audio autoplay>
+    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+    </audio>
+    """
+    components.html(sound_html, height=0, width=0)
+
+def log_alert(msg):
+    t_stamp = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M')
+    st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
+    play_alert_sound()
 
 # --- PERSISTENT WIDGETS ---
 a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), key="saved_a_tick")
@@ -61,8 +79,22 @@ a_price = st.sidebar.number_input("Target ($)", step=0.5, key="saved_a_price")
 a_on = st.sidebar.toggle("Active Price Alert", key="saved_a_on")
 flip_on = st.sidebar.toggle("Alert on Trend Flip", key="saved_flip_on") 
 
-# --- SECTOR & EARNINGS ---
+if st.session_state['alert_log']:
+    st.sidebar.divider()
+    st.sidebar.markdown("**📜 Recent Alerts**")
+    for msg in st.session_state['alert_log'][:5]: 
+        st.sidebar.caption(msg)
+    if st.sidebar.button("Clear Log"):
+        st.session_state['alert_log'] = []
+        st.rerun()
+
+# --- SECTOR & EARNINGS (HARD CACHED) ---
 def get_meta_data(s):
+    # 1. CHECK MEMORY FIRST (Optimization)
+    if s in st.session_state['mem_meta']:
+        return st.session_state['mem_meta'][s]
+
+    # 2. IF MISSING, FETCH ONCE
     try:
         tk = yf.Ticker(s)
         sec_raw = tk.info.get('sector', 'N/A')
@@ -88,16 +120,21 @@ def get_meta_data(s):
                 d_str = nxt.strftime("%b %d")
                 earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {d_str}</span>"
         
-        if sector_code or earn_html != "N/A":
-            st.session_state['mem_meta'][s] = (sector_code, earn_html)
-        return sector_code, earn_html
+        # Save to Cache so we never ask Yahoo again this session
+        res = (sector_code, earn_html)
+        st.session_state['mem_meta'][s] = res
+        return res
         
     except:
-        if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
         return "", "N/A" 
 
-# --- ANALYST RATINGS ---
+# --- ANALYST RATINGS (HARD CACHED) ---
 def get_rating_cached(s):
+    # 1. CHECK MEMORY FIRST
+    if s in st.session_state['mem_ratings']:
+        return st.session_state['mem_ratings'][s]
+
+    # 2. IF MISSING, FETCH ONCE
     try:
         info = yf.Ticker(s).info
         rec = info.get('recommendationKey', 'none').replace('_', ' ').upper()
@@ -107,10 +144,12 @@ def get_rating_cached(s):
         elif "HOLD" in rec: res = ("✋ HOLD", "#FFC107")
         elif "SELL" in rec: res = ("🔻 SELL", "#FF4B4B")
         elif "STRONG SELL" in rec: res = ("🆘 STRONG SELL", "#FF0000")
-        if res[0] != "N/A": st.session_state['mem_ratings'][s] = res
+        
+        # Save to Cache
+        if res[0] != "N/A": 
+            st.session_state['mem_ratings'][s] = res
         return res
     except:
-        if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
         return "N/A", "#888"
 
 # --- AI SIGNAL LOGIC ---
@@ -191,11 +230,8 @@ def get_data_cached(s):
     rng_rate = "⚖️ Average"
     
     if dh > dl:
-        # Calculate percentage position (0.0 to 1.0)
         raw_pct = (p_reg - dl) / (dh - dl)
         rng_pct = max(0, min(1, raw_pct)) * 100
-        
-        # Assign Rating
         if raw_pct >= 0.9: rng_rate = "🚀 Top (Peak)"
         elif raw_pct >= 0.7: rng_rate = "📈 Near Highs"
         elif raw_pct <= 0.1: rng_rate = "📉 Bottom (Dip)"
@@ -215,7 +251,6 @@ def get_data_cached(s):
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
             ratio = cur_v / avg_v if avg_v > 0 else 1.0
             
-            # 2. Volume Logic
             if ratio >= 1.0: vol_tag = "⚡ Surge"
             elif ratio >= 0.5: vol_tag = "🌊 Steady"
             else: vol_tag = "💤 Quiet"
@@ -229,7 +264,6 @@ def get_data_cached(s):
                 g, l = d_diff.where(d_diff>0,0).rolling(14).mean(), (-d_diff.where(d_diff<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
                 
-                # 3. RSI Logic
                 rsi_color = "#4caf50" 
                 if rsi >= 70: rsi_color = "#ff4b4b"; rl = "Hot (Overbought)"
                 elif rsi <= 30: rsi_color = "#ff4b4b"; rl = "Cold (Oversold)"
@@ -268,13 +302,15 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
 h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
 
-# --- FLIP CHECK ---
+# --- FLIP CHECK & AUDIO TRIGGER ---
 def check_flip(ticker, current_trend):
     if not flip_on: return
     if ticker in st.session_state['last_trends']:
         prev = st.session_state['last_trends'][ticker]
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
-            st.toast(f"🔀 TREND FLIP: {ticker} switched to {current_trend}!", icon="⚠️")
+            msg = f"🔀 {ticker} FLIP: {prev} -> {current_trend}"
+            st.toast(msg, icon="⚠️")
+            log_alert(msg)
     st.session_state['last_trends'][ticker] = current_trend 
 
 # --- DASHBOARD LOGIC (COMPACT) ---
@@ -356,11 +392,17 @@ with t2:
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: render_card(t, inf) 
 
+# --- PRICE ALERT LOGIC ---
 if a_on:
     d = get_data_cached(a_tick)
-    if d and d['p'] >= a_price and not st.session_state['alert_triggered']:
-        st.toast(f"🚨 ALERT: {a_tick} HIT ${d['p']:,.2f}!", icon="🔥")
-        st.session_state['alert_triggered'] = True 
+    if d and d['p'] >= a_price:
+        if not st.session_state['alert_triggered']:
+            msg = f"🚨 PRICE HIT: {a_tick} crossed ${a_price:,.2f}!"
+            st.toast(msg, icon="🔥")
+            log_alert(msg) 
+            st.session_state['alert_triggered'] = True
+    else:
+        st.session_state['alert_triggered'] = False 
 
 # --- DEEP DIVE NEWS AGENT ---
 def fetch_article_text(url):
