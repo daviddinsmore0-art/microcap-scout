@@ -69,11 +69,11 @@ if 'spy_last_fetch' not in st.session_state: st.session_state['spy_last_fetch'] 
 if 'banner_msg' not in st.session_state: st.session_state['banner_msg'] = None
 
 PORT = {
-    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 1000},
-    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 500},
-    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 100},
-    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 200},
-    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 300}
+    "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
+    "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
+    "TX":   {"e": 38.10, "d": "Nov. 05, 2023", "q": 40},
+    "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
+    "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
 } 
 
 NAMES = {
@@ -112,7 +112,7 @@ ALL = list(set(WATCH + list(PORT.keys())))
 # --- SIDEBAR BUTTONS ---
 c1, c2 = st.sidebar.columns(2)
 with c1:
-    if st.button("💾 Save"):
+    if st.button("💾 Save Tickers"):
         save_config()
         st.toast("Saved!", icon="💾")
 with c2:
