@@ -507,7 +507,7 @@ with c2:
 
 # --- TICKER ---
 ti = []
-for t in ["SPY","^IXIC","^DJI","BTC-USD","^GSPTSE","GD-F]:
+for t in ["SPY","^IXIC","^DJI","BTC-USD","^GSPTSE","GD-F"]:
     d = get_data_cached(t)
     if d:
         c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
