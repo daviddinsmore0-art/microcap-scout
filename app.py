@@ -180,16 +180,29 @@ def get_data_cached(s):
     try: d_ext_pct = ((p_ext - pv) / pv) * 100
     except: d_ext_pct = 0.0
 
-    # --- HTML COLOR FIX (NO MARKDOWN) ---
+    # --- HTML COLOR FIX ---
     c_hex = "#4caf50" if d_ext_pct >= 0 else "#ff4b4b"
     lbl = "Live" if is_crypto else "🌙 Ext"
-    # Using pure HTML string for the extended hours line
     x_str = f"<b>{lbl}: ${p_ext:,.2f} <span style='color:{c_hex};'>({d_ext_pct:+.2f}%)</span></b>"
     
-    # --- VISUALS ---
-    try: rng_pct = max(0, min(1, (p_reg - dl) / (dh - dl))) * 100 if (dh > dl) else 50
-    except: rng_pct = 50
-    rng_html = f"""<div style="font-size:11px; color:#666; margin-top:5px;">Day Range (Low - High)</div><div style="display:flex; align-items:center; font-size:10px; color:#888; margin-top:2px;"><span style="margin-right:4px;">L</span><div style="flex-grow:1; height:4px; background:#333; border-radius:2px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:4px;">H</span></div>""" 
+    # --- VISUALS & RATINGS ---
+    # 1. Day Range Logic
+    rng_pct = 50
+    rng_rate = "⚖️ Average"
+    
+    if dh > dl:
+        # Calculate percentage position (0.0 to 1.0)
+        raw_pct = (p_reg - dl) / (dh - dl)
+        rng_pct = max(0, min(1, raw_pct)) * 100
+        
+        # Assign Rating
+        if raw_pct >= 0.9: rng_rate = "🚀 Top (Peak)"
+        elif raw_pct >= 0.7: rng_rate = "📈 Near Highs"
+        elif raw_pct <= 0.1: rng_rate = "📉 Bottom (Dip)"
+        elif raw_pct <= 0.3: rng_rate = "📉 Near Lows"
+        else: rng_rate = "⚖️ Mid-Range"
+    
+    rng_html = f"""<div style="font-size:11px; color:#666; margin-top:5px;">Day Range: <b>{rng_rate}</b></div><div style="display:flex; align-items:center; font-size:10px; color:#888; margin-top:2px;"><span style="margin-right:4px;">L</span><div style="flex-grow:1; height:4px; background:#333; border-radius:2px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:4px;">H</span></div>""" 
 
     rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
     rsi_html, vol_html = "", ""
@@ -202,6 +215,7 @@ def get_data_cached(s):
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
             ratio = cur_v / avg_v if avg_v > 0 else 1.0
             
+            # 2. Volume Logic
             if ratio >= 1.0: vol_tag = "⚡ Surge"
             elif ratio >= 0.5: vol_tag = "🌊 Steady"
             else: vol_tag = "💤 Quiet"
@@ -215,6 +229,7 @@ def get_data_cached(s):
                 g, l = d_diff.where(d_diff>0,0).rolling(14).mean(), (-d_diff.where(d_diff<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
                 
+                # 3. RSI Logic
                 rsi_color = "#4caf50" 
                 if rsi >= 70: rsi_color = "#ff4b4b"; rl = "Hot (Overbought)"
                 elif rsi <= 30: rsi_color = "#ff4b4b"; rl = "Cold (Oversold)"
@@ -286,13 +301,13 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        # 1. Extended Hours (HTML COLOR FIX)
+        # 1. Extended Hours
         st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
         
         # 2. AI Signal
         st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
         
-        # 3. Key Metadata (COMPACT)
+        # 3. Key Metadata
         meta_html = f"""
         <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
             <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}</div>
