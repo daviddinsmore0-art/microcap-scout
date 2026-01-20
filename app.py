@@ -13,6 +13,7 @@ except: pass
 CONFIG_FILE = "penny_pulse_data.json"
 
 def load_config():
+    """Load settings from JSON. Returns empty dict if file missing/corrupt."""
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
@@ -20,7 +21,9 @@ def load_config():
         except: pass
     return {}
 
-def save_config():
+def save_config(manual=False):
+    """Save current widget states to JSON."""
+    # We grab the current state of widgets directly from session_state
     config = {
         "watchlist": st.session_state.get("w_input", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
         "alert_ticker": st.session_state.get("a_tick_input", "SPY"),
@@ -28,9 +31,16 @@ def save_config():
         "alert_active": st.session_state.get("a_on_input", False),
         "flip_active": st.session_state.get("flip_on_input", False)
     }
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f)
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f)
+        # Visual Confirmation
+        if manual: st.toast("Configuration Manually Saved!", icon="💾")
+        else: st.toast("Settings Auto-Saved!", icon="✅")
+    except:
+        st.error("Failed to save settings to disk.")
 
+# --- LOAD STATE ON STARTUP ---
 user_config = load_config()
 
 # --- SESSION STATE ---
@@ -65,12 +75,17 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
+# --- WATCHLIST INPUT (With Defaults from File) ---
 default_w = user_config.get("watchlist", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V")
 u_in = st.sidebar.text_input("Add Tickers", value=default_w, key="w_input", on_change=save_config)
 WATCH = [x.strip().upper() for x in u_in.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
-st.sidebar.divider()
 
+# --- MANUAL SAVE BUTTON (Safety Net) ---
+if st.sidebar.button("💾 Save Config Now"):
+    save_config(manual=True)
+
+st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
 
 def play_alert_sound():
@@ -86,8 +101,10 @@ def log_alert(msg):
     st.session_state['alert_log'].insert(0, f"[{t_stamp}] {msg}")
     play_alert_sound()
 
+# --- ALERT WIDGETS (With Defaults from File) ---
 def_a_tick = user_config.get("alert_ticker", "SPY")
-if def_a_tick not in ALL: def_a_tick = ALL[0] if ALL else "SPY"
+# Ensure loaded ticker is still valid, else default to first available
+if def_a_tick not in ALL and ALL: def_a_tick = sorted(ALL)[0]
 
 a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=sorted(ALL).index(def_a_tick) if def_a_tick in sorted(ALL) else 0, key="a_tick_input", on_change=save_config)
 a_price = st.sidebar.number_input("Target ($)", value=user_config.get("alert_price", 0.0), step=0.5, key="a_price_input", on_change=save_config)
@@ -114,7 +131,6 @@ def get_spy_benchmark():
         h = spy.history(period="1d", interval="5m", prepost=True)
         if not h.empty:
             start_price = h['Close'].iloc[0]
-            # Keep timestamp index for alignment
             h['Spy_Norm'] = ((h['Close'] - start_price) / start_price) * 100
             st.session_state['spy_cache'] = h[['Spy_Norm']]
             st.session_state['spy_last_fetch'] = now
@@ -204,7 +220,6 @@ def get_data_cached(s):
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if not h.empty:
             start_price = h['Close'].iloc[0]
-            # Store normalized value
             h['Stock_Norm'] = ((h['Close'] - start_price) / start_price) * 100
             chart_data = h
             if not valid_data or is_crypto:
@@ -347,46 +362,30 @@ def render_card(t, inf=None):
 
         st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        # --- ROBUST CHART MERGE ---
         if d['chart'] is not None:
-            # 1. Prepare Stock Data
-            stock_sub = d['chart'].tail(30).reset_index()
-            # Rename columns to ensure consistency
-            stock_sub = stock_sub.rename(columns={stock_sub.columns[0]: 'Time', 'Stock_Norm': 'Stock'})
+            # FIX: Only select what we need
+            subset = d['chart'].tail(30).reset_index()
+            spark_df = pd.DataFrame()
+            spark_df['Time'] = subset.iloc[:, 0]
+            spark_df['Stock'] = subset['Stock_Norm']
             
-            # 2. Plot Setup
             line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+            base = alt.Chart(spark_df).encode(x=alt.X('Time', axis=None))
             
-            # Chart 1: The Stock
-            c_stock = alt.Chart(stock_sub).mark_line(color=line_color, strokeWidth=2).encode(
-                x=alt.X('Time', axis=None), 
-                y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None)
-            )
-            
-            # Chart 2: The Benchmark (If available & mergeable)
-            final_chart = c_stock
+            line_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
+            final_chart = line_stock
             
             if spy_data is not None:
-                # We need to grab recent SPY data that corresponds to these times.
-                # Since 'Time' is datetime, we can assume nearest match for visualization
-                # For sparklines, a simple tail(30) visual alignment is standard practice
-                # IF exact timestamp alignment fails.
-                
-                # Create a temporary clean dataframe for plotting
-                plot_df = pd.DataFrame()
-                plot_df['Time'] = stock_sub['Time']
-                plot_df['Stock'] = stock_sub['Stock']
-                
                 # Align SPY data (Take last 30 points to match length)
-                spy_recent = spy_data.tail(len(stock_sub)).reset_index(drop=True)
-                if len(spy_recent) == len(stock_sub):
-                    plot_df['SPY'] = spy_recent['Spy_Norm']
+                spy_recent = spy_data.tail(len(subset)).reset_index(drop=True)
+                if len(spy_recent) == len(subset):
+                    # Add SPY column to dataframe
+                    spark_df['SPY'] = spy_recent['Spy_Norm']
                     
-                    # Base Chart with shared data
-                    base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
-                    
-                    l1 = base.mark_line(color=line_color, strokeWidth=2).encode(y='Stock')
-                    l2 = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.5).encode(y='SPY')
+                    # Re-create chart with shared data
+                    base_merged = alt.Chart(spark_df).encode(x=alt.X('Time', axis=None))
+                    l1 = base_merged.mark_line(color=line_color, strokeWidth=2).encode(y='Stock')
+                    l2 = base_merged.mark_line(color='orange', strokeDash=[2,2], opacity=0.7).encode(y='SPY')
                     final_chart = l1 + l2
                 
             st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
