@@ -481,4 +481,83 @@ def process_news_batch(raw_batch):
         progress_bar.empty()
         return new_results
     except Exception as e:
-        st.warning(
+        st.warning(f"⚠️ AI Error: {e}")
+        return []
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_news_cached():
+    head = {'User-Agent': 'Mozilla/5.0'}
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    it, seen = [], set()
+    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
+    for u in urls:
+        try:
+            r = requests.get(u, headers=head, timeout=5)
+            root = ET.fromstring(r.content)
+            for i in root.findall('.//item')[:50]:
+                t, l = i.find('title').text, i.find('link').text
+                desc = i.find('description').text if i.find('description') is not None else ""
+                if t and t not in seen:
+                    t_lower = t.lower()
+                    if not any(b in t_lower for b in blacklist):
+                        seen.add(t)
+                        it.append({"title":t,"link":l, "desc": desc})
+        except: continue
+    return it 
+
+with t3:
+    c_n1, c_n2 = st.columns([3, 1])
+    with c_n1: st.subheader("🚨 Global Wire (Deep Scan)")
+    with c_n2: 
+        if st.session_state['market_mood']:
+            st.markdown(f"<div style='background:#333; color:white; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>Mood: {st.session_state['market_mood']}</div>", unsafe_allow_html=True)
+    
+    if st.button("Deep Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
+        st.session_state['news_results'] = [] 
+        st.session_state['scanned_count'] = 0
+        st.session_state['market_mood'] = None
+        with st.spinner("Analyzing Top 10 Articles..."):
+            raw_news = get_news_cached()
+            if not raw_news: st.error("⚠️ No news sources found.")
+            elif not KEY: st.warning("⚠️ No OpenAI Key.")
+            else:
+                batch = raw_news[:10]
+                results = process_news_batch(batch)
+                if results:
+                    st.session_state['news_results'] = results
+                    st.session_state['scanned_count'] = 10
+                    st.rerun()
+                else:
+                    st.info("No relevant tickers found in this batch.")
+
+    if st.session_state.get('news_results'):
+        for i, r in enumerate(st.session_state['news_results']):
+            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
+            st.caption(r['reason'])
+            st.divider() 
+            
+        if st.button("⬇️ Load More News (Next 10)", key="load_more_btn"):
+            with st.spinner("Analyzing Next 10 Articles..."):
+                raw_news = get_news_cached()
+                start = st.session_state['scanned_count']
+                end = start + 10 
+                if start < len(raw_news):
+                    batch = raw_news[start:end]
+                    if batch:
+                        new_results = process_news_batch(batch)
+                        if new_results:
+                            st.session_state['news_results'].extend(new_results)
+                            st.session_state['scanned_count'] += 10
+                            st.rerun() 
+                        else:
+                            st.warning("No relevant tickers found in this batch. Try again.")
+                            st.session_state['scanned_count'] += 10 
+                    else:
+                        st.info("You have reached the end of the news feed.")
+                else:
+                    st.info("No more news available right now.")
+
+now = datetime.now()
+wait = 60 - now.second
+time.sleep(wait + 1)
+st.rerun()
