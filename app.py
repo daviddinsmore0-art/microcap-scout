@@ -68,7 +68,7 @@ def get_meta_data(s):
         sec_raw = tk.info.get('sector', 'N/A')
         sec_map = {"Technology":"TECH", "Financial Services":"FIN", "Healthcare":"HLTH", "Consumer Cyclical":"CYCL", "Communication Services":"COMM", "Industrials":"IND", "Energy":"NRGY", "Basic Materials":"MAT", "Real Estate":"RE", "Utilities":"UTIL"}
         sector_code = sec_map.get(sec_raw, sec_raw[:4].upper()) if sec_raw != 'N/A' else ""
-        earn_html = ""
+        earn_html = "N/A"
         
         cal = tk.calendar
         dates = []
@@ -81,20 +81,20 @@ def get_meta_data(s):
             days = (nxt - datetime.now().date()).days
             
             if 0 <= days <= 7: 
-                earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>⚠️ {days}d</span>"
+                earn_html = f"<span style='background:#550000; color:#ff4b4b; padding:1px 4px; border-radius:4px; font-size:11px;'>⚠️ {days}d</span>"
             elif 8 <= days <= 30: 
-                earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {days}d</span>"
+                earn_html = f"<span style='background:#333; color:#ccc; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {days}d</span>"
             elif days > 30:
                 d_str = nxt.strftime("%b %d")
-                earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px; margin-left:5px;'>📅 {d_str}</span>"
+                earn_html = f"<span style='background:#222; color:#888; padding:1px 4px; border-radius:4px; font-size:11px;'>📅 {d_str}</span>"
         
-        if sector_code or earn_html:
+        if sector_code or earn_html != "N/A":
             st.session_state['mem_meta'][s] = (sector_code, earn_html)
         return sector_code, earn_html
         
     except:
         if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
-        return "", "" 
+        return "", "N/A" 
 
 # --- ANALYST RATINGS ---
 def get_rating_cached(s):
@@ -184,10 +184,8 @@ def get_data_cached(s):
     x_str = f"**Live: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**" if is_crypto else f"**🌙 Ext: ${p_ext:,.2f} (:{c_ext}[{d_ext_pct:+.2f}%])**"
     
     # --- VISUALS ---
-    # 1. Day Range
     try: rng_pct = max(0, min(1, (p_reg - dl) / (dh - dl))) * 100 if (dh > dl) else 50
     except: rng_pct = 50
-    # Added "Day Range" label
     rng_html = f"""<div style="font-size:11px; color:#666; margin-top:5px;">Day Range (Low - High)</div><div style="display:flex; align-items:center; font-size:10px; color:#888; margin-top:2px;"><span style="margin-right:4px;">L</span><div style="flex-grow:1; height:4px; background:#333; border-radius:2px; overflow:hidden;"><div style="width:{rng_pct}%; height:100%; background: linear-gradient(90deg, #ff4b4b, #4caf50);"></div></div><span style="margin-left:4px;">H</span></div>""" 
 
     rsi, rl, tr, v_str, vol_tag, raw_trend, ai_txt, ai_col = 50, "Neutral", "Neutral", "N/A", "", "NEUTRAL", "N/A", "#888"
@@ -201,14 +199,12 @@ def get_data_cached(s):
             v_str = f"{cur_v/1e6:.1f}M" if cur_v>=1e6 else f"{cur_v:,.0f}"
             ratio = cur_v / avg_v if avg_v > 0 else 1.0
             
-            # 2. Volume Bar
             if ratio >= 1.0: vol_tag = "⚡ Surge"
             elif ratio >= 0.5: vol_tag = "🌊 Steady"
             else: vol_tag = "💤 Quiet"
             
             vol_pct = min(100, (ratio / 2.0) * 100)
             vol_color = "#2196F3" if ratio > 1.0 else "#555"
-            # Added "Volume Strength" label
             vol_html = f"""<div style="font-size:11px; color:#666; margin-top:8px;">Volume Strength: <b>{vol_tag}</b></div><div style="width:100%; height:6px; background:#333; border-radius:3px; margin-top:2px;"><div style="width:{vol_pct}%; height:100%; background:{vol_color}; border-radius:3px;"></div></div>"""
             
             if len(hm)>=14:
@@ -216,13 +212,11 @@ def get_data_cached(s):
                 g, l = d_diff.where(d_diff>0,0).rolling(14).mean(), (-d_diff.where(d_diff<0,0)).rolling(14).mean()
                 rsi = (100-(100/(1+(g/l)))).iloc[-1]
                 
-                # 3. RSI Bar
                 rsi_color = "#4caf50" 
                 if rsi >= 70: rsi_color = "#ff4b4b"; rl = "Hot (Overbought)"
                 elif rsi <= 30: rsi_color = "#ff4b4b"; rl = "Cold (Oversold)"
                 else: rl = "Neutral (Safe)"
                 
-                # Added "RSI Momentum" label
                 rsi_html = f"""<div style="font-size:11px; color:#666; margin-top:8px;">RSI Momentum: <b>{rl}</b></div><div style="width:100%; height:6px; background:#333; border-radius:3px; margin-top:2px;"><div style="width:{rsi}%; height:100%; background:{rsi_color}; border-radius:3px;"></div></div>"""
 
                 macd = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
@@ -265,7 +259,7 @@ def check_flip(ticker, current_trend):
             st.toast(f"🔀 TREND FLIP: {ticker} switched to {current_trend}!", icon="⚠️")
     st.session_state['last_trends'][ticker] = current_trend 
 
-# --- DASHBOARD LOGIC (REORDERED) ---
+# --- DASHBOARD LOGIC (RESTRUCTURED) ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     if d:
@@ -289,16 +283,24 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
         
-        # 1. AI Signal
-        st.markdown(f"<div style='margin-bottom:5px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
+        # 1. Extended Hours (MOVED UP)
+        st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
         
-        # 2. Key Metadata (Trend / Rating / Earnings)
-        rating_html = f" <span style='color:#ccc;'>|</span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span>" if rat_txt != "N/A" else ""
-        earn_display = f" <span style='color:#ccc;'>|</span> {earn}" if earn else ""
-        meta_html = f"<div style='font-size:13px; margin-bottom:10px; color:#ddd;'><b>Trend:</b> {d['tr']}{rating_html}{earn_display}</div>"
+        # 2. AI Signal
+        st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
+        
+        # 3. Key Metadata (SEPARATED LINES & BOLD BLACK CAPS)
+        meta_html = f"""
+        <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
+            <div style='display:flex; justify-content:space-between;'><span><b style='color:black;'>TREND:</b></span> <span>{d['tr']}</span></div>
+            <div style='display:flex; justify-content:space-between;'><span><b style='color:black;'>ANALYST RATING:</b></span> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>
+            <div style='display:flex; justify-content:space-between;'><span><b style='color:black;'>EARNINGS:</b></span> <span>{earn}</span></div>
+        </div>
+        """
         st.markdown(meta_html, unsafe_allow_html=True)
 
-        # 3. Sparkline
+        # 4. Sparkline (LABELED)
+        st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY TREND (Last 2 Hours)</div>", unsafe_allow_html=True)
         if d['chart'] is not None:
             spark_data = d['chart'].tail(30).reset_index()
             spark_data.columns = ['Time', 'Price']
@@ -306,12 +308,10 @@ def render_card(t, inf=None):
             c = alt.Chart(spark_data).mark_line(color=line_color, strokeWidth=2).encode(x=alt.X('Time', axis=None), y=alt.Y('Price', scale=alt.Scale(zero=False), axis=None)).properties(height=40, width='container').configure_view(strokeWidth=0)
             st.altair_chart(c, use_container_width=True)
         
-        # 4. Visual Bars (Clearly Labeled)
+        # 5. Visual Bars
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         st.markdown(d['vol_html'], unsafe_allow_html=True)
         st.markdown(d['rsi_html'], unsafe_allow_html=True)
-        
-        st.markdown(d['x']) 
         
     else: st.metric(t, "---", "0.0%")
     st.divider() 
