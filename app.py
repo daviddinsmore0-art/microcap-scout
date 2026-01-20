@@ -10,9 +10,9 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. SAFETY INITIALIZATION (THE CRASH PREVENTER) ---
-# We initialize ALL variables here first. This guarantees they exist
-# before any widget or logic tries to use them.
+# --- 2. SAFETY INITIALIZATION (CRASH PREVENTER) ---
+# We force-create these variables in memory immediately.
+# This prevents "NameError" because they ALWAYS exist.
 defaults = {
     'initialized': True,
     'news_results': [],
@@ -27,7 +27,6 @@ defaults = {
     'spy_last_fetch': datetime.min,
     'banner_msg': None,
     'storm_cooldown': {},
-    # Widget Keys (Pre-filled so Logic never fails)
     'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
     'a_tick_input': "SPY",
     'a_price_input': 0.0,
@@ -42,11 +41,20 @@ for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
-# --- 3. JAVASCRIPT BRIDGES ---
+# --- 3. EXPLICIT VARIABLE MAPPING (THE "FLIP_ON" FIX) ---
+# We create the python variables manually here so older logic doesn't crash.
+flip_on = st.session_state.flip_on_input
+a_on = st.session_state.a_on_input
+a_price = st.session_state.a_price_input
+a_tick = st.session_state.a_tick_input
+notify_on = st.session_state.notify_input
+keep_on = st.session_state.keep_on_input
+
+# --- 4. JAVASCRIPT BRIDGES ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v61_data";
+        const KEY = "penny_pulse_v62_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -94,7 +102,7 @@ def inject_wake_lock(enable):
         """
         components.html(js, height=0, width=0)
 
-# --- 4. CORE LOGIC FUNCTIONS ---
+# --- 5. CORE LOGIC FUNCTIONS ---
 def update_params():
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
@@ -130,12 +138,11 @@ def play_alert_sound():
     """
     components.html(sound_html, height=0, width=0)
 
-# --- 5. SIDEBAR (DRAWN FIRST) ---
+# --- 6. SIDEBAR SETUP ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# NOTE: We do NOT pass a 'value=' argument because the key is already in session_state from Step 2.
 st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input", on_change=update_params)
 
 # PORTFOLIO DATA
@@ -180,8 +187,7 @@ st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=update_p
 st.sidebar.toggle("💡 Keep Screen On", key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
 st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
 
-# --- 6. JS SYNC ---
-# We build the config from the NOW DEFINED session state
+# --- 7. JS SYNC ---
 current_config_export = {
     "w": st.session_state.w_input,
     "at": st.session_state.a_tick_input,
@@ -195,7 +201,7 @@ current_config_export = {
 sync_js(json.dumps(current_config_export))
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 7. BACKUP & SHARE ---
+# --- 8. BACKUP & SHARE ---
 st.sidebar.divider()
 with st.sidebar.expander("📦 Backup & Restore"):
     st.caption("Download your profile to save it.")
@@ -212,7 +218,7 @@ with st.sidebar.expander("🔗 Share & Invite"):
         full_link = f"{clean_base}/{params}"
         st.code(full_link, language="text")
 
-# --- 8. ALERT LOGIC ---
+# --- 9. ALERT LOGIC ---
 def send_notification(title, body):
     js_code = f"""
     <script>
@@ -247,10 +253,10 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- 9. HELPERS (STATE SAFE) ---
+# --- 10. HELPERS (FIXED TO USE VARIABLES) ---
 def check_flip(ticker, current_trend):
-    # DIRECT STATE ACCESS - NO VARIABLES
-    if not st.session_state.flip_on_input: return
+    # Now uses the safe global variable 'flip_on' created in step 3
+    if not flip_on: return
     if ticker in st.session_state['last_trends']:
         prev = st.session_state['last_trends'][ticker]
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
@@ -517,11 +523,11 @@ h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
 
 # --- FLIP CHECK & NOTIFICATION TRIGGER ---
-if st.session_state.a_on_input:
-    d = get_data_cached(st.session_state.a_tick_input)
-    if d and d['p'] >= st.session_state.a_price_input:
+if a_on:
+    d = get_data_cached(a_tick)
+    if d and d['p'] >= a_price:
         if not st.session_state['alert_triggered']:
-            msg = f"🚨 {st.session_state.a_tick_input} hit ${st.session_state.a_price_input:,.2f}!"
+            msg = f"🚨 {a_tick} hit ${a_price:,.2f}!"
             log_alert(msg, title="Price Target Hit")
             st.session_state['alert_triggered'] = True
     else:
@@ -563,8 +569,12 @@ def process_news_batch(raw_batch):
             max_tokens=3000  
         )
         
+        # --- JSON CLEANER: REMOVE MARKDOWN TICKS ---
+        raw_json = res.choices[0].message.content
+        raw_json = re.sub(r'```json|```', '', raw_json).strip()
+        
         try:
-            data = json.loads(res.choices[0].message.content)
+            data = json.loads(raw_json)
             new_results = data.get("articles", [])
         except json.JSONDecodeError:
             st.warning("⚠️ AI Analysis incomplete (Limit Reached). Showing partial results.")
