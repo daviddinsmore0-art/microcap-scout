@@ -5,7 +5,7 @@ import pandas as pd
 import altair as alt 
 import json
 import xml.etree.ElementTree as ET
-import email.utils # For parsing RSS dates
+import email.utils 
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -32,7 +32,7 @@ if 'initialized' not in st.session_state:
 
     st.session_state.update({
         'news_results': [], 
-        'news_limit': 10,  # Start showing 10
+        'news_limit': 10,
         'alert_log': [], 
         'spy_cache': None, 
         'spy_last_fetch': datetime.min
@@ -49,20 +49,16 @@ def inject_wake_lock(enable):
 
 def get_relative_time(date_str):
     try:
-        # Parse RSS date format (RFC 822)
         dt = email.utils.parsedate_to_datetime(date_str)
-        # Ensure we compare timezone-aware to timezone-aware
         now = datetime.now(dt.tzinfo)
         diff = now - dt
-        
         seconds = diff.total_seconds()
         if seconds < 60: return "Just now"
         elif seconds < 3600: return f"{int(seconds//60)}m ago"
         elif seconds < 86400: return f"{int(seconds//3600)}h ago"
         elif seconds < 172800: return "Yesterday"
         else: return f"{int(seconds//86400)}d ago"
-    except:
-        return "Recent"
+    except: return "Recent"
 
 NAMES = {
     "TD.TO": "TD Bank", "BN.TO": "Brookfield", "CCO.TO": "Cameco", 
@@ -263,6 +259,7 @@ def draw_pro_card(t, port_data=None):
         if d['state'] != "REG":
             st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
 
+        # FIXED HIGH CONTRAST PORTFOLIO
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
@@ -270,10 +267,10 @@ def draw_pro_card(t, port_data=None):
             profit = val - (entry * qty)
             p_col = "#4caf50" if profit >= 0 else "#ff4b4b"
             st.markdown(f"""
-            <div style="background-color:black; color:white !important; border-left:4px solid {p_col}; padding:8px; margin-bottom:10px; font-size:14px; font-family:monospace;">
-                <span style="color:#bbb;">Qty:</span> <b>{qty}</b> &nbsp;&nbsp; 
-                <span style="color:#bbb;">Avg:</span> <b>${entry}</b> &nbsp;&nbsp; 
-                <span style="color:#bbb;">P/L:</span> <span style="color:{p_col}; font-weight:bold;">${profit:,.2f}</span>
+            <div style="background-color:black; color:white; border-left:4px solid {p_col}; padding:8px; margin-bottom:10px; font-size:15px; font-weight:bold; font-family:sans-serif;">
+                <span style="color:white;">Qty: {qty}</span> &nbsp;&nbsp; 
+                <span style="color:white;">Avg: ${entry}</span> &nbsp;&nbsp; 
+                <span style="color:white;">Gain: <span style="color:{p_col};">${profit:,.2f}</span></span>
             </div>
             """, unsafe_allow_html=True)
 
@@ -365,20 +362,19 @@ with t2:
 with t3:
     if st.button("Analyze Market Context"):
         if KEY:
-            with st.spinner("Analyzing Headlines with AI..."):
+            with st.spinner("Analyzing Extended Feed (40 Stories)..."):
                 try:
                     r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
                     root = ET.fromstring(r.content)
                     raw_items = []
-                    # Fetch MORE items for cache
                     all_fetched = []
-                    for item in root.findall('.//item')[:50]:
+                    # FETCH 40 ITEMS TO FEED THE AI
+                    for item in root.findall('.//item')[:40]:
                         title = item.find('title').text
                         link = item.find('link').text
                         pub = item.find('pubDate').text
                         all_fetched.append({"title": title, "link": link, "time": get_relative_time(pub)})
                     
-                    # AI Analyze First 8
                     from openai import OpenAI
                     cl = OpenAI(api_key=KEY)
                     prompt = """
@@ -390,8 +386,8 @@ with t3:
                     - 'time': The original time string.
                     Return a JSON wrapper: {'items': [...]}
                     """
-                    # Prepare text for AI (only send first 8 to save tokens)
-                    ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in all_fetched[:8]])
+                    # Process massive batch
+                    ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in all_fetched])
                     
                     resp = cl.chat.completions.create(
                         model="gpt-4o-mini",
@@ -400,8 +396,8 @@ with t3:
                     )
                     ai_data = json.loads(resp.choices[0].message.content).get('items', [])
                     
-                    # Merge AI data with cached raw data (so load more works with raw)
-                    st.session_state['news_results'] = ai_data + all_fetched[8:]
+                    # Store processed items
+                    st.session_state['news_results'] = ai_data
                     st.session_state['news_limit'] = 10
                     
                 except Exception as e:
@@ -409,31 +405,24 @@ with t3:
         else:
             st.info("Please enter OpenAI Key in Sidebar to use AI features.")
     
-    # Display News Loop with Load More
     if st.session_state['news_results']:
         limit = st.session_state['news_limit']
         current_batch = st.session_state['news_results'][:limit]
         
         for n in current_batch:
-            # Check if it's an AI enriched item or raw
-            if 'sentiment' in n:
-                s_color = "#4caf50" if n['sentiment']=="BULL" else ("#ff4b4b" if n['sentiment']=="BEAR" else "#888")
-                st.markdown(f"""
-                <div style="border-left: 4px solid {s_color}; padding-left: 10px; margin-bottom: 20px;">
-                    <div style="font-weight:bold; font-size:18px;">
-                        <span style="background:{s_color}; color:white; padding:2px 6px; border-radius:4px; font-size:12px;">{n.get('ticker','MKT')}</span>
-                        {n.get('summary', n.get('title'))}
-                    </div>
-                    <div style="font-size:12px; color:#888; margin-top:4px;">
-                        {n.get('time','Recent')} &nbsp;|&nbsp; <a href="{n.get('link','#')}" style="color:#4dabf7; text-decoration:none;">Read Full Story ➤</a>
-                    </div>
+            # AI Style for ALL items
+            s_color = "#4caf50" if n.get('sentiment')=="BULL" else ("#ff4b4b" if n.get('sentiment')=="BEAR" else "#888")
+            st.markdown(f"""
+            <div style="border-left: 4px solid {s_color}; padding-left: 10px; margin-bottom: 20px;">
+                <div style="font-weight:bold; font-size:18px;">
+                    <span style="background:{s_color}; color:white; padding:2px 6px; border-radius:4px; font-size:12px;">{n.get('ticker','MKT')}</span>
+                    {n.get('summary', n.get('title'))}
                 </div>
-                """, unsafe_allow_html=True)
-            else:
-                # Raw Fallback Style
-                st.markdown(f"**{n['title']}**")
-                st.caption(f"{n['time']} | [Read Article]({n['link']})")
-                st.divider()
+                <div style="font-size:12px; color:#888; margin-top:4px;">
+                    {n.get('time','Recent')} &nbsp;|&nbsp; <a href="{n.get('link','#')}" style="color:#4dabf7; text-decoration:none;">Read Full Story ➤</a>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         
         if limit < len(st.session_state['news_results']):
             if st.button("Load 10 More"):
