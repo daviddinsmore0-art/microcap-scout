@@ -32,7 +32,8 @@ if 'initialized' not in st.session_state:
 
     st.session_state.update({
         'news_results': [], 
-        'raw_news_cache': [], # Stores the full RSS list
+        'raw_news_cache': [],
+        'news_offset': 0, # Tracks pagination
         'alert_log': [], 
         'storm_cooldown': {}, 
         'spy_cache': None, 
@@ -69,9 +70,8 @@ def get_relative_time(date_str):
         else: return f"{int(seconds//86400)}d ago"
     except: return "Recent"
 
-# AI PROCESSING FUNCTION (REUSABLE)
+# AI PROCESSING (Returns list of dicts)
 def process_ai_batch(items_to_process, key):
-    # Returns a list of analyzed items
     try:
         from openai import OpenAI
         cl = OpenAI(api_key=key)
@@ -85,7 +85,6 @@ def process_ai_batch(items_to_process, key):
         Return a JSON wrapper: {'items': [...]}
         """
         ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in items_to_process])
-        
         resp = cl.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role":"system", "content": prompt}, {"role":"user", "content": ai_input}],
@@ -93,7 +92,7 @@ def process_ai_batch(items_to_process, key):
         )
         return json.loads(resp.choices[0].message.content).get('items', [])
     except Exception as e:
-        st.error(f"AI Batch Error: {e}")
+        st.error(f"AI Error: {e}")
         return []
 
 NAMES = {
@@ -160,7 +159,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE ---
+# --- 4. DATA ENGINE (ROBUST) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -169,9 +168,14 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        h = tk.history(period="1d", interval="5m", prepost=True)
-        if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
-        if h.empty: h = tk.history(period="1mo", interval="1d")
+        # Fast fetch attempts
+        try: h = tk.history(period="1d", interval="5m", prepost=True)
+        except: h = pd.DataFrame()
+        
+        if h.empty: 
+            try: h = tk.history(period="5d", interval="15m", prepost=True)
+            except: return None
+            
         if h.empty: return None
         
         p_live = h['Close'].iloc[-1]
@@ -181,8 +185,7 @@ def get_pro_data(s):
         
         market_state = "REG"
         now = datetime.utcnow() - timedelta(hours=5)
-        is_market_hours = (now.weekday() < 5) and (9 <= now.hour < 16)
-        if not is_market_hours:
+        if (now.weekday() < 5) and not (9 <= now.hour < 16):
             market_state = "POST" if now.hour >= 16 else "PRE"
 
         hm = tk.history(period="1mo")
@@ -225,7 +228,7 @@ def get_pro_data(s):
         
         rat = tk.info.get('recommendationKey', 'N/A').upper().replace('_',' ')
 
-        # --- LOGIC ENGINE ---
+        # Alert Logic
         last_alert = st.session_state['storm_cooldown'].get(s, datetime.min)
         if (datetime.now() - last_alert).total_seconds() > 300:
             if trend == "BULL" and rsi < 35 and vol_ratio > 1.2:
@@ -244,20 +247,24 @@ def get_pro_data(s):
 
 # --- 5. UI COMPONENTS ---
 est = datetime.utcnow() - timedelta(hours=5)
+
+# SCROLLER SAFE MODE (NON-BLOCKING)
 @st.cache_data(ttl=60)
-def build_scroller():
-    indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")]
-    items = []
-    for t, n in indices:
-        try:
-            d = get_pro_data(t)
+def build_scroller_safe():
+    try:
+        indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")]
+        items = []
+        for t, n in indices:
+            d = get_pro_data(t) # Uses cache
             if d:
                 c = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
                 a = "▲" if d['d'] >= 0 else "▼"
                 items.append(f"{n}: <span style='color:{c}'>${d['p']:,.2f} {a} {d['d']:.2f}%</span>")
-        except: continue
-    if not items: return "Market Data Initializing..."
-    return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
+        
+        if not items: return "Penny Pulse Market Tracker"
+        return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
+    except:
+        return "Penny Pulse Market Tracker"
 
 if st.session_state['banner_msg']:
     st.markdown(f"<div style='background:#FFD700;color:black;padding:10px;text-align:center;font-weight:bold;border-radius:5px;margin-bottom:10px;'>🔔 {st.session_state['banner_msg']}</div>", unsafe_allow_html=True)
@@ -265,7 +272,7 @@ if st.session_state['banner_msg']:
         st.session_state['banner_msg'] = None
         st.rerun()
 
-scroller_html = build_scroller()
+scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
 h1, h2 = st.columns([2, 1])
@@ -415,46 +422,57 @@ with t2:
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
-    # ANALYZE START (Fresh Fetch)
-    if st.button("Analyze Market Context (Fresh)"):
+    if st.button("Analyze Market Context (Start)"):
         if KEY:
             prog_bar = st.progress(0, text="Initializing AI...")
             try:
-                # Step 1: Fetch ALL RSS
-                prog_bar.progress(20, text="Fetching Yahoo Finance Feed...")
-                r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
-                root = ET.fromstring(r.content)
+                prog_bar.progress(10, text="Connecting to News Feeds...")
+                # Backup Feed Logic
+                feeds = [
+                    "https://finance.yahoo.com/news/rssindex",
+                    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"
+                ]
                 
-                # Parse ALL items into cache
                 raw_items = []
-                for item in root.findall('.//item'):
-                    title = item.find('title').text
-                    link = item.find('link').text
-                    pub = item.find('pubDate').text
-                    raw_items.append({"title": title, "link": link, "time": get_relative_time(pub)})
+                for f in feeds:
+                    try:
+                        r = requests.get(f, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                        if r.status_code == 200:
+                            root = ET.fromstring(r.content)
+                            for item in root.findall('.//item'):
+                                title = item.find('title').text
+                                link = item.find('link').text
+                                pub = item.find('pubDate').text if item.find('pubDate') is not None else str(datetime.now())
+                                raw_items.append({"title": title, "link": link, "time": get_relative_time(pub)})
+                            break # If successful, stop trying other feeds
+                    except: continue
                 
-                # Store Cache
-                st.session_state['raw_news_cache'] = raw_items
-                st.session_state['news_results'] = [] # Clear old analysis
-                
-                # Analyze First 20
-                prog_bar.progress(50, text="Consulting OpenAI Brain (Batch 1)...")
-                batch_1 = raw_items[:20]
-                analyzed = process_ai_batch(batch_1, KEY)
-                
-                st.session_state['news_results'] = analyzed
-                
-                prog_bar.progress(100, text="Analysis Complete!")
-                time.sleep(0.5)
-                prog_bar.empty() 
-                
+                if not raw_items:
+                    prog_bar.empty()
+                    st.error("All news feeds failed. Check internet connection.")
+                else:
+                    st.session_state['raw_news_cache'] = raw_items
+                    st.session_state['news_results'] = []
+                    st.session_state['news_offset'] = 0
+                    
+                    # Process First Batch (20)
+                    prog_bar.progress(50, text="Analyzing First 20 Stories...")
+                    batch = raw_items[:20]
+                    analyzed = process_ai_batch(batch, KEY)
+                    st.session_state['news_results'] = analyzed
+                    st.session_state['news_offset'] = 20
+                    
+                    prog_bar.progress(100, text="Done!")
+                    time.sleep(0.5); prog_bar.empty()
+                    st.rerun()
+                    
             except Exception as e:
                 prog_bar.empty()
-                st.error(f"AI Error: {e}")
+                st.error(f"System Error: {e}")
         else:
             st.info("Enter OpenAI Key in Sidebar.")
 
-    # DISPLAY LOOP
+    # DISPLAY NEWS
     if st.session_state['news_results']:
         for n in st.session_state['news_results']:
             s_color = "#4caf50" if n.get('sentiment')=="BULL" else ("#ff4b4b" if n.get('sentiment')=="BEAR" else "#888")
@@ -470,25 +488,21 @@ with t3:
             </div>
             """, unsafe_allow_html=True)
         
-        # LOAD MORE BUTTON logic
-        current_count = len(st.session_state['news_results'])
-        total_raw = len(st.session_state['raw_news_cache'])
-        
-        st.divider()
-        st.caption(f"Showing {current_count} of {total_raw} Available Stories")
-        
-        if current_count < total_raw:
-            if st.button(f"Load Next 20 Stories (AI)"):
+        # PAGINATION BUTTON
+        remaining = len(st.session_state['raw_news_cache']) - st.session_state['news_offset']
+        if remaining > 0:
+            if st.button(f"Load Next 20 Stories ({remaining} left)"):
                 if KEY:
                     with st.status("Analyzing Next Batch...", expanded=True):
-                        # Get next slice
-                        next_batch = st.session_state['raw_news_cache'][current_count : current_count+20]
-                        new_analysis = process_ai_batch(next_batch, KEY)
-                        # Append
+                        start = st.session_state['news_offset']
+                        end = start + 20
+                        batch = st.session_state['raw_news_cache'][start:end]
+                        new_analysis = process_ai_batch(batch, KEY)
                         st.session_state['news_results'].extend(new_analysis)
+                        st.session_state['news_offset'] = end
                         st.rerun()
-    else:
-        st.info("Click 'Analyze Market Context' to start.")
+        else:
+            st.info("End of Feed. Click 'Analyze' to refresh.")
 
 sec_to_next_min = 60 - datetime.now().second
 time.sleep(sec_to_next_min)
