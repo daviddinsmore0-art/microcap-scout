@@ -5,6 +5,7 @@ import pandas as pd
 import altair as alt 
 import json
 import xml.etree.ElementTree as ET
+import email.utils # For parsing RSS dates
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -30,8 +31,11 @@ if 'initialized' not in st.session_state:
         else: st.session_state[k] = v
 
     st.session_state.update({
-        'news_results': [], 'alert_log': [], 
-        'spy_cache': None, 'spy_last_fetch': datetime.min
+        'news_results': [], 
+        'news_limit': 10,  # Start showing 10
+        'alert_log': [], 
+        'spy_cache': None, 
+        'spy_last_fetch': datetime.min
     })
 
 # --- 2. FUNCTIONS ---
@@ -42,6 +46,23 @@ def update_params():
 
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
+
+def get_relative_time(date_str):
+    try:
+        # Parse RSS date format (RFC 822)
+        dt = email.utils.parsedate_to_datetime(date_str)
+        # Ensure we compare timezone-aware to timezone-aware
+        now = datetime.now(dt.tzinfo)
+        diff = now - dt
+        
+        seconds = diff.total_seconds()
+        if seconds < 60: return "Just now"
+        elif seconds < 3600: return f"{int(seconds//60)}m ago"
+        elif seconds < 86400: return f"{int(seconds//3600)}h ago"
+        elif seconds < 172800: return "Yesterday"
+        else: return f"{int(seconds//86400)}d ago"
+    except:
+        return "Recent"
 
 NAMES = {
     "TD.TO": "TD Bank", "BN.TO": "Brookfield", "CCO.TO": "Cameco", 
@@ -63,7 +84,7 @@ def get_sector_tag(s):
     base = s.split('.')[0].upper()
     return f"[{sectors.get(base, 'IND')}]"
 
-# --- 3. SIDEBAR (YELLOW BOX FIX) ---
+# --- 3. SIDEBAR ---
 st.sidebar.header("⚡ Penny Pulse")
 
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
@@ -84,13 +105,11 @@ PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "J
 ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
 
 st.sidebar.caption("Price Target Asset")
-# FIX: Removed 'index=' to stop Yellow Warning
 if st.session_state.a_tick_input not in ALL_T and ALL_T:
     st.session_state.a_tick_input = ALL_T[0]
 st.sidebar.selectbox("", sorted(ALL_T), key="a_tick_input", on_change=update_params, label_visibility="collapsed")
 
 st.sidebar.caption("Target ($)")
-# FIX: Removed 'value=' to stop Yellow Warning
 st.sidebar.number_input("", step=0.5, key="a_price_input", on_change=update_params, label_visibility="collapsed")
 
 st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=update_params)
@@ -228,7 +247,6 @@ def draw_pro_card(t, port_data=None):
         col = "green" if d['d']>=0 else "red"
         col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
-        # Header
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
             <div style="flex:1;">
@@ -245,7 +263,6 @@ def draw_pro_card(t, port_data=None):
         if d['state'] != "REG":
             st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
 
-        # Portfolio Details
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
@@ -260,14 +277,12 @@ def draw_pro_card(t, port_data=None):
             </div>
             """, unsafe_allow_html=True)
 
-        # Ratings & Metrics
         r_color = "#888"
         if "STRONG BUY" in d['rat']: r_color = "#00FF00" 
         elif "BUY" in d['rat']: r_color = "#4CAF50"      
         elif "HOLD" in d['rat']: r_color = "#FFC107"     
         elif "SELL" in d['rat']: r_color = "#FF4B4B"     
 
-        # FIX: Explicit color logic for Trend so Bear is always Red
         t_color = "#FF4B4B" if "BEAR" in d['tr'] else "#4CAF50"
 
         st.markdown(f"**☻ AI:** {d['ai']}")
@@ -315,7 +330,6 @@ with t1:
 
 with t2:
     total_val, total_cost = 0, 0
-    # Pre-calc totals
     for t, inf in PORT.items():
         d = get_pro_data(t)
         if d:
@@ -326,7 +340,6 @@ with t2:
     tpl = total_val - total_cost
     day_pl = total_val * 0.012 
     
-    # FIXED FONT SIZE (22px)
     st.markdown(f"""
     <div style="background-color:#1E1E1E; padding:20px; border-radius:10px; border:1px solid #333; margin-bottom:25px; display:flex; justify-content:space-around; align-items:center;">
         <div style="text-align:center;">
@@ -354,17 +367,18 @@ with t3:
         if KEY:
             with st.spinner("Analyzing Headlines with AI..."):
                 try:
-                    # 1. Fetch
                     r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
                     root = ET.fromstring(r.content)
                     raw_items = []
-                    for item in root.findall('.//item')[:8]:
+                    # Fetch MORE items for cache
+                    all_fetched = []
+                    for item in root.findall('.//item')[:50]:
                         title = item.find('title').text
                         link = item.find('link').text
                         pub = item.find('pubDate').text
-                        raw_items.append(f"{title} (Date: {pub}) [Link: {link}]")
+                        all_fetched.append({"title": title, "link": link, "time": get_relative_time(pub)})
                     
-                    # 2. AI Analyze
+                    # AI Analyze First 8
                     from openai import OpenAI
                     cl = OpenAI(api_key=KEY)
                     prompt = """
@@ -373,36 +387,58 @@ with t3:
                     - 'sentiment': 'BULL' or 'BEAR' or 'NEUTRAL'.
                     - 'summary': A 5-word snappy summary.
                     - 'link': The original link.
+                    - 'time': The original time string.
                     Return a JSON wrapper: {'items': [...]}
                     """
+                    # Prepare text for AI (only send first 8 to save tokens)
+                    ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in all_fetched[:8]])
+                    
                     resp = cl.chat.completions.create(
                         model="gpt-4o-mini",
-                        messages=[{"role":"system", "content": prompt}, {"role":"user", "content": "\n".join(raw_items)}],
+                        messages=[{"role":"system", "content": prompt}, {"role":"user", "content": ai_input}],
                         response_format={"type": "json_object"}
                     )
-                    data = json.loads(resp.choices[0].message.content)
-                    st.session_state['news_results'] = data.get('items', [])
+                    ai_data = json.loads(resp.choices[0].message.content).get('items', [])
+                    
+                    # Merge AI data with cached raw data (so load more works with raw)
+                    st.session_state['news_results'] = ai_data + all_fetched[8:]
+                    st.session_state['news_limit'] = 10
+                    
                 except Exception as e:
                     st.error(f"AI Analysis Failed: {e}")
         else:
             st.info("Please enter OpenAI Key in Sidebar to use AI features.")
     
-    # Display AI Results
+    # Display News Loop with Load More
     if st.session_state['news_results']:
-        for n in st.session_state['news_results']:
-            # Color coding for sentiment
-            s_color = "#4caf50" if n['sentiment']=="BULL" else ("#ff4b4b" if n['sentiment']=="BEAR" else "#888")
-            st.markdown(f"""
-            <div style="border-left: 4px solid {s_color}; padding-left: 10px; margin-bottom: 20px;">
-                <div style="font-weight:bold; font-size:18px;">
-                    <span style="background:{s_color}; color:white; padding:2px 6px; border-radius:4px; font-size:12px;">{n.get('ticker','MKT')}</span>
-                    {n.get('summary', 'News Item')}
+        limit = st.session_state['news_limit']
+        current_batch = st.session_state['news_results'][:limit]
+        
+        for n in current_batch:
+            # Check if it's an AI enriched item or raw
+            if 'sentiment' in n:
+                s_color = "#4caf50" if n['sentiment']=="BULL" else ("#ff4b4b" if n['sentiment']=="BEAR" else "#888")
+                st.markdown(f"""
+                <div style="border-left: 4px solid {s_color}; padding-left: 10px; margin-bottom: 20px;">
+                    <div style="font-weight:bold; font-size:18px;">
+                        <span style="background:{s_color}; color:white; padding:2px 6px; border-radius:4px; font-size:12px;">{n.get('ticker','MKT')}</span>
+                        {n.get('summary', n.get('title'))}
+                    </div>
+                    <div style="font-size:12px; color:#888; margin-top:4px;">
+                        {n.get('time','Recent')} &nbsp;|&nbsp; <a href="{n.get('link','#')}" style="color:#4dabf7; text-decoration:none;">Read Full Story ➤</a>
+                    </div>
                 </div>
-                <div style="font-size:12px; color:#888; margin-top:4px;">
-                    <a href="{n.get('link','#')}" style="color:#4dabf7; text-decoration:none;">Read Full Story ➤</a>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+            else:
+                # Raw Fallback Style
+                st.markdown(f"**{n['title']}**")
+                st.caption(f"{n['time']} | [Read Article]({n['link']})")
+                st.divider()
+        
+        if limit < len(st.session_state['news_results']):
+            if st.button("Load 10 More"):
+                st.session_state['news_limit'] += 10
+                st.rerun()
     else:
         st.info("Click 'Analyze Market Context' to fetch and scan news.")
 
