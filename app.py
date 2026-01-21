@@ -373,7 +373,7 @@ with t2:
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: render_card(t, inf)
 
-# --- 8. NEWS (Restored) ---
+# --- 8. NEWS ---
 @st.cache_data(ttl=300)
 def get_feed():
     MY_FEEDS = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
