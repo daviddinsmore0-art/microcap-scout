@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. MEMORY & PERSISTENCE ---
+# --- 2. MEMORY ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
@@ -67,7 +67,7 @@ def load_profile_callback():
 
 def sync_js(config_json):
     js = f"""<script>
-    const KEY="penny_pulse_v80"; const d={config_json}; const s=localStorage.getItem(KEY);
+    const KEY="penny_pulse_v81"; const d={config_json}; const s=localStorage.getItem(KEY);
     const p=new URLSearchParams(window.location.search);
     if(!p.has("w")&&s){{try{{const c=JSON.parse(s);if(c.w&&c.w!=="SPY"){{
     const u=new URL(window.location);u.searchParams.set("w",c.w);u.searchParams.set("at",c.at);
@@ -117,7 +117,7 @@ with st.sidebar.expander("📦 Backup"):
 sync_js(json.dumps(export))
 inject_wake_lock(keep_on)
 
-# --- 5. LOGIC & DATA ---
+# --- 5. LOGIC ---
 def log_alert(msg, title="Alert"):
     st.session_state['alert_log'].insert(0, f"[{datetime.now().strftime('%H:%M')}] {msg}")
     components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
@@ -205,33 +205,42 @@ def get_data_rich(s):
     try:
         tk = yf.Ticker(s)
         
-        # --- DUAL FETCH STRATEGY (The Accuracy Fix) ---
-        # 1. Fetch Daily Data (5d) to find true Previous Close
-        hist_daily = tk.history(period="5d", interval="1d")
-        if len(hist_daily) >= 2:
-            # The last row is "Today" (incomplete), second to last is "Yesterday Close"
-            pv = hist_daily['Close'].iloc[-2]
-        else:
-            # Fallback for new listings
-            try: pv = tk.fast_info['previous_close']
-            except: pv = 0.0
+        # --- 1. PREVIOUS CLOSE (BIG NUMBER) ---
+        # Fetch 5 days to ensure we get the 'confirmed' previous close
+        # This gives us the "+4.99%" context you wanted.
+        hd = tk.history(period="5d", interval="1d")
+        if len(hd) >= 2:
+            prev_close = hd['Close'].iloc[-2] # Confirmed yesterday
+            day_before = hd['Close'].iloc[-3] if len(hd) > 2 else prev_close
             
-        # 2. Fetch Intraday Data for Live Price & Chart
+            # Big Number Data (Yesterday's Context)
+            static_price = prev_close
+            static_pct = ((prev_close - day_before) / day_before) * 100 if day_before > 0 else 0.0
+        else:
+            # Fallback for brand new stocks
+            prev_close = tk.fast_info['previous_close']
+            static_price = prev_close
+            static_pct = 0.0
+
+        # --- 2. LIVE PRE-MARKET (LIGHTNING LINE) ---
+        # Fetch 1m data including pre-market to get the Real-Time price
+        # This gives us the "+0.87%" context.
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if h.empty: return None
         
-        p = h['Close'].iloc[-1]
+        live_price = h['Close'].iloc[-1]
         
-        # Calculate Percentage (Live Price vs True Previous Close)
-        if pv > 0: d_pct = ((p - pv) / pv) * 100
-        else: d_pct = 0.0
-        # -----------------------------------------------
+        # Calculate Live Change vs Yesterday's Close
+        if prev_close > 0: live_pct = ((live_price - prev_close) / prev_close) * 100
+        else: live_pct = 0.0
+        # ---------------------------------------------
 
-        dh = h['High'].max()
-        dl = h['Low'].min()
+        # Chart Logic
         chart_data = pd.DataFrame({'Time': h.index, 'Close': h['Close'].values})
+        dh = h['High'].max(); dl = h['Low'].min()
         
+        # Trends
         hm = tk.history(period="1mo")
         rsi, trend, tr_html = 50, "NEUTRAL", "NEUTRAL"
         vol_ratio, golden_cross, ai_msg, ai_col = 1.0, "", "NEUTRAL", "#888"
@@ -255,9 +264,9 @@ def get_data_rich(s):
                 ma200 = hm['Close'].rolling(200).mean().iloc[-1]
                 if ma50 > ma200: golden_cross = " <span style='background:#FFD700;color:black;padding:1px 4px;border-radius:3px;font-size:10px;font-weight:bold'>🌟 GOLDEN CROSS</span>"
 
-        # HTML Visuals
+        # Bars
         rng_pct = 50
-        if dh > dl: rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100
+        if dh > dl: rng_pct = max(0, min(1, (live_price - dl) / (dh - dl))) * 100
         rng_html = f"""<div style="font-size:11px;color:#666;margin-top:5px;">Day Range</div><div style="display:flex;align-items:center;font-size:10px;color:#888;"><span style="margin-right:4px;">L</span><div style="flex-grow:1;height:4px;background:#333;border-radius:2px;"><div style="width:{rng_pct}%;height:100%;background:linear-gradient(90deg,#ff4b4b,#4caf50);"></div></div><span style="margin-left:4px;">H</span></div>"""
         
         vol_tag = "💤 Quiet"
@@ -271,19 +280,26 @@ def get_data_rich(s):
         rsi_html = f"""<div style="font-size:11px;color:#666;margin-top:8px;">RSI: <b>{rsi:.0f}</b></div><div style="width:100%;height:6px;background:#333;border-radius:3px;"><div style="width:{rsi}%;height:100%;background:{r_col};border-radius:3px;"></div></div>"""
         
         storm_html = ""
-        s_score, s_mode, s_reasons = calc_storm_score(s, rsi, vol_ratio, trend, d_pct)
+        s_score, s_mode, s_reasons = calc_storm_score(s, rsi, vol_ratio, trend, live_pct)
         if s_score >= 70:
             sc = "#4caf50" if s_mode == "BULL" else "#ff4b4b"
             ico = "🚀" if s_mode == "BULL" else "⚠️"
             storm_html = f"<div style='margin-top:10px;padding:5px;border:1px solid {sc};border-radius:5px;font-size:12px;color:{sc};text-align:center;'><b>{ico} {s_mode} STORM: {s_score}/100</b><br><span style='font-size:10px;color:#aaa;'>{', '.join(s_reasons)}</span></div>"
 
-        return {"p":p, "d":d_pct, "rsi":rsi, "tr":trend, "tr_h":tr_html, "gc":golden_cross, "chart":chart_data, "vr":vol_ratio, "ai":ai_msg, "ai_c":ai_col, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "storm_html":storm_html, "s_score":s_score, "s_mode":s_mode}
+        return {
+            "p_static": static_price, "d_static": static_pct,
+            "p_live": live_price, "d_live": live_pct,
+            "rsi":rsi, "tr":trend, "tr_h":tr_html, "gc":golden_cross, 
+            "chart":chart_data, "vr":vol_ratio, "ai":ai_msg, "ai_c":ai_col, 
+            "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, 
+            "storm_html":storm_html, "s_score":s_score, "s_mode":s_mode
+        }
     except: return None
 
-# Alert
+# Price Alert (Uses Live Price)
 if a_on:
     d = get_data_rich(a_tick)
-    if d and d['p'] >= a_price and not st.session_state['alert_triggered']:
+    if d and d['p_live'] >= a_price and not st.session_state['alert_triggered']:
         log_alert(f"{a_tick} hit ${a_price:,.2f}!", "Price Alert")
         st.session_state['alert_triggered'] = True
 
@@ -306,8 +322,8 @@ def get_marquee():
     for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
         d = get_data_rich(t)
         if d:
-            c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
-            txt += f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{NAMES.get(t,t)}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>"
+            c, a = ("#4caf50","▲") if d['d_live']>=0 else ("#f44336","▼")
+            txt += f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{NAMES.get(t,t)}: <span style='color:{c};'>${d['p_live']:,.2f} {a} {d['d_live']:.2f}%</span></span>"
     return txt
 
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-top:2px solid #333;border-bottom:2px solid #333;"><marquee scrollamount="6" style="width:100%;">{get_marquee()*5}</marquee></div>""", unsafe_allow_html=True)
@@ -336,17 +352,16 @@ def render_card(t, inf=None):
         
         st.markdown(f"<h3 style='margin:0;padding:0;'><a href='{u}' target='_blank' style='text-decoration:none;color:inherit'>{nm}</a>{sec_tag}</h3>", unsafe_allow_html=True)
         
-        if inf:
-            v = d['p']*inf['q']
-            pl = v-(inf['e']*inf['q'])
-            st.caption(f"{inf['q']} Sh @ ${inf['e']} | P/L: ${pl:+,.0f}")
-            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-        else:
-            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-            
-        st.markdown(f"<div style='margin-top:-10px;margin-bottom:10px;'>⚡ LIVE: ${d['p']:,.2f} <span style='color:{'#4caf50' if d['d']>=0 else '#ff4b4b'}'>({d['d']:+.2f}%)</span></div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>⚙️ AI: <span style='color:{d['ai_c']}'>{d['ai']}</span></div>", unsafe_allow_html=True)
+        # --- SPLIT DISPLAY ---
+        # 1. Big Number = Previous Close (Yesterday's History)
+        st.metric("Prev Close", f"${d['p_static']:,.2f}", f"{d['d_static']:.2f}%")
+        
+        # 2. Lightning Line = Live Pre-Market (Current Action)
+        l_col = "#4caf50" if d['d_live'] >= 0 else "#ff4b4b"
+        st.markdown(f"<div style='margin-top:-10px;margin-bottom:10px;font-weight:bold;font-size:16px;'>⚡ PRE/LIVE: ${d['p_live']:,.2f} <span style='color:{l_col}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
+        # ---------------------
 
+        st.markdown(f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>⚙️ AI: <span style='color:{d['ai_c']}'>{d['ai']}</span></div>", unsafe_allow_html=True)
         st.markdown(f"""<div style='font-size:14px;line-height:1.8;margin-bottom:10px;color:#444;'><div><b style='color:black;margin-right:8px;'>TREND:</b> {d['tr_h']}{d['gc']}</div><div><b style='color:black;margin-right:8px;'>RATING:</b> <span style='color:{rc};font-weight:bold;'>{rt}</span></div><div><b style='color:black;margin-right:8px;'>EARNINGS:</b> {earn}</div></div>""", unsafe_allow_html=True)
         
         st.markdown("<div style='font-size:11px;font-weight:bold;color:#555;margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
@@ -366,7 +381,7 @@ def render_card(t, inf=None):
             except: pass
             
         base = alt.Chart(c_df.reset_index()).encode(x=alt.X('Time', axis=None))
-        l1 = base.mark_line(color="#4caf50" if d['d']>=0 else "#ff4b4b").encode(y=alt.Y('Stock', axis=None))
+        l1 = base.mark_line(color="#4caf50" if d['d_live']>=0 else "#ff4b4b").encode(y=alt.Y('Stock', axis=None))
         final = l1
         if has_spy:
             l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y='SPY')
