@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. AUTO-SAVE & MEMORY (The "Brain") ---
+# --- 2. MEMORY & PERSISTENCE ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
@@ -26,7 +26,7 @@ if 'initialized' not in st.session_state:
         'base_url_input': ""
     }
     
-    # URL Overrides
+    # Check URL
     qp = st.query_params
     if 'w' in qp: defaults['w_input'] = qp['w']
     if 'at' in qp: defaults['a_tick_input'] = qp['at']
@@ -37,10 +37,12 @@ if 'initialized' not in st.session_state:
     for k, v in defaults.items():
         st.session_state[k] = v
         
-    # Internal State
+    # Internal
     st.session_state['news_results'] = []
     st.session_state['alert_log'] = []
     st.session_state['last_trends'] = {}
+    st.session_state['mem_ratings'] = {}
+    st.session_state['mem_meta'] = {}
     st.session_state['banner_msg'] = None
     st.session_state['storm_cooldown'] = {}
 
@@ -66,7 +68,7 @@ def load_profile_callback():
 
 def sync_js(config_json):
     js = f"""<script>
-    const KEY="penny_pulse_v77"; const d={config_json}; const s=localStorage.getItem(KEY);
+    const KEY="penny_pulse_v78"; const d={config_json}; const s=localStorage.getItem(KEY);
     const p=new URLSearchParams(window.location.search);
     if(!p.has("w")&&s){{try{{const c=JSON.parse(s);if(c.w&&c.w!=="SPY"){{
     const u=new URL(window.location);u.searchParams.set("w",c.w);u.searchParams.set("at",c.at);
@@ -88,6 +90,7 @@ st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
 
 # Lists
 PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
+NAMES = {"TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"} 
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
@@ -119,11 +122,10 @@ with st.sidebar.expander("📦 Backup"):
     st.download_button("Download", json.dumps(export), "pulse_config.json", "application/json")
     st.file_uploader("Restore", type=["json"], key="uploader_key", on_change=load_profile_callback)
 
-# Save to Browser
 sync_js(json.dumps(export))
 inject_wake_lock(keep_on)
 
-# --- 5. DATA LOGIC ---
+# --- 5. LOGIC ---
 def log_alert(msg, title="Alert"):
     st.session_state['alert_log'].insert(0, f"[{datetime.now().strftime('%H:%M')}] {msg}")
     components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
@@ -142,176 +144,179 @@ def check_flip(ticker, current_trend, enabled):
         log_alert(f"{ticker} FLIPPED to {current_trend}", "Trend Flip")
     st.session_state['last_trends'][ticker] = current_trend
 
-def calc_storm(ticker, rsi, vol_ratio, trend, change):
-    score = 0
-    if vol_ratio >= 2.0: score += 30
-    elif vol_ratio >= 1.5: score += 15
-    if trend == "BULL" and change > 0:
-        if rsi <= 35: score += 25
-        if change > 2.0: score += 20
-        if score >= 70: return score, "BULL"
-    elif trend == "BEAR" and change < 0:
-        if rsi >= 65: score += 25
-        if change < -2.0: score += 25
-        if score >= 70: return score, "BEAR"
-    return score, "NEUTRAL"
+def get_meta(s):
+    if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
+    try:
+        tk = yf.Ticker(s)
+        sec = tk.info.get('sector', 'N/A')[:4].upper()
+        res = (sec, "N/A")
+        st.session_state['mem_meta'][s] = res
+        return res
+    except: return "N/A", "N/A"
+
+def get_rating(s):
+    if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
+    try:
+        r = yf.Ticker(s).info.get('recommendationKey', 'none').upper().replace('_',' ')
+        res = (r, "#00C805" if "BUY" in r else "#FF4B4B")
+        st.session_state['mem_ratings'][s] = res
+        return res
+    except: return "N/A", "#888"
 
 @st.cache_data(ttl=60, show_spinner=False)
-def get_data(s):
+def get_data_rich(s):
     if not s: return None
     s = s.strip().upper()
     try:
         tk = yf.Ticker(s)
-        # Price
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if h.empty: return None
+        
         p = h['Close'].iloc[-1]
         try: pv = tk.fast_info['previous_close']
         except: pv = h['Open'].iloc[0]
         d_pct = ((p-pv)/pv)*100
         
-        # Stats
+        # Safe Chart Data (Fixing Duplicate Error)
+        chart_data = h[['Close']].copy()
+        chart_data.index.name = 'Time'
+        
         hm = tk.history(period="1mo")
         rsi, trend = 50, "NEUTRAL"
         vol_ratio = 1.0
         if len(hm)>14:
-            diff = hm['Close'].diff()
-            u, d = diff.clip(lower=0), -1*diff.clip(upper=0)
-            rsi = 100 - (100/(1 + (u.rolling(14).mean()/d.rolling(14).mean()).iloc[-1]))
+            d = hm['Close'].diff()
+            u, dw = d.clip(lower=0), -1*d.clip(upper=0)
+            rsi = 100 - (100/(1 + (u.rolling(14).mean()/dw.rolling(14).mean()).iloc[-1]))
             m = hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()
             trend = "BULL" if m.iloc[-1] > 0 else "BEAR"
-            vol = hm['Volume'].iloc[-1]
-            avg = hm['Volume'].mean()
-            if avg > 0: vol_ratio = vol/avg
+            v = hm['Volume'].iloc[-1]; a = hm['Volume'].mean()
+            if a > 0: vol_ratio = v/a
             
-        s_score, s_mode = calc_storm(s, rsi, vol_ratio, trend, d_pct)
-        return {"p":p, "d":d_pct, "rsi":rsi, "tr":trend, "chart":h, "storm":s_score, "mode":s_mode}
+        return {"p":p, "d":d_pct, "rsi":rsi, "tr":trend, "chart":chart_data, "vr":vol_ratio}
     except: return None
 
 # Price Alert
 if a_on:
-    d = get_data(a_tick)
+    d = get_data_rich(a_tick)
     if d and d['p'] >= a_price and not st.session_state['alert_triggered']:
         log_alert(f"{a_tick} hit ${a_price:,.2f}!", "Price Alert")
         st.session_state['alert_triggered'] = True
 
-# --- 6. UI RESTORATION (Header & Marquee) ---
+# --- 6. UI: HEADER & MARQUEE (Restored) ---
 if st.session_state['banner_msg']:
     st.markdown(f"<div style='background:#900;color:white;padding:10px;text-align:center;font-weight:bold;position:fixed;top:0;left:0;width:100%;z-index:99;'>{st.session_state['banner_msg']}</div>", unsafe_allow_html=True)
     if st.button("Dismiss"): st.session_state['banner_msg'] = None; st.rerun()
 
-# The "Next Update" Bar
+est = datetime.utcnow() - timedelta(hours=5)
 c1, c2 = st.columns([1,1])
-with c1: 
+with c1:
     st.title("⚡ Penny Pulse")
-    st.caption(f"Last Updated: {datetime.now().strftime('%H:%M:%S')}")
+    st.caption(f"Last Updated: {est.strftime('%H:%M:%S EST')}")
 with c2:
-    components.html("""
-    <div style="background-color:#0E1117; color:#FF4B4B; padding:10px; border-radius:5px; text-align:center; font-family:sans-serif; font-weight:bold; font-size:24px; border: 1px solid #333;">
-    Next Update: <span id="timer">--</span>s
-    </div>
-    <script>setInterval(function(){document.getElementById("timer").innerHTML=60-new Date().getSeconds();},1000);</script>
-    """, height=70)
+    components.html("""<div style="font-family:'Helvetica';background:#0E1117;padding:5px;text-align:center;display:flex;justify-content:center;align-items:center;height:100%;"><span style="color:#BBBBBB;font-weight:bold;font-size:14px;margin-right:5px;">Next Update: </span><span id="c" style="color:#FF4B4B;font-weight:900;font-size:18px;">--</span><span style="color:#BBBBBB;font-size:14px;margin-left:2px;"> s</span></div><script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>""", height=60)
 
-# The Scroller (HTML Marquee)
+# Scroller
 @st.cache_data(ttl=60, show_spinner=False)
 def get_marquee():
     txt = ""
     for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
-        d = get_data(t)
+        d = get_data_rich(t)
         if d:
-            c = "#4caf50" if d['d']>=0 else "#ff4b4b"
-            a = "▲" if d['d']>=0 else "▼"
-            txt += f"<span style='margin-right:20px; font-weight:bold; font-size:20px; color:white;'>{t}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>"
+            c, a = ("#4caf50","▲") if d['d']>=0 else ("#f44336","▼")
+            txt += f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{NAMES.get(t,t)}: <span style='color:{c};'>${d['p']:,.2f} {a} {d['d']:.2f}%</span></span>"
     return txt
 
-mq = get_marquee()
-st.markdown(f"""
-<div style="background-color:#0E1117; padding:10px; border-top:2px solid #333; border-bottom:2px solid #333; margin-bottom:20px;">
-<marquee scrollamount="10">{mq * 5}</marquee>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-top:2px solid #333;border-bottom:2px solid #333;"><marquee scrollamount="6" style="width:100%;">{get_marquee()*5}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 7. DASHBOARD CARDS (Restored) ---
-t1, t2, t3 = st.tabs(["🏠 Board", "🚀 My Picks", "📰 News"])
-
-def draw_card(t, shares=None, cost=None):
-    d = get_data(t)
+# --- 7. DASHBOARD (Restored Cards) ---
+def render_card(t, inf=None):
+    d = get_data_rich(t)
     if d:
         check_flip(t, d['tr'], flip_on)
-        if d['storm'] >= 70:
-            last = st.session_state['storm_cooldown'].get(t, datetime.min)
-            if (datetime.now()-last).seconds > 300:
-                log_alert(f"STORM ALERT: {t}", d['mode'])
-                st.session_state['storm_cooldown'][t] = datetime.now()
-
-        # The Card UI
-        color = "green" if d['d']>=0 else "red"
-        st.markdown(f"""
-        <div style="border:1px solid #333; border-radius:10px; padding:15px; margin-bottom:10px;">
-            <h3 style="margin:0;">{t}</h3>
-            <h2 style="margin:0;">${d['p']:,.2f} <span style="color:{color}; font-size:20px;">{d['d']:+.2f}%</span></h2>
-        </div>
-        """, unsafe_allow_html=True)
         
-        if shares:
-            v = d['p']*shares
-            pl = v-(cost*shares)
-            st.caption(f"Net: ${v:,.0f} | P/L: ${pl:+,.0f}")
-
+        # Check Storm
+        score = 0
+        if d['vr'] >= 2.0: score += 30
+        if d['tr'] == "BULL" and d['d'] > 0:
+            if d['rsi'] <= 35: score += 25
+            if d['d'] > 2.0: score += 20
+            if score >= 70: 
+                l = st.session_state['storm_cooldown'].get(t, datetime.min)
+                if (datetime.now()-l).seconds > 300:
+                    log_alert(f"PERFECT STORM: {t}", "Bull Storm"); st.session_state['storm_cooldown'][t] = datetime.now()
+        
+        # Rich UI
+        rt, rc = get_rating(t)
+        sec, _ = get_meta(t)
+        nm = NAMES.get(t, t)
+        if t.endswith(".TO"): nm += " (TSX)"
+        elif t.endswith(".V"): nm += " (TSXV)"
+        elif t.endswith(".CN"): nm += " (CSE)"
+        
+        u = f"https://finance.yahoo.com/quote/{t}"
+        st.markdown(f"<h3 style='margin:0;'><a href='{u}' target='_blank' style='text-decoration:none;color:inherit'>{nm}</a> <span style='color:#777;font-size:14px;'>[{sec}]</span></h3>", unsafe_allow_html=True)
+        
+        if inf:
+            v = d['p']*inf['q']
+            pl = v-(inf['e']*inf['q'])
+            st.caption(f"{inf['q']} Sh @ ${inf['e']} | P/L: ${pl:+,.0f}")
+            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
+        else:
+            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
+            
+        st.markdown(f"<div style='font-size:14px;margin-bottom:10px;'><b>TREND:</b> {d['tr']} | <b>RATING:</b> <span style='color:{rc}'>{rt}</span></div>", unsafe_allow_html=True)
+        
         # Chart
-        cd = d['chart'].reset_index()
-        cd.columns = ['Time','Price'] + list(cd.columns[2:])
-        ch = alt.Chart(cd.tail(30)).mark_line(color=color).encode(x=alt.X('Time',axis=None), y=alt.Y('Price',scale=alt.Scale(zero=False),axis=None)).properties(height=50)
-        st.altair_chart(ch, use_container_width=True)
+        c_df = d['chart'].reset_index()
+        base = alt.Chart(c_df.tail(30)).encode(x=alt.X('Time', axis=None))
+        l = base.mark_line(color="#4caf50" if d['d']>=0 else "#ff4b4b").encode(y=alt.Y('Close', scale=alt.Scale(zero=False), axis=None))
+        st.altair_chart(l.properties(height=50), use_container_width=True)
         
         r_c = "red" if d['rsi']>70 or d['rsi']<30 else "gray"
-        st.caption(f"Trend: {d['tr']} | RSI: :{r_c}[{d['rsi']:.0f}]")
+        st.markdown(f"<div style='font-size:11px;color:#666;'>RSI: <span style='color:{r_c}'>{d['rsi']:.0f}</span> | Vol: {d['vr']:.1f}x</div>", unsafe_allow_html=True)
         st.divider()
-    else: st.warning(f"No Data: {t}")
+    else: st.warning(f"{t}: No Data")
 
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News"])
 with t1:
     cols = st.columns(3)
     for i, t in enumerate(WATCH):
-        with cols[i%3]: draw_card(t)
+        with cols[i%3]: render_card(t)
 with t2:
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
-        with cols[i%3]: draw_card(t, inf['q'], inf['e'])
+        with cols[i%3]: render_card(t, inf)
 
-# --- 8. NEWS ---
+# --- 8. NEWS (Restored) ---
 @st.cache_data(ttl=300)
 def get_feed():
-    # CUSTOMIZE LINKS HERE
-    FEEDS = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
-    LINKS = [] 
-    
+    MY_FEEDS = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    MY_LINKS = [] 
     items = []
-    for l in LINKS: items.append({"title":"Manual Link", "link":l, "date":"Now"})
-    
-    for u in FEEDS:
+    for l in MY_LINKS: items.append({"title":"Manual Link", "link":l, "date":"Now"})
+    head = {"User-Agent":"Mozilla/5.0"}
+    for u in MY_FEEDS:
         try:
-            r = requests.get(u, headers={"User-Agent":"Mozilla/5.0"}, timeout=5)
+            r = requests.get(u, headers=head, timeout=5)
             root = ET.fromstring(r.content)
             for i in root.findall('.//item')[:10]:
                 l = i.find('link').text
                 if not l: l = i.find('guid').text
-                pub = i.find('pubDate')
-                d_str = pub.text if pub is not None else ""
-                items.append({"title":i.find('title').text, "link":l, "date":d_str})
+                items.append({"title":i.find('title').text, "link":l, "date":""})
         except: continue
     return items
 
 with t3:
-    if st.button("Deep Scan"):
+    if st.button("Deep Scan (AI)"):
         with st.spinner("Reading..."):
             raw = get_feed()
             if raw and KEY:
                 from openai import OpenAI
                 cl = OpenAI(api_key=KEY)
-                txt = "\n".join([f"{x['title']} ({x['date']}) - {x['link']}" for x in raw[:15]])
-                p = "Analyze. JSON: [{'ticker':'TSLA', 'signal':'🟢', 'reason':'...', 'time':'2h ago', 'title':'...', 'link':'...'}]"
+                txt = "\n".join([f"{x['title']} - {x['link']}" for x in raw[:15]])
+                p = "Analyze financial news. JSON: [{'ticker':'TSLA', 'signal':'🟢', 'reason':'...', 'time':'2h ago', 'title':'...', 'link':'...'}]"
                 try:
                     res = cl.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system","content":p},{"role":"user","content":txt}], response_format={"type":"json_object"})
                     st.session_state['news_results'] = json.loads(res.choices[0].message.content).get('articles', [])
