@@ -60,7 +60,6 @@ st.sidebar.toggle("Keep Screen On", key="keep_on_input")
 
 # --- 5. DATA LOGIC ---
 def get_rating_and_meta(s):
-    # If Canadian, check US ticker for better meta-data
     search_ticker = s
     if ".TO" in s: search_ticker = s.replace(".TO", "")
     
@@ -70,18 +69,15 @@ def get_rating_and_meta(s):
         tk = yf.Ticker(search_ticker)
         inf = tk.info
         
-        # Rating
         r = inf.get('recommendationKey', 'N/A').upper().replace('_',' ')
         r_col = "#00C805" if "BUY" in r else ("#FFC107" if "HOLD" in r else "#FF4B4B")
         if r == "N/A": r = "NONE"
         
-        # Sector & Earnings
         sec = inf.get('sector', 'N/A')[:4].upper()
         earn = "N/A"
         cal = tk.calendar
         if cal is not None and not (isinstance(cal, list) and len(cal)==0):
             try:
-                # Calendar can be df or dict depending on ticker
                 dt = cal.iloc[0,0] if hasattr(cal, 'iloc') else cal.get('Earnings Date', [None])[0]
                 if dt: earn = dt.strftime('%b %d')
             except: pass
@@ -107,7 +103,6 @@ def get_data_accurate(s):
         p_live = h['Close'].iloc[-1]
         d_live = ((p_live - p_anchor) / p_anchor) * 100
         
-        # Volume/RSI Logic
         hm = tk.history(period="1mo")
         rsi = 50; trend = "NEUTRAL"; vol_ratio = 1.0
         if len(hm) > 14:
@@ -123,11 +118,11 @@ def get_data_accurate(s):
         rating, r_col, sec, earn = get_rating_and_meta(s)
 
         bars = f"""
-        <div style="font-size:11px;color:#666;margin-top:10px;">Day Range</div>
+        <div style="font-size:11px;color:#666;margin-top:10px;"><b>Day Range</b></div>
         <div style="display:flex;align-items:center;font-size:10px;color:#888;"><span style="margin-right:4px;">L</span><div style="flex-grow:1;height:4px;background:#333;border-radius:2px;"><div style="width:{rng_p}%;height:100%;background:linear-gradient(90deg,#ff4b4b,#4caf50);"></div></div><span style="margin-left:4px;">H</span></div>
-        <div style="font-size:11px;color:#666;margin-top:8px;">Volume: <b>{v_tag}</b> ({vol_ratio:.1f}x)</div>
+        <div style="font-size:11px;color:#666;margin-top:8px;"><b>Volume: {v_tag}</b> ({vol_ratio:.1f}x)</div>
         <div style="width:100%;height:6px;background:#333;border-radius:3px;"><div style="width:{min(100, vol_ratio*50)}%;height:100%;background:#2196F3;border-radius:3px;"></div></div>
-        <div style="font-size:11px;color:#666;margin-top:8px;">RSI: <b>{rsi:.0f}</b></div>
+        <div style="font-size:11px;color:#666;margin-top:8px;"><b>RSI: {rsi:.0f}</b></div>
         <div style="width:100%;height:6px;background:#333;border-radius:3px;"><div style="width:{rsi}%;height:100%;background:{'#ff4b4b' if rsi>70 or rsi<30 else '#4caf50'};border-radius:3px;"></div></div>
         """
         return {"p_anchor":p_anchor, "d_static":d_static, "p_live":p_live, "d_live":d_live, "rsi":rsi, "tr":trend, "chart":h, "rating":rating, "r_col":r_col, "sec":sec, "earn":earn, "bars":bars}
@@ -145,7 +140,7 @@ if est.weekday() < 5:
 st.title("⚡ Penny Pulse")
 st.caption(f"{status} | {est.strftime('%H:%M EST')}")
 
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News"])
+t1, t2, t3 = st.tabs(["🏠 Board", "🚀 My Picks", "📰 News"])
 
 def draw_card(t):
     d = get_data_accurate(t)
@@ -155,11 +150,12 @@ def draw_card(t):
         st.metric("Prev Close", f"${d['p_anchor']:,.2f}", f"{d['d_static']:+.2f}%")
         st.markdown(f"<div style='margin-top:-15px;margin-bottom:10px;font-weight:bold;'>⚡ LIVE: ${d['p_live']:,.2f} <span style='color:{'#4caf50' if d['d_live']>=0 else '#ff4b4b'}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
         
+        # BOLD UI Restoration
         st.markdown(f"""
         <div style='font-size:14px;line-height:1.6;'>
-            <b>TREND:</b> <span style='color:{'#00C805' if d['tr']=='BULL' else '#FF4B4B'}'>{d['tr']}</span><br>
-            <b>ANALYST RATING:</b> <span style='color:{d['r_col']}'>{d['rating']}</span><br>
-            <b>EARNINGS:</b> 📅 {d['earn']}
+            <b>TREND:</b> <span style='color:{'#00C805' if d['tr']=='BULL' else '#FF4B4B'}'><b>{d['tr']}</b></span><br>
+            <b>ANALYST RATING:</b> <span style='color:{d['r_col']}'><b>{d['rating']}</b></span><br>
+            <b>EARNINGS:</b> 📅 <b>{d['earn']}</b>
         </div>
         """, unsafe_allow_html=True)
         
@@ -176,5 +172,6 @@ with t1:
     for i, t in enumerate(W):
         with cols[i%3]: draw_card(t)
 
-time.sleep(1)
+# Refined Rerun Heartbeat to stop dimming/looping
+time.sleep(2)
 st.rerun()
