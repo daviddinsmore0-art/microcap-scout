@@ -4,7 +4,7 @@ import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
 import json
-import xml.etree.ElementTree as ET # FIXED: Imported ET for News
+import xml.etree.ElementTree as ET
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -44,7 +44,6 @@ def update_params():
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
-# Dictionary for Company Names (Mocked for speed, can be fetched)
 NAMES = {
     "TD.TO": "TD Bank", "BN.TO": "Brookfield", "CCO.TO": "Cameco", 
     "IVN.TO": "Ivanhoe Mines", "HIVE": "Hive Digital", "SPY": "S&P 500 ETF",
@@ -114,28 +113,21 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        # Attempt 1: High Res
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
         if h.empty: return None
         
-        # Prices
         p_live = h['Close'].iloc[-1]
         try: p_prev = tk.fast_info['previous_close']
         except: p_prev = h['Open'].iloc[0]
         d_pct = ((p_live - p_prev) / p_prev) * 100
         
-        # Pre/Post Market Logic
         market_state = "REG"
-        ext_price = None
-        # Simple check: If current time is outside 9:30-4:00 EST (simplified)
         now = datetime.utcnow() - timedelta(hours=5)
         is_market_hours = (now.weekday() < 5) and (9 <= now.hour < 16)
         if not is_market_hours:
-            ext_price = p_live # In fetch, the last price is the extended hours price if prepost=True
             market_state = "POST" if now.hour >= 16 else "PRE"
 
-        # Indicators
         hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
@@ -147,13 +139,11 @@ def get_pro_data(s):
             
         ai_bias = "🟢 BULLISH BIAS" if (trend=="BULL" and rsi<70) else ("🔴 BEARISH BIAS" if (trend=="BEAR" and rsi>30) else "🟡 NEUTRAL BIAS")
 
-        # SPY Sync
         spy = get_spy_data()
         chart_data = h['Close'].reset_index()
         chart_data.columns = ['T', 'Stock']
         chart_data['Idx'] = range(len(chart_data)) 
         
-        # Normalize
         start_price = chart_data['Stock'].iloc[0] if chart_data['Stock'].iloc[0] != 0 else 1
         chart_data['Stock'] = ((chart_data['Stock'] - start_price) / start_price) * 100
         
@@ -163,7 +153,6 @@ def get_pro_data(s):
             if len(s_norm) >= len(chart_data): chart_data['SPY'] = s_norm.values[-len(chart_data):]
             else: chart_data['SPY'] = 0
 
-        # Meta
         earn = "N/A"
         try:
             cal = tk.calendar
@@ -204,13 +193,12 @@ def build_scroller():
 scroller_html = build_scroller()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 6. HEADER & DRESSED UP TIMER ---
+# --- 6. HEADER & TIMER ---
 h1, h2 = st.columns([2, 1])
 with h1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Sync: {est.strftime('%H:%M:%S EST')}")
 with h2:
-    # DRESSED UP TIMER (Badge Style)
     components.html("""
     <div style="font-family:'Helvetica', sans-serif; display:flex; justify-content:flex-end; align-items:center; height:100%; padding-right:10px;">
         <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:10px 15px; display:flex; align-items:center; box-shadow:0 2px 5px rgba(0,0,0,0.5);">
@@ -237,8 +225,7 @@ def draw_pro_card(t):
         col = "green" if d['d']>=0 else "red"
         col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
-        # FLEXBOX HEADER (Redesigned)
-        # Big Name, Small Ticker, Right-Aligned Price
+        # --- HEADER (NAME + TICKER + PRICE) ---
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
             <div style="flex:1;">
@@ -252,17 +239,21 @@ def draw_pro_card(t):
         </div>
         """, unsafe_allow_html=True)
 
-        # PRE/POST MARKET BADGE
         if d['state'] != "REG":
             st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
 
-        # METRICS ROW (Bolded)
-        today = datetime.now().strftime('%b %d')
+        # --- RATINGS & METRICS ---
+        r_color = "#888"
+        if "STRONG BUY" in d['rat']: r_color = "#00FF00" # Bright Green
+        elif "BUY" in d['rat']: r_color = "#4CAF50"      # Green
+        elif "HOLD" in d['rat']: r_color = "#FFC107"     # Yellow
+        elif "SELL" in d['rat']: r_color = "#FF4B4B"     # Red
+
         st.markdown(f"**☻ AI:** {d['ai']}")
-        st.markdown(f"**TREND:** :{col}[**{d['tr']}**] | **RATING:** **{d['rat']}**")
-        st.markdown(f"**EARNINGS:** {d['earn']} | **DATE:** {today}")
+        st.markdown(f"**TREND:** :{col}[**{d['tr']}**] | **RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
+        st.markdown(f"**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
         
-        # Chart
+        # --- CHART ---
         base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
         l1 = base.mark_line(color=col).encode(y=alt.Y('Stock', axis=None))
         if 'SPY' in d['chart'].columns:
@@ -273,18 +264,23 @@ def draw_pro_card(t):
         
         st.caption("INTRADAY vs SPY (Orange/Dotted)")
         
-        # Day Range
-        if d['h'] > d['l']: 
-            pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
-            pct = max(0, min(100, pct))
+        # --- DAY RANGE BAR ---
+        if d['h'] > d['l']: pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
         else: pct = 50
-        st.markdown(f"""<div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
+        pct = max(0, min(100, pct))
+        
+        st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:15px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
 
-        # RSI & Volume
+        # --- VOLUME & RSI BARS (WITH PADDING TO PREVENT CUTOFF) ---
         rsi_pct = min(100, max(0, d['rsi']))
         st.markdown(f"""
-        <div style="font-size:10px;color:#888;">Volume: {'⚡ Surge' if d['vol']>1.5 else '💤 Quiet'} | RSI: {d['rsi']:.0f}</div>
-        <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;"><div style="width:{rsi_pct}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div></div>
+        <div style="font-size:10px;color:#888;">Volume: {'⚡ Surge' if d['vol']>1.5 else '💤 Quiet'}</div>
+        <div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:10px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div>
+        
+        <div style="font-size:10px;color:#888;">RSI: {d['rsi']:.0f}</div>
+        <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;margin-bottom:20px;">
+            <div style="width:{rsi_pct}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div>
+        </div>
         """, unsafe_allow_html=True)
         st.divider()
 
@@ -295,7 +291,6 @@ with t1:
         with cols[i%3]: draw_pro_card(t)
 
 with t2:
-    # P/L Logic (Pie Chart Removed)
     total_val, total_cost = 0, 0
     for t, inf in PORT.items():
         d = get_pro_data(t)
@@ -307,7 +302,6 @@ with t2:
     tpl = total_val - total_cost
     day_pl = total_val * 0.012 
     
-    # NICE CHART ACROSS THE TOP
     st.markdown("""<div style="background:#1E1E1E; padding:15px; border-radius:10px; border:1px solid #333; margin-bottom:20px;">""", unsafe_allow_html=True)
     m1, m2, m3 = st.columns(3)
     m1.metric("Net Liq", f"${total_val:,.2f}")
@@ -344,7 +338,6 @@ with t3:
     else:
         st.info("Click 'Refresh News' to load live headlines.")
 
-# SYNC REFRESH
 sec_to_next_min = 60 - datetime.now().second
 time.sleep(sec_to_next_min)
 st.rerun()
