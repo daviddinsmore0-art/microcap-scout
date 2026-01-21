@@ -10,55 +10,84 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. PERSISTENCE ENGINE (Restored from v76) ---
+# --- 2. MEMORY & CRASH PROTECTION ---
+# This block runs FIRST to prevent the KeyError seen in your screenshots
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
-    # Defaults
+    # Load URL Parameters or Defaults
     defaults = {
         'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
-        'a_tick_input': "SPY",
-        'a_price_input': 0.0,
-        'a_on_input': False,
-        'flip_on_input': False,
-        'keep_on_input': False,
-        'notify_input': False
+        'a_tick_input': "SPY", 'a_price_input': 0.0,
+        'a_on_input': False, 'flip_on_input': False,
+        'keep_on_input': False, 'notify_input': False
     }
-    
-    # Pull from URL parameters
     qp = st.query_params
-    if 'w' in qp: defaults['w_input'] = qp['w']
-    if 'at' in qp: defaults['a_tick_input'] = qp['at']
-    if 'ap' in qp: defaults['a_price_input'] = float(qp['ap'])
-    if 'ao' in qp: defaults['a_on_input'] = (qp['ao'].lower() == 'true')
+    for k in defaults:
+        pk = k.replace('_input','')
+        if pk in qp:
+            val = qp[pk]
+            if val.lower() in ['true','false']: defaults[k] = val.lower() == 'true'
+            else:
+                try: defaults[k] = float(val) if '.' in val and not any(x in val for x in ['TO','V','CN']) else val
+                except: defaults[k] = val
+    for k, v in defaults.items(): st.session_state[k] = v
     
-    for k, v in defaults.items():
-        st.session_state[k] = v
-        
-    # CRITICAL: Initialize memory to prevent KeyErrors
-    st.session_state['news_results'] = []
-    st.session_state['alert_log'] = []
-    st.session_state['last_trends'] = {}
-    st.session_state['banner_msg'] = None
-    st.session_state['storm_cooldown'] = {}
-    st.session_state['mem_ratings'] = {}
+    # Initialize ALL memory keys to stop crashes
+    st.session_state.update({
+        'news_results': [], 
+        'alert_log': [], 
+        'last_trends': {}, 
+        'mem_ratings': {}, 
+        'banner_msg': None, 
+        'storm_cooldown': {}
+    })
 
 # --- 3. FUNCTIONS ---
 def update_params():
-    st.query_params["w"] = st.session_state.w_input
-    st.query_params["at"] = st.session_state.a_tick_input
-    st.query_params["ap"] = str(st.session_state.a_price_input)
-    st.query_params["ao"] = str(st.session_state.a_on_input).lower()
+    for k in ['w','at','ap','ao','fo','no','ko']:
+        kn = f"{k if len(k)>2 else k+'_input'}"
+        if kn in st.session_state: st.query_params[k] = str(st.session_state[kn]).lower()
 
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
+# --- 4. SIDEBAR (Restored v76 Features) ---
+st.sidebar.header("⚡ Penny Pulse")
+if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
+else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
+
+st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
+
+# v76 Buttons
+c1, c2 = st.sidebar.columns(2)
+with c1: 
+    if st.button("💾 Save"): update_params(); st.toast("Profile Saved!")
+with c2: 
+    if st.button("🔊 Test"): components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
+
+# Portfolio Definition
+PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
+ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
+
+st.sidebar.divider()
+st.sidebar.subheader("🔔 Alerts")
+curr = st.session_state.a_tick_input
+idx = sorted(ALL_T).index(curr) if curr in sorted(ALL_T) else 0
+st.sidebar.selectbox("Asset", sorted(ALL_T), index=idx, key="a_tick_input", on_change=update_params)
+st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=update_params)
+st.sidebar.toggle("Price Alert", key="a_on_input", on_change=update_params)
+st.sidebar.toggle("Flip Alert", key="flip_on_input", on_change=update_params)
+st.sidebar.toggle("Keep Screen On", key="keep_on_input", on_change=update_params)
+inject_wake_lock(st.session_state.keep_on_input)
+
+# --- 5. DATA ENGINE (v89 Accuracy + v76 Logic) ---
 def get_rating_and_meta(s):
-    # Caching logic for Analyst Ratings & Earnings
-    search_ticker = s.replace(".TO","").replace(".V","").replace(".CN","")
-    if search_ticker in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][search_ticker]
+    # Caching logic
+    clean_s = s.replace(".TO","").replace(".V","").replace(".CN","")
+    if clean_s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][clean_s]
     try:
-        tk = yf.Ticker(search_ticker)
+        tk = yf.Ticker(clean_s)
         inf = tk.info
         r = inf.get('recommendationKey', 'N/A').upper().replace('_',' ')
         r_col = "#00C805" if "BUY" in r else ("#FFC107" if "HOLD" in r else "#FF4B4B")
@@ -67,48 +96,16 @@ def get_rating_and_meta(s):
         earn = "N/A"
         try:
             cal = tk.calendar
-            if cal is not None and not (isinstance(cal, list) and len(cal)==0):
+            if cal is not None:
                 dt = cal.iloc[0,0] if hasattr(cal, 'iloc') else cal.get('Earnings Date', [None])[0]
                 if dt: earn = dt.strftime('%b %d')
         except: pass
         
         res = (r, r_col, earn)
-        st.session_state['mem_ratings'][search_ticker] = res
+        st.session_state['mem_ratings'][clean_s] = res
         return res
     except: return ("NONE", "#888", "N/A")
 
-# --- 4. SIDEBAR (Restored Full Options) ---
-st.sidebar.header("⚡ Penny Pulse")
-if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
-
-st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
-
-# PORTFOLIO DICTIONARY (Restored)
-PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
-WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
-ALL = list(set(WATCH + list(PORT.keys())))
-
-c1, c2 = st.sidebar.columns(2)
-with c1: 
-    if st.button("💾 Save"): update_params(); st.toast("Saved!")
-with c2: 
-    if st.button("🔊 Test"): components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
-
-st.sidebar.divider()
-st.sidebar.subheader("🔔 Alerts")
-curr = st.session_state.a_tick_input
-idx = 0
-if curr in sorted(ALL): idx = sorted(ALL).index(curr)
-a_tick = st.sidebar.selectbox("Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
-a_price = st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=update_params)
-a_on = st.sidebar.toggle("Price Alert", key="a_on_input", on_change=update_params)
-st.sidebar.toggle("Flip Alert", key="flip_on_input")
-keep_on = st.sidebar.toggle("Keep Screen On", key="keep_on_input", on_change=update_params)
-
-inject_wake_lock(keep_on)
-
-# --- 5. DATA ENGINE ---
 def log_alert(msg):
     st.session_state['alert_log'].insert(0, f"[{datetime.now().strftime('%H:%M')}] {msg}")
     components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
@@ -120,8 +117,7 @@ def get_data(s):
     s = s.strip().upper()
     try:
         tk = yf.Ticker(s)
-        
-        # CLEAN TSX FIX: Disable prepost for Canadian stocks
+        # CLEAN TSX FIX
         use_prepost = not any(x in s for x in [".TO", ".V", ".CN"])
         h = tk.history(period="1d", interval="5m", prepost=use_prepost)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=use_prepost)
@@ -142,10 +138,8 @@ def get_data(s):
             trend = "BULL" if m.iloc[-1] > 0 else "BEAR"
             vol = hm['Volume'].iloc[-1]; avg = hm['Volume'].mean()
             if avg > 0: vol_ratio = vol/avg
-        
-        # Fetch Rating/Earnings for Bold UI
-        rating, r_col, earn = get_rating_and_meta(s)
             
+        rating, r_col, earn = get_rating_and_meta(s)
         return {"p":p, "d":d_pct, "rsi":rsi, "tr":trend, "chart":h, "vol":vol_ratio, "r":rating, "rc":r_col, "e":earn}
     except: return None
 
@@ -162,7 +156,7 @@ t1, t2, t3 = st.tabs(["🏠 Board", "🚀 My Picks", "📰 News"])
 def draw_card(t, shares=None, cost=None):
     d = get_data(t)
     if d:
-        # Storm Tracker logic (Restored)
+        # Storm Tracker Logic (Restored)
         if d['vol'] >= 2.0 and ((d['tr']=="BULL" and d['rsi']<=35) or (d['tr']=="BEAR" and d['rsi']>=65)):
             last = st.session_state['storm_cooldown'].get(t, datetime.min)
             if (datetime.now()-last).seconds > 300:
@@ -184,7 +178,8 @@ def draw_card(t, shares=None, cost=None):
         
         # P/L MATH (Restored)
         if shares:
-            v = d['p']*shares; pl = v-(cost*shares)
+            v = d['p']*shares
+            pl = v-(cost*shares)
             st.caption(f"Net: ${v:,.0f} | P/L: ${pl:+,.0f}")
             
         cd = d['chart'].reset_index()
@@ -196,36 +191,36 @@ def draw_card(t, shares=None, cost=None):
 
 with t1:
     cols = st.columns(3)
-    for i, t in enumerate(WATCH):
+    W = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
+    for i, t in enumerate(W):
         with cols[i%3]: draw_card(t)
 
-# MY PICKS LOOP (Restored)
 with t2:
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: draw_card(t, inf['q'], inf['e'])
 
-# NEWS LOGIC (Restored with Key Check)
 with t3:
     if st.button("Analyze Market Context"):
         if KEY:
-            from openai import OpenAI
-            cl = OpenAI(api_key=KEY)
-            FEEDS = ["https://finance.yahoo.com/news/rssindex"]
-            items = []
-            for f in FEEDS:
+            with st.spinner("Analyzing..."):
+                from openai import OpenAI
+                cl = OpenAI(api_key=KEY)
+                FEEDS = ["https://finance.yahoo.com/news/rssindex"]
+                items = []
+                for f in FEEDS:
+                    try:
+                        r = requests.get(f)
+                        root = ET.fromstring(r.content)
+                        for i in root.findall('.//item')[:10]:
+                            items.append(f"{i.find('title').text} - {i.find('link').text}")
+                    except: continue
+                
+                p = "Analyze financial news. Return JSON: [{'ticker':'TSLA', 'signal':'🟢', 'reason':'...', 'time':'2h ago', 'title':'...', 'link':'...'}]"
                 try:
-                    r = requests.get(f)
-                    root = ET.fromstring(r.content)
-                    for i in root.findall('.//item')[:10]:
-                        items.append(f"{i.find('title').text} - {i.find('link').text}")
-                except: continue
-            
-            p = "Analyze financial news. Return JSON: [{'ticker':'TSLA', 'signal':'🟢', 'reason':'...', 'time':'2h ago', 'title':'...', 'link':'...'}]"
-            try:
-                res = cl.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system","content":p},{"role":"user","content":"\n".join(items)}], response_format={"type":"json_object"})
-                st.session_state['news_results'] = json.loads(res.choices[0].message.content).get('articles', [])
-            except: st.error("AI Error")
+                    res = cl.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system","content":p},{"role":"user","content":"\n".join(items)}], response_format={"type":"json_object"})
+                    st.session_state['news_results'] = json.loads(res.choices[0].message.content).get('articles', [])
+                except: st.error("AI Error")
         else: st.info("Enter OpenAI Key in Sidebar")
 
     for n in st.session_state['news_results']:
@@ -233,6 +228,5 @@ with t3:
         st.caption(n.get('reason',''))
         st.divider()
 
-# --- 7. REFRESH ---
 time.sleep(2)
 st.rerun()
