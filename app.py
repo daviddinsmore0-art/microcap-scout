@@ -158,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (TSX LOCK & US FIX) ---
+# --- 4. DATA ENGINE (PURE MATH LOGIC) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -174,53 +174,48 @@ def get_pro_data(s):
             except: return None
         if h.empty: return None
         
-        # 1. LIVE DATA
-        p_live = h['Close'].iloc[-1]
+        # 1. FETCH CRITICAL DATA POINTS
+        # Current Live Price (could be pre, post, or reg)
+        try: current_price = tk.fast_info['last_price']
+        except: current_price = h['Close'].iloc[-1]
         
-        # 2. MARKET STATE
-        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
-        now = datetime.utcnow() - timedelta(hours=5)
-        # Open 9:30-16:00 M-F
-        is_market_open = (now.weekday() < 5) and (
-            (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and (now.hour < 16)
-        )
+        # Official Regular Close (The Anchor)
+        try: 
+            # regular_market_price updates to the close at 4pm and stays there
+            reg_close = tk.fast_info['regular_market_price']
+        except: 
+            reg_close = h['Close'].iloc[-1]
+            
+        # Yesterday's Close (For Day % Calc)
+        try: prev_close = tk.fast_info['regular_market_previous_close']
+        except: prev_close = h['Open'].iloc[0]
         
-        # 3. DISPLAY LOGIC
-        display_price = p_live
-        display_pct = 0.0
+        # 2. CALCULATE MAIN DISPLAY (Day Session)
+        # We always show the Regular Close as the main number if market is closed,
+        # or the live price if market is open. To be safe, we assume 'reg_close' is the main.
+        display_price = reg_close
+        display_pct = ((reg_close - prev_close) / prev_close) * 100
         
+        # 3. BADGE LOGIC (Pure Math)
         market_state = "REG"
         ext_price = None
         ext_pct = 0.0
         
-        try: reg_close = tk.fast_info['regular_market_previous_close']
-        except: reg_close = h['Open'].iloc[0]
+        # Is this a Canadian Stock? (If yes, disable badge)
+        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
+        
+        if not is_tsx:
+            # Check deviation
+            # If the current "Last Price" is significantly different from "Regular Close"
+            # It means we are in Extended Hours (Pre or Post)
+            diff = ((current_price - reg_close) / reg_close) * 100
+            
+            if abs(diff) > 0.05: # Threshold to filter noise
+                market_state = "POST" # Label generic "POST/EXT"
+                ext_price = current_price
+                ext_pct = diff
 
-        if is_market_open:
-            # OPEN: Live is Main
-            display_price = p_live
-            display_pct = ((p_live - reg_close) / reg_close) * 100
-        else:
-            # CLOSED:
-            try:
-                # Freeze Main at Today's Close
-                today_close = tk.fast_info.get('regular_market_price', p_live) # 4pm close
-                if not today_close: today_close = p_live
-                
-                display_price = today_close
-                # Day Change = Today Close vs Yest Close
-                display_pct = ((today_close - reg_close) / reg_close) * 100
-                
-                # EXTENDED HOURS (US Only)
-                # If NOT TSX and Diff exists
-                if not is_tsx and abs(p_live - today_close) > 0.01:
-                    market_state = "POST" if now.hour >= 16 else "PRE"
-                    ext_price = p_live
-                    ext_pct = ((p_live - today_close) / today_close) * 100
-            except:
-                display_price = p_live
-                display_pct = 0.0
-
+        # Indicators
         hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
@@ -354,7 +349,7 @@ def draw_pro_card(t, port_data=None):
         </div>
         """, unsafe_allow_html=True)
 
-        # AFTER-HOURS BADGE (TSX PROTECTED)
+        # AFTER-HOURS BADGE (TSX LOCKED OUT)
         if d['state'] != "REG" and d['ext_p']:
             ext_sign = "+" if d['ext_d'] >= 0 else ""
             ext_col = "#4caf50" if d['ext_d'] >= 0 else "#ff4b4b" 
@@ -362,12 +357,12 @@ def draw_pro_card(t, port_data=None):
             st.markdown(f"""
             <div style="text-align:right; margin-top:-8px; margin-bottom:8px;">
                 <span style="color:{ext_col}; font-size:14px; font-weight:bold;">
-                    {d['state']}: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
+                    POST: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
                 </span>
             </div>
             """, unsafe_allow_html=True)
 
-        # PORTFOLIO BAR (FOMO ROI ADDED)
+        # PORTFOLIO BAR (FOMO ROI)
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
