@@ -10,7 +10,6 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# Initialize Memory
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     defaults = {
@@ -74,9 +73,9 @@ st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
 
 c1, c2 = st.sidebar.columns(2)
 with c1: 
-    if st.button("💾 Save Settings"): update_params(); st.toast("Settings Saved!")
+    if st.button("💾 Save"): update_params(); st.toast("Saved!")
 with c2: 
-    if st.button("🔊 Test Audio"): components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
+    if st.button("🔊 Test"): components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
 
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts")
@@ -160,6 +159,8 @@ def get_pro_data(s):
                 val = cal['Earnings Date'][0]
                 if val: earn = val.strftime('%b %d')
             elif hasattr(cal, 'iloc') and not cal.empty:
+                # Try to find a future date, otherwise take the first
+                # yfinance calendar usually gives list of dates
                 val = cal.iloc[0, 0]
                 if isinstance(val, (datetime, pd.Timestamp)): earn = val.strftime('%b %d')
         except: pass
@@ -217,7 +218,7 @@ with h2:
 # --- 7. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
-def draw_pro_card(t):
+def draw_pro_card(t, port_data=None):
     d = get_pro_data(t)
     if d:
         name = get_name(t)
@@ -225,7 +226,7 @@ def draw_pro_card(t):
         col = "green" if d['d']>=0 else "red"
         col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
-        # --- HEADER (NAME + TICKER + PRICE) ---
+        # Header
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
             <div style="flex:1;">
@@ -242,18 +243,32 @@ def draw_pro_card(t):
         if d['state'] != "REG":
             st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
 
-        # --- RATINGS & METRICS ---
+        # Portfolio Details (My Picks)
+        if port_data:
+            qty = port_data['q']
+            entry = port_data['e']
+            val = d['p'] * qty
+            profit = val - (entry * qty)
+            p_col = "#4caf50" if profit >= 0 else "#ff4b4b"
+            st.markdown(f"""
+            <div style="background:#111; border-left:3px solid {p_col}; padding:5px 10px; margin-bottom:10px; font-size:13px;">
+                <b>Qty:</b> {qty} &nbsp;|&nbsp; <b>Avg:</b> ${entry} &nbsp;|&nbsp; <b>Gain:</b> <span style="color:{p_col}; font-weight:bold;">${profit:,.2f}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Ratings & Metrics (Reordered)
         r_color = "#888"
-        if "STRONG BUY" in d['rat']: r_color = "#00FF00" # Bright Green
-        elif "BUY" in d['rat']: r_color = "#4CAF50"      # Green
-        elif "HOLD" in d['rat']: r_color = "#FFC107"     # Yellow
-        elif "SELL" in d['rat']: r_color = "#FF4B4B"     # Red
+        if "STRONG BUY" in d['rat']: r_color = "#00FF00" 
+        elif "BUY" in d['rat']: r_color = "#4CAF50"      
+        elif "HOLD" in d['rat']: r_color = "#FFC107"     
+        elif "SELL" in d['rat']: r_color = "#FF4B4B"     
 
         st.markdown(f"**☻ AI:** {d['ai']}")
-        st.markdown(f"**TREND:** :{col}[**{d['tr']}**] | **RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
+        # ORDER: Trend -> Analyst Rating -> Earnings
+        st.markdown(f"**TREND:** :{col}[**{d['tr']}**] | **ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
         st.markdown(f"**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
         
-        # --- CHART ---
+        # Chart
         base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
         l1 = base.mark_line(color=col).encode(y=alt.Y('Stock', axis=None))
         if 'SPY' in d['chart'].columns:
@@ -264,20 +279,24 @@ def draw_pro_card(t):
         
         st.caption("INTRADAY vs SPY (Orange/Dotted)")
         
-        # --- DAY RANGE BAR ---
+        # Day Range
         if d['h'] > d['l']: pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
         else: pct = 50
         pct = max(0, min(100, pct))
+        range_tag = "📉 Bottom (Dip)" if pct < 30 else ("📈 Top (High)" if pct > 70 else "⚖️ Mid-Range")
         
-        st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:15px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range: {range_tag}</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:15px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
 
-        # --- VOLUME & RSI BARS (WITH PADDING TO PREVENT CUTOFF) ---
+        # Volume & RSI (With Descriptions)
+        vol_tag = "⚡ Surge" if d['vol'] > 1.5 else ("💤 Quiet" if d['vol'] < 0.8 else "🌊 Normal")
+        rsi_tag = "🔥 Hot (Sell)" if d['rsi'] > 70 else ("❄️ Cold (Buy)" if d['rsi'] < 30 else "⚖️ Neutral")
         rsi_pct = min(100, max(0, d['rsi']))
+        
         st.markdown(f"""
-        <div style="font-size:10px;color:#888;">Volume: {'⚡ Surge' if d['vol']>1.5 else '💤 Quiet'}</div>
+        <div style="font-size:10px;color:#888;">Volume: {vol_tag} ({d['vol']:.1f}x)</div>
         <div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:10px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div>
         
-        <div style="font-size:10px;color:#888;">RSI: {d['rsi']:.0f}</div>
+        <div style="font-size:10px;color:#888;">RSI: {rsi_tag} ({d['rsi']:.0f})</div>
         <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;margin-bottom:20px;">
             <div style="width:{rsi_pct}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div>
         </div>
@@ -312,13 +331,15 @@ with t2:
     st.subheader("Holdings")
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
-        with cols[i%3]: draw_pro_card(t)
+        # PASS PORTFOLIO DATA HERE
+        with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
     if st.button("Refresh News"):
         with st.spinner("Fetching Yahoo Finance RSS..."):
             try:
-                r = requests.get("https://finance.yahoo.com/news/rssindex")
+                # Added User-Agent to fix 404/Syntax Error
+                r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
                 root = ET.fromstring(r.content)
                 news_items = []
                 for item in root.findall('.//item')[:10]:
