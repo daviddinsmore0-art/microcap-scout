@@ -67,7 +67,7 @@ def load_profile_callback():
 
 def sync_js(config_json):
     js = f"""<script>
-    const KEY="penny_pulse_v83"; const d={config_json}; const s=localStorage.getItem(KEY);
+    const KEY="penny_pulse_v84"; const d={config_json}; const s=localStorage.getItem(KEY);
     const p=new URLSearchParams(window.location.search);
     if(!p.has("w")&&s){{try{{const c=JSON.parse(s);if(c.w&&c.w!=="SPY"){{
     const u=new URL(window.location);u.searchParams.set("w",c.w);u.searchParams.set("at",c.at);
@@ -205,52 +205,30 @@ def get_data_rich(s):
     try:
         tk = yf.Ticker(s)
         
-        # --- THE FIX: MANUAL HISTORY EXTRACTION ---
-        # 1. Get official history to determine the TRUE Last Close
+        # --- ANCHOR FIX (MANUAL) ---
         hd = tk.history(period="5d", interval="1d")
-        
-        # Default Logic
         close_yesterday = 0.0
         close_day_before = 0.0
-        
         if len(hd) >= 2:
-            # yfinance often includes "today" as the last row even if partial.
-            # We look at the last row. If the date is TODAY, we assume it's live/partial.
-            # If the date is YESTERDAY, it's the confirmed close.
             last_date = hd.index[-1].date()
             today_date = datetime.now().date()
-            
             if last_date == today_date:
-                # Last row is today (partial). So -2 is Yesterday (Confirmed Close).
-                # -3 is Day Before.
                 close_yesterday = hd['Close'].iloc[-2]
                 close_day_before = hd['Close'].iloc[-3] if len(hd) > 2 else close_yesterday
             else:
-                # Last row is Yesterday (Confirmed Close).
-                # -2 is Day Before.
                 close_yesterday = hd['Close'].iloc[-1]
                 close_day_before = hd['Close'].iloc[-2]
         
-        # Calculate the "Official Close" % (The +3.99% number)
-        if close_day_before > 0:
-            static_pct = ((close_yesterday - close_day_before) / close_day_before) * 100
-        else:
-            static_pct = 0.0
+        static_pct = ((close_yesterday - close_day_before) / close_day_before) * 100 if close_day_before > 0 else 0.0
             
-        # 2. Get Live/Pre-Market Price
+        # --- LIVE DATA ---
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if h.empty: return None
         
         live_price = h['Close'].iloc[-1]
+        live_pct = ((live_price - close_yesterday) / close_yesterday) * 100 if close_yesterday > 0 else 0.0
         
-        # Calculate the "Live Drift" % (The +0.52% number)
-        if close_yesterday > 0:
-            live_pct = ((live_price - close_yesterday) / close_yesterday) * 100
-        else:
-            live_pct = 0.0
-        # ------------------------------------------
-
         chart_data = pd.DataFrame({'Time': h.index, 'Close': h['Close'].values})
         dh = h['High'].max(); dl = h['Low'].min()
         
@@ -322,10 +300,20 @@ if st.session_state['banner_msg']:
     if st.button("Dismiss"): st.session_state['banner_msg'] = None; st.rerun()
 
 est = datetime.utcnow() - timedelta(hours=5)
+# Market Status Logic
+wd = est.weekday()
+hh = est.hour
+mm = est.minute
+status = "🔴 CLOSED"
+if wd < 5:
+    if 4 <= hh < 9 or (hh==9 and mm<30): status = "🟠 PRE-MARKET"
+    elif (hh==9 and mm>=30) or (9 < hh < 16): status = "🟢 MARKET OPEN"
+    elif 16 <= hh < 20: status = "🌙 POST-MARKET"
+
 c1, c2 = st.columns([1,1])
 with c1:
     st.title("⚡ Penny Pulse")
-    st.caption(f"Last Updated: {est.strftime('%H:%M:%S EST')}")
+    st.caption(f"{status} | {est.strftime('%H:%M:%S EST')}")
 with c2:
     components.html("""<div style="font-family:'Helvetica';background:#0E1117;padding:5px;text-align:center;display:flex;justify-content:center;align-items:center;height:100%;"><span style="color:#BBBBBB;font-weight:bold;font-size:14px;margin-right:5px;">Next Update: </span><span id="c" style="color:#FF4B4B;font-weight:900;font-size:18px;">--</span><span style="color:#BBBBBB;font-size:14px;margin-left:2px;"> s</span></div><script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>""", height=60)
 
@@ -365,12 +353,10 @@ def render_card(t, inf=None):
         
         st.markdown(f"<h3 style='margin:0;padding:0;'><a href='{u}' target='_blank' style='text-decoration:none;color:inherit'>{nm}</a>{sec_tag}</h3>", unsafe_allow_html=True)
         
-        # --- SPLIT DISPLAY (FIXED ANCHOR) ---
         st.metric("Prev Close", f"${d['p_static']:,.2f}", f"{d['d_static']:.2f}%")
         
         l_col = "#4caf50" if d['d_live'] >= 0 else "#ff4b4b"
         st.markdown(f"<div style='margin-top:-10px;margin-bottom:10px;font-weight:bold;font-size:16px;'>⚡ LIVE: ${d['p_live']:,.2f} <span style='color:{l_col}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
-        # ------------------------------------
 
         st.markdown(f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>⚙️ AI: <span style='color:{d['ai_c']}'>{d['ai']}</span></div>", unsafe_allow_html=True)
         st.markdown(f"""<div style='font-size:14px;line-height:1.8;margin-bottom:10px;color:#444;'><div><b style='color:black;margin-right:8px;'>TREND:</b> {d['tr_h']}{d['gc']}</div><div><b style='color:black;margin-right:8px;'>RATING:</b> <span style='color:{rc};font-weight:bold;'>{rt}</span></div><div><b style='color:black;margin-right:8px;'>EARNINGS:</b> {earn}</div></div>""", unsafe_allow_html=True)
