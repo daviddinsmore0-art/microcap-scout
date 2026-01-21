@@ -34,7 +34,7 @@ if 'initialized' not in st.session_state:
         'news_results': [], 
         'news_limit': 10,
         'alert_log': [], 
-        'storm_cooldown': {}, # Memory for alerts so they don't spam
+        'storm_cooldown': {}, # Logic Engine Memory
         'spy_cache': None, 
         'spy_last_fetch': datetime.min,
         'banner_msg': None
@@ -50,7 +50,6 @@ def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
 def log_alert(msg, sound=True):
-    # Prevent duplicate alerts in short time
     if msg not in st.session_state.alert_log:
         st.session_state.alert_log.insert(0, f"{datetime.now().strftime('%H:%M')} - {msg}")
         if sound: 
@@ -107,7 +106,6 @@ with c2:
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts")
 
-# Recent Alerts Log
 if st.session_state.alert_log:
     with st.sidebar.expander("Recent Activity", expanded=True):
         for a in st.session_state.alert_log[:5]:
@@ -200,15 +198,12 @@ def get_pro_data(s):
         
         rat = tk.info.get('recommendationKey', 'N/A').upper().replace('_',' ')
 
-        # --- ANOMALY DETECTION (Storm/Death Bear) ---
-        # Cooldown check: 5 mins between alerts per ticker
+        # --- LOGIC ENGINE ---
         last_alert = st.session_state['storm_cooldown'].get(s, datetime.min)
         if (datetime.now() - last_alert).total_seconds() > 300:
-            # PERFECT STORM: Bull Trend + Oversold (Dip) + Volume
             if trend == "BULL" and rsi < 35 and vol_ratio > 1.2:
                 log_alert(f"PERFECT STORM: {s} (Dip Buy Opp)")
                 st.session_state['storm_cooldown'][s] = datetime.now()
-            # DEATH BEAR: Bear Trend + Overbought (Rip) + Volume
             elif trend == "BEAR" and rsi > 65 and vol_ratio > 1.2:
                 log_alert(f"DEATH BEAR: {s} (Trend Rejection)")
                 st.session_state['storm_cooldown'][s] = datetime.now()
@@ -237,10 +232,8 @@ def build_scroller():
     if not items: return "Market Data Initializing..."
     return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
 
-# BANNER FOR ALERTS
 if st.session_state['banner_msg']:
     st.markdown(f"<div style='background:#FFD700;color:black;padding:10px;text-align:center;font-weight:bold;border-radius:5px;margin-bottom:10px;'>🔔 {st.session_state['banner_msg']}</div>", unsafe_allow_html=True)
-    # Clear after one show
     if st.button("Dismiss Alert"): 
         st.session_state['banner_msg'] = None
         st.rerun()
@@ -397,50 +390,58 @@ with t2:
 with t3:
     if st.button("Analyze Market Context"):
         if KEY:
-            # STATUS BAR ADDED HERE
-            with st.status("AI Analyzing Market...", expanded=True) as status:
-                try:
-                    st.write("Fetching RSS Feed...")
-                    r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
-                    root = ET.fromstring(r.content)
-                    raw_items = []
-                    all_fetched = []
-                    
-                    status.update(label="Reading Headlines...", state="running")
-                    for item in root.findall('.//item')[:40]:
-                        title = item.find('title').text
-                        link = item.find('link').text
-                        pub = item.find('pubDate').text
-                        all_fetched.append({"title": title, "link": link, "time": get_relative_time(pub)})
-                    
-                    status.update(label="Consulting OpenAI Brain...", state="running")
-                    from openai import OpenAI
-                    cl = OpenAI(api_key=KEY)
-                    prompt = """
-                    Analyze these financial headlines. For each relevant item, return a JSON object with:
-                    - 'ticker': The main stock ticker (e.g. TSLA, AAPL, BTC) or 'MKT' if general.
-                    - 'sentiment': 'BULL' or 'BEAR' or 'NEUTRAL'.
-                    - 'summary': A 5-word snappy summary.
-                    - 'link': The original link.
-                    - 'time': The original time string.
-                    Return a JSON wrapper: {'items': [...]}
-                    """
-                    ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in all_fetched])
-                    
-                    resp = cl.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{"role":"system", "content": prompt}, {"role":"user", "content": ai_input}],
-                        response_format={"type": "json_object"}
-                    )
-                    ai_data = json.loads(resp.choices[0].message.content).get('items', [])
-                    
-                    st.session_state['news_results'] = ai_data
-                    st.session_state['news_limit'] = 10
-                    status.update(label="Analysis Complete!", state="complete", expanded=False)
-                    
-                except Exception as e:
-                    status.update(label="Error!", state="error")
-                    st.error(f"AI Analysis Failed: {e}")
+            # PROGRESS BAR added here
+            prog_text = "Initializing AI..."
+            prog_bar = st.progress(0, text=prog_text)
+            
+            try:
+                # Step 1: Fetch
+                prog_bar.progress(25, text="Fetching Yahoo Finance Feed...")
+                r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
+                root = ET.fromstring(r.content)
+                raw_items = []
+                all_fetched = []
+                
+                # Step 2: Parse
+                prog_bar.progress(50, text="Reading 40 Headlines...")
+                for item in root.findall('.//item')[:40]:
+                    title = item.find('title').text
+                    link = item.find('link').text
+                    pub = item.find('pubDate').text
+                    all_fetched.append({"title": title, "link": link, "time": get_relative_time(pub)})
+                
+                # Step 3: Analyze
+                prog_bar.progress(75, text="Consulting OpenAI Brain (This takes ~5-10s)...")
+                from openai import OpenAI
+                cl = OpenAI(api_key=KEY)
+                prompt = """
+                Analyze these financial headlines. For each relevant item, return a JSON object with:
+                - 'ticker': The main stock ticker (e.g. TSLA, AAPL, BTC) or 'MKT' if general.
+                - 'sentiment': 'BULL' or 'BEAR' or 'NEUTRAL'.
+                - 'summary': A 5-word snappy summary.
+                - 'link': The original link.
+                - 'time': The original time string.
+                Return a JSON wrapper: {'items': [...]}
+                """
+                ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in all_fetched])
+                
+                resp = cl.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role":"system", "content": prompt}, {"role":"user", "content": ai_input}],
+                    response_format={"type": "json_object"}
+                )
+                ai_data = json.loads(resp.choices[0].message.content).get('items', [])
+                
+                st.session_state['news_results'] = ai_data
+                st.session_state['news_limit'] = 10
+                
+                prog_bar.progress(100, text="Analysis Complete!")
+                time.sleep(0.5)
+                prog_bar.empty() # Hide bar when done
+                
+            except Exception as e:
+                prog_bar.empty()
+                st.error(f"AI Analysis Failed: {e}")
         else:
             st.info("Please enter OpenAI Key in Sidebar to use AI features.")
     
