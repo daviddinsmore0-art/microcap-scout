@@ -6,46 +6,30 @@ import altair as alt
 import json
 import xml.etree.ElementTree as ET
 
-# --- 1. CONFIG & SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. SAFETY INITIALIZATION ---
-# This guarantees the app has a brain before it tries to think.
-defaults = {
-    'initialized': True,
-    'news_results': [],
-    'scanned_count': 0,
-    'market_mood': None,
-    'alert_triggered': False,
-    'alert_log': [],
-    'last_trends': {},
-    'mem_ratings': {},
-    'mem_meta': {},
-    'spy_cache': None,
-    'spy_last_fetch': datetime.min,
-    'banner_msg': None,
-    'storm_cooldown': {},
-    # Widget Keys
-    'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
-    'a_tick_input': "SPY",
-    'a_price_input': 0.0,
-    'a_on_input': False,
-    'flip_on_input': False, 
-    'keep_on_input': False,
-    'notify_input': False,
-    'base_url_input': ""
-}
+# --- SESSION STATE INITIALIZATION ---
+if 'initialized' not in st.session_state:
+    st.session_state['initialized'] = False
+    st.session_state['news_results'] = []
+    st.session_state['scanned_count'] = 0
+    st.session_state['market_mood'] = None 
+    st.session_state['alert_triggered'] = False
+    st.session_state['alert_log'] = [] 
+    st.session_state['last_trends'] = {}
+    st.session_state['mem_ratings'] = {}
+    st.session_state['mem_meta'] = {}
+    st.session_state['spy_cache'] = None
+    st.session_state['spy_last_fetch'] = datetime.min
+    st.session_state['banner_msg'] = None
+    st.session_state['storm_cooldown'] = {}
 
-for key, val in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
-
-# --- 3. JAVASCRIPT BRIDGES ---
+# --- JAVASCRIPT: BROWSER MEMORY BRIDGE ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v64_data";
+        const KEY = "penny_pulse_v49_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -73,6 +57,7 @@ def sync_js(config_json):
     """
     components.html(js, height=0, width=0)
 
+# --- JAVASCRIPT: ROBUST WAKE LOCK (THE ANDROID FIX) ---
 def inject_wake_lock(enable):
     if enable:
         js = """
@@ -93,7 +78,7 @@ def inject_wake_lock(enable):
         """
         components.html(js, height=0, width=0)
 
-# --- 4. CORE FUNCTIONS ---
+# --- PYTHON STATE SYNC ---
 def update_params():
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
@@ -105,6 +90,7 @@ def update_params():
     if 'base_url_input' in st.session_state:
         st.query_params["bu"] = st.session_state.base_url_input
 
+# --- RESTORE FROM FILE ---
 def restore_from_file(uploaded_file):
     if uploaded_file is not None:
         try:
@@ -119,23 +105,25 @@ def restore_from_file(uploaded_file):
             st.toast("Profile Restored!", icon="✅")
             time.sleep(1)
             st.rerun()
-        except: st.error("Invalid Config File")
+        except:
+            st.error("Invalid Config File")
 
-def play_alert_sound():
-    sound_html = """
-    <audio autoplay>
-    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-    </audio>
-    """
-    components.html(sound_html, height=0, width=0)
+# --- LOAD STATE FROM URL ---
+qp = st.query_params
+current_config = {
+    "w": qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
+    "at": qp.get("at", "SPY"),
+    "ap": float(qp.get("ap", 0.0)),
+    "ao": qp.get("ao", "false") == "true",
+    "fo": qp.get("fo", "false") == "true",
+    "no": qp.get("no", "false") == "true",
+    "ko": qp.get("ko", "false") == "true",
+    "bu": qp.get("bu", "")
+}
 
-# --- 5. SIDEBAR ---
-st.sidebar.header("⚡ Pulse")
-if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
-
-# NOTE: NO 'value=' PARAMETERS HERE. This fixes the yellow warning.
-st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input", on_change=update_params)
+config_json = json.dumps(current_config)
+sync_js(config_json)
+inject_wake_lock(current_config["ko"])
 
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
@@ -144,15 +132,35 @@ PORT = {
     "IMNN": {"e": 3.22, "d": "Aug. 20, 2024", "q": 100},
     "RERE": {"e": 5.31, "d": "Oct. 12, 2024", "q": 100}
 } 
+
 NAMES = {
     "TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", 
     "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", 
     "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", 
     "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"
 } 
+
+# --- AUDIO SYSTEM ---
+def play_alert_sound():
+    sound_html = """
+    <audio autoplay>
+    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+    </audio>
+    """
+    components.html(sound_html, height=0, width=0)
+
+# --- SIDEBAR ---
+st.sidebar.header("⚡ Pulse")
+if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
+else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
+
+# --- WATCHLIST INPUT ---
+st.sidebar.text_input("Add Tickers (Comma Sep)", value=current_config['w'], key="w_input", on_change=update_params)
+
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
+# --- SAVE & AUDIO ---
 c1, c2 = st.sidebar.columns(2)
 with c1:
     if st.button("💾 Save Settings"):
@@ -166,50 +174,6 @@ with c2:
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
 
-curr_tick = st.session_state.a_tick_input
-if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
-idx = 0
-if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
-
-st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
-st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=update_params)
-st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=update_params)
-st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=update_params) 
-st.sidebar.toggle("💡 Keep Screen On", key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
-st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
-
-# --- 6. JS SYNC ---
-current_config_export = {
-    "w": st.session_state.w_input,
-    "at": st.session_state.a_tick_input,
-    "ap": st.session_state.a_price_input,
-    "ao": st.session_state.a_on_input,
-    "fo": st.session_state.flip_on_input,
-    "no": st.session_state.notify_input,
-    "ko": st.session_state.keep_on_input,
-    "bu": st.session_state.base_url_input
-}
-sync_js(json.dumps(current_config_export))
-inject_wake_lock(st.session_state.keep_on_input)
-
-# --- 7. BACKUP & SHARE ---
-st.sidebar.divider()
-with st.sidebar.expander("📦 Backup & Restore"):
-    st.caption("Download your profile to save it.")
-    export_data = json.dumps(current_config_export, indent=2)
-    st.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
-    uploaded = st.file_uploader("📤 Restore Profile", type=["json"])
-    if uploaded: restore_from_file(uploaded)
-
-with st.sidebar.expander("🔗 Share & Invite"):
-    base_url = st.text_input("App Web Address (Paste Once)", placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
-    if base_url:
-        clean_base = base_url.split("?")[0].strip("/")
-        params = f"?w={st.session_state.w_input}&at={st.session_state.a_tick_input}&ap={st.session_state.a_price_input}&ao={str(st.session_state.a_on_input).lower()}&fo={str(st.session_state.flip_on_input).lower()}"
-        full_link = f"{clean_base}/{params}"
-        st.code(full_link, language="text")
-
-# --- 8. ALERT LOGIC ---
 def send_notification(title, body):
     js_code = f"""
     <script>
@@ -233,8 +197,47 @@ def log_alert(msg, title="Penny Pulse Alert", is_crash=False):
     play_alert_sound()
     color = "#ff0000" if is_crash else "#ff4b4b"
     st.session_state['banner_msg'] = f"<span style='color:{color};'>🚨 {msg.upper()} 🚨</span>"
-    if st.session_state.notify_input:
+    if st.session_state.get("notify_input", False):
         send_notification(title, msg)
+
+# --- ALERT WIDGETS ---
+curr_tick = current_config['at']
+if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
+idx = 0
+if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
+
+st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
+st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
+st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
+st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
+st.sidebar.toggle("💡 Keep Screen On", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
+st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
+
+# --- DEFINE VARIABLES FROM WIDGET STATE ---
+a_tick = st.session_state.a_tick_input
+a_price = st.session_state.a_price_input
+a_on = st.session_state.a_on_input
+flip_on = st.session_state.flip_on_input
+
+# --- SHARE & EXPORT ---
+st.sidebar.divider()
+with st.sidebar.expander("🔗 Share & Invite"):
+    st.caption("Generate a Magic Link to share this exact dashboard with others.")
+    base_url = st.text_input("App Web Address (Paste Once)", value=current_config['bu'], placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
+    if base_url:
+        clean_base = base_url.split("?")[0].strip("/")
+        params = f"?w={st.session_state.w_input}&at={a_tick}&ap={a_price}&ao={str(a_on).lower()}&fo={str(flip_on).lower()}"
+        full_link = f"{clean_base}/{params}"
+        st.code(full_link, language="text")
+        st.caption("👆 Copy this link and text it to a friend.")
+    else:
+        st.info("Paste your app's URL above to generate a shareable link.")
+
+    st.divider()
+    export_data = json.dumps(current_config, indent=2)
+    st.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
+    uploaded = st.file_uploader("📤 Restore Profile", type=["json"])
+    if uploaded: restore_from_file(uploaded)
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
@@ -244,19 +247,7 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- 9. HELPERS (FIXED) ---
-def check_flip(ticker, current_trend):
-    # CRITICAL FIX: Replaced 'flip_on' with session state lookup
-    if not st.session_state['flip_on_input']: return
-    
-    if ticker in st.session_state['last_trends']:
-        prev = st.session_state['last_trends'][ticker]
-        if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
-            msg = f"{ticker} flipped to {current_trend}"
-            st.toast(msg, icon="⚠️")
-            log_alert(msg, title="Trend Flip Alert")
-    st.session_state['last_trends'][ticker] = current_trend 
-
+# --- SPY BENCHMARK FETCH ---
 def get_spy_benchmark():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
@@ -273,6 +264,7 @@ def get_spy_benchmark():
     except: pass
     return None
 
+# --- METADATA ---
 def get_meta_data(s):
     if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
     try:
@@ -515,124 +507,90 @@ h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
 
 # --- FLIP CHECK & NOTIFICATION TRIGGER ---
-if st.session_state.a_on_input:
-    d = get_data_cached(st.session_state.a_tick_input)
-    if d and d['p'] >= st.session_state.a_price_input:
-        if not st.session_state['alert_triggered']:
-            msg = f"🚨 {st.session_state.a_tick_input} hit ${st.session_state.a_price_input:,.2f}!"
-            log_alert(msg, title="Price Target Hit")
-            st.session_state['alert_triggered'] = True
-    else:
-        st.session_state['alert_triggered'] = False 
+def check_flip(ticker, current_trend):
+    if not flip_on: return
+    if ticker in st.session_state['last_trends']:
+        prev = st.session_state['last_trends'][ticker]
+        if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
+            msg = f"{ticker} flipped to {current_trend}"
+            st.toast(msg, icon="⚠️")
+            log_alert(msg, title="Trend Flip Alert")
+    st.session_state['last_trends'][ticker] = current_trend 
 
-def fetch_article_text(url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        r = requests.get(url, headers=headers, timeout=3)
-        if r.status_code == 200:
-            clean_text = re.sub(r'<[^>]+>', '', r.text)
-            return clean_text[:3000]
-    except: pass
-    return ""
+# --- DASHBOARD LOGIC (SMART CHART MERGE) ---
+def render_card(t, inf=None):
+    d = get_data_cached(t)
+    spy_data = get_spy_benchmark()
+    
+    if d:
+        check_flip(t, d['raw_trend'])
+        rat_txt, rat_col = get_rating_cached(t)
+        sec, earn = get_meta_data(t)
+        nm = NAMES.get(t, t)
+        if t.endswith(".TO"): nm += " (TSX)"
+        elif t.endswith(".V"): nm += " (TSXV)"
+        elif t.endswith(".CN"): nm += " (CSE)"
+        sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
+        url = f"https://finance.yahoo.com/quote/{t}"
+        st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
+        
+        if inf:
+            q = inf.get("q", 100)
+            st.caption(f"{q} Shares @ ${inf['e']}")
+            st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
+        else:
+            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
+        
+        st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
+        st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
+        
+        meta_html = f"""
+        <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
+            <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}{d['gc']}</div>
+            <div><b style='color:black; margin-right:8px;'>ANALYST RATING:</b> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>
+            <div><b style='color:black; margin-right:8px;'>EARNINGS:</b> {earn}</div>
+        </div>
+        """
+        st.markdown(meta_html, unsafe_allow_html=True)
 
-def process_news_batch(raw_batch):
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=KEY)
-        progress_bar = st.progress(0)
-        batch_content = ""
-        total_items = len(raw_batch)
-        for idx, item in enumerate(raw_batch):
-            full_text = fetch_article_text(item['link'])
-            content = full_text if len(full_text) > 200 else item['desc']
-            # --- TOKEN SAVER: REDUCED TO 300 CHARS ---
-            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:300]}\nDate: {item['date_str']}"
-            progress_bar.progress(min((idx + 1) / total_items, 1.0))
+        st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL. IMPORTANT: Ignore articles that are about general crime, police arrests, sports, gossip, or non-financial news. Only return financial, market, or company news. **KEEP REASONS EXTREMELY CONCISE (UNDER 10 WORDS).**"
+        if d['chart'] is not None and not d['chart'].empty:
+            stock_series = d['chart']['Close'].tail(30)
+            if len(stock_series) > 1:
+                start_p = stock_series.iloc[0]
+                stock_norm = ((stock_series - start_p) / start_p) * 100
+                plot_df = pd.DataFrame({'Stock': stock_norm})
+                plot_df = plot_df.reset_index().rename(columns={plot_df.index.name: 'Time'})
+                has_spy = False
+                if spy_data is not None and not spy_data.empty:
+                    try:
+                        spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
+                        if not spy_aligned['Close'].isnull().all():
+                            spy_vals = spy_aligned['Close']
+                            valid_spy = spy_vals.dropna()
+                            if not valid_spy.empty:
+                                spy_start = valid_spy.iloc[0]
+                                plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
+                                has_spy = True
+                    except: pass
+                line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+                base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
+                l_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
+                final_chart = l_stock
+                if has_spy:
+                    l_spy = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.8).encode(y='SPY')
+                    final_chart = l_stock + l_spy
+                st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
+            else: st.caption("Not enough intraday data.")
+        else: st.caption("Chart data unavailable.")
         
-        res = client.chat.completions.create(
-            model="gpt-4o-mini", 
-            messages=[
-                {"role":"system", "content": system_instr}, 
-                {"role":"user", "content": batch_content}
-            ], 
-            response_format={"type": "json_object"},
-            max_tokens=3000  
-        )
-        
-        try:
-            data = json.loads(res.choices[0].message.content)
-            new_results = data.get("articles", [])
-        except json.JSONDecodeError:
-            st.warning("⚠️ AI Analysis incomplete (Limit Reached). Showing partial results.")
-            return []
-        
-        valid_results = []
-        for r in new_results:
-            if r['link'].startswith("http"):
-                valid_results.append(r)
-        
-        if valid_results:
-            bull_cnt = sum(1 for r in valid_results if "🟢" in r['signal'])
-            tot = len(valid_results)
-            if tot > 0:
-                bull_pct = int((bull_cnt / tot) * 100)
-                if bull_pct >= 60: mood = f"🐂 {bull_pct}% BULLISH"
-                elif bull_pct <= 40: mood = f"🐻 {100-bull_pct}% BEARISH"
-                else: mood = f"⚖️ {bull_pct}% NEUTRAL"
-                st.session_state['market_mood'] = mood
-        
-        progress_bar.empty()
-        return valid_results
-    except Exception as e:
-        print(f"AI Error: {e}") 
-        st.caption("⚠️ News Analysis unavailable at this moment.")
-        return []
-
-@st.cache_data(ttl=300, show_spinner=False)
-def get_news_cached():
-    head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
-    it, seen = [], set()
-    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb", "jail", "prison", "sentence", "suspect", "court", "francais", "la", "le", "et", "pour"]
-    for u in urls:
-        try:
-            r = requests.get(u, headers=head, timeout=5)
-            if r.status_code != 200: continue
-            
-            root = ET.fromstring(r.content)
-            items = root.findall('.//item')
-            if not items: items = root.findall('.//{http://www.w3.org/2005/Atom}entry')
-            
-            for i in items[:50]:
-                t = i.find('title')
-                if t is None: t = i.find('{http://www.w3.org/2005/Atom}title')
-                
-                l = i.find('link')
-                if l is None: l = i.find('{http://www.w3.org/2005/Atom}link')
-                
-                url = None
-                if l is not None:
-                    if l.text and l.text.strip(): url = l.text.strip()
-                    elif 'href' in l.attrib: url = l.attrib['href']
-                
-                d = i.find('pubDate')
-                if d is None: d = i.find('{http://www.w3.org/2005/Atom}published')
-                date_str = d.text if d is not None else ""
-                
-                if url:
-                    title_text = t.text if t is not None else "No Title"
-                    desc = i.find('description')
-                    if desc is None: desc = i.find('{http://www.w3.org/2005/Atom}summary')
-                    desc_text = desc.text if desc is not None else ""
-
-                    t_lower = title_text.lower()
-                    if not any(b in t_lower for b in blacklist) and title_text not in seen:
-                        seen.add(title_text)
-                        it.append({"title":title_text,"link":url, "desc": desc_text, "date_str": date_str})
-        except: continue
-    return it 
+        st.markdown(d['rng_html'], unsafe_allow_html=True)
+        st.markdown(d['vol_html'], unsafe_allow_html=True)
+        st.markdown(d['rsi_html'], unsafe_allow_html=True)
+        st.markdown(d['storm_html'], unsafe_allow_html=True)
+    else: st.metric(t, "---", "0.0%")
+    st.divider() 
 
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 with t1:
@@ -671,13 +629,102 @@ with t2:
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: render_card(t, inf) 
 
+if a_on:
+    d = get_data_cached(a_tick)
+    if d and d['p'] >= a_price:
+        if not st.session_state['alert_triggered']:
+            msg = f"🚨 {a_tick} hit ${a_price:,.2f}!"
+            log_alert(msg, title="Price Target Hit")
+            st.session_state['alert_triggered'] = True
+    else:
+        st.session_state['alert_triggered'] = False 
+
+def fetch_article_text(url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get(url, headers=headers, timeout=3)
+        if r.status_code == 200:
+            clean_text = re.sub(r'<[^>]+>', '', r.text)
+            return clean_text[:3000]
+    except: pass
+    return ""
+
+def process_news_batch(raw_batch):
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=KEY)
+        progress_bar = st.progress(0)
+        batch_content = ""
+        total_items = len(raw_batch)
+        for idx, item in enumerate(raw_batch):
+            full_text = fetch_article_text(item['link'])
+            content = full_text if len(full_text) > 200 else item['desc']
+            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:1000]}"
+            progress_bar.progress(min((idx + 1) / total_items, 1.0))
+        system_instr = "You are a financial analyst. Read these articles. Identify specific stock tickers. Rank by sentiment. Format: TICKER | SENTIMENT (🟢/🔴/⚪) | REASON | ORIGINAL_TITLE | ORIGINAL_LINK"
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": system_instr}, {"role":"user", "content": batch_content}], max_tokens=700)
+        new_results = []
+        lines = res.choices[0].message.content.strip().split("\n")
+        green_count = 0
+        total_signals = 0
+        for l in lines:
+            parts = l.split("|")
+            if len(parts) >= 5: 
+                sig = parts[1].strip()
+                if "🟢" in sig: green_count += 1
+                if "🟢" in sig or "🔴" in sig: total_signals += 1
+                new_results.append({"ticker": parts[0].strip(), "signal": sig, "reason": parts[2].strip(), "title": parts[3].strip(), "link": parts[4].strip()})
+        if total_signals > 0:
+            bull_pct = int((green_count / total_signals) * 100)
+            if bull_pct >= 60: mood = f"🐂 {bull_pct}% BULLISH"
+            elif bull_pct <= 40: mood = f"🐻 {100-bull_pct}% BEARISH"
+            else: mood = f"⚖️ {bull_pct}% NEUTRAL"
+            st.session_state['market_mood'] = mood
+        progress_bar.empty()
+        return new_results
+    except Exception as e:
+        st.warning(f"⚠️ AI Error: {e}")
+        return []
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_news_cached():
+    head = {'User-Agent': 'Mozilla/5.0'}
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    it, seen = [], set()
+    blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb"]
+    for u in urls:
+        try:
+            r = requests.get(u, headers=head, timeout=5)
+            root = ET.fromstring(r.content)
+            for i in root.findall('.//item')[:50]:
+                t, l = i.find('title').text, i.find('link').text
+                desc = i.find('description').text if i.find('description') is not None else ""
+                
+                # --- LINK FIX ---
+                # Check RSS <link> first, then look for any href attributes
+                # This ensures we get the real outbound link, not a blank string
+                final_link = l
+                if not final_link:
+                    # Fallback: check guid if it looks like a url
+                    guid = i.find('guid')
+                    if guid is not None and "http" in guid.text:
+                        final_link = guid.text
+
+                if t and final_link and t not in seen:
+                    t_lower = t.lower()
+                    if not any(b in t_lower for b in blacklist):
+                        seen.add(t)
+                        it.append({"title":t,"link":final_link, "desc": desc})
+        except: continue
+    return it 
+
 with t3:
     c_n1, c_n2 = st.columns([3, 1])
-    with c_n1: st.subheader("🚨 Global Wire (Deep AI Scan)")
+    with c_n1: st.subheader("🚨 Global Wire (Deep Scan)")
     with c_n2: 
         if st.session_state['market_mood']:
             st.markdown(f"<div style='background:#333; color:white; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>Mood: {st.session_state['market_mood']}</div>", unsafe_allow_html=True)
-    if st.button("Deep AI Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
+    if st.button("Deep Scan Reports (Top 10)", type="primary", key="deep_scan_btn"):
         st.session_state['news_results'] = [] 
         st.session_state['scanned_count'] = 0
         st.session_state['market_mood'] = None
@@ -696,8 +743,7 @@ with t3:
                     st.info("No relevant tickers found in this batch.")
     if st.session_state.get('news_results'):
         for i, r in enumerate(st.session_state['news_results']):
-            time_tag = f"🕒 {r.get('date_display', 'Recent')}"
-            st.markdown(f"**{r['ticker']} {r['signal']}** | {time_tag} | [{r['title']}]({r['link']})")
+            st.markdown(f"**{r['ticker']} {r['signal']}** - [{r['title']}]({r['link']})")
             st.caption(r['reason'])
             st.divider() 
         if st.button("⬇️ Load More News (Next 10)", key="load_more_btn"):
