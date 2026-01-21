@@ -6,10 +6,11 @@ import altair as alt
 import json
 import xml.etree.ElementTree as ET
 
-# --- 1. SETUP & MEMORY ---
+# --- 1. SETUP & CONFIG ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
+# Initialize Memory
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     defaults = {
@@ -35,7 +36,7 @@ if 'initialized' not in st.session_state:
         'spy_last_fetch': datetime.min
     })
 
-# --- 2. FUNCTIONS ---
+# --- 2. HELPER FUNCTIONS ---
 def update_params():
     for k in ['w','at','ap','ao','fo','no','ko']:
         kn = f"{k if len(k)>2 else k+'_input'}"
@@ -135,14 +136,18 @@ def get_pro_data(s):
             if len(s_norm) >= len(chart_data): chart_data['SPY'] = s_norm.values[-len(chart_data):]
             else: chart_data['SPY'] = 0
 
-        # EARNINGS FIX
+        # EARNINGS FIX - Handle Dict or DataFrame
         earn = "N/A"
         try:
             cal = tk.calendar
-            if cal is not None and not cal.empty:
-                if hasattr(cal, 'iloc'):
-                    val = cal.iloc[0, 0]
-                    if isinstance(val, (datetime, pd.Timestamp)): earn = val.strftime('%b %d')
+            # Case 1: Dictionary (common in new yfinance)
+            if isinstance(cal, dict) and 'Earnings Date' in cal:
+                val = cal['Earnings Date'][0]
+                if val: earn = val.strftime('%b %d')
+            # Case 2: DataFrame (legacy yfinance)
+            elif hasattr(cal, 'iloc') and not cal.empty:
+                val = cal.iloc[0, 0]
+                if isinstance(val, (datetime, pd.Timestamp)): earn = val.strftime('%b %d')
         except: pass
         
         rat = tk.info.get('recommendationKey', 'N/A').upper().replace('_',' ')
@@ -154,42 +159,45 @@ def get_pro_data(s):
         }
     except: return None
 
-# --- 5. SCROLLER (FULL LIST & NAMES) ---
+# --- 5. ROBUST SCROLLER ---
 est = datetime.utcnow() - timedelta(hours=5)
 
 @st.cache_data(ttl=60)
 def build_scroller():
-    # Extended list with friendly names
     indices = [
         ("SPY", "S&P 500"),
         ("^IXIC", "Nasdaq"), 
         ("^DJI", "Dow Jones"), 
         ("BTC-USD", "Bitcoin"), 
-        ("^GSPTSE", "TSX Composite")
+        ("^GSPTSE", "TSX")
     ]
     items = []
     for t, n in indices:
-        d = get_pro_data(t)
-        if d:
-            c = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-            a = "▲" if d['d'] >= 0 else "▼"
-            items.append(f"{n}: <span style='color:{c}'>${d['p']:,.2f} {a} {d['d']:.2f}%</span>")
+        try:
+            d = get_pro_data(t) # Reuse data engine
+            if d:
+                c = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+                a = "▲" if d['d'] >= 0 else "▼"
+                items.append(f"{n}: <span style='color:{c}'>${d['p']:,.2f} {a} {d['d']:.2f}%</span>")
+        except: continue # Skip if one index fails so others still show
+    
+    if not items: return "Loading Market Data..." # Fallback
     return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
 
 scroller_html = build_scroller()
 st.markdown(f"""
-<div style="background:#0E1117;padding:8px 0;border-bottom:1px solid #333;margin-bottom:15px;">
-<marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:16px;color:#EEE;">{scroller_html}</marquee>
+<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;">
+<marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 6. HEADER & NEW TIMER ---
+# --- 6. HEADER & TIMER ---
 h1, h2 = st.columns([2, 1])
 with h1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Sync: {est.strftime('%H:%M:%S EST')}")
 with h2:
-    # New Cleaner Timer (Transparent, Aligned Right)
+    # Cleaner Timer - Aligned Right
     components.html("""
     <div style="font-family:'Helvetica', sans-serif; text-align:right; padding-top:20px;">
         <span style="font-size:12px; color:#888; text-transform:uppercase; letter-spacing:1px;">Auto-Refresh In</span><br>
@@ -211,16 +219,22 @@ def draw_pro_card(t):
     if d:
         sec = get_sector_tag(t)
         col = "green" if d['d']>=0 else "red"
+        col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
-        # PRO CARD LAYOUT
-        # Use columns to snap Price to the Right
-        c_head_1, c_head_2 = st.columns([3, 2])
-        with c_head_1:
-            st.markdown(f"### {t}")
-            st.caption(f"{sec}")
-        with c_head_2:
-            st.markdown(f"<div style='text-align:right; font-size:20px; font-weight:bold;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='text-align:right; color:{'#4caf50' if d['d']>=0 else '#ff4b4b'}; font-weight:bold;'>{d['d']:+.2f}%</div>", unsafe_allow_html=True)
+        # --- FLEXBOX HEADER (FIXED ALIGNMENT) ---
+        # This keeps the Ticker and Price rigidly aligned on the same row
+        st.markdown(f"""
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
+            <div>
+                <span style="font-size:24px; font-weight:bold;">{t}</span>
+                <span style="font-size:14px; color:#888; margin-left:5px;">{sec}</span>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div>
+                <div style="font-size:14px; font-weight:bold; color:{col_hex};">{d['d']:+.2f}%</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.markdown(f"**☻ AI:** {d['ai']}")
         st.markdown(f"**TREND:** :{col}[{d['tr']}] | **EARNINGS:** {d['earn']}")
@@ -236,7 +250,7 @@ def draw_pro_card(t):
         
         st.caption("INTRADAY vs SPY (Orange/Dotted)")
         
-        # FULL WIDTH DAY RANGE BAR
+        # DAY RANGE BAR (Gradient)
         if d['h'] > d['l']: 
             pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
             pct = max(0, min(100, pct))
@@ -244,17 +258,21 @@ def draw_pro_card(t):
         
         st.markdown(f"""
         <div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range</div>
-        <div style="width:100%;height:6px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:3px;position:relative;margin-bottom:10px;">
-            <div style="position:absolute;left:{pct}%;top:-3px;width:2px;height:12px;background:white;border:1px solid black;"></div>
+        <div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;">
+            <div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div>
         </div>
         """, unsafe_allow_html=True)
 
+        # RSI BAR (Thicker & Background Track)
+        rsi_pct = min(100, max(0, d['rsi']))
         st.markdown(f"""
         <div style="font-size:10px;color:#888;">Volume Strength: {'⚡ Surge' if d['vol']>1.5 else '💤 Quiet'}</div>
-        <div style="width:100%;height:4px;background:#333;border-radius:2px;margin-bottom:8px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div>
+        <div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:8px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div>
         
         <div style="font-size:10px;color:#888;">RSI Momentum: {d['rsi']:.0f} ({'🔥 Hot' if d['rsi']>70 else 'Safe'})</div>
-        <div style="width:100%;height:4px;background:#333;border-radius:2px;"><div style="width:{d['rsi']}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div></div>
+        <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;">
+            <div style="width:{rsi_pct}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div>
+        </div>
         """, unsafe_allow_html=True)
         st.divider()
 
@@ -265,7 +283,6 @@ with t1:
         with cols[i%3]: draw_pro_card(t)
 
 with t2:
-    # P/L Logic
     total_val, total_cost, df_data = 0, 0, []
     for t, inf in PORT.items():
         d = get_pro_data(t)
