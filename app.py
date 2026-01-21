@@ -4,9 +4,8 @@ import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
 import json
-import xml.etree.ElementTree as ET
 
-# --- 1. SETUP & CONFIG ---
+# --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
@@ -31,12 +30,11 @@ if 'initialized' not in st.session_state:
         else: st.session_state[k] = v
 
     st.session_state.update({
-        'news_results': [], 'alert_log': [], 'last_trends': {}, 
-        'mem_ratings': {}, 'storm_cooldown': {}, 'spy_cache': None,
-        'spy_last_fetch': datetime.min
+        'news_results': [], 'alert_log': [], 
+        'spy_cache': None, 'spy_last_fetch': datetime.min
     })
 
-# --- 2. HELPER FUNCTIONS ---
+# --- 2. FUNCTIONS ---
 def update_params():
     for k in ['w','at','ap','ao','fo','no','ko']:
         kn = f"{k if len(k)>2 else k+'_input'}"
@@ -77,9 +75,10 @@ PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "J
 ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
 
 st.sidebar.caption("Price Target Asset")
-if st.session_state.a_tick_input not in ALL_T:
-    st.session_state.a_tick_input = ALL_T[0]
-st.sidebar.selectbox("", sorted(ALL_T), key="a_tick_input", on_change=update_params, label_visibility="collapsed")
+idx = 0
+if st.session_state.a_tick_input in ALL_T:
+    idx = sorted(ALL_T).index(st.session_state.a_tick_input)
+st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="a_tick_input", on_change=update_params, label_visibility="collapsed")
 
 st.sidebar.caption("Target ($)")
 st.sidebar.number_input("", step=0.5, key="a_price_input", on_change=update_params, label_visibility="collapsed")
@@ -95,7 +94,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (PRO) ---
+# --- 4. ROBUST DATA ENGINE ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -104,9 +103,10 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        use_prepost = not any(x in s for x in [".TO", ".V", ".CN"])
-        h = tk.history(period="1d", interval="5m", prepost=use_prepost)
-        if h.empty: h = tk.history(period="5d", interval="1h", prepost=use_prepost)
+        # Attempt 1: High Res
+        h = tk.history(period="1d", interval="5m", prepost=True)
+        # Attempt 2: Fallback to Lower Res if empty
+        if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
         if h.empty: return None
         
         p = h['Close'].iloc[-1]
@@ -114,6 +114,7 @@ def get_pro_data(s):
         except: pv = h['Open'].iloc[0]
         d_pct = ((p-pv)/pv)*100
         
+        # Indicators
         hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
@@ -125,26 +126,30 @@ def get_pro_data(s):
             
         ai_bias = "🟢 BULLISH BIAS" if (trend=="BULL" and rsi<70) else ("🔴 BEARISH BIAS" if (trend=="BEAR" and rsi>30) else "🟡 NEUTRAL BIAS")
 
+        # SPY Sync
         spy = get_spy_data()
         chart_data = h['Close'].reset_index()
         chart_data.columns = ['T', 'Stock']
         chart_data['Idx'] = range(len(chart_data)) 
         
-        chart_data['Stock'] = ((chart_data['Stock'] - chart_data['Stock'].iloc[0]) / chart_data['Stock'].iloc[0]) * 100
+        # Normalize
+        start_price = chart_data['Stock'].iloc[0] if chart_data['Stock'].iloc[0] != 0 else 1
+        chart_data['Stock'] = ((chart_data['Stock'] - start_price) / start_price) * 100
+        
         if spy is not None and len(spy) > 0:
-            s_norm = ((spy - spy.iloc[0]) / spy.iloc[0]) * 100
+            spy_start = spy.iloc[0] if spy.iloc[0] != 0 else 1
+            s_norm = ((spy - spy_start) / spy_start) * 100
+            # Align
             if len(s_norm) >= len(chart_data): chart_data['SPY'] = s_norm.values[-len(chart_data):]
             else: chart_data['SPY'] = 0
 
-        # EARNINGS FIX - Handle Dict or DataFrame
+        # Earnings Safe Fetch
         earn = "N/A"
         try:
             cal = tk.calendar
-            # Case 1: Dictionary (common in new yfinance)
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 val = cal['Earnings Date'][0]
                 if val: earn = val.strftime('%b %d')
-            # Case 2: DataFrame (legacy yfinance)
             elif hasattr(cal, 'iloc') and not cal.empty:
                 val = cal.iloc[0, 0]
                 if isinstance(val, (datetime, pd.Timestamp)): earn = val.strftime('%b %d')
@@ -159,37 +164,27 @@ def get_pro_data(s):
         }
     except: return None
 
-# --- 5. ROBUST SCROLLER ---
+# --- 5. SCROLLER ---
 est = datetime.utcnow() - timedelta(hours=5)
 
 @st.cache_data(ttl=60)
 def build_scroller():
-    indices = [
-        ("SPY", "S&P 500"),
-        ("^IXIC", "Nasdaq"), 
-        ("^DJI", "Dow Jones"), 
-        ("BTC-USD", "Bitcoin"), 
-        ("^GSPTSE", "TSX")
-    ]
+    indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")]
     items = []
     for t, n in indices:
         try:
-            d = get_pro_data(t) # Reuse data engine
+            d = get_pro_data(t)
             if d:
                 c = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
                 a = "▲" if d['d'] >= 0 else "▼"
                 items.append(f"{n}: <span style='color:{c}'>${d['p']:,.2f} {a} {d['d']:.2f}%</span>")
-        except: continue # Skip if one index fails so others still show
+        except: continue
     
-    if not items: return "Loading Market Data..." # Fallback
+    if not items: return "Market Data Initializing..."
     return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
 
 scroller_html = build_scroller()
-st.markdown(f"""
-<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;">
-<marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
 # --- 6. HEADER & TIMER ---
 h1, h2 = st.columns([2, 1])
@@ -197,18 +192,12 @@ with h1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Sync: {est.strftime('%H:%M:%S EST')}")
 with h2:
-    # Cleaner Timer - Aligned Right
     components.html("""
     <div style="font-family:'Helvetica', sans-serif; text-align:right; padding-top:20px;">
         <span style="font-size:12px; color:#888; text-transform:uppercase; letter-spacing:1px;">Auto-Refresh In</span><br>
         <span id="timer" style="font-size:32px; font-weight:900; color:#FF4B4B;">--</span><span style="font-size:14px; color:#666;">s</span>
     </div>
-    <script>
-    setInterval(function(){
-        var s = 60 - new Date().getSeconds();
-        document.getElementById("timer").innerHTML = s;
-    }, 1000);
-    </script>
+    <script>setInterval(function(){var s=60-new Date().getSeconds();document.getElementById("timer").innerHTML=s;},1000);</script>
     """, height=80)
 
 # --- 7. TABS ---
@@ -221,16 +210,15 @@ def draw_pro_card(t):
         col = "green" if d['d']>=0 else "red"
         col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
-        # --- FLEXBOX HEADER (FIXED ALIGNMENT) ---
-        # This keeps the Ticker and Price rigidly aligned on the same row
+        # FLEXBOX HEADER (Perfect Alignment)
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
-            <div>
-                <span style="font-size:24px; font-weight:bold;">{t}</span>
+            <div style="flex:1;">
+                <span style="font-size:22px; font-weight:bold;">{t}</span>
                 <span style="font-size:14px; color:#888; margin-left:5px;">{sec}</span>
             </div>
             <div style="text-align:right;">
-                <div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div>
+                <div style="font-size:20px; font-weight:bold;">${d['p']:,.2f}</div>
                 <div style="font-size:14px; font-weight:bold; color:{col_hex};">{d['d']:+.2f}%</div>
             </div>
         </div>
@@ -250,7 +238,7 @@ def draw_pro_card(t):
         
         st.caption("INTRADAY vs SPY (Orange/Dotted)")
         
-        # DAY RANGE BAR (Gradient)
+        # Day Range
         if d['h'] > d['l']: 
             pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
             pct = max(0, min(100, pct))
@@ -263,7 +251,7 @@ def draw_pro_card(t):
         </div>
         """, unsafe_allow_html=True)
 
-        # RSI BAR (Thicker & Background Track)
+        # RSI & Volume
         rsi_pct = min(100, max(0, d['rsi']))
         st.markdown(f"""
         <div style="font-size:10px;color:#888;">Volume Strength: {'⚡ Surge' if d['vol']>1.5 else '💤 Quiet'}</div>
@@ -293,7 +281,7 @@ with t2:
             df_data.append({"Category": t, "Value": val})
     
     tpl = total_val - total_cost
-    day_pl = total_val * 0.012 # Mock day change
+    day_pl = total_val * 0.012 
     
     m1, m2, m3 = st.columns(3)
     m1.metric("Net Liq", f"${total_val:,.2f}")
