@@ -34,8 +34,10 @@ if 'initialized' not in st.session_state:
         'news_results': [], 
         'news_limit': 10,
         'alert_log': [], 
+        'storm_cooldown': {}, # Memory for alerts so they don't spam
         'spy_cache': None, 
-        'spy_last_fetch': datetime.min
+        'spy_last_fetch': datetime.min,
+        'banner_msg': None
     })
 
 # --- 2. FUNCTIONS ---
@@ -46,6 +48,14 @@ def update_params():
 
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
+
+def log_alert(msg, sound=True):
+    # Prevent duplicate alerts in short time
+    if msg not in st.session_state.alert_log:
+        st.session_state.alert_log.insert(0, f"{datetime.now().strftime('%H:%M')} - {msg}")
+        if sound: 
+            components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
+        st.session_state['banner_msg'] = msg
 
 def get_relative_time(date_str):
     try:
@@ -97,6 +107,12 @@ with c2:
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts")
 
+# Recent Alerts Log
+if st.session_state.alert_log:
+    with st.sidebar.expander("Recent Activity", expanded=True):
+        for a in st.session_state.alert_log[:5]:
+            st.caption(a)
+
 PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
 ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
 
@@ -119,7 +135,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE ---
+# --- 4. DATA ENGINE (WITH STORM LOGIC) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -184,6 +200,19 @@ def get_pro_data(s):
         
         rat = tk.info.get('recommendationKey', 'N/A').upper().replace('_',' ')
 
+        # --- ANOMALY DETECTION (Storm/Death Bear) ---
+        # Cooldown check: 5 mins between alerts per ticker
+        last_alert = st.session_state['storm_cooldown'].get(s, datetime.min)
+        if (datetime.now() - last_alert).total_seconds() > 300:
+            # PERFECT STORM: Bull Trend + Oversold (Dip) + Volume
+            if trend == "BULL" and rsi < 35 and vol_ratio > 1.2:
+                log_alert(f"PERFECT STORM: {s} (Dip Buy Opp)")
+                st.session_state['storm_cooldown'][s] = datetime.now()
+            # DEATH BEAR: Bear Trend + Overbought (Rip) + Volume
+            elif trend == "BEAR" and rsi > 65 and vol_ratio > 1.2:
+                log_alert(f"DEATH BEAR: {s} (Trend Rejection)")
+                st.session_state['storm_cooldown'][s] = datetime.now()
+
         return {
             "p": p_live, "d": d_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
             "chart": chart_data, "ai": ai_bias, "rat": rat, "earn": earn,
@@ -191,7 +220,7 @@ def get_pro_data(s):
         }
     except: return None
 
-# --- 5. SCROLLER ---
+# --- 5. UI COMPONENTS ---
 est = datetime.utcnow() - timedelta(hours=5)
 @st.cache_data(ttl=60)
 def build_scroller():
@@ -208,10 +237,17 @@ def build_scroller():
     if not items: return "Market Data Initializing..."
     return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
 
+# BANNER FOR ALERTS
+if st.session_state['banner_msg']:
+    st.markdown(f"<div style='background:#FFD700;color:black;padding:10px;text-align:center;font-weight:bold;border-radius:5px;margin-bottom:10px;'>🔔 {st.session_state['banner_msg']}</div>", unsafe_allow_html=True)
+    # Clear after one show
+    if st.button("Dismiss Alert"): 
+        st.session_state['banner_msg'] = None
+        st.rerun()
+
 scroller_html = build_scroller()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 6. HEADER & TIMER ---
 h1, h2 = st.columns([2, 1])
 with h1:
     st.title("⚡ Penny Pulse")
@@ -259,7 +295,6 @@ def draw_pro_card(t, port_data=None):
         if d['state'] != "REG":
             st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
 
-        # FIXED HIGH CONTRAST PORTFOLIO
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
@@ -362,19 +397,23 @@ with t2:
 with t3:
     if st.button("Analyze Market Context"):
         if KEY:
-            with st.spinner("Analyzing Extended Feed (40 Stories)..."):
+            # STATUS BAR ADDED HERE
+            with st.status("AI Analyzing Market...", expanded=True) as status:
                 try:
+                    st.write("Fetching RSS Feed...")
                     r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
                     root = ET.fromstring(r.content)
                     raw_items = []
                     all_fetched = []
-                    # FETCH 40 ITEMS TO FEED THE AI
+                    
+                    status.update(label="Reading Headlines...", state="running")
                     for item in root.findall('.//item')[:40]:
                         title = item.find('title').text
                         link = item.find('link').text
                         pub = item.find('pubDate').text
                         all_fetched.append({"title": title, "link": link, "time": get_relative_time(pub)})
                     
+                    status.update(label="Consulting OpenAI Brain...", state="running")
                     from openai import OpenAI
                     cl = OpenAI(api_key=KEY)
                     prompt = """
@@ -386,7 +425,6 @@ with t3:
                     - 'time': The original time string.
                     Return a JSON wrapper: {'items': [...]}
                     """
-                    # Process massive batch
                     ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in all_fetched])
                     
                     resp = cl.chat.completions.create(
@@ -396,11 +434,12 @@ with t3:
                     )
                     ai_data = json.loads(resp.choices[0].message.content).get('items', [])
                     
-                    # Store processed items
                     st.session_state['news_results'] = ai_data
                     st.session_state['news_limit'] = 10
+                    status.update(label="Analysis Complete!", state="complete", expanded=False)
                     
                 except Exception as e:
+                    status.update(label="Error!", state="error")
                     st.error(f"AI Analysis Failed: {e}")
         else:
             st.info("Please enter OpenAI Key in Sidebar to use AI features.")
@@ -410,7 +449,6 @@ with t3:
         current_batch = st.session_state['news_results'][:limit]
         
         for n in current_batch:
-            # AI Style for ALL items
             s_color = "#4caf50" if n.get('sentiment')=="BULL" else ("#ff4b4b" if n.get('sentiment')=="BEAR" else "#888")
             st.markdown(f"""
             <div style="border-left: 4px solid {s_color}; padding-left: 10px; margin-bottom: 20px;">
