@@ -158,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (FIXED EARNINGS CONTEXT) ---
+# --- 4. DATA ENGINE (FIXED EARNINGS & PRE-MARKET) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -179,7 +179,6 @@ def get_pro_data(s):
         except: p_prev = h['Open'].iloc[0]
         d_pct = ((p_live - p_prev) / p_prev) * 100
         
-        # MARKET STATE
         market_state = "REG"
         ext_price, ext_pct = None, 0.0
         now = datetime.utcnow() - timedelta(hours=5)
@@ -219,24 +218,20 @@ def get_pro_data(s):
             s_norm = ((s_slice - spy_start) / spy_start) * 100
             chart_data['SPY'] = s_norm.values if len(s_norm) == len(chart_data) else 0
 
-        # EARNINGS LOGIC (With "Last" fix)
         earn = "N/A"
         try:
             cal = tk.calendar
-            # Strategy 1: Dictionary
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 dates = cal['Earnings Date']
                 future = [d for d in dates if d.date() >= datetime.now().date()]
                 if future: earn = f"Next: {future[0].strftime('%b %d')}"
                 elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
-            # Strategy 2: DataFrame
             elif hasattr(cal, 'iloc') and not cal.empty:
                 val = cal.iloc[0, 0]
                 if isinstance(val, (datetime, pd.Timestamp)):
                     if val.date() >= datetime.now().date(): earn = f"Next: {val.strftime('%b %d')}"
                     else: earn = f"Last: {val.strftime('%b %d')}"
         except: 
-            # Strategy 3: Fallback timestamp
             try:
                 t = tk.info.get('earningsTimestamp', None)
                 if t:
@@ -331,13 +326,15 @@ def draw_pro_card(t, port_data=None):
         </div>
         """, unsafe_allow_html=True)
 
-        # AFTER-HOURS BADGE (Tighter Spacing)
+        # AFTER-HOURS BADGE (COLOR & SIZE FIX)
         if d['state'] != "REG" and d['ext_p']:
-            ext_col = "#FFA726" 
             ext_sign = "+" if d['ext_d'] >= 0 else ""
+            # Dynamic Color Logic
+            ext_col = "#4caf50" if d['ext_d'] >= 0 else "#ff4b4b" 
+            
             st.markdown(f"""
             <div style="text-align:right; margin-top:-8px; margin-bottom:8px;">
-                <span style="color:{ext_col}; font-size:12px; font-weight:bold;">
+                <span style="color:{ext_col}; font-size:14px; font-weight:bold;">
                     {d['state']}: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
                 </span>
             </div>
@@ -443,7 +440,6 @@ with t2:
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
-    # ADD YOUR NEW FEEDS HERE
     FEEDS = [
         "https://finance.yahoo.com/news/rssindex",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
@@ -456,7 +452,7 @@ with t3:
             try:
                 prog_bar.progress(20, text="Connecting to News Feeds...")
                 raw_items = []
-                # Iterate feeds until successful
+                # Iterate feeds
                 for f in FEEDS:
                     try:
                         r = requests.get(f, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
