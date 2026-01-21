@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. MEMORY ---
+# --- 2. MEMORY INITIALIZATION (CRASH FIX) ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     defaults = {
@@ -29,7 +29,8 @@ if 'initialized' not in st.session_state:
                 try: defaults[k] = float(val) if '.' in val and not any(x in val for x in ['TO','V','CN']) else val
                 except: defaults[k] = val
     for k, v in defaults.items(): st.session_state[k] = v
-    st.session_state.update({'alert_log': [], 'last_trends': {}, 'mem_ratings': {}, 'mem_meta': {}, 'banner_msg': None, 'storm_cooldown': {}, 'spy_cache': None, 'spy_last_fetch': datetime.min})
+    # Initialize these IMMEDIATELY to prevent KeyErrors
+    st.session_state.update({'news_results': [], 'alert_log': [], 'last_trends': {}, 'mem_ratings': {}, 'mem_meta': {}, 'banner_msg': None, 'storm_cooldown': {}, 'spy_cache': None, 'spy_last_fetch': datetime.min})
 
 # --- 3. FUNCTIONS ---
 def update_params():
@@ -50,7 +51,7 @@ def get_clean_name(t):
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR (RESTORED) ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
@@ -119,7 +120,6 @@ def get_data_accurate(s):
         dh, dl = h['High'].max(), h['Low'].min()
         rng_p = max(0, min(1, (p_live - dl) / (dh - dl))) * 100 if dh > dl else 50
         
-        # INDICATORS
         v_tag = "⚡ Surge" if vol_ratio > 1.5 else ("🌊 Steady" if vol_ratio > 0.8 else "💤 Quiet")
         r_tag = "🔥 Hot" if rsi > 70 else ("❄️ Cold" if rsi < 30 else "⚖️ Calm")
         r_col = "#ff4b4b" if rsi > 70 or rsi < 30 else "#4caf50"
@@ -137,7 +137,7 @@ def get_data_accurate(s):
         return {"p_anchor":p_anchor, "d_static":d_static, "p_live":p_live, "d_live":d_live, "rsi":rsi, "tr":trend, "chart":h, "rating":rating, "r_col":rating_col, "sec":sec, "earn":earn, "bars":bars}
     except: return None
 
-# --- 6. UI HEADER (PRO VISUALS) ---
+# --- 6. HEADER & TIMER (FIXED CENTERING) ---
 est = datetime.utcnow() - timedelta(hours=5)
 status = "🔴 CLOSED"
 hh, mm = est.hour, est.minute
@@ -146,15 +146,23 @@ if est.weekday() < 5:
     elif (hh==9 and mm>=30) or (9 < hh < 16): status = "🟢 MARKET OPEN"
     elif 16 <= hh < 20: status = "🌙 POST-MARKET"
 
-c1, c2 = st.columns([1,1])
+# Better Mobile Layout for Header
+c1, c2 = st.columns([1, 1])
 with c1:
     st.title("⚡ Penny Pulse")
     st.caption(f"{status} | {est.strftime('%H:%M:%S EST')}")
 with c2:
-    # PRO FEATURE: Big Countdown Timer
-    components.html("""<div style="font-family:'Helvetica';background:#0E1117;padding:5px;text-align:right;display:flex;justify-content:flex-end;align-items:center;height:100%;"><span style="color:#BBBBBB;font-weight:bold;font-size:14px;margin-right:5px;">Next Update: </span><span id="c" style="color:#FF4B4B;font-weight:900;font-size:24px;">--</span><span style="color:#BBBBBB;font-size:14px;margin-left:2px;"> s</span></div><script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>""", height=60)
+    # Centered Timer that fits mobile better
+    components.html("""
+    <div style="display:flex; justify-content:center; align-items:center; height:100%; background:#0E1117; border-radius:10px; border:1px solid #333;">
+        <span style="color:#BBBBBB; font-weight:bold; font-size:14px; margin-right:5px; font-family:sans-serif;">Next Update:</span>
+        <span id="c" style="color:#FF4B4B; font-weight:900; font-size:22px; font-family:sans-serif;">--</span>
+        <span style="color:#BBBBBB; font-size:14px; margin-left:2px; font-family:sans-serif;">s</span>
+    </div>
+    <script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>
+    """, height=60)
 
-# PRO FEATURE: Marquee Scroller
+# Scroller
 @st.cache_data(ttl=60, show_spinner=False)
 def get_marquee():
     txt = ""
@@ -178,7 +186,6 @@ def draw_card(t):
         st.metric("Prev Close", f"${d['p_anchor']:,.2f}", f"{d['d_static']:+.2f}%")
         st.markdown(f"<div style='margin-top:-15px;margin-bottom:10px;font-weight:bold;'>⚡ LIVE: ${d['p_live']:,.2f} <span style='color:{'#4caf50' if d['d_live']>=0 else '#ff4b4b'}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
         
-        # BOLD UI
         st.markdown(f"""
         <div style='font-size:14px;line-height:1.6;'>
             <b>TREND:</b> <span style='color:{'#00C805' if d['tr']=='BULL' else '#FF4B4B'}'><b>{d['tr']}</b></span><br>
@@ -228,6 +235,5 @@ with t3:
         st.caption(n.get('reason',''))
         st.divider()
 
-# Heartbeat
 time.sleep(2)
 st.rerun()
