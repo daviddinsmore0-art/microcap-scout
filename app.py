@@ -158,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (GOLDILOCKS FIX) ---
+# --- 4. DATA ENGINE (FORCE AFTER HOURS) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -167,58 +167,67 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        try: h = tk.history(period="1d", interval="5m", prepost=True)
+        # Fetch data with pre/post enabled
+        try: h = tk.history(period="5d", interval="5m", prepost=True)
         except: h = pd.DataFrame()
-        if h.empty: 
-            try: h = tk.history(period="5d", interval="15m", prepost=True)
-            except: return None
         if h.empty: return None
         
-        # 1. Determine Market Status
+        # 1. LIVE ABSOLUTE LAST PRICE
+        p_live = h['Close'].iloc[-1]
+        
+        # 2. MARKET OPEN/CLOSE CHECK (EST)
         now = datetime.utcnow() - timedelta(hours=5)
-        # 9:30 AM to 4:00 PM
+        # Market Open: Mon-Fri, 9:30 - 16:00
         is_market_open = (now.weekday() < 5) and (
             (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and (now.hour < 16)
         )
         
-        # 2. Get LIVE Price (Any time)
-        p_live = h['Close'].iloc[-1]
+        # 3. TSX CHECK
+        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
         
-        # 3. Get OFFICIAL PREVIOUS CLOSE (Yesterday's Close)
-        try: prev_close = tk.fast_info['regular_market_previous_close']
-        except: prev_close = h['Open'].iloc[0]
+        # 4. PRICE & EXTENDED LOGIC
+        display_price = p_live
+        display_pct = 0.0
         
-        # 4. Set MAIN DISPLAY Values
-        if is_market_open:
-            # During Day: Main = Live, % = Live vs Prev Close
-            display_price = p_live
-            display_pct = ((p_live - prev_close) / prev_close) * 100
-        else:
-            # After Hours: Main = TODAY'S Official Close
-            # We try to get 'regular_market_price' which locks at 4pm
-            try: 
-                display_price = tk.fast_info['regular_market_price']
-            except: 
-                display_price = p_live # Fallback if data missing
-            
-            # Recalculate Day % using Official Close
-            display_pct = ((display_price - prev_close) / prev_close) * 100
-
-        # 5. AFTER-HOURS BADGE LOGIC
         market_state = "REG"
         ext_price = None
         ext_pct = 0.0
         
-        # TSX LOCK: If Canadian, NEVER show AH badge
-        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
-        
-        if not is_tsx and not is_market_open:
-            # US Stock + Market Closed -> Calc Badge
-            # Badge % = (Live Price - Official 4pm Close) / Official 4pm Close
-            if abs(p_live - display_price) > 0.01: # Noise filter
-                market_state = "POST" if now.hour >= 16 else "PRE"
-                ext_price = p_live
-                ext_pct = ((p_live - display_price) / display_price) * 100
+        # Try to find the Regular Market Close
+        reg_close = p_live # Default
+        try: reg_close = tk.fast_info['regular_market_previous_close']
+        except: 
+            # Fallback: Open of 5d chart
+            reg_close = h['Open'].iloc[0]
+
+        if is_market_open:
+            # DAYTIME: Main = Live, % = Change from Yesterday
+            display_price = p_live
+            display_pct = ((p_live - reg_close) / reg_close) * 100
+        else:
+            # NIGHTTIME: 
+            # 1. Main = Official Close (Freeze it)
+            # Try to fetch today's closing price if available
+            try: 
+                today_close = tk.fast_info['last_price']
+                # If last_price is suspiciously close to p_live (AH price), rely on 'regular_market_price'
+                if 'regular_market_price' in tk.fast_info:
+                    today_close = tk.fast_info['regular_market_price']
+                display_price = today_close
+            except: 
+                display_price = p_live
+            
+            # Recalc Day %
+            display_pct = ((display_price - reg_close) / reg_close) * 100
+            
+            # 2. Badge = Live vs Official Close
+            # FORCE LOGIC: If Not TSX AND Not Open AND Diff exists
+            if not is_tsx and not is_market_open:
+                # Compare Live AH Price vs Today's Close
+                if abs(p_live - display_price) > 0.01:
+                    market_state = "POST" if now.hour >= 16 else "PRE"
+                    ext_price = p_live
+                    ext_pct = ((p_live - display_price) / display_price) * 100
 
         # Indicators
         hm = tk.history(period="1mo")
