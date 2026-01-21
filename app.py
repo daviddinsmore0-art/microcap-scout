@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. MEMORY ---
+# --- 2. MEMORY & PERSISTENCE ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
@@ -67,7 +67,7 @@ def load_profile_callback():
 
 def sync_js(config_json):
     js = f"""<script>
-    const KEY="penny_pulse_v81"; const d={config_json}; const s=localStorage.getItem(KEY);
+    const KEY="penny_pulse_v82"; const d={config_json}; const s=localStorage.getItem(KEY);
     const p=new URLSearchParams(window.location.search);
     if(!p.has("w")&&s){{try{{const c=JSON.parse(s);if(c.w&&c.w!=="SPY"){{
     const u=new URL(window.location);u.searchParams.set("w",c.w);u.searchParams.set("at",c.at);
@@ -117,7 +117,7 @@ with st.sidebar.expander("📦 Backup"):
 sync_js(json.dumps(export))
 inject_wake_lock(keep_on)
 
-# --- 5. LOGIC ---
+# --- 5. LOGIC & DATA ---
 def log_alert(msg, title="Alert"):
     st.session_state['alert_log'].insert(0, f"[{datetime.now().strftime('%H:%M')}] {msg}")
     components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
@@ -205,40 +205,41 @@ def get_data_rich(s):
     try:
         tk = yf.Ticker(s)
         
-        # --- 1. PREVIOUS CLOSE (BIG NUMBER) ---
-        # Fetch 5 days to ensure we get the 'confirmed' previous close
-        # This gives us the "+4.99%" context you wanted.
-        hd = tk.history(period="5d", interval="1d")
-        if len(hd) >= 2:
-            prev_close = hd['Close'].iloc[-2] # Confirmed yesterday
-            day_before = hd['Close'].iloc[-3] if len(hd) > 2 else prev_close
-            
-            # Big Number Data (Yesterday's Context)
-            static_price = prev_close
-            static_pct = ((prev_close - day_before) / day_before) * 100 if day_before > 0 else 0.0
-        else:
-            # Fallback for brand new stocks
+        # --- PREVIOUS CLOSE ANCHOR (PRIORITY: EXCHANGE DATA) ---
+        # Try fast_info first (most accurate for official settlement)
+        try:
             prev_close = tk.fast_info['previous_close']
-            static_price = prev_close
-            static_pct = 0.0
+        except:
+            # Fallback to daily history
+            hd = tk.history(period="5d", interval="1d")
+            if len(hd) >= 2: prev_close = hd['Close'].iloc[-2]
+            else: prev_close = 0.0
+            
+        # Get 'Day Before' for Static % (Move from Day -2 to Day -1)
+        # This gives the "Closed at 4.99%" number
+        try:
+            hd = tk.history(period="5d", interval="1d")
+            if len(hd) >= 2:
+                day_before = hd['Close'].iloc[-3] if len(hd) > 2 else prev_close
+                if day_before > 0: static_pct = ((prev_close - day_before) / day_before) * 100
+                else: static_pct = 0.0
+            else: static_pct = 0.0
+        except: static_pct = 0.0
 
-        # --- 2. LIVE PRE-MARKET (LIGHTNING LINE) ---
-        # Fetch 1m data including pre-market to get the Real-Time price
-        # This gives us the "+0.87%" context.
+        # --- LIVE DATA (PRIORITY: REAL-TIME) ---
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if h.empty: return None
         
         live_price = h['Close'].iloc[-1]
         
-        # Calculate Live Change vs Yesterday's Close
+        # Live Change vs Anchor
         if prev_close > 0: live_pct = ((live_price - prev_close) / prev_close) * 100
         else: live_pct = 0.0
-        # ---------------------------------------------
-
-        # Chart Logic
-        chart_data = pd.DataFrame({'Time': h.index, 'Close': h['Close'].values})
+        
+        # Chart Data
         dh = h['High'].max(); dl = h['Low'].min()
+        chart_data = pd.DataFrame({'Time': h.index, 'Close': h['Close'].values})
         
         # Trends
         hm = tk.history(period="1mo")
@@ -264,7 +265,7 @@ def get_data_rich(s):
                 ma200 = hm['Close'].rolling(200).mean().iloc[-1]
                 if ma50 > ma200: golden_cross = " <span style='background:#FFD700;color:black;padding:1px 4px;border-radius:3px;font-size:10px;font-weight:bold'>🌟 GOLDEN CROSS</span>"
 
-        # Bars
+        # HTML Visuals
         rng_pct = 50
         if dh > dl: rng_pct = max(0, min(1, (live_price - dl) / (dh - dl))) * 100
         rng_html = f"""<div style="font-size:11px;color:#666;margin-top:5px;">Day Range</div><div style="display:flex;align-items:center;font-size:10px;color:#888;"><span style="margin-right:4px;">L</span><div style="flex-grow:1;height:4px;background:#333;border-radius:2px;"><div style="width:{rng_pct}%;height:100%;background:linear-gradient(90deg,#ff4b4b,#4caf50);"></div></div><span style="margin-left:4px;">H</span></div>"""
@@ -287,7 +288,7 @@ def get_data_rich(s):
             storm_html = f"<div style='margin-top:10px;padding:5px;border:1px solid {sc};border-radius:5px;font-size:12px;color:{sc};text-align:center;'><b>{ico} {s_mode} STORM: {s_score}/100</b><br><span style='font-size:10px;color:#aaa;'>{', '.join(s_reasons)}</span></div>"
 
         return {
-            "p_static": static_price, "d_static": static_pct,
+            "p_static": prev_close, "d_static": static_pct,
             "p_live": live_price, "d_live": live_pct,
             "rsi":rsi, "tr":trend, "tr_h":tr_html, "gc":golden_cross, 
             "chart":chart_data, "vr":vol_ratio, "ai":ai_msg, "ai_c":ai_col, 
@@ -296,7 +297,7 @@ def get_data_rich(s):
         }
     except: return None
 
-# Price Alert (Uses Live Price)
+# Price Alert
 if a_on:
     d = get_data_rich(a_tick)
     if d and d['p_live'] >= a_price and not st.session_state['alert_triggered']:
@@ -353,12 +354,12 @@ def render_card(t, inf=None):
         st.markdown(f"<h3 style='margin:0;padding:0;'><a href='{u}' target='_blank' style='text-decoration:none;color:inherit'>{nm}</a>{sec_tag}</h3>", unsafe_allow_html=True)
         
         # --- SPLIT DISPLAY ---
-        # 1. Big Number = Previous Close (Yesterday's History)
+        # 1. Close (Yesterday)
         st.metric("Prev Close", f"${d['p_static']:,.2f}", f"{d['d_static']:.2f}%")
         
-        # 2. Lightning Line = Live Pre-Market (Current Action)
+        # 2. Live Action
         l_col = "#4caf50" if d['d_live'] >= 0 else "#ff4b4b"
-        st.markdown(f"<div style='margin-top:-10px;margin-bottom:10px;font-weight:bold;font-size:16px;'>⚡ PRE/LIVE: ${d['p_live']:,.2f} <span style='color:{l_col}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin-top:-10px;margin-bottom:10px;font-weight:bold;font-size:16px;'>⚡ LIVE: ${d['p_live']:,.2f} <span style='color:{l_col}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
         # ---------------------
 
         st.markdown(f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>⚙️ AI: <span style='color:{d['ai_c']}'>{d['ai']}</span></div>", unsafe_allow_html=True)
