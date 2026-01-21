@@ -10,36 +10,55 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. MEMORY INITIALIZATION (Crash Prevention) ---
-default_values = {
-    'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
-    'a_tick_input': "SPY",
-    'a_price_input': 0.0,
-    'a_on_input': False,
-    'flip_on_input': False,
-    'keep_on_input': False,
-    'notify_input': False,
-    'base_url_input': "",
-    'news_results': [],
-    'scanned_count': 0,
-    'market_mood': None,
-    'alert_triggered': False,
-    'alert_log': [],
-    'last_trends': {},
-    'mem_ratings': {},
-    'mem_meta': {},
-    'spy_cache': None,
-    'spy_last_fetch': datetime.min,
-    'banner_msg': None,
-    'storm_cooldown': {}
-}
+# --- 2. PERSISTENCE ENGINE (The "Brain" Fix) ---
+# This function makes sure the app remembers your settings across refreshes
+def init_memory():
+    # 1. Define the defaults
+    defaults = {
+        'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
+        'a_tick_input': "SPY",
+        'a_price_input': 0.0,
+        'a_on_input': False,
+        'flip_on_input': False,
+        'keep_on_input': False,
+        'notify_input': False,
+        'base_url_input': "",
+        # Internal State
+        'news_results': [],
+        'scanned_count': 0,
+        'market_mood': None,
+        'alert_triggered': False,
+        'alert_log': [],
+        'last_trends': {},
+        'mem_ratings': {},
+        'mem_meta': {},
+        'spy_cache': None,
+        'spy_last_fetch': datetime.min,
+        'banner_msg': None,
+        'storm_cooldown': {}
+    }
 
-for key, val in default_values.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+    # 2. Load Defaults if memory is empty
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
 
-# --- 3. CORE LOGIC FUNCTIONS ---
-def update_params():
+    # 3. OVERRIDE defaults with URL data (This fixes the refresh issue)
+    qp = st.query_params
+    if 'w' in qp: st.session_state.w_input = qp['w']
+    if 'at' in qp: st.session_state.a_tick_input = qp['at']
+    if 'ap' in qp: st.session_state.a_price_input = float(qp['ap'])
+    if 'ao' in qp: st.session_state.a_on_input = (qp['ao'].lower() == 'true')
+    if 'fo' in qp: st.session_state.flip_on_input = (qp['fo'].lower() == 'true')
+    if 'no' in qp: st.session_state.notify_input = (qp['no'].lower() == 'true')
+    if 'ko' in qp: st.session_state.keep_on_input = (qp['ko'].lower() == 'true')
+    if 'bu' in qp: st.session_state.base_url_input = qp['bu']
+
+init_memory()
+
+# --- 3. STATE SYNC FUNCTIONS ---
+def update_url():
+    # Every time you change a setting, save it to the URL immediately
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
     st.query_params["ap"] = str(st.session_state.a_price_input)
@@ -47,36 +66,36 @@ def update_params():
     st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
     st.query_params["no"] = str(st.session_state.notify_input).lower()
     st.query_params["ko"] = str(st.session_state.keep_on_input).lower()
-    if 'base_url_input' in st.session_state:
+    if st.session_state.base_url_input:
         st.query_params["bu"] = st.session_state.base_url_input
 
 def load_profile_callback():
+    # Runs instantly when file is uploaded
     uploaded = st.session_state.get('uploader_key')
     if uploaded is not None:
         try:
             data = json.load(uploaded)
-            for k in ['w', 'at', 'ap', 'ao', 'fo', 'no', 'ko', 'bu']:
-                if k in data:
-                    long_key = ""
-                    if k == 'w': long_key = 'w_input'
-                    elif k == 'at': long_key = 'a_tick_input'
-                    elif k == 'ap': long_key = 'a_price_input'
-                    elif k == 'ao': long_key = 'a_on_input'
-                    elif k == 'fo': long_key = 'flip_on_input'
-                    elif k == 'no': long_key = 'notify_input'
-                    elif k == 'ko': long_key = 'keep_on_input'
-                    elif k == 'bu': long_key = 'base_url_input'
-                    if long_key: st.session_state[long_key] = data[k]
-            update_params()
-            st.toast("Profile Loaded Successfully!", icon="✅")
+            # Inject file data into memory
+            if 'w' in data: st.session_state.w_input = data['w']
+            if 'at' in data: st.session_state.a_tick_input = data['at']
+            if 'ap' in data: st.session_state.a_price_input = float(data['ap'])
+            if 'ao' in data: st.session_state.a_on_input = data['ao']
+            if 'fo' in data: st.session_state.flip_on_input = data['fo']
+            if 'no' in data: st.session_state.notify_input = data['no']
+            if 'ko' in data: st.session_state.keep_on_input = data['ko']
+            if 'bu' in data: st.session_state.base_url_input = data['bu']
+            
+            # Force URL update so it persists
+            update_url()
+            st.toast("Profile Loaded & Saved!", icon="✅")
         except Exception as e:
-            st.error(f"Error reading file: {e}")
+            st.error(f"Error: {e}")
 
 # --- 4. JAVASCRIPT BRIDGES ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v67_data";
+        const KEY = "penny_pulse_v68_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -129,7 +148,8 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input", on_change=update_params)
+# NOTE: 'key=' binds it to memory. 'on_change=' updates the URL.
+st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input", on_change=update_url)
 
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
@@ -150,7 +170,7 @@ ALL = list(set(WATCH + list(PORT.keys())))
 c1, c2 = st.sidebar.columns(2)
 with c1:
     if st.button("💾 Save Settings"):
-        update_params()
+        update_url()
         st.toast("Settings Saved!", icon="💾")
 with c2:
     def play_alert_sound():
@@ -160,7 +180,6 @@ with c2:
         </audio>
         """
         components.html(sound_html, height=0, width=0)
-        
     if st.button("🔊 Test Audio"):
         play_alert_sound()
         st.toast("Audio Armed!", icon="🔊")
@@ -173,12 +192,12 @@ if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
 idx = 0
 if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
 
-st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
-st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=update_params)
-st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=update_params)
-st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=update_params) 
-st.sidebar.toggle("💡 Keep Screen On", key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
-st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
+st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_url)
+st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=update_url)
+st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=update_url)
+st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=update_url) 
+st.sidebar.toggle("💡 Keep Screen On", key="keep_on_input", on_change=update_url, help="Prevents phone from sleeping.")
+st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=update_url, help="Works on Desktop/HTTPS only.")
 
 # --- 6. JS SYNC EXECUTION ---
 current_config_export = {
@@ -194,16 +213,17 @@ current_config_export = {
 sync_js(json.dumps(current_config_export))
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 7. BACKUP & RESTORE ---
+# --- 7. BACKUP & RESTORE (PERSISTENT FIX) ---
 st.sidebar.divider()
 with st.sidebar.expander("📦 Backup & Restore"):
     st.caption("Download your profile to save it.")
     export_data = json.dumps(current_config_export, indent=2)
     st.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
+    # File Uploader with Callback
     st.file_uploader("📤 Restore Profile", type=["json"], key="uploader_key", on_change=load_profile_callback)
 
 with st.sidebar.expander("🔗 Share & Invite"):
-    base_url = st.text_input("App Web Address (Paste Once)", placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
+    base_url = st.text_input("App Web Address (Paste Once)", placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_url)
     if base_url:
         clean_base = base_url.split("?")[0].strip("/")
         params = f"?w={st.session_state.w_input}&at={st.session_state.a_tick_input}&ap={st.session_state.a_price_input}&ao={str(st.session_state.a_on_input).lower()}&fo={str(st.session_state.flip_on_input).lower()}"
@@ -245,7 +265,7 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- 9. HELPERS ---
+# --- 9. HELPERS (Clean Logic) ---
 def check_flip(ticker, current_trend, flip_enabled):
     if not flip_enabled: return
     if ticker in st.session_state['last_trends']:
@@ -544,13 +564,11 @@ def process_news_batch(raw_batch):
         for idx, item in enumerate(raw_batch):
             full_text = fetch_article_text(item['link'])
             content = full_text if len(full_text) > 200 else item['desc']
-            # --- TOKEN SAVER: REDUCED TO 300 CHARS ---
-            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:300]}\nDate: {item['date_str']}"
+            # Reduced tokens to prevent crash
+            batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:700]}\nDate: {item['date_str']}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
         
-        # --- THE TIME RESTORATION ---
-        # I explicitly ask the AI for TIME_PUBLISHED here
-        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles'. Each object: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be relative (e.g. '2h ago'). The link must be the original URL. IMPORTANT: Ignore crime/gossip. Only financial news. **KEEP REASONS EXTREMELY CONCISE.**"
+        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL. IMPORTANT: Ignore articles that are about general crime, police arrests, sports, gossip, or non-financial news. Only return financial, market, or company news. **KEEP REASONS EXTREMELY CONCISE (UNDER 10 WORDS).**"
         
         res = client.chat.completions.create(
             model="gpt-4o-mini", 
@@ -562,12 +580,8 @@ def process_news_batch(raw_batch):
             max_tokens=3000  
         )
         
-        try:
-            data = json.loads(res.choices[0].message.content)
-            new_results = data.get("articles", [])
-        except json.JSONDecodeError:
-            st.warning("⚠️ AI Analysis incomplete. Showing partial results.")
-            return []
+        data = json.loads(res.choices[0].message.content)
+        new_results = data.get("articles", [])
         
         valid_results = []
         for r in new_results:
@@ -587,6 +601,7 @@ def process_news_batch(raw_batch):
         progress_bar.empty()
         return valid_results
     except Exception as e:
+        print(f"AI Error: {e}") 
         st.caption("⚠️ News Analysis unavailable at this moment.")
         return []
 
@@ -633,80 +648,6 @@ def get_news_cached():
                         it.append({"title":title_text,"link":url, "desc": desc_text, "date_str": date_str})
         except: continue
     return it 
-
-def render_card(t, inf=None):
-    d = get_data_cached(t)
-    spy_data = get_spy_benchmark()
-    
-    if d:
-        check_flip(t, d['raw_trend'], st.session_state.flip_on_input)
-        rat_txt, rat_col = get_rating_cached(t)
-        sec, earn = get_meta_data(t)
-        nm = NAMES.get(t, t)
-        if t.endswith(".TO"): nm += " (TSX)"
-        elif t.endswith(".V"): nm += " (TSXV)"
-        elif t.endswith(".CN"): nm += " (CSE)"
-        sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
-        url = f"https://finance.yahoo.com/quote/{t}"
-        st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
-        
-        if inf:
-            q = inf.get("q", 100)
-            st.caption(f"{q} Shares @ ${inf['e']}")
-            st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-        else:
-            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-        
-        st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
-        st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
-        
-        meta_html = f"""
-        <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
-            <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}{d['gc']}</div>
-            <div><b style='color:black; margin-right:8px;'>ANALYST RATING:</b> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>
-            <div><b style='color:black; margin-right:8px;'>EARNINGS:</b> {earn}</div>
-        </div>
-        """
-        st.markdown(meta_html, unsafe_allow_html=True)
-
-        st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
-        
-        if d['chart'] is not None and not d['chart'].empty:
-            stock_series = d['chart']['Close'].tail(30)
-            if len(stock_series) > 1:
-                start_p = stock_series.iloc[0]
-                stock_norm = ((stock_series - start_p) / start_p) * 100
-                plot_df = pd.DataFrame({'Stock': stock_norm})
-                plot_df = plot_df.reset_index().rename(columns={plot_df.index.name: 'Time'})
-                has_spy = False
-                if spy_data is not None and not spy_data.empty:
-                    try:
-                        spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
-                        if not spy_aligned['Close'].isnull().all():
-                            spy_vals = spy_aligned['Close']
-                            valid_spy = spy_vals.dropna()
-                            if not valid_spy.empty:
-                                spy_start = valid_spy.iloc[0]
-                                plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
-                                has_spy = True
-                    except: pass
-                line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-                base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
-                l_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
-                final_chart = l_stock
-                if has_spy:
-                    l_spy = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.8).encode(y='SPY')
-                    final_chart = l_stock + l_spy
-                st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
-            else: st.caption("Not enough intraday data.")
-        else: st.caption("Chart data unavailable.")
-        
-        st.markdown(d['rng_html'], unsafe_allow_html=True)
-        st.markdown(d['vol_html'], unsafe_allow_html=True)
-        st.markdown(d['rsi_html'], unsafe_allow_html=True)
-        st.markdown(d['storm_html'], unsafe_allow_html=True)
-    else: st.metric(t, "---", "0.0%")
-    st.divider() 
 
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 with t1:
