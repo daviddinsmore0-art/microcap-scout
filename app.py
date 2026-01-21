@@ -1,4 +1,4 @@
-import streamlit as st, yfinance as yf, requests, time, re
+import streamlit as st, yfinance as yf, requests, time
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
@@ -127,7 +127,7 @@ def get_pro_data(s):
         spy = get_spy_data()
         chart_data = h['Close'].reset_index()
         chart_data.columns = ['T', 'Stock']
-        chart_data['Idx'] = range(len(chart_data)) # Fix Left Alignment
+        chart_data['Idx'] = range(len(chart_data)) 
         
         chart_data['Stock'] = ((chart_data['Stock'] - chart_data['Stock'].iloc[0]) / chart_data['Stock'].iloc[0]) * 100
         if spy is not None and len(spy) > 0:
@@ -140,7 +140,6 @@ def get_pro_data(s):
         try:
             cal = tk.calendar
             if cal is not None and not cal.empty:
-                # Handle different formats of calendar return
                 if hasattr(cal, 'iloc'):
                     val = cal.iloc[0, 0]
                     if isinstance(val, (datetime, pd.Timestamp)): earn = val.strftime('%b %d')
@@ -155,36 +154,56 @@ def get_pro_data(s):
         }
     except: return None
 
-# --- 5. HEADER & SCROLLER (FIXED COLORS) ---
+# --- 5. SCROLLER (FULL LIST & NAMES) ---
 est = datetime.utcnow() - timedelta(hours=5)
 
-# Scroller Logic: Fetch Data & Colorize
 @st.cache_data(ttl=60)
 def build_scroller():
+    # Extended list with friendly names
+    indices = [
+        ("SPY", "S&P 500"),
+        ("^IXIC", "Nasdaq"), 
+        ("^DJI", "Dow Jones"), 
+        ("BTC-USD", "Bitcoin"), 
+        ("^GSPTSE", "TSX Composite")
+    ]
     items = []
-    for t, n in [("SPY", "SPY"), ("BTC-USD", "BTC"), ("^GSPTSE", "TSX")]:
+    for t, n in indices:
         d = get_pro_data(t)
         if d:
             c = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
             a = "▲" if d['d'] >= 0 else "▼"
             items.append(f"{n}: <span style='color:{c}'>${d['p']:,.2f} {a} {d['d']:.2f}%</span>")
-    return "&nbsp;&nbsp;&nbsp;&nbsp;".join(items)
+    return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
 
 scroller_html = build_scroller()
 st.markdown(f"""
-<div style="background:#0E1117;padding:5px 0;border-top:1px solid #333;border-bottom:1px solid #333;margin-bottom:10px;">
-<marquee scrollamount="8" style="width:100%;font-weight:bold;font-size:18px;color:white;">{scroller_html}</marquee>
+<div style="background:#0E1117;padding:8px 0;border-bottom:1px solid #333;margin-bottom:15px;">
+<marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:16px;color:#EEE;">{scroller_html}</marquee>
 </div>
 """, unsafe_allow_html=True)
 
-c1, c2 = st.columns([3, 2])
-with c1:
+# --- 6. HEADER & NEW TIMER ---
+h1, h2 = st.columns([2, 1])
+with h1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Sync: {est.strftime('%H:%M:%S EST')}")
-with c2:
-    components.html("""<div style="font-family:'Helvetica';background:#0E1117;padding:5px;text-align:right;display:flex;justify-content:flex-end;align-items:center;height:100%;"><span style="color:#BBBBBB;font-weight:bold;font-size:14px;margin-right:5px;">Next Update: </span><span id="c" style="color:#FF4B4B;font-weight:900;font-size:24px;">--</span><span style="color:#BBBBBB;font-size:14px;margin-left:2px;"> s</span></div><script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>""", height=60)
+with h2:
+    # New Cleaner Timer (Transparent, Aligned Right)
+    components.html("""
+    <div style="font-family:'Helvetica', sans-serif; text-align:right; padding-top:20px;">
+        <span style="font-size:12px; color:#888; text-transform:uppercase; letter-spacing:1px;">Auto-Refresh In</span><br>
+        <span id="timer" style="font-size:32px; font-weight:900; color:#FF4B4B;">--</span><span style="font-size:14px; color:#666;">s</span>
+    </div>
+    <script>
+    setInterval(function(){
+        var s = 60 - new Date().getSeconds();
+        document.getElementById("timer").innerHTML = s;
+    }, 1000);
+    </script>
+    """, height=80)
 
-# --- 6. TABS ---
+# --- 7. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
 def draw_pro_card(t):
@@ -193,17 +212,16 @@ def draw_pro_card(t):
         sec = get_sector_tag(t)
         col = "green" if d['d']>=0 else "red"
         
-        # Professional Header
-        st.markdown(f"""
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:-10px;">
-            <h3 style="margin:0;">{t} <span style="font-size:14px;color:#888;">{sec}</span></h3>
-            <div style="text-align:right;">
-                <div style="font-size:20px;font-weight:bold;">${d['p']:,.2f}</div>
-                <div style="color:{'#4caf50' if d['d']>=0 else '#ff4b4b'};font-size:14px;font-weight:bold;">{d['d']:+.2f}%</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
+        # PRO CARD LAYOUT
+        # Use columns to snap Price to the Right
+        c_head_1, c_head_2 = st.columns([3, 2])
+        with c_head_1:
+            st.markdown(f"### {t}")
+            st.caption(f"{sec}")
+        with c_head_2:
+            st.markdown(f"<div style='text-align:right; font-size:20px; font-weight:bold;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align:right; color:{'#4caf50' if d['d']>=0 else '#ff4b4b'}; font-weight:bold;'>{d['d']:+.2f}%</div>", unsafe_allow_html=True)
+
         st.markdown(f"**☻ AI:** {d['ai']}")
         st.markdown(f"**TREND:** :{col}[{d['tr']}] | **EARNINGS:** {d['earn']}")
         
@@ -225,7 +243,7 @@ def draw_pro_card(t):
         else: pct = 50
         
         st.markdown(f"""
-        <div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range (Low vs High)</div>
+        <div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range</div>
         <div style="width:100%;height:6px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:3px;position:relative;margin-bottom:10px;">
             <div style="position:absolute;left:{pct}%;top:-3px;width:2px;height:12px;background:white;border:1px solid black;"></div>
         </div>
@@ -234,6 +252,9 @@ def draw_pro_card(t):
         st.markdown(f"""
         <div style="font-size:10px;color:#888;">Volume Strength: {'⚡ Surge' if d['vol']>1.5 else '💤 Quiet'}</div>
         <div style="width:100%;height:4px;background:#333;border-radius:2px;margin-bottom:8px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div>
+        
+        <div style="font-size:10px;color:#888;">RSI Momentum: {d['rsi']:.0f} ({'🔥 Hot' if d['rsi']>70 else 'Safe'})</div>
+        <div style="width:100%;height:4px;background:#333;border-radius:2px;"><div style="width:{d['rsi']}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div></div>
         """, unsafe_allow_html=True)
         st.divider()
 
@@ -243,29 +264,25 @@ with t1:
     for i, t in enumerate(W):
         with cols[i%3]: draw_pro_card(t)
 
-# MY PICKS - FIXED P/L BANNER
 with t2:
-    # 1. CALCULATE FIRST
+    # P/L Logic
     total_val, total_cost, df_data = 0, 0, []
     for t, inf in PORT.items():
         d = get_pro_data(t)
         if d:
             val = d['p'] * inf['q']
             cost = inf['e'] * inf['q']
-            total_val += val
-            total_cost += cost
+            total_val += val; total_cost += cost
             df_data.append({"Category": t, "Value": val})
     
     tpl = total_val - total_cost
     day_pl = total_val * 0.012 # Mock day change
     
-    # 2. DISPLAY METRICS
     m1, m2, m3 = st.columns(3)
     m1.metric("Net Liq", f"${total_val:,.2f}")
     m2.metric("Day P/L", f"${day_pl:,.2f}")
     m3.metric("Total P/L", f"${tpl:,.2f}", delta_color="normal")
     
-    # 3. CHART & LIST
     c1, c2 = st.columns([2,1])
     with c1:
         if df_data:
@@ -279,12 +296,10 @@ with t2:
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: draw_pro_card(t)
 
-# REAL NEWS RESTORED
 with t3:
     if st.button("Refresh News"):
         with st.spinner("Fetching Yahoo Finance RSS..."):
             try:
-                # Real RSS Fetch
                 r = requests.get("https://finance.yahoo.com/news/rssindex")
                 root = ET.fromstring(r.content)
                 news_items = []
