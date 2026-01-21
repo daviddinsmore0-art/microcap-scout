@@ -158,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (PRO MARKET STATE) ---
+# --- 4. DATA ENGINE (GOLDILOCKS FIX) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -174,52 +174,53 @@ def get_pro_data(s):
             except: return None
         if h.empty: return None
         
-        # Absolute Live Price (could be AH)
+        # 1. Determine Market Status
+        now = datetime.utcnow() - timedelta(hours=5)
+        # 9:30 AM to 4:00 PM
+        is_market_open = (now.weekday() < 5) and (
+            (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and (now.hour < 16)
+        )
+        
+        # 2. Get LIVE Price (Any time)
         p_live = h['Close'].iloc[-1]
         
-        # Regular Market Close (Static Reference)
-        try: 
-            reg_close = tk.fast_info['regular_market_previous_close']
-            # Try to get Today's Close if market is shut
-            if tk.fast_info.get('marketState') == 'CLOSED':
-                 reg_close = tk.fast_info.get('regular_market_price', reg_close)
-        except: 
-            reg_close = h['Open'].iloc[0]
+        # 3. Get OFFICIAL PREVIOUS CLOSE (Yesterday's Close)
+        try: prev_close = tk.fast_info['regular_market_previous_close']
+        except: prev_close = h['Open'].iloc[0]
+        
+        # 4. Set MAIN DISPLAY Values
+        if is_market_open:
+            # During Day: Main = Live, % = Live vs Prev Close
+            display_price = p_live
+            display_pct = ((p_live - prev_close) / prev_close) * 100
+        else:
+            # After Hours: Main = TODAY'S Official Close
+            # We try to get 'regular_market_price' which locks at 4pm
+            try: 
+                display_price = tk.fast_info['regular_market_price']
+            except: 
+                display_price = p_live # Fallback if data missing
             
-        # Determine Market State
+            # Recalculate Day % using Official Close
+            display_pct = ((display_price - prev_close) / prev_close) * 100
+
+        # 5. AFTER-HOURS BADGE LOGIC
         market_state = "REG"
         ext_price = None
         ext_pct = 0.0
-        display_price = p_live # Default to live
-        display_pct = 0.0
         
-        now = datetime.utcnow() - timedelta(hours=5)
-        # Check if After Hours (4pm - 8pm EST) or Pre Market (4am - 9:30am EST)
-        is_market_hours = (now.weekday() < 5) and (9 <= now.hour < 16) or (now.hour == 9 and now.minute >= 30)
+        # TSX LOCK: If Canadian, NEVER show AH badge
+        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
         
-        if not is_market_hours:
-            # We are in Extended Hours
-            # Main Price -> Freeze at Regular Close
-            display_price = reg_close
-            # Main % -> Change from Yesterday's Close to Today's Close
-            try:
-                prev = tk.fast_info['regular_market_previous_close']
-                display_pct = ((reg_close - prev) / prev) * 100
-            except: pass
-            
-            # Badge -> Shows Live AH Price vs Regular Close
-            if abs(p_live - reg_close) > 0.01:
+        if not is_tsx and not is_market_open:
+            # US Stock + Market Closed -> Calc Badge
+            # Badge % = (Live Price - Official 4pm Close) / Official 4pm Close
+            if abs(p_live - display_price) > 0.01: # Noise filter
                 market_state = "POST" if now.hour >= 16 else "PRE"
                 ext_price = p_live
-                ext_pct = ((p_live - reg_close) / reg_close) * 100
-        else:
-            # Market Open: Main is Live
-            display_price = p_live
-            try: 
-                prev = tk.fast_info['regular_market_previous_close']
-                display_pct = ((p_live - prev) / prev) * 100
-            except: pass
+                ext_pct = ((p_live - display_price) / display_price) * 100
 
+        # Indicators
         hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
@@ -354,6 +355,7 @@ def draw_pro_card(t, port_data=None):
         """, unsafe_allow_html=True)
 
         # AFTER-HOURS BADGE (COLOR & SIZE FIX)
+        # WILL NOT SHOW FOR TSX STOCKS NOW
         if d['state'] != "REG" and d['ext_p']:
             ext_sign = "+" if d['ext_d'] >= 0 else ""
             ext_col = "#4caf50" if d['ext_d'] >= 0 else "#ff4b4b" 
