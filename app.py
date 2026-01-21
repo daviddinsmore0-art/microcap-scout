@@ -63,7 +63,7 @@ def get_sector_tag(s):
     base = s.split('.')[0].upper()
     return f"[{sectors.get(base, 'IND')}]"
 
-# --- 3. SIDEBAR ---
+# --- 3. SIDEBAR (YELLOW BOX FIX) ---
 st.sidebar.header("⚡ Penny Pulse")
 
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
@@ -84,12 +84,13 @@ PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "J
 ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
 
 st.sidebar.caption("Price Target Asset")
-idx = 0
-if st.session_state.a_tick_input in ALL_T:
-    idx = sorted(ALL_T).index(st.session_state.a_tick_input)
-st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="a_tick_input", on_change=update_params, label_visibility="collapsed")
+# FIX: Removed 'index=' to stop Yellow Warning
+if st.session_state.a_tick_input not in ALL_T and ALL_T:
+    st.session_state.a_tick_input = ALL_T[0]
+st.sidebar.selectbox("", sorted(ALL_T), key="a_tick_input", on_change=update_params, label_visibility="collapsed")
 
 st.sidebar.caption("Target ($)")
+# FIX: Removed 'value=' to stop Yellow Warning
 st.sidebar.number_input("", step=0.5, key="a_price_input", on_change=update_params, label_visibility="collapsed")
 
 st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=update_params)
@@ -227,6 +228,7 @@ def draw_pro_card(t, port_data=None):
         col = "green" if d['d']>=0 else "red"
         col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
+        # Header
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
             <div style="flex:1;">
@@ -243,7 +245,7 @@ def draw_pro_card(t, port_data=None):
         if d['state'] != "REG":
             st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
 
-        # FIXED BLACK BAR (Holding Details)
+        # Portfolio Details
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
@@ -251,22 +253,25 @@ def draw_pro_card(t, port_data=None):
             profit = val - (entry * qty)
             p_col = "#4caf50" if profit >= 0 else "#ff4b4b"
             st.markdown(f"""
-            <div style="background-color:black; color:white !important; border-left:4px solid {p_col}; padding:8px; margin-bottom:10px; font-family:monospace;">
+            <div style="background-color:black; color:white !important; border-left:4px solid {p_col}; padding:8px; margin-bottom:10px; font-size:14px; font-family:monospace;">
                 <span style="color:#bbb;">Qty:</span> <b>{qty}</b> &nbsp;&nbsp; 
                 <span style="color:#bbb;">Avg:</span> <b>${entry}</b> &nbsp;&nbsp; 
                 <span style="color:#bbb;">P/L:</span> <span style="color:{p_col}; font-weight:bold;">${profit:,.2f}</span>
             </div>
             """, unsafe_allow_html=True)
 
-        # DROPPED ANALYST RATING
+        # Ratings & Metrics
         r_color = "#888"
         if "STRONG BUY" in d['rat']: r_color = "#00FF00" 
         elif "BUY" in d['rat']: r_color = "#4CAF50"      
         elif "HOLD" in d['rat']: r_color = "#FFC107"     
         elif "SELL" in d['rat']: r_color = "#FF4B4B"     
 
+        # FIX: Explicit color logic for Trend so Bear is always Red
+        t_color = "#FF4B4B" if "BEAR" in d['tr'] else "#4CAF50"
+
         st.markdown(f"**☻ AI:** {d['ai']}")
-        st.markdown(f"**TREND:** :{col}[**{d['tr']}**]")
+        st.markdown(f"**TREND:** <span style='color:{t_color};font-weight:bold;'>{d['tr']}</span>", unsafe_allow_html=True)
         st.markdown(f"**ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
         st.markdown(f"**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
         
@@ -321,20 +326,20 @@ with t2:
     tpl = total_val - total_cost
     day_pl = total_val * 0.012 
     
-    # FIXED TOP BANNER (HTML)
+    # FIXED FONT SIZE (22px)
     st.markdown(f"""
     <div style="background-color:#1E1E1E; padding:20px; border-radius:10px; border:1px solid #333; margin-bottom:25px; display:flex; justify-content:space-around; align-items:center;">
         <div style="text-align:center;">
             <div style="color:#aaa; font-size:14px; font-weight:bold;">Net Liq</div>
-            <div style="color:white; font-size:28px; font-weight:900;">${total_val:,.2f}</div>
+            <div style="color:white; font-size:22px; font-weight:900;">${total_val:,.2f}</div>
         </div>
         <div style="text-align:center;">
             <div style="color:#aaa; font-size:14px; font-weight:bold;">Day P/L</div>
-            <div style="color:{'#4caf50' if day_pl>=0 else '#ff4b4b'}; font-size:28px; font-weight:900;">${day_pl:,.2f}</div>
+            <div style="color:{'#4caf50' if day_pl>=0 else '#ff4b4b'}; font-size:22px; font-weight:900;">${day_pl:,.2f}</div>
         </div>
         <div style="text-align:center;">
             <div style="color:#aaa; font-size:14px; font-weight:bold;">Total P/L</div>
-            <div style="color:{'#4caf50' if tpl>=0 else '#ff4b4b'}; font-size:28px; font-weight:900;">${tpl:,.2f}</div>
+            <div style="color:{'#4caf50' if tpl>=0 else '#ff4b4b'}; font-size:22px; font-weight:900;">${tpl:,.2f}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -345,28 +350,61 @@ with t2:
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
-    if st.button("Refresh News"):
-        with st.spinner("Fetching Yahoo Finance RSS..."):
-            try:
-                r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
-                root = ET.fromstring(r.content)
-                news_items = []
-                for item in root.findall('.//item')[:10]:
-                    title = item.find('title').text
-                    link = item.find('link').text
-                    pubDate = item.find('pubDate').text if item.find('pubDate') is not None else "Recent"
-                    news_items.append({"title": title, "link": link, "time": pubDate})
-                st.session_state['news_results'] = news_items
-            except Exception as e:
-                st.error(f"News Fetch Error: {e}")
+    if st.button("Analyze Market Context"):
+        if KEY:
+            with st.spinner("Analyzing Headlines with AI..."):
+                try:
+                    # 1. Fetch
+                    r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
+                    root = ET.fromstring(r.content)
+                    raw_items = []
+                    for item in root.findall('.//item')[:8]:
+                        title = item.find('title').text
+                        link = item.find('link').text
+                        pub = item.find('pubDate').text
+                        raw_items.append(f"{title} (Date: {pub}) [Link: {link}]")
+                    
+                    # 2. AI Analyze
+                    from openai import OpenAI
+                    cl = OpenAI(api_key=KEY)
+                    prompt = """
+                    Analyze these financial headlines. For each relevant item, return a JSON object with:
+                    - 'ticker': The main stock ticker (e.g. TSLA, AAPL, BTC) or 'MKT' if general.
+                    - 'sentiment': 'BULL' or 'BEAR' or 'NEUTRAL'.
+                    - 'summary': A 5-word snappy summary.
+                    - 'link': The original link.
+                    Return a JSON wrapper: {'items': [...]}
+                    """
+                    resp = cl.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role":"system", "content": prompt}, {"role":"user", "content": "\n".join(raw_items)}],
+                        response_format={"type": "json_object"}
+                    )
+                    data = json.loads(resp.choices[0].message.content)
+                    st.session_state['news_results'] = data.get('items', [])
+                except Exception as e:
+                    st.error(f"AI Analysis Failed: {e}")
+        else:
+            st.info("Please enter OpenAI Key in Sidebar to use AI features.")
     
+    # Display AI Results
     if st.session_state['news_results']:
         for n in st.session_state['news_results']:
-            st.markdown(f"**{n['title']}**")
-            st.caption(f"{n['time']} | [Read Article]({n['link']})")
-            st.divider()
+            # Color coding for sentiment
+            s_color = "#4caf50" if n['sentiment']=="BULL" else ("#ff4b4b" if n['sentiment']=="BEAR" else "#888")
+            st.markdown(f"""
+            <div style="border-left: 4px solid {s_color}; padding-left: 10px; margin-bottom: 20px;">
+                <div style="font-weight:bold; font-size:18px;">
+                    <span style="background:{s_color}; color:white; padding:2px 6px; border-radius:4px; font-size:12px;">{n.get('ticker','MKT')}</span>
+                    {n.get('summary', 'News Item')}
+                </div>
+                <div style="font-size:12px; color:#888; margin-top:4px;">
+                    <a href="{n.get('link','#')}" style="color:#4dabf7; text-decoration:none;">Read Full Story ➤</a>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
     else:
-        st.info("Click 'Refresh News' to load live headlines.")
+        st.info("Click 'Analyze Market Context' to fetch and scan news.")
 
 sec_to_next_min = 60 - datetime.now().second
 time.sleep(sec_to_next_min)
