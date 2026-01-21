@@ -46,33 +46,17 @@ def get_clean_name(t):
     if t in NAMES: return NAMES[t]
     return t.replace(".TO","").replace(".V","").replace(".CN","")
 
-# --- 4. SIDEBAR ---
-st.sidebar.header("⚡ Pulse")
-st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
-st.sidebar.divider()
-st.sidebar.subheader("🔔 Alerts")
-ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + ["HIVE","BAER","TX","IMNN","RERE"]))
-st.sidebar.selectbox("Asset", sorted(ALL_T), key="a_tick_input")
-st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input")
-st.sidebar.toggle("Price Alert", key="a_on_input")
-st.sidebar.toggle("Flip Alert", key="flip_on_input")
-st.sidebar.toggle("Keep Screen On", key="keep_on_input")
-
-# --- 5. DATA LOGIC ---
+# --- 4. DATA LOGIC ---
 def get_rating_and_meta(s):
     search_ticker = s
     if ".TO" in s: search_ticker = s.replace(".TO", "")
-    
     if search_ticker in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][search_ticker]
-    
     try:
         tk = yf.Ticker(search_ticker)
         inf = tk.info
-        
         r = inf.get('recommendationKey', 'N/A').upper().replace('_',' ')
         r_col = "#00C805" if "BUY" in r else ("#FFC107" if "HOLD" in r else "#FF4B4B")
         if r == "N/A": r = "NONE"
-        
         sec = inf.get('sector', 'N/A')[:4].upper()
         earn = "N/A"
         cal = tk.calendar
@@ -81,7 +65,6 @@ def get_rating_and_meta(s):
                 dt = cal.iloc[0,0] if hasattr(cal, 'iloc') else cal.get('Earnings Date', [None])[0]
                 if dt: earn = dt.strftime('%b %d')
             except: pass
-
         res = (r, r_col, sec, earn)
         st.session_state['mem_ratings'][search_ticker] = res
         return res
@@ -98,8 +81,10 @@ def get_data_accurate(s):
         p_prev = hd['Close'].iloc[-3] if is_today else hd['Close'].iloc[-2]
         d_static = ((p_anchor - p_prev) / p_prev) * 100
         
-        h = tk.history(period="1d", interval="5m", prepost=True)
-        if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
+        # CLEAN TSX CHARTS: Disable prepost for Canadian stocks
+        use_prepost = not any(x in s for x in [".TO", ".V", ".CN"])
+        h = tk.history(period="1d", interval="5m", prepost=use_prepost)
+        if h.empty: h = tk.history(period="5d", interval="1h", prepost=use_prepost)
         p_live = h['Close'].iloc[-1]
         d_live = ((p_live - p_anchor) / p_anchor) * 100
         
@@ -113,22 +98,26 @@ def get_data_accurate(s):
 
         dh, dl = h['High'].max(), h['Low'].min()
         rng_p = max(0, min(1, (p_live - dl) / (dh - dl))) * 100 if dh > dl else 50
-        v_tag = "⚡ Surge" if vol_ratio > 1.5 else ("🌊 Steady" if vol_ratio > 0.8 else "💤 Quiet")
         
-        rating, r_col, sec, earn = get_rating_and_meta(s)
+        # RESTORED DESCRIPTIVE INDICATORS
+        v_tag = "⚡ Surge" if vol_ratio > 1.5 else ("🌊 Steady" if vol_ratio > 0.8 else "💤 Quiet")
+        r_tag = "🔥 Hot" if rsi > 70 else ("❄️ Cold" if rsi < 30 else "⚖️ Calm")
+        r_col = "#ff4b4b" if rsi > 70 or rsi < 30 else "#4caf50"
+        
+        rating, rating_col, sec, earn = get_rating_and_meta(s)
 
         bars = f"""
         <div style="font-size:11px;color:#666;margin-top:10px;"><b>Day Range</b></div>
         <div style="display:flex;align-items:center;font-size:10px;color:#888;"><span style="margin-right:4px;">L</span><div style="flex-grow:1;height:4px;background:#333;border-radius:2px;"><div style="width:{rng_p}%;height:100%;background:linear-gradient(90deg,#ff4b4b,#4caf50);"></div></div><span style="margin-left:4px;">H</span></div>
         <div style="font-size:11px;color:#666;margin-top:8px;"><b>Volume: {v_tag}</b> ({vol_ratio:.1f}x)</div>
         <div style="width:100%;height:6px;background:#333;border-radius:3px;"><div style="width:{min(100, vol_ratio*50)}%;height:100%;background:#2196F3;border-radius:3px;"></div></div>
-        <div style="font-size:11px;color:#666;margin-top:8px;"><b>RSI: {rsi:.0f}</b></div>
-        <div style="width:100%;height:6px;background:#333;border-radius:3px;"><div style="width:{rsi}%;height:100%;background:{'#ff4b4b' if rsi>70 or rsi<30 else '#4caf50'};border-radius:3px;"></div></div>
+        <div style="font-size:11px;color:#666;margin-top:8px;"><b>RSI: {r_tag}</b> ({rsi:.0f})</div>
+        <div style="width:100%;height:6px;background:#333;border-radius:3px;"><div style="width:{rsi}%;height:100%;background:{r_col};border-radius:3px;"></div></div>
         """
-        return {"p_anchor":p_anchor, "d_static":d_static, "p_live":p_live, "d_live":d_live, "rsi":rsi, "tr":trend, "chart":h, "rating":rating, "r_col":r_col, "sec":sec, "earn":earn, "bars":bars}
+        return {"p_anchor":p_anchor, "d_static":d_static, "p_live":p_live, "d_live":d_live, "rsi":rsi, "tr":trend, "chart":h, "rating":rating, "r_col":rating_col, "sec":sec, "earn":earn, "bars":bars}
     except: return None
 
-# --- 6. UI ---
+# --- 5. UI ---
 est = datetime.utcnow() - timedelta(hours=5)
 status = "🔴 CLOSED"
 hh, mm = est.hour, est.minute
@@ -150,7 +139,6 @@ def draw_card(t):
         st.metric("Prev Close", f"${d['p_anchor']:,.2f}", f"{d['d_static']:+.2f}%")
         st.markdown(f"<div style='margin-top:-15px;margin-bottom:10px;font-weight:bold;'>⚡ LIVE: ${d['p_live']:,.2f} <span style='color:{'#4caf50' if d['d_live']>=0 else '#ff4b4b'}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
         
-        # BOLD UI Restoration
         st.markdown(f"""
         <div style='font-size:14px;line-height:1.6;'>
             <b>TREND:</b> <span style='color:{'#00C805' if d['tr']=='BULL' else '#FF4B4B'}'><b>{d['tr']}</b></span><br>
@@ -172,6 +160,5 @@ with t1:
     for i, t in enumerate(W):
         with cols[i%3]: draw_card(t)
 
-# Refined Rerun Heartbeat to stop dimming/looping
 time.sleep(2)
 st.rerun()
