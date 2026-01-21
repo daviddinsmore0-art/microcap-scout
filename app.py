@@ -14,7 +14,6 @@ except: pass
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
-    # Defaults
     defaults = {
         'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
         'a_tick_input': "SPY",
@@ -26,7 +25,6 @@ if 'initialized' not in st.session_state:
         'base_url_input': ""
     }
     
-    # Check URL
     qp = st.query_params
     if 'w' in qp: defaults['w_input'] = qp['w']
     if 'at' in qp: defaults['a_tick_input'] = qp['at']
@@ -37,7 +35,6 @@ if 'initialized' not in st.session_state:
     for k, v in defaults.items():
         st.session_state[k] = v
         
-    # Internal
     st.session_state['news_results'] = []
     st.session_state['alert_log'] = []
     st.session_state['last_trends'] = {}
@@ -70,7 +67,7 @@ def load_profile_callback():
 
 def sync_js(config_json):
     js = f"""<script>
-    const KEY="penny_pulse_v79"; const d={config_json}; const s=localStorage.getItem(KEY);
+    const KEY="penny_pulse_v80"; const d={config_json}; const s=localStorage.getItem(KEY);
     const p=new URLSearchParams(window.location.search);
     if(!p.has("w")&&s){{try{{const c=JSON.parse(s);if(c.w&&c.w!=="SPY"){{
     const u=new URL(window.location);u.searchParams.set("w",c.w);u.searchParams.set("at",c.at);
@@ -90,13 +87,11 @@ else: KEY = st.sidebar.text_input("OpenAI Key", type="password")
 
 st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
 
-# Lists
 PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
 NAMES = {"TSLA":"Tesla", "NVDA":"Nvidia", "BTC-USD":"Bitcoin", "AMD":"AMD", "PLTR":"Palantir", "AAPL":"Apple", "SPY":"S&P 500", "^IXIC":"Nasdaq", "^DJI":"Dow Jones", "GC=F":"Gold", "TD.TO":"TD Bank", "IVN.TO":"Ivanhoe", "BN.TO":"Brookfield", "JNJ":"J&J", "^GSPTSE": "TSX"} 
 WATCH = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
 ALL = list(set(WATCH + list(PORT.keys())))
 
-# Controls
 c1, c2 = st.sidebar.columns(2)
 with c1: 
     if st.button("💾 Save"): update_params(); st.toast("Saved!")
@@ -106,18 +101,13 @@ with c2:
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Alerts")
 
-curr = st.session_state.a_tick_input
-idx = 0
-if curr in sorted(ALL): idx = sorted(ALL).index(curr)
-
-a_tick = st.sidebar.selectbox("Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
+a_tick = st.sidebar.selectbox("Asset", sorted(ALL), key="a_tick_input", on_change=update_params)
 a_price = st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=update_params)
 a_on = st.sidebar.toggle("Price Alert", key="a_on_input", on_change=update_params)
 flip_on = st.sidebar.toggle("Flip Alert", key="flip_on_input", on_change=update_params)
 keep_on = st.sidebar.toggle("Keep Screen On", key="keep_on_input", on_change=update_params)
 notify_on = st.sidebar.checkbox("Desktop Notify", key="notify_input", on_change=update_params)
 
-# Backup
 st.sidebar.divider()
 with st.sidebar.expander("📦 Backup"):
     export = {'w': st.session_state.w_input, 'at': a_tick, 'ap': a_price, 'ao': a_on, 'fo': flip_on}
@@ -146,26 +136,22 @@ def check_flip(ticker, current_trend, enabled):
         log_alert(f"{ticker} FLIPPED to {current_trend}", "Trend Flip")
     st.session_state['last_trends'][ticker] = current_trend
 
-# Helpers
 def get_meta(s):
     if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
     try:
         tk = yf.Ticker(s)
         sec = tk.info.get('sector', 'N/A')[:4].upper()
-        
         earn_html = "N/A"
         cal = tk.calendar
         dates = []
         if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
         elif hasattr(cal, 'iloc') and not cal.empty: dates = [cal.iloc[0,0]]
-        
         if len(dates) > 0:
             nxt = dates[0]
             if hasattr(nxt, "date"): nxt = nxt.date()
             days = (nxt - datetime.now().date()).days
             if 0 <= days <= 7: earn_html = f"⚠️ {days}d"
             elif days > 0: earn_html = f"📅 {nxt.strftime('%b %d')}"
-            
         res = (sec, earn_html)
         st.session_state['mem_meta'][s] = res
         return res
@@ -179,14 +165,12 @@ def get_rating(s):
         elif "BUY" in r: r = "✅ BUY"
         elif "HOLD" in r: r = "✋ HOLD"
         elif "SELL" in r: r = "🔻 SELL"
-        
         col = "#00C805" if "BUY" in r else ("#FFC107" if "HOLD" in r else "#FF4B4B")
         res = (r, col)
         st.session_state['mem_ratings'][s] = res
         return res
     except: return "N/A", "#888"
 
-# SPY Benchmark
 def get_spy():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
@@ -201,12 +185,9 @@ def get_spy():
     return None
 
 def calc_storm_score(ticker, rsi, vol_ratio, trend, change):
-    score = 0
-    reasons = []
-    mode = "NEUTRAL"
+    score = 0; reasons = []; mode = "NEUTRAL"
     if vol_ratio >= 2.0: score += 30; reasons.append("Vol 2x")
     elif vol_ratio >= 1.5: score += 15; reasons.append("Hi Vol")
-    
     if trend == "BULL" and change > 0:
         if rsi <= 35: score += 25; reasons.append("Oversold")
         if change > 2.0: score += 20; reasons.append("Momentum")
@@ -215,7 +196,6 @@ def calc_storm_score(ticker, rsi, vol_ratio, trend, change):
         if rsi >= 65: score += 25; reasons.append("Overbought")
         if change < -2.0: score += 25; reasons.append("Panic")
         mode = "BEAR"
-        
     return score, mode, reasons
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -224,79 +204,72 @@ def get_data_rich(s):
     s = s.strip().upper()
     try:
         tk = yf.Ticker(s)
+        
+        # --- DUAL FETCH STRATEGY (The Accuracy Fix) ---
+        # 1. Fetch Daily Data (5d) to find true Previous Close
+        hist_daily = tk.history(period="5d", interval="1d")
+        if len(hist_daily) >= 2:
+            # The last row is "Today" (incomplete), second to last is "Yesterday Close"
+            pv = hist_daily['Close'].iloc[-2]
+        else:
+            # Fallback for new listings
+            try: pv = tk.fast_info['previous_close']
+            except: pv = 0.0
+            
+        # 2. Fetch Intraday Data for Live Price & Chart
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if h.empty: return None
         
         p = h['Close'].iloc[-1]
-        try: pv = tk.fast_info['previous_close']
-        except: pv = h['Open'].iloc[0]
-        d_pct = ((p-pv)/pv)*100
         
+        # Calculate Percentage (Live Price vs True Previous Close)
+        if pv > 0: d_pct = ((p - pv) / pv) * 100
+        else: d_pct = 0.0
+        # -----------------------------------------------
+
         dh = h['High'].max()
         dl = h['Low'].min()
-        
-        # --- CHART FIX: Explicitly Build DataFrame ---
-        chart_data = pd.DataFrame({
-            'Time': h.index,
-            'Close': h['Close'].values
-        })
+        chart_data = pd.DataFrame({'Time': h.index, 'Close': h['Close'].values})
         
         hm = tk.history(period="1mo")
         rsi, trend, tr_html = 50, "NEUTRAL", "NEUTRAL"
-        vol_ratio = 1.0
-        golden_cross = ""
-        ai_msg = "NEUTRAL"
-        ai_col = "#888"
+        vol_ratio, golden_cross, ai_msg, ai_col = 1.0, "", "NEUTRAL", "#888"
         
-        # Stats
         if len(hm)>14:
             d = hm['Close'].diff()
             u, dw = d.clip(lower=0), -1*d.clip(upper=0)
             rsi = 100 - (100/(1 + (u.rolling(14).mean()/dw.rolling(14).mean()).iloc[-1]))
-            
             m12 = hm['Close'].ewm(span=12).mean()
             m26 = hm['Close'].ewm(span=26).mean()
-            mac = m12 - m26
-            if mac.iloc[-1] > 0: 
-                trend = "BULL"
-                tr_html = "<span style='color:#00C805;font-weight:bold'>BULL</span>"
+            if (m12-m26).iloc[-1] > 0: 
+                trend = "BULL"; tr_html = "<span style='color:#00C805;font-weight:bold'>BULL</span>"
                 ai_msg = "BULLISH BIAS"; ai_col = "#00C805"
             else: 
-                trend = "BEAR"
-                tr_html = "<span style='color:#FF4B4B;font-weight:bold'>BEAR</span>"
+                trend = "BEAR"; tr_html = "<span style='color:#FF4B4B;font-weight:bold'>BEAR</span>"
                 ai_msg = "BEARISH BIAS"; ai_col = "#FF4B4B"
-                
             v = hm['Volume'].iloc[-1]; a = hm['Volume'].mean()
             if a > 0: vol_ratio = v/a
-            
             if len(hm) > 200:
                 ma50 = hm['Close'].rolling(50).mean().iloc[-1]
                 ma200 = hm['Close'].rolling(200).mean().iloc[-1]
                 if ma50 > ma200: golden_cross = " <span style='background:#FFD700;color:black;padding:1px 4px;border-radius:3px;font-size:10px;font-weight:bold'>🌟 GOLDEN CROSS</span>"
 
-        # --- HTML VISUALS RESTORED ---
-        # 1. Range Bar
+        # HTML Visuals
         rng_pct = 50
-        if dh > dl:
-            raw = (p - dl) / (dh - dl)
-            rng_pct = max(0, min(1, raw)) * 100
+        if dh > dl: rng_pct = max(0, min(1, (p - dl) / (dh - dl))) * 100
         rng_html = f"""<div style="font-size:11px;color:#666;margin-top:5px;">Day Range</div><div style="display:flex;align-items:center;font-size:10px;color:#888;"><span style="margin-right:4px;">L</span><div style="flex-grow:1;height:4px;background:#333;border-radius:2px;"><div style="width:{rng_pct}%;height:100%;background:linear-gradient(90deg,#ff4b4b,#4caf50);"></div></div><span style="margin-left:4px;">H</span></div>"""
         
-        # 2. Volume Bar
         vol_tag = "💤 Quiet"
         if vol_ratio >= 2.0: vol_tag = "⚡ Surge"
         elif vol_ratio >= 1.2: vol_tag = "🌊 Steady"
         vol_pct = min(100, (vol_ratio/2.0)*100)
         vol_html = f"""<div style="font-size:11px;color:#666;margin-top:8px;">Volume: <b>{vol_tag}</b></div><div style="width:100%;height:6px;background:#333;border-radius:3px;"><div style="width:{vol_pct}%;height:100%;background:#2196F3;border-radius:3px;"></div></div>"""
         
-        # 3. RSI Bar
         r_col = "#4caf50"
-        if rsi >= 70: r_col = "#ff4b4b" # Overbought
-        elif rsi <= 30: r_col = "#ff4b4b" # Oversold
+        if rsi >= 70 or rsi <= 30: r_col = "#ff4b4b"
         rsi_html = f"""<div style="font-size:11px;color:#666;margin-top:8px;">RSI: <b>{rsi:.0f}</b></div><div style="width:100%;height:6px;background:#333;border-radius:3px;"><div style="width:{rsi}%;height:100%;background:{r_col};border-radius:3px;"></div></div>"""
         
-        # 4. Storm Box
         storm_html = ""
         s_score, s_mode, s_reasons = calc_storm_score(s, rsi, vol_ratio, trend, d_pct)
         if s_score >= 70:
@@ -307,14 +280,14 @@ def get_data_rich(s):
         return {"p":p, "d":d_pct, "rsi":rsi, "tr":trend, "tr_h":tr_html, "gc":golden_cross, "chart":chart_data, "vr":vol_ratio, "ai":ai_msg, "ai_c":ai_col, "rng_html":rng_html, "vol_html":vol_html, "rsi_html":rsi_html, "storm_html":storm_html, "s_score":s_score, "s_mode":s_mode}
     except: return None
 
-# Price Alert
+# Alert
 if a_on:
     d = get_data_rich(a_tick)
     if d and d['p'] >= a_price and not st.session_state['alert_triggered']:
         log_alert(f"{a_tick} hit ${a_price:,.2f}!", "Price Alert")
         st.session_state['alert_triggered'] = True
 
-# --- 6. UI: HEADER & MARQUEE ---
+# --- 6. UI ---
 if st.session_state['banner_msg']:
     st.markdown(f"<div style='background:#900;color:white;padding:10px;text-align:center;font-weight:bold;position:fixed;top:0;left:0;width:100%;z-index:99;'>{st.session_state['banner_msg']}</div>", unsafe_allow_html=True)
     if st.button("Dismiss"): st.session_state['banner_msg'] = None; st.rerun()
@@ -327,7 +300,6 @@ with c1:
 with c2:
     components.html("""<div style="font-family:'Helvetica';background:#0E1117;padding:5px;text-align:center;display:flex;justify-content:center;align-items:center;height:100%;"><span style="color:#BBBBBB;font-weight:bold;font-size:14px;margin-right:5px;">Next Update: </span><span id="c" style="color:#FF4B4B;font-weight:900;font-size:18px;">--</span><span style="color:#BBBBBB;font-size:14px;margin-left:2px;"> s</span></div><script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>""", height=60)
 
-# Scroller
 @st.cache_data(ttl=60, show_spinner=False)
 def get_marquee():
     txt = ""
@@ -340,21 +312,18 @@ def get_marquee():
 
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-top:2px solid #333;border-bottom:2px solid #333;"><marquee scrollamount="6" style="width:100%;">{get_marquee()*5}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 7. DASHBOARD (FULL VISUALS RESTORED) ---
+# --- 7. DASHBOARD ---
 def render_card(t, inf=None):
     d = get_data_rich(t)
     spy = get_spy()
     
     if d:
         check_flip(t, d['tr'], flip_on)
-        
-        # Check Storm
         if d['s_score'] >= 70:
             l = st.session_state['storm_cooldown'].get(t, datetime.min)
             if (datetime.now()-l).seconds > 300:
                 log_alert(f"STORM: {t}", d['s_mode']); st.session_state['storm_cooldown'][t] = datetime.now()
         
-        # UI Elements
         rt, rc = get_rating(t)
         sec, earn = get_meta(t)
         nm = NAMES.get(t, t)
@@ -365,10 +334,8 @@ def render_card(t, inf=None):
         u = f"https://finance.yahoo.com/quote/{t}"
         sec_tag = f" <span style='color:#777;font-size:14px;'>[{sec}]</span>" if sec else ""
         
-        # Header
         st.markdown(f"<h3 style='margin:0;padding:0;'><a href='{u}' target='_blank' style='text-decoration:none;color:inherit'>{nm}</a>{sec_tag}</h3>", unsafe_allow_html=True)
         
-        # Metrics
         if inf:
             v = d['p']*inf['q']
             pl = v-(inf['e']*inf['q'])
@@ -380,24 +347,14 @@ def render_card(t, inf=None):
         st.markdown(f"<div style='margin-top:-10px;margin-bottom:10px;'>⚡ LIVE: ${d['p']:,.2f} <span style='color:{'#4caf50' if d['d']>=0 else '#ff4b4b'}'>({d['d']:+.2f}%)</span></div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>⚙️ AI: <span style='color:{d['ai_c']}'>{d['ai']}</span></div>", unsafe_allow_html=True)
 
-        # Rich Metadata
-        st.markdown(f"""
-        <div style='font-size:14px;line-height:1.8;margin-bottom:10px;color:#444;'>
-            <div><b style='color:black;margin-right:8px;'>TREND:</b> {d['tr_h']}{d['gc']}</div>
-            <div><b style='color:black;margin-right:8px;'>RATING:</b> <span style='color:{rc};font-weight:bold;'>{rt}</span></div>
-            <div><b style='color:black;margin-right:8px;'>EARNINGS:</b> {earn}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div style='font-size:14px;line-height:1.8;margin-bottom:10px;color:#444;'><div><b style='color:black;margin-right:8px;'>TREND:</b> {d['tr_h']}{d['gc']}</div><div><b style='color:black;margin-right:8px;'>RATING:</b> <span style='color:{rc};font-weight:bold;'>{rt}</span></div><div><b style='color:black;margin-right:8px;'>EARNINGS:</b> {earn}</div></div>""", unsafe_allow_html=True)
         
-        # Chart (Intraday + SPY)
         st.markdown("<div style='font-size:11px;font-weight:bold;color:#555;margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        # Normalize for Comparison
         c_df = d['chart'].copy()
         start_p = c_df['Close'].iloc[0]
         c_df['Stock'] = ((c_df['Close'] - start_p)/start_p)*100
         
-        # Add SPY
         has_spy = False
         if spy is not None:
             try:
@@ -408,17 +365,14 @@ def render_card(t, inf=None):
                     has_spy = True
             except: pass
             
-        # Plot
         base = alt.Chart(c_df.reset_index()).encode(x=alt.X('Time', axis=None))
         l1 = base.mark_line(color="#4caf50" if d['d']>=0 else "#ff4b4b").encode(y=alt.Y('Stock', axis=None))
         final = l1
         if has_spy:
             l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y='SPY')
             final = l1 + l2
-            
         st.altair_chart(final.properties(height=50, width='container'), use_container_width=True)
         
-        # --- HTML BARS RESTORED ---
         st.markdown(d['rng_html'], unsafe_allow_html=True)
         st.markdown(d['vol_html'], unsafe_allow_html=True)
         st.markdown(d['rsi_html'], unsafe_allow_html=True)
