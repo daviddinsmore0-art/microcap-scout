@@ -4,6 +4,7 @@ import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
 import json
+import xml.etree.ElementTree as ET # FIXED: Imported ET for News
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -42,6 +43,16 @@ def update_params():
 
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
+
+# Dictionary for Company Names (Mocked for speed, can be fetched)
+NAMES = {
+    "TD.TO": "TD Bank", "BN.TO": "Brookfield", "CCO.TO": "Cameco", 
+    "IVN.TO": "Ivanhoe Mines", "HIVE": "Hive Digital", "SPY": "S&P 500 ETF",
+    "BAER": "Baer Tech", "RERE": "ReRe Inc", "IMNN": "Imunon", "TX": "Ternium"
+}
+
+def get_name(s):
+    return NAMES.get(s, s.split('.')[0])
 
 def get_sector_tag(s):
     sectors = {
@@ -94,7 +105,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. ROBUST DATA ENGINE ---
+# --- 4. DATA ENGINE ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -105,15 +116,25 @@ def get_pro_data(s):
         tk = yf.Ticker(s)
         # Attempt 1: High Res
         h = tk.history(period="1d", interval="5m", prepost=True)
-        # Attempt 2: Fallback to Lower Res if empty
         if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
         if h.empty: return None
         
-        p = h['Close'].iloc[-1]
-        try: pv = tk.fast_info['previous_close']
-        except: pv = h['Open'].iloc[0]
-        d_pct = ((p-pv)/pv)*100
+        # Prices
+        p_live = h['Close'].iloc[-1]
+        try: p_prev = tk.fast_info['previous_close']
+        except: p_prev = h['Open'].iloc[0]
+        d_pct = ((p_live - p_prev) / p_prev) * 100
         
+        # Pre/Post Market Logic
+        market_state = "REG"
+        ext_price = None
+        # Simple check: If current time is outside 9:30-4:00 EST (simplified)
+        now = datetime.utcnow() - timedelta(hours=5)
+        is_market_hours = (now.weekday() < 5) and (9 <= now.hour < 16)
+        if not is_market_hours:
+            ext_price = p_live # In fetch, the last price is the extended hours price if prepost=True
+            market_state = "POST" if now.hour >= 16 else "PRE"
+
         # Indicators
         hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
@@ -139,11 +160,10 @@ def get_pro_data(s):
         if spy is not None and len(spy) > 0:
             spy_start = spy.iloc[0] if spy.iloc[0] != 0 else 1
             s_norm = ((spy - spy_start) / spy_start) * 100
-            # Align
             if len(s_norm) >= len(chart_data): chart_data['SPY'] = s_norm.values[-len(chart_data):]
             else: chart_data['SPY'] = 0
 
-        # Earnings Safe Fetch
+        # Meta
         earn = "N/A"
         try:
             cal = tk.calendar
@@ -158,15 +178,14 @@ def get_pro_data(s):
         rat = tk.info.get('recommendationKey', 'N/A').upper().replace('_',' ')
 
         return {
-            "p": p, "d": d_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
+            "p": p_live, "d": d_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
             "chart": chart_data, "ai": ai_bias, "rat": rat, "earn": earn,
-            "h": h['High'].max(), "l": h['Low'].min()
+            "h": h['High'].max(), "l": h['Low'].min(), "state": market_state
         }
     except: return None
 
 # --- 5. SCROLLER ---
 est = datetime.utcnow() - timedelta(hours=5)
-
 @st.cache_data(ttl=60)
 def build_scroller():
     indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")]
@@ -179,25 +198,32 @@ def build_scroller():
                 a = "▲" if d['d'] >= 0 else "▼"
                 items.append(f"{n}: <span style='color:{c}'>${d['p']:,.2f} {a} {d['d']:.2f}%</span>")
         except: continue
-    
     if not items: return "Market Data Initializing..."
     return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
 
 scroller_html = build_scroller()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 6. HEADER & TIMER ---
+# --- 6. HEADER & DRESSED UP TIMER ---
 h1, h2 = st.columns([2, 1])
 with h1:
     st.title("⚡ Penny Pulse")
     st.caption(f"Last Sync: {est.strftime('%H:%M:%S EST')}")
 with h2:
+    # DRESSED UP TIMER (Badge Style)
     components.html("""
-    <div style="font-family:'Helvetica', sans-serif; text-align:right; padding-top:20px;">
-        <span style="font-size:12px; color:#888; text-transform:uppercase; letter-spacing:1px;">Auto-Refresh In</span><br>
-        <span id="timer" style="font-size:32px; font-weight:900; color:#FF4B4B;">--</span><span style="font-size:14px; color:#666;">s</span>
+    <div style="font-family:'Helvetica', sans-serif; display:flex; justify-content:flex-end; align-items:center; height:100%; padding-right:10px;">
+        <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:10px 15px; display:flex; align-items:center; box-shadow:0 2px 5px rgba(0,0,0,0.5);">
+            <div style="text-align:right; margin-right:10px;">
+                <div style="font-size:10px; color:#888; font-weight:bold; letter-spacing:1px;">NEXT UPDATE</div>
+                <div style="font-size:10px; color:#555;">AUTO-REFRESH</div>
+            </div>
+            <div style="font-size:32px; font-weight:700; color:#FF4B4B; font-family:'Courier New', monospace; line-height:1;">
+                <span id="timer">--</span><span style="font-size:14px;">s</span>
+            </div>
+        </div>
     </div>
-    <script>setInterval(function(){var s=60-new Date().getSeconds();document.getElementById("timer").innerHTML=s;},1000);</script>
+    <script>setInterval(function(){var s=60-new Date().getSeconds();document.getElementById("timer").innerHTML=s<10?"0"+s:s;},1000);</script>
     """, height=80)
 
 # --- 7. TABS ---
@@ -206,26 +232,35 @@ t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 def draw_pro_card(t):
     d = get_pro_data(t)
     if d:
+        name = get_name(t)
         sec = get_sector_tag(t)
         col = "green" if d['d']>=0 else "red"
         col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
-        # FLEXBOX HEADER (Perfect Alignment)
+        # FLEXBOX HEADER (Redesigned)
+        # Big Name, Small Ticker, Right-Aligned Price
         st.markdown(f"""
-        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
             <div style="flex:1;">
-                <span style="font-size:22px; font-weight:bold;">{t}</span>
-                <span style="font-size:14px; color:#888; margin-left:5px;">{sec}</span>
+                <div style="font-size:24px; font-weight:900;">{name}</div>
+                <div style="font-size:14px; color:#BBB; font-weight:bold;">{t} <span style="color:#666; font-weight:normal;">{sec}</span></div>
             </div>
             <div style="text-align:right;">
-                <div style="font-size:20px; font-weight:bold;">${d['p']:,.2f}</div>
+                <div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div>
                 <div style="font-size:14px; font-weight:bold; color:{col_hex};">{d['d']:+.2f}%</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
+        # PRE/POST MARKET BADGE
+        if d['state'] != "REG":
+            st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
+
+        # METRICS ROW (Bolded)
+        today = datetime.now().strftime('%b %d')
         st.markdown(f"**☻ AI:** {d['ai']}")
-        st.markdown(f"**TREND:** :{col}[{d['tr']}] | **EARNINGS:** {d['earn']}")
+        st.markdown(f"**TREND:** :{col}[**{d['tr']}**] | **RATING:** **{d['rat']}**")
+        st.markdown(f"**EARNINGS:** {d['earn']} | **DATE:** {today}")
         
         # Chart
         base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
@@ -243,24 +278,13 @@ def draw_pro_card(t):
             pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
             pct = max(0, min(100, pct))
         else: pct = 50
-        
-        st.markdown(f"""
-        <div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range</div>
-        <div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;">
-            <div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
 
         # RSI & Volume
         rsi_pct = min(100, max(0, d['rsi']))
         st.markdown(f"""
-        <div style="font-size:10px;color:#888;">Volume Strength: {'⚡ Surge' if d['vol']>1.5 else '💤 Quiet'}</div>
-        <div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:8px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div>
-        
-        <div style="font-size:10px;color:#888;">RSI Momentum: {d['rsi']:.0f} ({'🔥 Hot' if d['rsi']>70 else 'Safe'})</div>
-        <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;">
-            <div style="width:{rsi_pct}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div>
-        </div>
+        <div style="font-size:10px;color:#888;">Volume: {'⚡ Surge' if d['vol']>1.5 else '💤 Quiet'} | RSI: {d['rsi']:.0f}</div>
+        <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;"><div style="width:{rsi_pct}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div></div>
         """, unsafe_allow_html=True)
         st.divider()
 
@@ -271,30 +295,25 @@ with t1:
         with cols[i%3]: draw_pro_card(t)
 
 with t2:
-    total_val, total_cost, df_data = 0, 0, []
+    # P/L Logic (Pie Chart Removed)
+    total_val, total_cost = 0, 0
     for t, inf in PORT.items():
         d = get_pro_data(t)
         if d:
             val = d['p'] * inf['q']
             cost = inf['e'] * inf['q']
             total_val += val; total_cost += cost
-            df_data.append({"Category": t, "Value": val})
     
     tpl = total_val - total_cost
     day_pl = total_val * 0.012 
     
+    # NICE CHART ACROSS THE TOP
+    st.markdown("""<div style="background:#1E1E1E; padding:15px; border-radius:10px; border:1px solid #333; margin-bottom:20px;">""", unsafe_allow_html=True)
     m1, m2, m3 = st.columns(3)
     m1.metric("Net Liq", f"${total_val:,.2f}")
     m2.metric("Day P/L", f"${day_pl:,.2f}")
     m3.metric("Total P/L", f"${tpl:,.2f}", delta_color="normal")
-    
-    c1, c2 = st.columns([2,1])
-    with c1:
-        if df_data:
-            source = pd.DataFrame(df_data)
-            base = alt.Chart(source).encode(theta=alt.Theta("Value", stack=True))
-            pie = base.mark_arc(outerRadius=120, innerRadius=60).encode(color="Category", order=alt.Order("Value", sort="descending"))
-            st.altair_chart(pie, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
     
     st.subheader("Holdings")
     cols = st.columns(3)
