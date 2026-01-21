@@ -177,12 +177,9 @@ def get_pro_data(s):
         # 1. LIVE PRICE (Can include pre/post)
         p_live = h['Close'].iloc[-1]
         
-        # 2. HARD CLOSE PRICE (Daily candle, ignores pre/post)
-        # We fetch 1mo history anyway for indicators, use that last close
+        # 2. HARD CLOSE PRICE
         hm = tk.history(period="1mo")
         if not hm.empty:
-            # The last row in '1mo' is the current day's Close (or live price if open)
-            # To get the OFFICIAL previous close reliably:
             hard_close = hm['Close'].iloc[-1]
             prev_close = hm['Close'].iloc[-2] if len(hm) > 1 else hard_close
         else:
@@ -197,19 +194,14 @@ def get_pro_data(s):
         is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
 
         # 4. DISPLAY LOGIC
-        # During market hours, Main = Live.
-        # After hours, Main = Today's Close (Static).
-        
         if is_market_open:
             display_price = p_live
             display_pct = ((p_live - prev_close) / prev_close) * 100
         else:
-            # Market Closed
             display_price = hard_close
             display_pct = ((hard_close - prev_close) / prev_close) * 100
 
         # 5. BADGE LOGIC
-        # If NOT TSX and NOT Open, compare Live vs Hard Close
         market_state = "REG"
         ext_price = None
         ext_pct = 0.0
@@ -218,7 +210,6 @@ def get_pro_data(s):
             if abs(p_live - hard_close) > 0.01:
                 market_state = "POST" if now.hour >= 16 else "PRE"
                 ext_price = p_live
-                # Calculate simple percentage diff
                 ext_pct = ((p_live - hard_close) / hard_close) * 100
 
         # Indicators
@@ -445,7 +436,6 @@ with t2:
     day_pl = total_val * 0.012 
     total_roi = (tpl / total_cost) * 100 if total_cost > 0 else 0
     
-    # NEW SCORECARD LAYOUT
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">NET LIQUIDITY</div><div style="font-size:24px;font-weight:900;color:white;">${total_val:,.2f}</div></div>""", unsafe_allow_html=True)
@@ -454,7 +444,7 @@ with t2:
         st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">DAY PROFIT</div><div style="font-size:24px;font-weight:900;color:{col};">${day_pl:,.2f}</div></div>""", unsafe_allow_html=True)
     with c3:
         col = "#4caf50" if tpl >= 0 else "#ff4b4b"
-        st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">TOTAL RETURN</div><div style="font-size:24px;font-weight:900;color:{col};">${tpl:,.2f}<br><span style="font-size:14px;">({total_roi:+.1f}%)</span></div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">TOTAL RETURN</div><div style="font-size:24px;font-weight:900;color:{col};">${tpl:,.2f}<br><span style="font-size:32px;font-weight:900;">({total_roi:+.1f}%)</span></div></div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("Holdings")
