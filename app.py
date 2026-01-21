@@ -158,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (PURE MATH LOGIC) ---
+# --- 4. DATA ENGINE (HARD CLOSE FIX) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -174,49 +174,54 @@ def get_pro_data(s):
             except: return None
         if h.empty: return None
         
-        # 1. FETCH CRITICAL DATA POINTS
-        # Current Live Price (could be pre, post, or reg)
-        try: current_price = tk.fast_info['last_price']
-        except: current_price = h['Close'].iloc[-1]
+        # 1. LIVE PRICE (Can include pre/post)
+        p_live = h['Close'].iloc[-1]
         
-        # Official Regular Close (The Anchor)
-        try: 
-            # regular_market_price updates to the close at 4pm and stays there
-            reg_close = tk.fast_info['regular_market_price']
-        except: 
-            reg_close = h['Close'].iloc[-1]
-            
-        # Yesterday's Close (For Day % Calc)
-        try: prev_close = tk.fast_info['regular_market_previous_close']
-        except: prev_close = h['Open'].iloc[0]
+        # 2. HARD CLOSE PRICE (Daily candle, ignores pre/post)
+        # We fetch 1mo history anyway for indicators, use that last close
+        hm = tk.history(period="1mo")
+        if not hm.empty:
+            # The last row in '1mo' is the current day's Close (or live price if open)
+            # To get the OFFICIAL previous close reliably:
+            hard_close = hm['Close'].iloc[-1]
+            prev_close = hm['Close'].iloc[-2] if len(hm) > 1 else hard_close
+        else:
+            hard_close = p_live
+            prev_close = p_live
+
+        # 3. MARKET HOURS CHECK
+        now = datetime.utcnow() - timedelta(hours=5)
+        is_market_open = (now.weekday() < 5) and (
+            (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and (now.hour < 16)
+        )
+        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
+
+        # 4. DISPLAY LOGIC
+        # During market hours, Main = Live.
+        # After hours, Main = Today's Close (Static).
         
-        # 2. CALCULATE MAIN DISPLAY (Day Session)
-        # We always show the Regular Close as the main number if market is closed,
-        # or the live price if market is open. To be safe, we assume 'reg_close' is the main.
-        display_price = reg_close
-        display_pct = ((reg_close - prev_close) / prev_close) * 100
-        
-        # 3. BADGE LOGIC (Pure Math)
+        if is_market_open:
+            display_price = p_live
+            display_pct = ((p_live - prev_close) / prev_close) * 100
+        else:
+            # Market Closed
+            display_price = hard_close
+            display_pct = ((hard_close - prev_close) / prev_close) * 100
+
+        # 5. BADGE LOGIC
+        # If NOT TSX and NOT Open, compare Live vs Hard Close
         market_state = "REG"
         ext_price = None
         ext_pct = 0.0
         
-        # Is this a Canadian Stock? (If yes, disable badge)
-        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
-        
-        if not is_tsx:
-            # Check deviation
-            # If the current "Last Price" is significantly different from "Regular Close"
-            # It means we are in Extended Hours (Pre or Post)
-            diff = ((current_price - reg_close) / reg_close) * 100
-            
-            if abs(diff) > 0.05: # Threshold to filter noise
-                market_state = "POST" # Label generic "POST/EXT"
-                ext_price = current_price
-                ext_pct = diff
+        if not is_tsx and not is_market_open:
+            if abs(p_live - hard_close) > 0.01:
+                market_state = "POST" if now.hour >= 16 else "PRE"
+                ext_price = p_live
+                # Calculate simple percentage diff
+                ext_pct = ((p_live - hard_close) / hard_close) * 100
 
         # Indicators
-        hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
             diff = hm['Close'].diff(); u, d = diff.clip(lower=0), -1*diff.clip(upper=0)
@@ -349,11 +354,9 @@ def draw_pro_card(t, port_data=None):
         </div>
         """, unsafe_allow_html=True)
 
-        # AFTER-HOURS BADGE (TSX LOCKED OUT)
         if d['state'] != "REG" and d['ext_p']:
             ext_sign = "+" if d['ext_d'] >= 0 else ""
             ext_col = "#4caf50" if d['ext_d'] >= 0 else "#ff4b4b" 
-            
             st.markdown(f"""
             <div style="text-align:right; margin-top:-8px; margin-bottom:8px;">
                 <span style="color:{ext_col}; font-size:14px; font-weight:bold;">
@@ -362,7 +365,6 @@ def draw_pro_card(t, port_data=None):
             </div>
             """, unsafe_allow_html=True)
 
-        # PORTFOLIO BAR (FOMO ROI)
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
@@ -443,25 +445,18 @@ with t2:
     day_pl = total_val * 0.012 
     total_roi = (tpl / total_cost) * 100 if total_cost > 0 else 0
     
-    st.markdown(f"""
-    <div style="background-color:#1E1E1E; padding:20px; border-radius:10px; border:1px solid #333; margin-bottom:25px; display:flex; justify-content:space-around; align-items:center;">
-        <div style="text-align:center;">
-            <div style="color:#aaa; font-size:14px; font-weight:bold;">Net Liq</div>
-            <div style="color:white; font-size:22px; font-weight:900;">${total_val:,.2f}</div>
-        </div>
-        <div style="text-align:center;">
-            <div style="color:#aaa; font-size:14px; font-weight:bold;">Day P/L</div>
-            <div style="color:{'#4caf50' if day_pl>=0 else '#ff4b4b'}; font-size:22px; font-weight:900;">${day_pl:,.2f}</div>
-        </div>
-        <div style="text-align:center;">
-            <div style="color:#aaa; font-size:14px; font-weight:bold;">Total P/L</div>
-            <div style="color:{'#4caf50' if tpl>=0 else '#ff4b4b'}; font-size:22px; font-weight:900;">
-                ${tpl:,.2f} <span style="font-size:16px;">({total_roi:+.1f}%)</span>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # NEW SCORECARD LAYOUT
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">NET LIQUIDITY</div><div style="font-size:24px;font-weight:900;color:white;">${total_val:,.2f}</div></div>""", unsafe_allow_html=True)
+    with c2:
+        col = "#4caf50" if day_pl >= 0 else "#ff4b4b"
+        st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">DAY PROFIT</div><div style="font-size:24px;font-weight:900;color:{col};">${day_pl:,.2f}</div></div>""", unsafe_allow_html=True)
+    with c3:
+        col = "#4caf50" if tpl >= 0 else "#ff4b4b"
+        st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">TOTAL RETURN</div><div style="font-size:24px;font-weight:900;color:{col};">${tpl:,.2f}<br><span style="font-size:14px;">({total_roi:+.1f}%)</span></div></div>""", unsafe_allow_html=True)
     
+    st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("Holdings")
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
