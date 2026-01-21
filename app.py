@@ -282,7 +282,7 @@ def get_pro_data(s):
 @st.cache_data(ttl=60)
 def build_scroller_safe():
     try:
-        indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")]
+        indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")], ("GL-F", "GOLD")
         items = []
         for t, n in indices:
             d = get_pro_data(t)
@@ -304,7 +304,7 @@ st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px 
 h1, h2 = st.columns([2, 1])
 with h1:
     st.title("⚡ Penny Pulse")
-    st.caption(f"Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}")
+    st.caption(f"Last Pulse: {datetime.utcnow().strftime('%H:%M:%S UTC')}")
 with h2:
     components.html("""
     <div style="font-family:'Helvetica', sans-serif; display:flex; justify-content:flex-end; align-items:center; height:100%; padding-right:10px;">
@@ -447,13 +447,14 @@ with t2:
         st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">TOTAL RETURN</div><div style="font-size:24px;font-weight:900;color:{col};">${tpl:,.2f}<br><span style="font-size:32px;font-weight:900;">({total_roi:+.1f}%)</span></div></div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("Holdings")
+    st.subheader("Recommendations")
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
     FEEDS = [
+        "https://rss.app/feeds/5JIQC7yOXxWPu7YB.xml"
         "https://finance.yahoo.com/news/rssindex",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
         "http://feeds.marketwatch.com/marketwatch/topstories"
@@ -463,7 +464,7 @@ with t3:
         if KEY:
             prog_bar = st.progress(0, text="Initializing AI...")
             try:
-                prog_bar.progress(20, text="Connecting to News Feeds...")
+                prog_bar.progress(20, text="AI Scanning News Feeds...")
                 raw_items = []
                 for f in FEEDS:
                     try:
