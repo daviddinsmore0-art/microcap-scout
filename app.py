@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. SESSION STATE (Minimal) ---
+# --- 2. SESSION STATE ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = False
     st.session_state['news_results'] = []
@@ -26,11 +26,41 @@ if 'initialized' not in st.session_state:
     st.session_state['banner_msg'] = None
     st.session_state['storm_cooldown'] = {}
 
-# --- 3. JAVASCRIPT BRIDGES ---
+# --- 3. CORE FUNCTIONS ---
+def update_params():
+    st.query_params["w"] = st.session_state.w_input
+    st.query_params["at"] = st.session_state.a_tick_input
+    st.query_params["ap"] = str(st.session_state.a_price_input)
+    st.query_params["ao"] = str(st.session_state.a_on_input).lower()
+    st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
+    st.query_params["no"] = str(st.session_state.notify_input).lower()
+    st.query_params["ko"] = str(st.session_state.keep_on_input).lower()
+    if 'base_url_input' in st.session_state:
+        st.query_params["bu"] = st.session_state.base_url_input
+
+# --- 4. UPLOAD CALLBACK (The Fix for "File Won't Upload") ---
+def load_profile_callback():
+    # This runs BEFORE the app draws, preventing crashes and loops.
+    uploaded_file = st.session_state.uploader_key
+    if uploaded_file is not None:
+        try:
+            data = json.load(uploaded_file)
+            st.session_state.w_input = data.get("w", "SPY")
+            st.session_state.a_tick_input = data.get("at", "SPY")
+            st.session_state.a_price_input = float(data.get("ap", 0.0))
+            st.session_state.a_on_input = data.get("ao", False)
+            st.session_state.flip_on_input = data.get("fo", False)
+            st.session_state.notify_input = data.get("no", False)
+            update_params()
+            st.toast("Profile Restored Successfully!", icon="✅")
+        except Exception as e:
+            st.error(f"Error loading file: {e}")
+
+# --- 5. JAVASCRIPT BRIDGES ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v49_data";
+        const KEY = "penny_pulse_v65_data";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
@@ -77,43 +107,7 @@ def inject_wake_lock(enable):
         """
         components.html(js, height=0, width=0)
 
-# --- 4. CORE FUNCTIONS ---
-def update_params():
-    st.query_params["w"] = st.session_state.w_input
-    st.query_params["at"] = st.session_state.a_tick_input
-    st.query_params["ap"] = str(st.session_state.a_price_input)
-    st.query_params["ao"] = str(st.session_state.a_on_input).lower()
-    st.query_params["fo"] = str(st.session_state.flip_on_input).lower()
-    st.query_params["no"] = str(st.session_state.notify_input).lower()
-    st.query_params["ko"] = str(st.session_state.keep_on_input).lower()
-    if 'base_url_input' in st.session_state:
-        st.query_params["bu"] = st.session_state.base_url_input
-
-def restore_from_file(uploaded_file):
-    if uploaded_file is not None:
-        try:
-            data = json.load(uploaded_file)
-            st.session_state.w_input = data.get("w", "SPY")
-            st.session_state.a_tick_input = data.get("at", "SPY")
-            st.session_state.a_price_input = float(data.get("ap", 0.0))
-            st.session_state.a_on_input = data.get("ao", False)
-            st.session_state.flip_on_input = data.get("fo", False)
-            st.session_state.notify_input = data.get("no", False)
-            update_params()
-            st.toast("Profile Restored!", icon="✅")
-            time.sleep(1)
-            st.rerun()
-        except: st.error("Invalid Config File")
-
-def play_alert_sound():
-    sound_html = """
-    <audio autoplay>
-    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-    </audio>
-    """
-    components.html(sound_html, height=0, width=0)
-
-# --- 5. LOAD PARAMETERS ---
+# --- 6. LOAD PARAMETERS ---
 qp = st.query_params
 current_config = {
     "w": qp.get("w", "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
@@ -132,7 +126,16 @@ config_json = json.dumps(current_config)
 sync_js(config_json)
 inject_wake_lock(current_config["ko"])
 
-# --- 6. SIDEBAR (Defined Variables Directly) ---
+# --- 7. AUDIO ---
+def play_alert_sound():
+    sound_html = """
+    <audio autoplay>
+    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+    </audio>
+    """
+    components.html(sound_html, height=0, width=0)
+
+# --- 8. SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
@@ -168,37 +171,6 @@ with c2:
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts") 
 
-curr_tick = current_config['at']
-if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
-idx = 0
-if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
-
-# --- DIRECT VARIABLE ASSIGNMENT (Fixes NameError) ---
-a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
-a_price = st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
-a_on = st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
-flip_on = st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
-keep_on = st.sidebar.toggle("💡 Keep Screen On", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
-notify_on = st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
-
-# --- BACKUP SECTION (RESTORED) ---
-st.sidebar.divider()
-st.sidebar.subheader("📦 Backup & Restore")
-export_data = json.dumps(current_config, indent=2)
-st.sidebar.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
-uploaded = st.sidebar.file_uploader("📤 Restore Profile", type=["json"])
-if uploaded: restore_from_file(uploaded)
-
-st.sidebar.divider()
-with st.sidebar.expander("🔗 Share & Invite"):
-    base_url = st.text_input("App Web Address (Paste Once)", value=current_config['bu'], placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
-    if base_url:
-        clean_base = base_url.split("?")[0].strip("/")
-        params = f"?w={st.session_state.w_input}&at={a_tick}&ap={a_price}&ao={str(a_on).lower()}&fo={str(flip_on).lower()}"
-        full_link = f"{clean_base}/{params}"
-        st.code(full_link, language="text")
-
-# --- 7. ALERT LOGIC ---
 def send_notification(title, body):
     js_code = f"""
     <script>
@@ -222,8 +194,39 @@ def log_alert(msg, title="Penny Pulse Alert", is_crash=False):
     play_alert_sound()
     color = "#ff0000" if is_crash else "#ff4b4b"
     st.session_state['banner_msg'] = f"<span style='color:{color};'>🚨 {msg.upper()} 🚨</span>"
-    if notify_on:
+    if st.session_state.get("notify_input", False):
         send_notification(title, msg)
+
+curr_tick = current_config['at']
+if curr_tick not in ALL and ALL: curr_tick = sorted(ALL)[0]
+idx = 0
+if curr_tick in sorted(ALL): idx = sorted(ALL).index(curr_tick)
+
+# Direct variables to prevent NameError
+a_tick = st.sidebar.selectbox("Price Target Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
+a_price = st.sidebar.number_input("Target ($)", value=current_config['ap'], step=0.5, key="a_price_input", on_change=update_params)
+a_on = st.sidebar.toggle("Active Price Alert", value=current_config['ao'], key="a_on_input", on_change=update_params)
+flip_on = st.sidebar.toggle("Alert on Trend Flip", value=current_config['fo'], key="flip_on_input", on_change=update_params) 
+keep_on = st.sidebar.toggle("💡 Keep Screen On", value=current_config['ko'], key="keep_on_input", on_change=update_params, help="Prevents phone from sleeping.")
+notify_on = st.sidebar.checkbox("Desktop Notifications", value=current_config['no'], key="notify_input", on_change=update_params, help="Works on Desktop/HTTPS only.")
+
+# --- BACKUP SECTION (WITH CALLBACK FIX) ---
+st.sidebar.divider()
+st.sidebar.subheader("📦 Backup & Restore")
+export_data = json.dumps(current_config, indent=2)
+st.sidebar.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
+
+# This is the line that fixes the upload issue
+st.sidebar.file_uploader("📤 Restore Profile", type=["json"], key="uploader_key", on_change=load_profile_callback)
+
+st.sidebar.divider()
+with st.sidebar.expander("🔗 Share & Invite"):
+    base_url = st.text_input("App Web Address (Paste Once)", value=current_config['bu'], placeholder="e.g. https://my-app.streamlit.app", key="base_url_input", on_change=update_params)
+    if base_url:
+        clean_base = base_url.split("?")[0].strip("/")
+        params = f"?w={st.session_state.w_input}&at={a_tick}&ap={a_price}&ao={str(a_on).lower()}&fo={str(flip_on).lower()}"
+        full_link = f"{clean_base}/{params}"
+        st.code(full_link, language="text")
 
 if st.session_state['alert_log']:
     st.sidebar.divider()
@@ -233,18 +236,7 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- 8. HELPERS ---
-def check_flip(ticker, current_trend):
-    # Now this works because 'flip_on' is defined in the global scope by the sidebar
-    if not flip_on: return
-    if ticker in st.session_state['last_trends']:
-        prev = st.session_state['last_trends'][ticker]
-        if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
-            msg = f"{ticker} flipped to {current_trend}"
-            st.toast(msg, icon="⚠️")
-            log_alert(msg, title="Trend Flip Alert")
-    st.session_state['last_trends'][ticker] = current_trend 
-
+# --- FETCHERS ---
 def get_spy_benchmark():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
@@ -502,7 +494,18 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
 h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
 
-# --- RENDER DASHBOARD ---
+# --- FLIP CHECK & NOTIFICATION TRIGGER ---
+def check_flip(ticker, current_trend):
+    if not flip_on: return
+    if ticker in st.session_state['last_trends']:
+        prev = st.session_state['last_trends'][ticker]
+        if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
+            msg = f"{ticker} flipped to {current_trend}"
+            st.toast(msg, icon="⚠️")
+            log_alert(msg, title="Trend Flip Alert")
+    st.session_state['last_trends'][ticker] = current_trend 
+
+# --- DASHBOARD LOGIC ---
 def render_card(t, inf=None):
     d = get_data_cached(t)
     spy_data = get_spy_benchmark()
@@ -687,7 +690,7 @@ def process_news_batch(raw_batch):
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
+    urls = ["https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb", "jail", "prison", "sentence", "suspect", "court", "francais", "la", "le", "et", "pour"]
     for u in urls:
