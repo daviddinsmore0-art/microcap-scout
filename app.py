@@ -112,8 +112,13 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
+        # Attempt 1: High Res
         h = tk.history(period="1d", interval="5m", prepost=True)
+        # Attempt 2: Low Res
         if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
+        # Attempt 3: Daily (Last resort for price)
+        if h.empty: h = tk.history(period="1mo", interval="1d")
+        
         if h.empty: return None
         
         p_live = h['Close'].iloc[-1]
@@ -155,12 +160,15 @@ def get_pro_data(s):
         earn = "N/A"
         try:
             cal = tk.calendar
+            # Handle Dict
             if isinstance(cal, dict) and 'Earnings Date' in cal:
-                val = cal['Earnings Date'][0]
-                if val: earn = val.strftime('%b %d')
+                dates = cal['Earnings Date']
+                # Try to find future date
+                future_dates = [d for d in dates if d.date() >= datetime.now().date()]
+                if future_dates: earn = future_dates[0].strftime('%b %d')
+                elif dates: earn = "Rep: " + dates[0].strftime('%b %d')
+            # Handle DataFrame
             elif hasattr(cal, 'iloc') and not cal.empty:
-                # Try to find a future date, otherwise take the first
-                # yfinance calendar usually gives list of dates
                 val = cal.iloc[0, 0]
                 if isinstance(val, (datetime, pd.Timestamp)): earn = val.strftime('%b %d')
         except: pass
@@ -243,20 +251,21 @@ def draw_pro_card(t, port_data=None):
         if d['state'] != "REG":
             st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
 
-        # Portfolio Details (My Picks)
+        # Portfolio Details (Fixed Visibility)
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
             val = d['p'] * qty
             profit = val - (entry * qty)
             p_col = "#4caf50" if profit >= 0 else "#ff4b4b"
+            # Explicit White Text on Black Background
             st.markdown(f"""
-            <div style="background:#111; border-left:3px solid {p_col}; padding:5px 10px; margin-bottom:10px; font-size:13px;">
-                <b>Qty:</b> {qty} &nbsp;|&nbsp; <b>Avg:</b> ${entry} &nbsp;|&nbsp; <b>Gain:</b> <span style="color:{p_col}; font-weight:bold;">${profit:,.2f}</span>
+            <div style="background-color:black; color:white; border-left:4px solid {p_col}; padding:8px; margin-bottom:10px; font-size:14px; font-family:monospace;">
+                <span style="color:#888;">Qty:</span> {qty} &nbsp;&nbsp; <span style="color:#888;">Avg:</span> ${entry} &nbsp;&nbsp; <span style="color:#888;">Gain:</span> <span style="color:{p_col}; font-weight:bold;">${profit:,.2f}</span>
             </div>
             """, unsafe_allow_html=True)
 
-        # Ratings & Metrics (Reordered)
+        # Ratings & Metrics (Dropped Analyst Rating)
         r_color = "#888"
         if "STRONG BUY" in d['rat']: r_color = "#00FF00" 
         elif "BUY" in d['rat']: r_color = "#4CAF50"      
@@ -264,8 +273,10 @@ def draw_pro_card(t, port_data=None):
         elif "SELL" in d['rat']: r_color = "#FF4B4B"     
 
         st.markdown(f"**☻ AI:** {d['ai']}")
-        # ORDER: Trend -> Analyst Rating -> Earnings
-        st.markdown(f"**TREND:** :{col}[**{d['tr']}**] | **ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
+        
+        # DROPPED LAYOUT
+        st.markdown(f"**TREND:** :{col}[**{d['tr']}**]")
+        st.markdown(f"**ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
         st.markdown(f"**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
         
         # Chart
@@ -287,7 +298,7 @@ def draw_pro_card(t, port_data=None):
         
         st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range: {range_tag}</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:15px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
 
-        # Volume & RSI (With Descriptions)
+        # Volume & RSI
         vol_tag = "⚡ Surge" if d['vol'] > 1.5 else ("💤 Quiet" if d['vol'] < 0.8 else "🌊 Normal")
         rsi_tag = "🔥 Hot (Sell)" if d['rsi'] > 70 else ("❄️ Cold (Buy)" if d['rsi'] < 30 else "⚖️ Neutral")
         rsi_pct = min(100, max(0, d['rsi']))
@@ -311,6 +322,7 @@ with t1:
 
 with t2:
     total_val, total_cost = 0, 0
+    # Portfolio Calculation Loop
     for t, inf in PORT.items():
         d = get_pro_data(t)
         if d:
@@ -331,14 +343,13 @@ with t2:
     st.subheader("Holdings")
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
-        # PASS PORTFOLIO DATA HERE
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
     if st.button("Refresh News"):
         with st.spinner("Fetching Yahoo Finance RSS..."):
             try:
-                # Added User-Agent to fix 404/Syntax Error
+                # User-Agent Header
                 r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
                 root = ET.fromstring(r.content)
                 news_items = []
