@@ -33,7 +33,7 @@ if 'initialized' not in st.session_state:
     st.session_state.update({
         'news_results': [], 
         'raw_news_cache': [],
-        'news_offset': 0, # Tracks pagination
+        'news_offset': 0,
         'alert_log': [], 
         'storm_cooldown': {}, 
         'spy_cache': None, 
@@ -70,7 +70,6 @@ def get_relative_time(date_str):
         else: return f"{int(seconds//86400)}d ago"
     except: return "Recent"
 
-# AI PROCESSING (Returns list of dicts)
 def process_ai_batch(items_to_process, key):
     try:
         from openai import OpenAI
@@ -159,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (ROBUST) ---
+# --- 4. DATA ENGINE (FIXED EARNINGS & PRE-MARKET) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -168,26 +167,45 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        # Fast fetch attempts
-        try: h = tk.history(period="1d", interval="5m", prepost=True)
-        except: h = pd.DataFrame()
-        
-        if h.empty: 
-            try: h = tk.history(period="5d", interval="15m", prepost=True)
-            except: return None
-            
+        # Fetch 5 days to ensure we have context
+        try: h = tk.history(period="5d", interval="5m", prepost=True)
+        except: return None
         if h.empty: return None
         
-        p_live = h['Close'].iloc[-1]
-        try: p_prev = tk.fast_info['previous_close']
-        except: p_prev = h['Open'].iloc[0]
-        d_pct = ((p_live - p_prev) / p_prev) * 100
+        # Prices
+        current_price = h['Close'].iloc[-1]
         
+        # Regular Market Close (Yesterday's close)
+        try: 
+            prev_close = tk.fast_info['regular_market_previous_close']
+        except: 
+            prev_close = h['Open'].iloc[0]
+            
+        # Standard Day Change %
+        day_pct = ((current_price - prev_close) / prev_close) * 100
+        
+        # Extended Hours Logic
+        # We compare the absolute last price (current_price) with the last Regular Market Close
+        # If they differ significantly and it's outside market hours, we show the badge
         market_state = "REG"
-        now = datetime.utcnow() - timedelta(hours=5)
-        if (now.weekday() < 5) and not (9 <= now.hour < 16):
-            market_state = "POST" if now.hour >= 16 else "PRE"
+        ext_price = None
+        ext_pct = 0.0
+        
+        now = datetime.utcnow() - timedelta(hours=5) # Approx EST
+        # Simple hours check (9:30 - 4:00 PM EST)
+        is_market_hours = (now.weekday() < 5) and (9 <= now.hour < 16) or (now.hour == 9 and now.minute >= 30)
+        
+        if not is_market_hours:
+            # Check if we have a "regular market price" distinct from "current price"
+            try:
+                reg_price = tk.fast_info['last_price'] # This usually holds the 4pm close
+                if abs(current_price - reg_price) > 0.01:
+                    market_state = "POST" if now.hour >= 16 else "PRE"
+                    ext_price = current_price
+                    ext_pct = ((ext_price - reg_price) / reg_price) * 100
+            except: pass
 
+        # Indicators
         hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
@@ -199,8 +217,9 @@ def get_pro_data(s):
             
         ai_bias = "🟢 BULLISH BIAS" if (trend=="BULL" and rsi<70) else ("🔴 BEARISH BIAS" if (trend=="BEAR" and rsi>30) else "🟡 NEUTRAL BIAS")
 
+        # SPY Sync
         spy = get_spy_data()
-        chart_data = h['Close'].reset_index()
+        chart_data = h['Close'].tail(78).reset_index() # Last ~6.5 hours of trading
         chart_data.columns = ['T', 'Stock']
         chart_data['Idx'] = range(len(chart_data)) 
         
@@ -208,23 +227,39 @@ def get_pro_data(s):
         chart_data['Stock'] = ((chart_data['Stock'] - start_price) / start_price) * 100
         
         if spy is not None and len(spy) > 0:
-            spy_start = spy.iloc[0] if spy.iloc[0] != 0 else 1
-            s_norm = ((spy - spy_start) / spy_start) * 100
-            if len(s_norm) >= len(chart_data): chart_data['SPY'] = s_norm.values[-len(chart_data):]
-            else: chart_data['SPY'] = 0
+            s_slice = spy.tail(len(chart_data))
+            spy_start = s_slice.iloc[0] if s_slice.iloc[0] != 0 else 1
+            s_norm = ((s_slice - spy_start) / spy_start) * 100
+            chart_data['SPY'] = s_norm.values if len(s_norm) == len(chart_data) else 0
 
+        # EARNINGS FIX - Robust Retrieval
         earn = "N/A"
         try:
             cal = tk.calendar
+            # New yfinance often returns a dictionary
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 dates = cal['Earnings Date']
-                future_dates = [d for d in dates if d.date() >= datetime.now().date()]
-                if future_dates: earn = future_dates[0].strftime('%b %d')
-                elif dates: earn = "Rep: " + dates[0].strftime('%b %d')
+                # Filter for future dates
+                future = [d for d in dates if d.date() >= datetime.now().date()]
+                if future:
+                    earn = f"Next: {future[0].strftime('%b %d')}"
+                elif dates:
+                    earn = f"Last: {dates[0].strftime('%b %d')}"
+            # Old yfinance returns DataFrame
             elif hasattr(cal, 'iloc') and not cal.empty:
                 val = cal.iloc[0, 0]
-                if isinstance(val, (datetime, pd.Timestamp)): earn = val.strftime('%b %d')
-        except: pass
+                if isinstance(val, (datetime, pd.Timestamp)):
+                    if val.date() >= datetime.now().date():
+                        earn = f"Next: {val.strftime('%b %d')}"
+                    else:
+                        earn = f"Last: {val.strftime('%b %d')}"
+        except: 
+            # Fallback to info
+            try:
+                # Some tickers store it here
+                t = tk.info.get('earningsTimestamp', None)
+                if t: earn = datetime.fromtimestamp(t).strftime('%b %d')
+            except: pass
         
         rat = tk.info.get('recommendationKey', 'N/A').upper().replace('_',' ')
 
@@ -239,38 +274,32 @@ def get_pro_data(s):
                 st.session_state['storm_cooldown'][s] = datetime.now()
 
         return {
-            "p": p_live, "d": d_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
+            "p": current_price, "d": day_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
             "chart": chart_data, "ai": ai_bias, "rat": rat, "earn": earn,
-            "h": h['High'].max(), "l": h['Low'].min(), "state": market_state
+            "h": h['High'].max(), "l": h['Low'].min(), 
+            "state": market_state, "ext_p": ext_price, "ext_d": ext_pct
         }
     except: return None
 
-# --- 5. UI COMPONENTS ---
-est = datetime.utcnow() - timedelta(hours=5)
-
-# SCROLLER SAFE MODE (NON-BLOCKING)
+# --- 5. SCROLLER ---
 @st.cache_data(ttl=60)
 def build_scroller_safe():
     try:
         indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")]
         items = []
         for t, n in indices:
-            d = get_pro_data(t) # Uses cache
+            d = get_pro_data(t)
             if d:
                 c = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
                 a = "▲" if d['d'] >= 0 else "▼"
                 items.append(f"{n}: <span style='color:{c}'>${d['p']:,.2f} {a} {d['d']:.2f}%</span>")
-        
         if not items: return "Penny Pulse Market Tracker"
         return "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;".join(items)
-    except:
-        return "Penny Pulse Market Tracker"
+    except: return "Penny Pulse Market Tracker"
 
 if st.session_state['banner_msg']:
     st.markdown(f"<div style='background:#FFD700;color:black;padding:10px;text-align:center;font-weight:bold;border-radius:5px;margin-bottom:10px;'>🔔 {st.session_state['banner_msg']}</div>", unsafe_allow_html=True)
-    if st.button("Dismiss Alert"): 
-        st.session_state['banner_msg'] = None
-        st.rerun()
+    if st.button("Dismiss Alert"): st.session_state['banner_msg'] = None; st.rerun()
 
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
@@ -278,6 +307,7 @@ st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px 
 h1, h2 = st.columns([2, 1])
 with h1:
     st.title("⚡ Penny Pulse")
+    est = datetime.utcnow() - timedelta(hours=5)
     st.caption(f"Last Sync: {est.strftime('%H:%M:%S EST')}")
 with h2:
     components.html("""
@@ -306,6 +336,7 @@ def draw_pro_card(t, port_data=None):
         col = "green" if d['d']>=0 else "red"
         col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
+        # HEADER LOGIC
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
             <div style="flex:1;">
@@ -319,9 +350,19 @@ def draw_pro_card(t, port_data=None):
         </div>
         """, unsafe_allow_html=True)
 
-        if d['state'] != "REG":
-            st.markdown(f"""<div style="background:#333; color:#FFA726; padding:2px 6px; border-radius:4px; font-size:12px; display:inline-block; margin-bottom:5px; font-weight:bold;">{d['state']}: ${d['p']:,.2f}</div>""", unsafe_allow_html=True)
+        # AFTER-HOURS BADGE (Moved Under Price)
+        if d['state'] != "REG" and d['ext_p']:
+            ext_col = "#FFA726" # Orange for extended
+            ext_sign = "+" if d['ext_d'] >= 0 else ""
+            st.markdown(f"""
+            <div style="text-align:right; margin-top:-5px; margin-bottom:10px;">
+                <span style="background:#333; color:{ext_col}; padding:2px 6px; border-radius:4px; font-size:12px; font-weight:bold;">
+                    {d['state']}: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
 
+        # PORTFOLIO BAR
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
@@ -336,6 +377,7 @@ def draw_pro_card(t, port_data=None):
             </div>
             """, unsafe_allow_html=True)
 
+        # METRICS
         r_color = "#888"
         if "STRONG BUY" in d['rat']: r_color = "#00FF00" 
         elif "BUY" in d['rat']: r_color = "#4CAF50"      
@@ -422,19 +464,21 @@ with t2:
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
+    # FEEDS LIST (Easy to extend)
+    FEEDS = [
+        "https://finance.yahoo.com/news/rssindex",
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
+        "http://feeds.marketwatch.com/marketwatch/topstories"
+    ]
+
     if st.button("Analyze Market Context (Start)"):
         if KEY:
             prog_bar = st.progress(0, text="Initializing AI...")
             try:
-                prog_bar.progress(10, text="Connecting to News Feeds...")
-                # Backup Feed Logic
-                feeds = [
-                    "https://finance.yahoo.com/news/rssindex",
-                    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"
-                ]
-                
+                prog_bar.progress(20, text="Connecting to News Feeds...")
                 raw_items = []
-                for f in feeds:
+                # ITERATE FEEDS until we get data
+                for f in FEEDS:
                     try:
                         r = requests.get(f, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
                         if r.status_code == 200:
@@ -444,7 +488,7 @@ with t3:
                                 link = item.find('link').text
                                 pub = item.find('pubDate').text if item.find('pubDate') is not None else str(datetime.now())
                                 raw_items.append({"title": title, "link": link, "time": get_relative_time(pub)})
-                            break # If successful, stop trying other feeds
+                            if raw_items: break # Found data, stop scanning
                     except: continue
                 
                 if not raw_items:
@@ -455,7 +499,6 @@ with t3:
                     st.session_state['news_results'] = []
                     st.session_state['news_offset'] = 0
                     
-                    # Process First Batch (20)
                     prog_bar.progress(50, text="Analyzing First 20 Stories...")
                     batch = raw_items[:20]
                     analyzed = process_ai_batch(batch, KEY)
@@ -472,7 +515,6 @@ with t3:
         else:
             st.info("Enter OpenAI Key in Sidebar.")
 
-    # DISPLAY NEWS
     if st.session_state['news_results']:
         for n in st.session_state['news_results']:
             s_color = "#4caf50" if n.get('sentiment')=="BULL" else ("#ff4b4b" if n.get('sentiment')=="BEAR" else "#888")
@@ -488,7 +530,6 @@ with t3:
             </div>
             """, unsafe_allow_html=True)
         
-        # PAGINATION BUTTON
         remaining = len(st.session_state['raw_news_cache']) - st.session_state['news_offset']
         if remaining > 0:
             if st.button(f"Load Next 20 Stories ({remaining} left)"):
