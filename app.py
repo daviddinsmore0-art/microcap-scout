@@ -10,31 +10,16 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. HYDRATION (THE FIX FOR REFRESH MEMORY LOSS) ---
-# This block reads the URL bar and loads it into memory BEFORE anything else happens.
-qp = st.query_params
-
-# Helper to safely convert strings to bools/floats from URL
-def get_param(key, default, type_cast=str):
-    if key in qp:
-        val = qp[key]
-        if type_cast == bool: return val.lower() == 'true'
-        if type_cast == float: return float(val)
-        return val
-    return default
-
-# Initialize Session State with URL data (if present) or Defaults
-initial_state = {
-    'w_input': get_param('w', "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V"),
-    'a_tick_input': get_param('at', "SPY"),
-    'a_price_input': get_param('ap', 0.0, float),
-    'a_on_input': get_param('ao', False, bool),
-    'flip_on_input': get_param('fo', False, bool),
-    'keep_on_input': get_param('ko', False, bool),
-    'notify_input': get_param('no', False, bool),
-    'base_url_input': get_param('bu', ""),
-    # Internal variables (not in URL)
-    'initialized': True,
+# --- 2. MEMORY INITIALIZATION (Crash Prevention) ---
+default_values = {
+    'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
+    'a_tick_input': "SPY",
+    'a_price_input': 0.0,
+    'a_on_input': False,
+    'flip_on_input': False,
+    'keep_on_input': False,
+    'notify_input': False,
+    'base_url_input': "",
     'news_results': [],
     'scanned_count': 0,
     'market_mood': None,
@@ -49,13 +34,12 @@ initial_state = {
     'storm_cooldown': {}
 }
 
-for key, val in initial_state.items():
+for key, val in default_values.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
 # --- 3. CORE LOGIC FUNCTIONS ---
 def update_params():
-    # Saves current memory to the URL bar
     st.query_params["w"] = st.session_state.w_input
     st.query_params["at"] = st.session_state.a_tick_input
     st.query_params["ap"] = str(st.session_state.a_price_input)
@@ -67,22 +51,23 @@ def update_params():
         st.query_params["bu"] = st.session_state.base_url_input
 
 def load_profile_callback():
-    # Handles File Uploads Instantly
     uploaded = st.session_state.get('uploader_key')
     if uploaded is not None:
         try:
             data = json.load(uploaded)
-            # Update session state with loaded data
-            mapping = {
-                'w': 'w_input', 'at': 'a_tick_input', 'ap': 'a_price_input',
-                'ao': 'a_on_input', 'fo': 'flip_on_input', 'no': 'notify_input',
-                'ko': 'keep_on_input', 'bu': 'base_url_input'
-            }
-            for json_key, state_key in mapping.items():
-                if json_key in data:
-                    st.session_state[state_key] = data[json_key]
-            
-            update_params() # Push new data to URL immediately
+            for k in ['w', 'at', 'ap', 'ao', 'fo', 'no', 'ko', 'bu']:
+                if k in data:
+                    long_key = ""
+                    if k == 'w': long_key = 'w_input'
+                    elif k == 'at': long_key = 'a_tick_input'
+                    elif k == 'ap': long_key = 'a_price_input'
+                    elif k == 'ao': long_key = 'a_on_input'
+                    elif k == 'fo': long_key = 'flip_on_input'
+                    elif k == 'no': long_key = 'notify_input'
+                    elif k == 'ko': long_key = 'keep_on_input'
+                    elif k == 'bu': long_key = 'base_url_input'
+                    if long_key: st.session_state[long_key] = data[k]
+            update_params()
             st.toast("Profile Loaded Successfully!", icon="✅")
         except Exception as e:
             st.error(f"Error reading file: {e}")
@@ -96,7 +81,6 @@ def sync_js(config_json):
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
         
-        // Only load from local storage if URL is empty (First load)
         if (!urlParams.has("w") && saved) {{
             try {{
                 const c = JSON.parse(saved);
@@ -113,7 +97,6 @@ def sync_js(config_json):
             }} catch(e) {{}}
         }}
         
-        // Save python state to local storage for next time
         if (fromPython.w) {{
             localStorage.setItem(KEY, JSON.stringify(fromPython));
         }}
@@ -130,6 +113,7 @@ def inject_wake_lock(enable):
             try {
                 wakeLock = await navigator.wakeLock.request('screen');
                 console.log('Wake Lock active!');
+                wakeLock.addEventListener('release', () => { console.log('Wake Lock released!'); });
             } catch (err) { console.log(`${err.name}, ${err.message}`); }
         }
         requestWakeLock();
@@ -145,10 +129,8 @@ st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key (Optional)", type="password") 
 
-# NOTE: Using 'key=' connects the widget to the Hydrated Session State automatically.
 st.sidebar.text_input("Add Tickers (Comma Sep)", key="w_input", on_change=update_params)
 
-# PORTFOLIO DATA
 PORT = {
     "HIVE": {"e": 3.19, "d": "Dec. 01, 2024", "q": 50},
     "BAER": {"e": 1.86, "d": "Jan. 10, 2025", "q": 100},
@@ -212,13 +194,12 @@ current_config_export = {
 sync_js(json.dumps(current_config_export))
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 7. BACKUP & RESTORE (Fixed) ---
+# --- 7. BACKUP & RESTORE ---
 st.sidebar.divider()
 with st.sidebar.expander("📦 Backup & Restore"):
     st.caption("Download your profile to save it.")
     export_data = json.dumps(current_config_export, indent=2)
     st.download_button(label="📥 Download Profile", data=export_data, file_name="my_pulse_config.json", mime="application/json")
-    # THE FIX: Using on_change callback for instant loading
     st.file_uploader("📤 Restore Profile", type=["json"], key="uploader_key", on_change=load_profile_callback)
 
 with st.sidebar.expander("🔗 Share & Invite"):
@@ -264,11 +245,9 @@ if st.session_state['alert_log']:
         st.session_state['alert_log'] = []
         st.rerun()
 
-# --- 9. HELPERS (Argument-Based for Stability) ---
+# --- 9. HELPERS ---
 def check_flip(ticker, current_trend, flip_enabled):
-    # Fix: flip_enabled is passed in. It cannot be missing.
     if not flip_enabled: return
-    
     if ticker in st.session_state['last_trends']:
         prev = st.session_state['last_trends'][ticker]
         if prev != "NEUTRAL" and current_trend != "NEUTRAL" and prev != current_trend:
@@ -569,7 +548,9 @@ def process_news_batch(raw_batch):
             batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:300]}\nDate: {item['date_str']}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
         
-        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL. IMPORTANT: Ignore articles that are about general crime, police arrests, sports, gossip, or non-financial news. Only return financial, market, or company news. **KEEP REASONS EXTREMELY CONCISE (UNDER 10 WORDS).**"
+        # --- THE TIME RESTORATION ---
+        # I explicitly ask the AI for TIME_PUBLISHED here
+        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles'. Each object: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be relative (e.g. '2h ago'). The link must be the original URL. IMPORTANT: Ignore crime/gossip. Only financial news. **KEEP REASONS EXTREMELY CONCISE.**"
         
         res = client.chat.completions.create(
             model="gpt-4o-mini", 
@@ -585,7 +566,7 @@ def process_news_batch(raw_batch):
             data = json.loads(res.choices[0].message.content)
             new_results = data.get("articles", [])
         except json.JSONDecodeError:
-            st.warning("⚠️ AI Analysis incomplete (Limit Reached). Showing partial results.")
+            st.warning("⚠️ AI Analysis incomplete. Showing partial results.")
             return []
         
         valid_results = []
@@ -606,7 +587,6 @@ def process_news_batch(raw_batch):
         progress_bar.empty()
         return valid_results
     except Exception as e:
-        print(f"AI Error: {e}") 
         st.caption("⚠️ News Analysis unavailable at this moment.")
         return []
 
