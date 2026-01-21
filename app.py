@@ -32,9 +32,9 @@ if 'initialized' not in st.session_state:
 
     st.session_state.update({
         'news_results': [], 
-        'news_limit': 10,
+        'raw_news_cache': [], # Stores the full RSS list
         'alert_log': [], 
-        'storm_cooldown': {}, # Logic Engine Memory
+        'storm_cooldown': {}, 
         'spy_cache': None, 
         'spy_last_fetch': datetime.min,
         'banner_msg': None
@@ -68,6 +68,33 @@ def get_relative_time(date_str):
         elif seconds < 172800: return "Yesterday"
         else: return f"{int(seconds//86400)}d ago"
     except: return "Recent"
+
+# AI PROCESSING FUNCTION (REUSABLE)
+def process_ai_batch(items_to_process, key):
+    # Returns a list of analyzed items
+    try:
+        from openai import OpenAI
+        cl = OpenAI(api_key=key)
+        prompt = """
+        Analyze these financial headlines. For each relevant item, return a JSON object with:
+        - 'ticker': The main stock ticker (e.g. TSLA, AAPL, BTC) or 'MKT' if general.
+        - 'sentiment': 'BULL' or 'BEAR' or 'NEUTRAL'.
+        - 'summary': A 5-word snappy summary.
+        - 'link': The original link.
+        - 'time': The original time string.
+        Return a JSON wrapper: {'items': [...]}
+        """
+        ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in items_to_process])
+        
+        resp = cl.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"system", "content": prompt}, {"role":"user", "content": ai_input}],
+            response_format={"type": "json_object"}
+        )
+        return json.loads(resp.choices[0].message.content).get('items', [])
+    except Exception as e:
+        st.error(f"AI Batch Error: {e}")
+        return []
 
 NAMES = {
     "TD.TO": "TD Bank", "BN.TO": "Brookfield", "CCO.TO": "Cameco", 
@@ -133,7 +160,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (WITH STORM LOGIC) ---
+# --- 4. DATA ENGINE ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -388,68 +415,48 @@ with t2:
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
-    if st.button("Analyze Market Context"):
+    # ANALYZE START (Fresh Fetch)
+    if st.button("Analyze Market Context (Fresh)"):
         if KEY:
-            # PROGRESS BAR added here
-            prog_text = "Initializing AI..."
-            prog_bar = st.progress(0, text=prog_text)
-            
+            prog_bar = st.progress(0, text="Initializing AI...")
             try:
-                # Step 1: Fetch
-                prog_bar.progress(25, text="Fetching Yahoo Finance Feed...")
+                # Step 1: Fetch ALL RSS
+                prog_bar.progress(20, text="Fetching Yahoo Finance Feed...")
                 r = requests.get("https://finance.yahoo.com/news/rssindex", headers={'User-Agent': 'Mozilla/5.0'})
                 root = ET.fromstring(r.content)
-                raw_items = []
-                all_fetched = []
                 
-                # Step 2: Parse
-                prog_bar.progress(50, text="Reading 40 Headlines...")
-                for item in root.findall('.//item')[:40]:
+                # Parse ALL items into cache
+                raw_items = []
+                for item in root.findall('.//item'):
                     title = item.find('title').text
                     link = item.find('link').text
                     pub = item.find('pubDate').text
-                    all_fetched.append({"title": title, "link": link, "time": get_relative_time(pub)})
+                    raw_items.append({"title": title, "link": link, "time": get_relative_time(pub)})
                 
-                # Step 3: Analyze
-                prog_bar.progress(75, text="Consulting OpenAI Brain (This takes ~5-10s)...")
-                from openai import OpenAI
-                cl = OpenAI(api_key=KEY)
-                prompt = """
-                Analyze these financial headlines. For each relevant item, return a JSON object with:
-                - 'ticker': The main stock ticker (e.g. TSLA, AAPL, BTC) or 'MKT' if general.
-                - 'sentiment': 'BULL' or 'BEAR' or 'NEUTRAL'.
-                - 'summary': A 5-word snappy summary.
-                - 'link': The original link.
-                - 'time': The original time string.
-                Return a JSON wrapper: {'items': [...]}
-                """
-                ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in all_fetched])
+                # Store Cache
+                st.session_state['raw_news_cache'] = raw_items
+                st.session_state['news_results'] = [] # Clear old analysis
                 
-                resp = cl.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role":"system", "content": prompt}, {"role":"user", "content": ai_input}],
-                    response_format={"type": "json_object"}
-                )
-                ai_data = json.loads(resp.choices[0].message.content).get('items', [])
+                # Analyze First 20
+                prog_bar.progress(50, text="Consulting OpenAI Brain (Batch 1)...")
+                batch_1 = raw_items[:20]
+                analyzed = process_ai_batch(batch_1, KEY)
                 
-                st.session_state['news_results'] = ai_data
-                st.session_state['news_limit'] = 10
+                st.session_state['news_results'] = analyzed
                 
                 prog_bar.progress(100, text="Analysis Complete!")
                 time.sleep(0.5)
-                prog_bar.empty() # Hide bar when done
+                prog_bar.empty() 
                 
             except Exception as e:
                 prog_bar.empty()
-                st.error(f"AI Analysis Failed: {e}")
+                st.error(f"AI Error: {e}")
         else:
-            st.info("Please enter OpenAI Key in Sidebar to use AI features.")
-    
+            st.info("Enter OpenAI Key in Sidebar.")
+
+    # DISPLAY LOOP
     if st.session_state['news_results']:
-        limit = st.session_state['news_limit']
-        current_batch = st.session_state['news_results'][:limit]
-        
-        for n in current_batch:
+        for n in st.session_state['news_results']:
             s_color = "#4caf50" if n.get('sentiment')=="BULL" else ("#ff4b4b" if n.get('sentiment')=="BEAR" else "#888")
             st.markdown(f"""
             <div style="border-left: 4px solid {s_color}; padding-left: 10px; margin-bottom: 20px;">
@@ -463,12 +470,25 @@ with t3:
             </div>
             """, unsafe_allow_html=True)
         
-        if limit < len(st.session_state['news_results']):
-            if st.button("Load 10 More"):
-                st.session_state['news_limit'] += 10
-                st.rerun()
+        # LOAD MORE BUTTON logic
+        current_count = len(st.session_state['news_results'])
+        total_raw = len(st.session_state['raw_news_cache'])
+        
+        st.divider()
+        st.caption(f"Showing {current_count} of {total_raw} Available Stories")
+        
+        if current_count < total_raw:
+            if st.button(f"Load Next 20 Stories (AI)"):
+                if KEY:
+                    with st.status("Analyzing Next Batch...", expanded=True):
+                        # Get next slice
+                        next_batch = st.session_state['raw_news_cache'][current_count : current_count+20]
+                        new_analysis = process_ai_batch(next_batch, KEY)
+                        # Append
+                        st.session_state['news_results'].extend(new_analysis)
+                        st.rerun()
     else:
-        st.info("Click 'Analyze Market Context' to fetch and scan news.")
+        st.info("Click 'Analyze Market Context' to start.")
 
 sec_to_next_min = 60 - datetime.now().second
 time.sleep(sec_to_next_min)
