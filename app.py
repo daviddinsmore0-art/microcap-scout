@@ -99,7 +99,7 @@ def get_data_accurate(s):
         dh, dl = h['High'].max(), h['Low'].min()
         rng_p = max(0, min(1, (p_live - dl) / (dh - dl))) * 100 if dh > dl else 50
         
-        # DESCRIPTIVE INDICATORS
+        # RESTORED DESCRIPTIVE INDICATORS
         v_tag = "⚡ Surge" if vol_ratio > 1.5 else ("🌊 Steady" if vol_ratio > 0.8 else "💤 Quiet")
         r_tag = "🔥 Hot" if rsi > 70 else ("❄️ Cold" if rsi < 30 else "⚖️ Calm")
         r_col = "#ff4b4b" if rsi > 70 or rsi < 30 else "#4caf50"
@@ -160,6 +160,5 @@ with t1:
     for i, t in enumerate(W):
         with cols[i%3]: draw_card(t)
 
-# Heartbeat to stop dimming loop
 time.sleep(2)
 st.rerun()
