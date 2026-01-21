@@ -26,18 +26,21 @@ if 'initialized' not in st.session_state:
     st.session_state['banner_msg'] = None
     st.session_state['storm_cooldown'] = {}
 
-# --- 3. JAVASCRIPT BRIDGES ---
+# --- 3. JAVASCRIPT MEMORY BRIDGE (The "Auto-Save" Fix) ---
 def sync_js(config_json):
     js = f"""
     <script>
-        const KEY = "penny_pulse_v71_data";
+        // A permanent key that won't change between versions
+        const KEY = "penny_pulse_master_save";
         const fromPython = {config_json};
         const saved = localStorage.getItem(KEY);
         const urlParams = new URLSearchParams(window.location.search);
         
+        // 1. LOAD: If URL is clean (no params), try to load from browser memory
         if (!urlParams.has("w") && saved) {{
             try {{
                 const c = JSON.parse(saved);
+                // Only redirect if the saved data is different from default
                 if (c.w && c.w !== "SPY") {{
                     const newUrl = new URL(window.location);
                     newUrl.searchParams.set("w", c.w);
@@ -46,11 +49,13 @@ def sync_js(config_json):
                     newUrl.searchParams.set("ao", c.ao);
                     newUrl.searchParams.set("fo", c.fo);
                     newUrl.searchParams.set("no", c.no);
+                    // Force the reload to apply settings
                     window.location.href = newUrl.toString();
                 }}
-            }} catch(e) {{}}
+            }} catch(e) {{ console.log("Load error", e); }}
         }}
         
+        // 2. SAVE: Write current settings to browser memory
         if (fromPython.w) {{
             localStorage.setItem(KEY, JSON.stringify(fromPython));
         }}
@@ -60,21 +65,7 @@ def sync_js(config_json):
 
 def inject_wake_lock(enable):
     if enable:
-        js = """
-        <script>
-        let wakeLock = null;
-        async function requestWakeLock() {
-            try {
-                wakeLock = await navigator.wakeLock.request('screen');
-                console.log('Wake Lock active!');
-            } catch (err) { console.log(`${err.name}, ${err.message}`); }
-        }
-        requestWakeLock();
-        document.addEventListener('visibilitychange', async () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
-        });
-        </script>
-        """
+        js = """<script>navigator.wakeLock.request('screen').catch(console.log);</script>"""
         components.html(js, height=0, width=0)
 
 # --- 4. CORE FUNCTIONS ---
@@ -126,6 +117,7 @@ current_config = {
 }
 if 'w_input' not in st.session_state: st.session_state.w_input = current_config['w']
 
+# Inject JS to Save/Load
 config_json = json.dumps(current_config)
 sync_js(config_json)
 inject_wake_lock(current_config["ko"])
@@ -219,7 +211,6 @@ if st.session_state['alert_log']:
 
 # --- 8. HELPERS ---
 def check_flip(ticker, current_trend):
-    # Fix: This runs AFTER 'flip_on' is defined in the sidebar
     if not flip_on: return
     if ticker in st.session_state['last_trends']:
         prev = st.session_state['last_trends'][ticker]
@@ -486,118 +477,7 @@ for t in ["SPY","^IXIC","^DJI","BTC-USD", "^GSPTSE"]:
 h = "".join(ti)
 st.markdown(f"""<div style="background-color: #0E1117; padding: 10px 0; border-top: 2px solid #333; border-bottom: 2px solid #333;"><marquee scrollamount="6" style="width: 100%;">{h * 15}</marquee></div>""", unsafe_allow_html=True) 
 
-# --- DASHBOARD LOGIC (SMART CHART MERGE) ---
-def render_card(t, inf=None):
-    d = get_data_cached(t)
-    spy_data = get_spy_benchmark()
-    
-    if d:
-        check_flip(t, d['raw_trend'])
-        rat_txt, rat_col = get_rating_cached(t)
-        sec, earn = get_meta_data(t)
-        nm = NAMES.get(t, t)
-        if t.endswith(".TO"): nm += " (TSX)"
-        elif t.endswith(".V"): nm += " (TSXV)"
-        elif t.endswith(".CN"): nm += " (CSE)"
-        sec_tag = f" <span style='color:#777; font-size:14px;'>[{sec}]</span>" if sec else ""
-        url = f"https://finance.yahoo.com/quote/{t}"
-        st.markdown(f"<h3 style='margin:0; padding:0;'><a href='{url}' target='_blank' style='text-decoration:none; color:inherit;'>{nm}</a>{sec_tag} <a href='{url}' target='_blank' style='text-decoration:none;'>📈</a></h3>", unsafe_allow_html=True)
-        
-        if inf:
-            q = inf.get("q", 100)
-            st.caption(f"{q} Shares @ ${inf['e']}")
-            st.metric("Price", f"${d['p']:,.2f}", f"{((d['p']-inf['e'])/inf['e'])*100:.2f}% (Total)")
-        else:
-            st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-        
-        st.markdown(f"<div style='margin-top:-10px; margin-bottom:10px;'>{d['x']}</div>", unsafe_allow_html=True) 
-        st.markdown(f"<div style='margin-bottom:10px; font-weight:bold; font-size:14px;'>🤖 AI: <span style='color:{d['ai_col']};'>{d['ai_txt']}</span></div>", unsafe_allow_html=True) 
-        
-        meta_html = f"""
-        <div style='font-size:14px; line-height:1.8; margin-bottom:10px; color:#444;'>
-            <div><b style='color:black; margin-right:8px;'>TREND:</b> {d['tr']}{d['gc']}</div>
-            <div><b style='color:black; margin-right:8px;'>ANALYST RATING:</b> <span style='color:{rat_col}; font-weight:bold;'>{rat_txt}</span></div>
-            <div><b style='color:black; margin-right:8px;'>EARNINGS:</b> {earn}</div>
-        </div>
-        """
-        st.markdown(meta_html, unsafe_allow_html=True)
-
-        st.markdown("<div style='font-size:11px; font-weight:bold; color:#555; margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
-        
-        if d['chart'] is not None and not d['chart'].empty:
-            stock_series = d['chart']['Close'].tail(30)
-            if len(stock_series) > 1:
-                start_p = stock_series.iloc[0]
-                stock_norm = ((stock_series - start_p) / start_p) * 100
-                plot_df = pd.DataFrame({'Stock': stock_norm})
-                plot_df = plot_df.reset_index().rename(columns={plot_df.index.name: 'Time'})
-                has_spy = False
-                if spy_data is not None and not spy_data.empty:
-                    try:
-                        spy_aligned = spy_data.reindex(stock_series.index, method='nearest', tolerance=timedelta(minutes=10))
-                        if not spy_aligned['Close'].isnull().all():
-                            spy_vals = spy_aligned['Close']
-                            valid_spy = spy_vals.dropna()
-                            if not valid_spy.empty:
-                                spy_start = valid_spy.iloc[0]
-                                plot_df['SPY'] = ((spy_vals.values - spy_start) / spy_start) * 100
-                                has_spy = True
-                    except: pass
-                line_color = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-                base = alt.Chart(plot_df).encode(x=alt.X('Time', axis=None))
-                l_stock = base.mark_line(color=line_color, strokeWidth=2).encode(y=alt.Y('Stock', scale=alt.Scale(zero=False), axis=None))
-                final_chart = l_stock
-                if has_spy:
-                    l_spy = base.mark_line(color='orange', strokeDash=[2,2], opacity=0.8).encode(y='SPY')
-                    final_chart = l_stock + l_spy
-                st.altair_chart(final_chart.properties(height=40, width='container').configure_view(strokeWidth=0), use_container_width=True)
-            else: st.caption("Not enough intraday data.")
-        else: st.caption("Chart data unavailable.")
-        
-        st.markdown(d['rng_html'], unsafe_allow_html=True)
-        st.markdown(d['vol_html'], unsafe_allow_html=True)
-        st.markdown(d['rsi_html'], unsafe_allow_html=True)
-        st.markdown(d['storm_html'], unsafe_allow_html=True)
-    else: st.metric(t, "---", "0.0%")
-    st.divider() 
-
-t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
-with t1:
-    cols = st.columns(3)
-    for i, t in enumerate(WATCH):
-        with cols[i%3]: render_card(t) 
-
-with t2:
-    tot_val, day_pl, tot_pl = 0.0, 0.0, 0.0
-    pie_data = []
-    
-    for t, inf in PORT.items():
-        d = get_data_cached(t)
-        if d:
-            q = inf.get("q", 100)
-            curr = d['p'] * q
-            tot_val += curr
-            tot_pl += (curr - (inf['e'] * q))
-            day_pl += (d['d_raw'] * q)
-            pie_data.append({"Ticker": t, "Value": curr})
-            
-    st.markdown(f"""<div style="background-color:#1e2127; padding:15px; border-radius:10px; margin-bottom:20px; border:1px solid #444;"><div style="display:flex; justify-content:space-around; text-align:center;"><div><div style="color:#aaa; font-size:12px;">Net Liq</div><div style="font-size:18px; font-weight:bold; color:white;">${tot_val:,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Day P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if day_pl>=0 else 'red'};">${day_pl:+,.2f}</div></div><div><div style="color:#aaa; font-size:12px;">Total P/L</div><div style="font-size:18px; font-weight:bold; color:{'green' if tot_pl>=0 else 'red'};">${tot_pl:+,.2f}</div></div></div></div>""", unsafe_allow_html=True)
-    
-    c_pie1, c_pie2 = st.columns([1, 2])
-    with c_pie1:
-        if pie_data:
-            df_pie = pd.DataFrame(pie_data)
-            pie_chart = alt.Chart(df_pie).mark_arc(innerRadius=50).encode(
-                theta=alt.Theta(field="Value", type="quantitative"),
-                color=alt.Color(field="Ticker", type="nominal"),
-                tooltip=["Ticker", "Value"]
-            )
-            st.altair_chart(pie_chart, use_container_width=True)
-    
-    cols = st.columns(3)
-    for i, (t, inf) in enumerate(PORT.items()):
-        with cols[i%3]: render_card(t, inf) 
-
+# --- FLIP CHECK & NOTIFICATION TRIGGER ---
 if a_on:
     d = get_data_cached(a_tick)
     if d and d['p'] >= a_price:
@@ -628,11 +508,11 @@ def process_news_batch(raw_batch):
         for idx, item in enumerate(raw_batch):
             full_text = fetch_article_text(item['link'])
             content = full_text if len(full_text) > 200 else item['desc']
-            # Limit article length to 700 chars to save tokens
+            # Reduced tokens to prevent crash
             batch_content += f"\n\nARTICLE {idx+1}:\nTitle: {item['title']}\nLink: {item['link']}\nContent: {content[:700]}\nDate: {item['date_str']}"
             progress_bar.progress(min((idx + 1) / total_items, 1.0))
         
-        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL. IMPORTANT: Ignore articles that are about general crime, police arrests, sports, gossip, or non-financial news. Only return financial, market, or company news. **KEEP REASONS CONCISE.**"
+        system_instr = "You are a financial analyst. Analyze these articles. Return a JSON object with a key 'articles' which is a list of objects. Each object must have: 'ticker', 'signal' (🟢, 🔴, or ⚪), 'reason', 'title', 'link', 'date_display'. 'date_display' should be the relative time (e.g. '2h ago') derived from the article date. The link must be the original URL. IMPORTANT: Ignore articles that are about general crime, police arrests, sports, gossip, or non-financial news. Only return financial, market, or company news."
         
         res = client.chat.completions.create(
             model="gpt-4o-mini", 
@@ -665,16 +545,35 @@ def process_news_batch(raw_batch):
         progress_bar.empty()
         return valid_results
     except Exception as e:
-        st.warning(f"⚠️ AI Error: {e}")
+        # Fallback to display even if AI fails
         return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_news_cached():
+    # --- 6. NEWS - CONFIGURATION SECTION ---
+    # Add your personal RSS links here (e.g., Bloomberg, CoinDesk)
+    MY_RSS_FEEDS = [
+        "https://finance.yahoo.com/news/rssindex",
+        "https://www.cnbc.com/id/10000664/device/rss/rss.html",
+        "https://www.prnewswire.com/rss/news-releases-list.rss"
+    ]
+    
+    # Add specific single article links here to force the AI to read them
+    MY_CUSTOM_LINKS = [
+        # "https://www.example.com/specific-article",
+    ]
+    # ---------------------------------------
+
     head = {'User-Agent': 'Mozilla/5.0'}
-    urls = ["https://www.prnewswire.com/rss/news-releases-list.rss","https://finance.yahoo.com/news/rssindex", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]
     it, seen = [], set()
+    
+    # 1. Process Custom Links
+    for link in MY_CUSTOM_LINKS:
+        it.append({"title": "Custom Link", "link": link, "desc": "Manual Input", "date_str": "Now"})
+
+    # 2. Process RSS Feeds
     blacklist = ["kill", "dead", "troop", "war", "sport", "football", "murder", "crash", "police", "arrest", "shoot", "bomb", "jail", "prison", "sentence", "suspect", "court", "francais", "la", "le", "et", "pour"]
-    for u in urls:
+    for u in MY_RSS_FEEDS:
         try:
             r = requests.get(u, headers=head, timeout=5)
             if r.status_code != 200: continue
@@ -691,6 +590,7 @@ def get_news_cached():
                 if l is None: l = i.find('{http://www.w3.org/2005/Atom}link')
                 
                 url = None
+                # --- LINK FIX HERE ---
                 if l is not None:
                     if l.text and l.text.strip(): url = l.text.strip()
                     elif 'href' in l.attrib: url = l.attrib['href']
