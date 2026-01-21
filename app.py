@@ -10,11 +10,11 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. MEMORY & PERSISTENCE ---
+# --- 2. MEMORY INITIALIZATION ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
-    # Defaults
+    # 1. Set Defaults
     defaults = {
         'w_input': "SPY, BTC-USD, TD.TO, PLUG.CN, VTX.V",
         'a_tick_input': "SPY",
@@ -26,7 +26,7 @@ if 'initialized' not in st.session_state:
         'base_url_input': ""
     }
     
-    # Check URL
+    # 2. Override from URL
     qp = st.query_params
     if 'w' in qp: defaults['w_input'] = qp['w']
     if 'at' in qp: defaults['a_tick_input'] = qp['at']
@@ -34,10 +34,11 @@ if 'initialized' not in st.session_state:
     if 'ao' in qp: defaults['a_on_input'] = (qp['ao'].lower() == 'true')
     if 'fo' in qp: defaults['flip_on_input'] = (qp['fo'].lower() == 'true')
     
+    # 3. Apply to State
     for k, v in defaults.items():
-        st.session_state[k] = v
+        if k not in st.session_state: st.session_state[k] = v
         
-    # Internal
+    # 4. Internal
     st.session_state['news_results'] = []
     st.session_state['alert_log'] = []
     st.session_state['last_trends'] = {}
@@ -70,7 +71,7 @@ def load_profile_callback():
 
 def sync_js(config_json):
     js = f"""<script>
-    const KEY="penny_pulse_v78"; const d={config_json}; const s=localStorage.getItem(KEY);
+    const KEY="penny_pulse_v79"; const d={config_json}; const s=localStorage.getItem(KEY);
     const p=new URLSearchParams(window.location.search);
     if(!p.has("w")&&s){{try{{const c=JSON.parse(s);if(c.w&&c.w!=="SPY"){{
     const u=new URL(window.location);u.searchParams.set("w",c.w);u.searchParams.set("at",c.at);
@@ -83,11 +84,12 @@ def sync_js(config_json):
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR (Fixed Yellow Box) ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
+# NO default value here, strictly session state
 st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
 
 # Lists
@@ -106,11 +108,8 @@ with c2:
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Alerts")
 
-curr = st.session_state.a_tick_input
-idx = 0
-if curr in sorted(ALL): idx = sorted(ALL).index(curr)
-
-a_tick = st.sidebar.selectbox("Asset", sorted(ALL), index=idx, key="a_tick_input", on_change=update_params)
+# WIDGETS (No 'value' or 'index' to prevent yellow box)
+a_tick = st.sidebar.selectbox("Asset", sorted(ALL), key="a_tick_input", on_change=update_params)
 a_price = st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input", on_change=update_params)
 a_on = st.sidebar.toggle("Price Alert", key="a_on_input", on_change=update_params)
 flip_on = st.sidebar.toggle("Flip Alert", key="flip_on_input", on_change=update_params)
@@ -127,7 +126,7 @@ with st.sidebar.expander("📦 Backup"):
 sync_js(json.dumps(export))
 inject_wake_lock(keep_on)
 
-# --- 5. LOGIC & DATA FETCHING ---
+# --- 5. LOGIC & DATA ---
 def log_alert(msg, title="Alert"):
     st.session_state['alert_log'].insert(0, f"[{datetime.now().strftime('%H:%M')}] {msg}")
     components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
@@ -146,16 +145,13 @@ def check_flip(ticker, current_trend, enabled):
         log_alert(f"{ticker} FLIPPED to {current_trend}", "Trend Flip")
     st.session_state['last_trends'][ticker] = current_trend
 
-# Helpers for Rich UI
+# Helpers
 def get_meta(s):
     if s in st.session_state['mem_meta']: return st.session_state['mem_meta'][s]
     try:
         tk = yf.Ticker(s)
-        sec = tk.info.get('sector', 'N/A')
-        # Map or truncate sector
-        sec_code = sec[:4].upper() if sec != 'N/A' else ""
+        sec = tk.info.get('sector', 'N/A')[:4].upper()
         
-        # Earnings
         earn_html = "N/A"
         cal = tk.calendar
         dates = []
@@ -169,16 +165,15 @@ def get_meta(s):
             if 0 <= days <= 7: earn_html = f"⚠️ {days}d"
             elif days > 0: earn_html = f"📅 {nxt.strftime('%b %d')}"
             
-        res = (sec_code, earn_html)
+        res = (sec, earn_html)
         st.session_state['mem_meta'][s] = res
         return res
-    except: return "", "N/A"
+    except: return "N/A", "N/A"
 
 def get_rating(s):
     if s in st.session_state['mem_ratings']: return st.session_state['mem_ratings'][s]
     try:
         r = yf.Ticker(s).info.get('recommendationKey', 'none').upper().replace('_',' ')
-        # Add emoji
         if "STRONG BUY" in r: r = "🌟 STRONG BUY"
         elif "BUY" in r: r = "✅ BUY"
         elif "HOLD" in r: r = "✋ HOLD"
@@ -190,7 +185,7 @@ def get_rating(s):
         return res
     except: return "N/A", "#888"
 
-# SPY Benchmark
+# Safe Chart Data Fetcher
 def get_spy():
     now = datetime.now()
     if st.session_state['spy_cache'] is not None:
@@ -219,15 +214,19 @@ def get_data_rich(s):
         except: pv = h['Open'].iloc[0]
         d_pct = ((p-pv)/pv)*100
         
-        # --- FIX: Duplicate Column Protection ---
-        chart_data = h[['Close']].copy()
-        chart_data.index.name = 'Time' # Rename index to be safe
-        # ----------------------------------------
+        # --- CHART FIX: Explicitly Build DataFrame to avoid Duplicates ---
+        chart_data = pd.DataFrame({
+            'Time': h.index,
+            'Close': h['Close'].values
+        })
+        # -----------------------------------------------------------------
         
         hm = tk.history(period="1mo")
         rsi, trend, tr_html = 50, "NEUTRAL", "NEUTRAL"
         vol_ratio = 1.0
         golden_cross = ""
+        ai_msg = "NEUTRAL"
+        ai_col = "#888"
         
         if len(hm)>14:
             d = hm['Close'].diff()
@@ -240,20 +239,21 @@ def get_data_rich(s):
             if mac.iloc[-1] > 0: 
                 trend = "BULL"
                 tr_html = "<span style='color:#00C805;font-weight:bold'>BULL</span>"
+                ai_msg = "BULLISH BIAS"; ai_col = "#00C805"
             else: 
                 trend = "BEAR"
                 tr_html = "<span style='color:#FF4B4B;font-weight:bold'>BEAR</span>"
+                ai_msg = "BEARISH BIAS"; ai_col = "#FF4B4B"
                 
             v = hm['Volume'].iloc[-1]; a = hm['Volume'].mean()
             if a > 0: vol_ratio = v/a
             
-            # Golden Cross Check (Approx)
             if len(hm) > 200:
                 ma50 = hm['Close'].rolling(50).mean().iloc[-1]
                 ma200 = hm['Close'].rolling(200).mean().iloc[-1]
                 if ma50 > ma200: golden_cross = " <span style='background:#FFD700;color:black;padding:1px 4px;border-radius:3px;font-size:10px;font-weight:bold'>🌟 GOLDEN CROSS</span>"
 
-        return {"p":p, "d":d_pct, "rsi":rsi, "tr":trend, "tr_h":tr_html, "gc":golden_cross, "chart":chart_data, "vr":vol_ratio}
+        return {"p":p, "d":d_pct, "rsi":rsi, "tr":trend, "tr_h":tr_html, "gc":golden_cross, "chart":chart_data, "vr":vol_ratio, "ai":ai_msg, "ai_c":ai_col}
     except: return None
 
 # Price Alert
@@ -297,6 +297,17 @@ def render_card(t, inf=None):
     if d:
         check_flip(t, d['tr'], flip_on)
         
+        # Check Storm
+        score = 0
+        if d['vr'] >= 2.0: score += 30
+        if d['tr'] == "BULL" and d['d'] > 0:
+            if d['rsi'] <= 35: score += 25
+            if d['d'] > 2.0: score += 20
+            if score >= 70: 
+                l = st.session_state['storm_cooldown'].get(t, datetime.min)
+                if (datetime.now()-l).seconds > 300:
+                    log_alert(f"PERFECT STORM: {t}", "Bull Storm"); st.session_state['storm_cooldown'][t] = datetime.now()
+        
         # UI Elements
         rt, rc = get_rating(t)
         sec, earn = get_meta(t)
@@ -320,6 +331,9 @@ def render_card(t, inf=None):
         else:
             st.metric("Price", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
             
+        st.markdown(f"<div style='margin-top:-10px;margin-bottom:10px;'>⚡ LIVE: ${d['p']:,.2f} <span style='color:{'#4caf50' if d['d']>=0 else '#ff4b4b'}'>({d['d']:+.2f}%)</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>⚙️ AI: <span style='color:{d['ai_c']}'>{d['ai']}</span></div>", unsafe_allow_html=True)
+
         # Rich Metadata
         st.markdown(f"""
         <div style='font-size:14px;line-height:1.8;margin-bottom:10px;color:#444;'>
@@ -332,27 +346,24 @@ def render_card(t, inf=None):
         # Chart (Intraday + SPY)
         st.markdown("<div style='font-size:11px;font-weight:bold;color:#555;margin-bottom:2px;'>INTRADAY vs SPY (Orange/Dotted)</div>", unsafe_allow_html=True)
         
-        # Prepare Data
-        c_df = d['chart'].reset_index()
-        # Normalize
+        # Normalize for Comparison
+        c_df = d['chart'].copy()
         start_p = c_df['Close'].iloc[0]
         c_df['Stock'] = ((c_df['Close'] - start_p)/start_p)*100
         
-        # Add SPY if available
+        # Add SPY
         has_spy = False
         if spy is not None:
             try:
-                # Align indices roughly
-                spy_aligned = spy.reindex(d['chart'].index, method='nearest', tolerance=timedelta(minutes=10))
-                spy_vals = spy_aligned['Close']
-                if not spy_vals.isna().all():
-                    s_start = spy_vals.dropna().iloc[0]
-                    c_df['SPY'] = ((spy_vals.values - s_start)/s_start)*100
+                spy_aligned = spy.reindex(c_df.index, method='nearest', tolerance=timedelta(minutes=10))
+                if not spy_aligned['Close'].isna().all():
+                    s_start = spy_aligned['Close'].dropna().iloc[0]
+                    c_df['SPY'] = ((spy_aligned['Close'] - s_start)/s_start)*100
                     has_spy = True
             except: pass
             
         # Plot
-        base = alt.Chart(c_df).encode(x=alt.X('Time', axis=None))
+        base = alt.Chart(c_df.reset_index()).encode(x=alt.X('Time', axis=None))
         l1 = base.mark_line(color="#4caf50" if d['d']>=0 else "#ff4b4b").encode(y=alt.Y('Stock', axis=None))
         final = l1
         if has_spy:
