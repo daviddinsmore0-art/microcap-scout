@@ -158,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (FORCE AFTER HOURS) ---
+# --- 4. DATA ENGINE (TSX LOCK & US FIX) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -167,25 +167,25 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        # Fetch data with pre/post enabled
-        try: h = tk.history(period="5d", interval="5m", prepost=True)
+        try: h = tk.history(period="1d", interval="5m", prepost=True)
         except: h = pd.DataFrame()
+        if h.empty: 
+            try: h = tk.history(period="5d", interval="15m", prepost=True)
+            except: return None
         if h.empty: return None
         
-        # 1. LIVE ABSOLUTE LAST PRICE
+        # 1. LIVE DATA
         p_live = h['Close'].iloc[-1]
         
-        # 2. MARKET OPEN/CLOSE CHECK (EST)
+        # 2. MARKET STATE
+        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
         now = datetime.utcnow() - timedelta(hours=5)
-        # Market Open: Mon-Fri, 9:30 - 16:00
+        # Open 9:30-16:00 M-F
         is_market_open = (now.weekday() < 5) and (
             (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and (now.hour < 16)
         )
         
-        # 3. TSX CHECK
-        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
-        
-        # 4. PRICE & EXTENDED LOGIC
+        # 3. DISPLAY LOGIC
         display_price = p_live
         display_pct = 0.0
         
@@ -193,43 +193,34 @@ def get_pro_data(s):
         ext_price = None
         ext_pct = 0.0
         
-        # Try to find the Regular Market Close
-        reg_close = p_live # Default
         try: reg_close = tk.fast_info['regular_market_previous_close']
-        except: 
-            # Fallback: Open of 5d chart
-            reg_close = h['Open'].iloc[0]
+        except: reg_close = h['Open'].iloc[0]
 
         if is_market_open:
-            # DAYTIME: Main = Live, % = Change from Yesterday
+            # OPEN: Live is Main
             display_price = p_live
             display_pct = ((p_live - reg_close) / reg_close) * 100
         else:
-            # NIGHTTIME: 
-            # 1. Main = Official Close (Freeze it)
-            # Try to fetch today's closing price if available
-            try: 
-                today_close = tk.fast_info['last_price']
-                # If last_price is suspiciously close to p_live (AH price), rely on 'regular_market_price'
-                if 'regular_market_price' in tk.fast_info:
-                    today_close = tk.fast_info['regular_market_price']
+            # CLOSED:
+            try:
+                # Freeze Main at Today's Close
+                today_close = tk.fast_info.get('regular_market_price', p_live) # 4pm close
+                if not today_close: today_close = p_live
+                
                 display_price = today_close
-            except: 
-                display_price = p_live
-            
-            # Recalc Day %
-            display_pct = ((display_price - reg_close) / reg_close) * 100
-            
-            # 2. Badge = Live vs Official Close
-            # FORCE LOGIC: If Not TSX AND Not Open AND Diff exists
-            if not is_tsx and not is_market_open:
-                # Compare Live AH Price vs Today's Close
-                if abs(p_live - display_price) > 0.01:
+                # Day Change = Today Close vs Yest Close
+                display_pct = ((today_close - reg_close) / reg_close) * 100
+                
+                # EXTENDED HOURS (US Only)
+                # If NOT TSX and Diff exists
+                if not is_tsx and abs(p_live - today_close) > 0.01:
                     market_state = "POST" if now.hour >= 16 else "PRE"
                     ext_price = p_live
-                    ext_pct = ((p_live - display_price) / display_price) * 100
+                    ext_pct = ((p_live - today_close) / today_close) * 100
+            except:
+                display_price = p_live
+                display_pct = 0.0
 
-        # Indicators
         hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
@@ -363,8 +354,7 @@ def draw_pro_card(t, port_data=None):
         </div>
         """, unsafe_allow_html=True)
 
-        # AFTER-HOURS BADGE (COLOR & SIZE FIX)
-        # WILL NOT SHOW FOR TSX STOCKS NOW
+        # AFTER-HOURS BADGE (TSX PROTECTED)
         if d['state'] != "REG" and d['ext_p']:
             ext_sign = "+" if d['ext_d'] >= 0 else ""
             ext_col = "#4caf50" if d['ext_d'] >= 0 else "#ff4b4b" 
@@ -377,17 +367,20 @@ def draw_pro_card(t, port_data=None):
             </div>
             """, unsafe_allow_html=True)
 
+        # PORTFOLIO BAR (FOMO ROI ADDED)
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
             val = d['p'] * qty
             profit = val - (entry * qty)
+            roi = ((d['p'] - entry) / entry) * 100
             p_col = "#4caf50" if profit >= 0 else "#ff4b4b"
+            
             st.markdown(f"""
             <div style="background-color:black; color:white; border-left:4px solid {p_col}; padding:8px; margin-bottom:10px; font-size:15px; font-weight:bold; font-family:sans-serif;">
                 <span style="color:white;">Qty: {qty}</span> &nbsp;&nbsp; 
                 <span style="color:white;">Avg: ${entry}</span> &nbsp;&nbsp; 
-                <span style="color:white;">Gain: <span style="color:{p_col};">${profit:,.2f}</span></span>
+                <span style="color:white;">Gain: <span style="color:{p_col};">${profit:,.2f} ({roi:+.1f}%)</span></span>
             </div>
             """, unsafe_allow_html=True)
 
@@ -453,6 +446,7 @@ with t2:
     
     tpl = total_val - total_cost
     day_pl = total_val * 0.012 
+    total_roi = (tpl / total_cost) * 100 if total_cost > 0 else 0
     
     st.markdown(f"""
     <div style="background-color:#1E1E1E; padding:20px; border-radius:10px; border:1px solid #333; margin-bottom:25px; display:flex; justify-content:space-around; align-items:center;">
@@ -466,7 +460,9 @@ with t2:
         </div>
         <div style="text-align:center;">
             <div style="color:#aaa; font-size:14px; font-weight:bold;">Total P/L</div>
-            <div style="color:{'#4caf50' if tpl>=0 else '#ff4b4b'}; font-size:22px; font-weight:900;">${tpl:,.2f}</div>
+            <div style="color:{'#4caf50' if tpl>=0 else '#ff4b4b'}; font-size:22px; font-weight:900;">
+                ${tpl:,.2f} <span style="font-size:16px;">({total_roi:+.1f}%)</span>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
