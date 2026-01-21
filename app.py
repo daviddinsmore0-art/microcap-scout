@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. MEMORY INITIALIZATION (CRASH FIX) ---
+# --- 2. MEMORY ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     defaults = {
@@ -29,7 +29,6 @@ if 'initialized' not in st.session_state:
                 try: defaults[k] = float(val) if '.' in val and not any(x in val for x in ['TO','V','CN']) else val
                 except: defaults[k] = val
     for k, v in defaults.items(): st.session_state[k] = v
-    # Initialize these IMMEDIATELY to prevent KeyErrors
     st.session_state.update({'news_results': [], 'alert_log': [], 'last_trends': {}, 'mem_ratings': {}, 'mem_meta': {}, 'banner_msg': None, 'storm_cooldown': {}, 'spy_cache': None, 'spy_last_fetch': datetime.min})
 
 # --- 3. FUNCTIONS ---
@@ -51,15 +50,19 @@ def get_clean_name(t):
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
-# --- 4. SIDEBAR (RESTORED) ---
+# --- 4. SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
 st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
+
+# PORTFOLIO DATA (Restored)
+PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
+
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Alerts")
-ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + ["HIVE","BAER","TX","IMNN","RERE"]))
+ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
 st.sidebar.selectbox("Asset", sorted(ALL_T), key="a_tick_input")
 st.sidebar.number_input("Target ($)", step=0.5, key="a_price_input")
 st.sidebar.toggle("Price Alert", key="a_on_input")
@@ -137,7 +140,7 @@ def get_data_accurate(s):
         return {"p_anchor":p_anchor, "d_static":d_static, "p_live":p_live, "d_live":d_live, "rsi":rsi, "tr":trend, "chart":h, "rating":rating, "r_col":rating_col, "sec":sec, "earn":earn, "bars":bars}
     except: return None
 
-# --- 6. HEADER & TIMER (FIXED CENTERING) ---
+# --- 6. UI HEADER ---
 est = datetime.utcnow() - timedelta(hours=5)
 status = "🔴 CLOSED"
 hh, mm = est.hour, est.minute
@@ -146,21 +149,12 @@ if est.weekday() < 5:
     elif (hh==9 and mm>=30) or (9 < hh < 16): status = "🟢 MARKET OPEN"
     elif 16 <= hh < 20: status = "🌙 POST-MARKET"
 
-# Better Mobile Layout for Header
-c1, c2 = st.columns([1, 1])
+c1, c2 = st.columns([1,1])
 with c1:
     st.title("⚡ Penny Pulse")
     st.caption(f"{status} | {est.strftime('%H:%M:%S EST')}")
 with c2:
-    # Centered Timer that fits mobile better
-    components.html("""
-    <div style="display:flex; justify-content:center; align-items:center; height:100%; background:#0E1117; border-radius:10px; border:1px solid #333;">
-        <span style="color:#BBBBBB; font-weight:bold; font-size:14px; margin-right:5px; font-family:sans-serif;">Next Update:</span>
-        <span id="c" style="color:#FF4B4B; font-weight:900; font-size:22px; font-family:sans-serif;">--</span>
-        <span style="color:#BBBBBB; font-size:14px; margin-left:2px; font-family:sans-serif;">s</span>
-    </div>
-    <script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>
-    """, height=60)
+    components.html("""<div style="font-family:'Helvetica';background:#0E1117;padding:5px;text-align:right;display:flex;justify-content:flex-end;align-items:center;height:100%;"><span style="color:#BBBBBB;font-weight:bold;font-size:14px;margin-right:5px;">Next Update: </span><span id="c" style="color:#FF4B4B;font-weight:900;font-size:24px;">--</span><span style="color:#BBBBBB;font-size:14px;margin-left:2px;"> s</span></div><script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>""", height=60)
 
 # Scroller
 @st.cache_data(ttl=60, show_spinner=False)
@@ -175,10 +169,10 @@ def get_marquee():
 
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-top:2px solid #333;border-bottom:2px solid #333;"><marquee scrollamount="8" style="width:100%;">{get_marquee()*5}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 7. DASHBOARD ---
-t1, t2, t3 = st.tabs(["🏠 Board", "🚀 My Picks", "📰 News"])
+# --- 7. DASHBOARD & TABS (Fixed) ---
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News"])
 
-def draw_card(t):
+def draw_card(t, shares=None, cost=None):
     d = get_data_accurate(t)
     if d:
         name = get_clean_name(t)
@@ -186,6 +180,13 @@ def draw_card(t):
         st.metric("Prev Close", f"${d['p_anchor']:,.2f}", f"{d['d_static']:+.2f}%")
         st.markdown(f"<div style='margin-top:-15px;margin-bottom:10px;font-weight:bold;'>⚡ LIVE: ${d['p_live']:,.2f} <span style='color:{'#4caf50' if d['d_live']>=0 else '#ff4b4b'}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
         
+        # Portfolio Math
+        if shares:
+            v = d['p_live'] * shares
+            pl = v - (cost * shares)
+            st.caption(f"Val: ${v:,.0f} | P/L: ${pl:+,.0f}")
+
+        # BOLD UI
         st.markdown(f"""
         <div style='font-size:14px;line-height:1.6;'>
             <b>TREND:</b> <span style='color:{'#00C805' if d['tr']=='BULL' else '#FF4B4B'}'><b>{d['tr']}</b></span><br>
@@ -207,7 +208,13 @@ with t1:
     for i, t in enumerate(W):
         with cols[i%3]: draw_card(t)
 
-# News Logic
+# RESTORED MY PICKS
+with t2:
+    cols = st.columns(3)
+    for i, (t, inf) in enumerate(PORT.items()):
+        with cols[i%3]: draw_card(t, inf['q'], inf['e'])
+
+# RESTORED NEWS
 with t3:
     if st.button("Deep Scan (AI)"):
         if KEY:
