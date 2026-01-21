@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# --- 2. MEMORY & PERSISTENCE ---
+# --- 2. MEMORY ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
@@ -67,7 +67,7 @@ def load_profile_callback():
 
 def sync_js(config_json):
     js = f"""<script>
-    const KEY="penny_pulse_v82"; const d={config_json}; const s=localStorage.getItem(KEY);
+    const KEY="penny_pulse_v83"; const d={config_json}; const s=localStorage.getItem(KEY);
     const p=new URLSearchParams(window.location.search);
     if(!p.has("w")&&s){{try{{const c=JSON.parse(s);if(c.w&&c.w!=="SPY"){{
     const u=new URL(window.location);u.searchParams.set("w",c.w);u.searchParams.set("at",c.at);
@@ -205,43 +205,55 @@ def get_data_rich(s):
     try:
         tk = yf.Ticker(s)
         
-        # --- PREVIOUS CLOSE ANCHOR (PRIORITY: EXCHANGE DATA) ---
-        # Try fast_info first (most accurate for official settlement)
-        try:
-            prev_close = tk.fast_info['previous_close']
-        except:
-            # Fallback to daily history
-            hd = tk.history(period="5d", interval="1d")
-            if len(hd) >= 2: prev_close = hd['Close'].iloc[-2]
-            else: prev_close = 0.0
+        # --- THE FIX: MANUAL HISTORY EXTRACTION ---
+        # 1. Get official history to determine the TRUE Last Close
+        hd = tk.history(period="5d", interval="1d")
+        
+        # Default Logic
+        close_yesterday = 0.0
+        close_day_before = 0.0
+        
+        if len(hd) >= 2:
+            # yfinance often includes "today" as the last row even if partial.
+            # We look at the last row. If the date is TODAY, we assume it's live/partial.
+            # If the date is YESTERDAY, it's the confirmed close.
+            last_date = hd.index[-1].date()
+            today_date = datetime.now().date()
             
-        # Get 'Day Before' for Static % (Move from Day -2 to Day -1)
-        # This gives the "Closed at 4.99%" number
-        try:
-            hd = tk.history(period="5d", interval="1d")
-            if len(hd) >= 2:
-                day_before = hd['Close'].iloc[-3] if len(hd) > 2 else prev_close
-                if day_before > 0: static_pct = ((prev_close - day_before) / day_before) * 100
-                else: static_pct = 0.0
-            else: static_pct = 0.0
-        except: static_pct = 0.0
-
-        # --- LIVE DATA (PRIORITY: REAL-TIME) ---
+            if last_date == today_date:
+                # Last row is today (partial). So -2 is Yesterday (Confirmed Close).
+                # -3 is Day Before.
+                close_yesterday = hd['Close'].iloc[-2]
+                close_day_before = hd['Close'].iloc[-3] if len(hd) > 2 else close_yesterday
+            else:
+                # Last row is Yesterday (Confirmed Close).
+                # -2 is Day Before.
+                close_yesterday = hd['Close'].iloc[-1]
+                close_day_before = hd['Close'].iloc[-2]
+        
+        # Calculate the "Official Close" % (The +3.99% number)
+        if close_day_before > 0:
+            static_pct = ((close_yesterday - close_day_before) / close_day_before) * 100
+        else:
+            static_pct = 0.0
+            
+        # 2. Get Live/Pre-Market Price
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=True)
         if h.empty: return None
         
         live_price = h['Close'].iloc[-1]
         
-        # Live Change vs Anchor
-        if prev_close > 0: live_pct = ((live_price - prev_close) / prev_close) * 100
-        else: live_pct = 0.0
-        
-        # Chart Data
-        dh = h['High'].max(); dl = h['Low'].min()
+        # Calculate the "Live Drift" % (The +0.52% number)
+        if close_yesterday > 0:
+            live_pct = ((live_price - close_yesterday) / close_yesterday) * 100
+        else:
+            live_pct = 0.0
+        # ------------------------------------------
+
         chart_data = pd.DataFrame({'Time': h.index, 'Close': h['Close'].values})
+        dh = h['High'].max(); dl = h['Low'].min()
         
-        # Trends
         hm = tk.history(period="1mo")
         rsi, trend, tr_html = 50, "NEUTRAL", "NEUTRAL"
         vol_ratio, golden_cross, ai_msg, ai_col = 1.0, "", "NEUTRAL", "#888"
@@ -288,7 +300,7 @@ def get_data_rich(s):
             storm_html = f"<div style='margin-top:10px;padding:5px;border:1px solid {sc};border-radius:5px;font-size:12px;color:{sc};text-align:center;'><b>{ico} {s_mode} STORM: {s_score}/100</b><br><span style='font-size:10px;color:#aaa;'>{', '.join(s_reasons)}</span></div>"
 
         return {
-            "p_static": prev_close, "d_static": static_pct,
+            "p_static": close_yesterday, "d_static": static_pct,
             "p_live": live_price, "d_live": live_pct,
             "rsi":rsi, "tr":trend, "tr_h":tr_html, "gc":golden_cross, 
             "chart":chart_data, "vr":vol_ratio, "ai":ai_msg, "ai_c":ai_col, 
@@ -353,14 +365,12 @@ def render_card(t, inf=None):
         
         st.markdown(f"<h3 style='margin:0;padding:0;'><a href='{u}' target='_blank' style='text-decoration:none;color:inherit'>{nm}</a>{sec_tag}</h3>", unsafe_allow_html=True)
         
-        # --- SPLIT DISPLAY ---
-        # 1. Close (Yesterday)
+        # --- SPLIT DISPLAY (FIXED ANCHOR) ---
         st.metric("Prev Close", f"${d['p_static']:,.2f}", f"{d['d_static']:.2f}%")
         
-        # 2. Live Action
         l_col = "#4caf50" if d['d_live'] >= 0 else "#ff4b4b"
         st.markdown(f"<div style='margin-top:-10px;margin-bottom:10px;font-weight:bold;font-size:16px;'>⚡ LIVE: ${d['p_live']:,.2f} <span style='color:{l_col}'>({d['d_live']:+.2f}%)</span></div>", unsafe_allow_html=True)
-        # ---------------------
+        # ------------------------------------
 
         st.markdown(f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>⚙️ AI: <span style='color:{d['ai_c']}'>{d['ai']}</span></div>", unsafe_allow_html=True)
         st.markdown(f"""<div style='font-size:14px;line-height:1.8;margin-bottom:10px;color:#444;'><div><b style='color:black;margin-right:8px;'>TREND:</b> {d['tr_h']}{d['gc']}</div><div><b style='color:black;margin-right:8px;'>RATING:</b> <span style='color:{rc};font-weight:bold;'>{rt}</span></div><div><b style='color:black;margin-right:8px;'>EARNINGS:</b> {earn}</div></div>""", unsafe_allow_html=True)
