@@ -158,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (FIXED EARNINGS & PRE-MARKET) ---
+# --- 4. DATA ENGINE (FIXED EARNINGS CONTEXT) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -167,45 +167,33 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        # Fetch 5 days to ensure we have context
-        try: h = tk.history(period="5d", interval="5m", prepost=True)
-        except: return None
+        try: h = tk.history(period="1d", interval="5m", prepost=True)
+        except: h = pd.DataFrame()
+        if h.empty: 
+            try: h = tk.history(period="5d", interval="15m", prepost=True)
+            except: return None
         if h.empty: return None
         
-        # Prices
-        current_price = h['Close'].iloc[-1]
+        p_live = h['Close'].iloc[-1]
+        try: p_prev = tk.fast_info['previous_close']
+        except: p_prev = h['Open'].iloc[0]
+        d_pct = ((p_live - p_prev) / p_prev) * 100
         
-        # Regular Market Close (Yesterday's close)
-        try: 
-            prev_close = tk.fast_info['regular_market_previous_close']
-        except: 
-            prev_close = h['Open'].iloc[0]
-            
-        # Standard Day Change %
-        day_pct = ((current_price - prev_close) / prev_close) * 100
-        
-        # Extended Hours Logic
-        # We compare the absolute last price (current_price) with the last Regular Market Close
-        # If they differ significantly and it's outside market hours, we show the badge
+        # MARKET STATE
         market_state = "REG"
-        ext_price = None
-        ext_pct = 0.0
-        
-        now = datetime.utcnow() - timedelta(hours=5) # Approx EST
-        # Simple hours check (9:30 - 4:00 PM EST)
+        ext_price, ext_pct = None, 0.0
+        now = datetime.utcnow() - timedelta(hours=5)
         is_market_hours = (now.weekday() < 5) and (9 <= now.hour < 16) or (now.hour == 9 and now.minute >= 30)
         
         if not is_market_hours:
-            # Check if we have a "regular market price" distinct from "current price"
             try:
-                reg_price = tk.fast_info['last_price'] # This usually holds the 4pm close
-                if abs(current_price - reg_price) > 0.01:
+                reg_price = tk.fast_info['last_price']
+                if abs(p_live - reg_price) > 0.01:
                     market_state = "POST" if now.hour >= 16 else "PRE"
-                    ext_price = current_price
+                    ext_price = p_live
                     ext_pct = ((ext_price - reg_price) / reg_price) * 100
             except: pass
 
-        # Indicators
         hm = tk.history(period="1mo")
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
@@ -217,9 +205,8 @@ def get_pro_data(s):
             
         ai_bias = "🟢 BULLISH BIAS" if (trend=="BULL" and rsi<70) else ("🔴 BEARISH BIAS" if (trend=="BEAR" and rsi>30) else "🟡 NEUTRAL BIAS")
 
-        # SPY Sync
         spy = get_spy_data()
-        chart_data = h['Close'].tail(78).reset_index() # Last ~6.5 hours of trading
+        chart_data = h['Close'].tail(78).reset_index()
         chart_data.columns = ['T', 'Stock']
         chart_data['Idx'] = range(len(chart_data)) 
         
@@ -232,38 +219,34 @@ def get_pro_data(s):
             s_norm = ((s_slice - spy_start) / spy_start) * 100
             chart_data['SPY'] = s_norm.values if len(s_norm) == len(chart_data) else 0
 
-        # EARNINGS FIX - Robust Retrieval
+        # EARNINGS LOGIC (With "Last" fix)
         earn = "N/A"
         try:
             cal = tk.calendar
-            # New yfinance often returns a dictionary
+            # Strategy 1: Dictionary
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 dates = cal['Earnings Date']
-                # Filter for future dates
                 future = [d for d in dates if d.date() >= datetime.now().date()]
-                if future:
-                    earn = f"Next: {future[0].strftime('%b %d')}"
-                elif dates:
-                    earn = f"Last: {dates[0].strftime('%b %d')}"
-            # Old yfinance returns DataFrame
+                if future: earn = f"Next: {future[0].strftime('%b %d')}"
+                elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
+            # Strategy 2: DataFrame
             elif hasattr(cal, 'iloc') and not cal.empty:
                 val = cal.iloc[0, 0]
                 if isinstance(val, (datetime, pd.Timestamp)):
-                    if val.date() >= datetime.now().date():
-                        earn = f"Next: {val.strftime('%b %d')}"
-                    else:
-                        earn = f"Last: {val.strftime('%b %d')}"
+                    if val.date() >= datetime.now().date(): earn = f"Next: {val.strftime('%b %d')}"
+                    else: earn = f"Last: {val.strftime('%b %d')}"
         except: 
-            # Fallback to info
+            # Strategy 3: Fallback timestamp
             try:
-                # Some tickers store it here
                 t = tk.info.get('earningsTimestamp', None)
-                if t: earn = datetime.fromtimestamp(t).strftime('%b %d')
+                if t:
+                    dt_earn = datetime.fromtimestamp(t)
+                    if dt_earn.date() >= datetime.now().date(): earn = f"Next: {dt_earn.strftime('%b %d')}"
+                    else: earn = f"Last: {dt_earn.strftime('%b %d')}"
             except: pass
         
         rat = tk.info.get('recommendationKey', 'N/A').upper().replace('_',' ')
 
-        # Alert Logic
         last_alert = st.session_state['storm_cooldown'].get(s, datetime.min)
         if (datetime.now() - last_alert).total_seconds() > 300:
             if trend == "BULL" and rsi < 35 and vol_ratio > 1.2:
@@ -274,7 +257,7 @@ def get_pro_data(s):
                 st.session_state['storm_cooldown'][s] = datetime.now()
 
         return {
-            "p": current_price, "d": day_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
+            "p": p_live, "d": d_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
             "chart": chart_data, "ai": ai_bias, "rat": rat, "earn": earn,
             "h": h['High'].max(), "l": h['Low'].min(), 
             "state": market_state, "ext_p": ext_price, "ext_d": ext_pct
@@ -307,8 +290,7 @@ st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px 
 h1, h2 = st.columns([2, 1])
 with h1:
     st.title("⚡ Penny Pulse")
-    est = datetime.utcnow() - timedelta(hours=5)
-    st.caption(f"Last Sync: {est.strftime('%H:%M:%S EST')}")
+    st.caption(f"Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}")
 with h2:
     components.html("""
     <div style="font-family:'Helvetica', sans-serif; display:flex; justify-content:flex-end; align-items:center; height:100%; padding-right:10px;">
@@ -336,7 +318,6 @@ def draw_pro_card(t, port_data=None):
         col = "green" if d['d']>=0 else "red"
         col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
         
-        # HEADER LOGIC
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
             <div style="flex:1;">
@@ -350,19 +331,18 @@ def draw_pro_card(t, port_data=None):
         </div>
         """, unsafe_allow_html=True)
 
-        # AFTER-HOURS BADGE (Moved Under Price)
+        # AFTER-HOURS BADGE (Tighter Spacing)
         if d['state'] != "REG" and d['ext_p']:
-            ext_col = "#FFA726" # Orange for extended
+            ext_col = "#FFA726" 
             ext_sign = "+" if d['ext_d'] >= 0 else ""
             st.markdown(f"""
-            <div style="text-align:right; margin-top:-5px; margin-bottom:10px;">
-                <span style="background:#333; color:{ext_col}; padding:2px 6px; border-radius:4px; font-size:12px; font-weight:bold;">
+            <div style="text-align:right; margin-top:-8px; margin-bottom:8px;">
+                <span style="color:{ext_col}; font-size:12px; font-weight:bold;">
                     {d['state']}: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
                 </span>
             </div>
             """, unsafe_allow_html=True)
 
-        # PORTFOLIO BAR
         if port_data:
             qty = port_data['q']
             entry = port_data['e']
@@ -377,7 +357,6 @@ def draw_pro_card(t, port_data=None):
             </div>
             """, unsafe_allow_html=True)
 
-        # METRICS
         r_color = "#888"
         if "STRONG BUY" in d['rat']: r_color = "#00FF00" 
         elif "BUY" in d['rat']: r_color = "#4CAF50"      
@@ -464,7 +443,7 @@ with t2:
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
-    # FEEDS LIST (Easy to extend)
+    # ADD YOUR NEW FEEDS HERE
     FEEDS = [
         "https://finance.yahoo.com/news/rssindex",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
@@ -477,7 +456,7 @@ with t3:
             try:
                 prog_bar.progress(20, text="Connecting to News Feeds...")
                 raw_items = []
-                # ITERATE FEEDS until we get data
+                # Iterate feeds until successful
                 for f in FEEDS:
                     try:
                         r = requests.get(f, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -488,7 +467,7 @@ with t3:
                                 link = item.find('link').text
                                 pub = item.find('pubDate').text if item.find('pubDate') is not None else str(datetime.now())
                                 raw_items.append({"title": title, "link": link, "time": get_relative_time(pub)})
-                            if raw_items: break # Found data, stop scanning
+                            if raw_items: break
                     except: continue
                 
                 if not raw_items:
