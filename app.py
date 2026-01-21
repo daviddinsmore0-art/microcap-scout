@@ -40,7 +40,7 @@ def update_params():
 NAMES = {
     "TD.TO": "TD Bank", "TD": "TD Bank", "IVN.TO": "Ivanhoe", "IVN": "Ivanhoe",
     "BN.TO": "Brookfield", "BN": "Brookfield", "BTC-USD": "Bitcoin", 
-    "SPY": "S&P 500", "^GSPTSE": "TSX Composite"
+    "SPY": "S&P 500", "^GSPTSE": "TSX Composite", "^IXIC": "Nasdaq", "^DJI": "Dow Jones"
 }
 
 def get_clean_name(t):
@@ -50,7 +50,7 @@ def get_clean_name(t):
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
-# --- 4. SIDEBAR (Restored) ---
+# --- 4. SIDEBAR ---
 st.sidebar.header("⚡ Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
@@ -101,7 +101,7 @@ def get_data_accurate(s):
         p_prev = hd['Close'].iloc[-3] if is_today else hd['Close'].iloc[-2]
         d_static = ((p_anchor - p_prev) / p_prev) * 100
         
-        # CLEAN TSX CHARTS: Disable prepost for Canadian stocks
+        # CLEAN TSX CHARTS
         use_prepost = not any(x in s for x in [".TO", ".V", ".CN"])
         h = tk.history(period="1d", interval="5m", prepost=use_prepost)
         if h.empty: h = tk.history(period="5d", interval="1h", prepost=use_prepost)
@@ -119,7 +119,7 @@ def get_data_accurate(s):
         dh, dl = h['High'].max(), h['Low'].min()
         rng_p = max(0, min(1, (p_live - dl) / (dh - dl))) * 100 if dh > dl else 50
         
-        # DESCRIPTIVE INDICATORS
+        # INDICATORS
         v_tag = "⚡ Surge" if vol_ratio > 1.5 else ("🌊 Steady" if vol_ratio > 0.8 else "💤 Quiet")
         r_tag = "🔥 Hot" if rsi > 70 else ("❄️ Cold" if rsi < 30 else "⚖️ Calm")
         r_col = "#ff4b4b" if rsi > 70 or rsi < 30 else "#4caf50"
@@ -137,7 +137,7 @@ def get_data_accurate(s):
         return {"p_anchor":p_anchor, "d_static":d_static, "p_live":p_live, "d_live":d_live, "rsi":rsi, "tr":trend, "chart":h, "rating":rating, "r_col":rating_col, "sec":sec, "earn":earn, "bars":bars}
     except: return None
 
-# --- 6. UI ---
+# --- 6. UI HEADER (PRO VISUALS) ---
 est = datetime.utcnow() - timedelta(hours=5)
 status = "🔴 CLOSED"
 hh, mm = est.hour, est.minute
@@ -146,9 +146,28 @@ if est.weekday() < 5:
     elif (hh==9 and mm>=30) or (9 < hh < 16): status = "🟢 MARKET OPEN"
     elif 16 <= hh < 20: status = "🌙 POST-MARKET"
 
-st.title("⚡ Penny Pulse")
-st.caption(f"{status} | {est.strftime('%H:%M EST')}")
+c1, c2 = st.columns([1,1])
+with c1:
+    st.title("⚡ Penny Pulse")
+    st.caption(f"{status} | {est.strftime('%H:%M:%S EST')}")
+with c2:
+    # PRO FEATURE: Big Countdown Timer
+    components.html("""<div style="font-family:'Helvetica';background:#0E1117;padding:5px;text-align:right;display:flex;justify-content:flex-end;align-items:center;height:100%;"><span style="color:#BBBBBB;font-weight:bold;font-size:14px;margin-right:5px;">Next Update: </span><span id="c" style="color:#FF4B4B;font-weight:900;font-size:24px;">--</span><span style="color:#BBBBBB;font-size:14px;margin-left:2px;"> s</span></div><script>setInterval(function(){document.getElementById("c").innerHTML=60-new Date().getSeconds();},1000);</script>""", height=60)
 
+# PRO FEATURE: Marquee Scroller
+@st.cache_data(ttl=60, show_spinner=False)
+def get_marquee():
+    txt = ""
+    for t in ["SPY","^IXIC","^DJI","BTC-USD"]:
+        d = get_data_accurate(t)
+        if d:
+            c, a = ("#4caf50","▲") if d['d_live']>=0 else ("#f44336","▼")
+            txt += f"<span style='margin-right:30px;font-weight:900;font-size:22px;color:white;'>{NAMES.get(t,t)}: <span style='color:{c};'>${d['p_live']:,.2f} {a} {d['d_live']:.2f}%</span></span>"
+    return txt
+
+st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-top:2px solid #333;border-bottom:2px solid #333;"><marquee scrollamount="8" style="width:100%;">{get_marquee()*5}</marquee></div>""", unsafe_allow_html=True)
+
+# --- 7. DASHBOARD ---
 t1, t2, t3 = st.tabs(["🏠 Board", "🚀 My Picks", "📰 News"])
 
 def draw_card(t):
