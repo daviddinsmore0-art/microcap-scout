@@ -158,7 +158,7 @@ with st.sidebar.expander("📦 Backup & Restore"):
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (FIXED EARNINGS & PRE-MARKET) ---
+# --- 4. DATA ENGINE (PRO MARKET STATE) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -174,23 +174,50 @@ def get_pro_data(s):
             except: return None
         if h.empty: return None
         
+        # Absolute Live Price (could be AH)
         p_live = h['Close'].iloc[-1]
-        try: p_prev = tk.fast_info['previous_close']
-        except: p_prev = h['Open'].iloc[0]
-        d_pct = ((p_live - p_prev) / p_prev) * 100
         
+        # Regular Market Close (Static Reference)
+        try: 
+            reg_close = tk.fast_info['regular_market_previous_close']
+            # Try to get Today's Close if market is shut
+            if tk.fast_info.get('marketState') == 'CLOSED':
+                 reg_close = tk.fast_info.get('regular_market_price', reg_close)
+        except: 
+            reg_close = h['Open'].iloc[0]
+            
+        # Determine Market State
         market_state = "REG"
-        ext_price, ext_pct = None, 0.0
+        ext_price = None
+        ext_pct = 0.0
+        display_price = p_live # Default to live
+        display_pct = 0.0
+        
         now = datetime.utcnow() - timedelta(hours=5)
+        # Check if After Hours (4pm - 8pm EST) or Pre Market (4am - 9:30am EST)
         is_market_hours = (now.weekday() < 5) and (9 <= now.hour < 16) or (now.hour == 9 and now.minute >= 30)
         
         if not is_market_hours:
+            # We are in Extended Hours
+            # Main Price -> Freeze at Regular Close
+            display_price = reg_close
+            # Main % -> Change from Yesterday's Close to Today's Close
             try:
-                reg_price = tk.fast_info['last_price']
-                if abs(p_live - reg_price) > 0.01:
-                    market_state = "POST" if now.hour >= 16 else "PRE"
-                    ext_price = p_live
-                    ext_pct = ((ext_price - reg_price) / reg_price) * 100
+                prev = tk.fast_info['regular_market_previous_close']
+                display_pct = ((reg_close - prev) / prev) * 100
+            except: pass
+            
+            # Badge -> Shows Live AH Price vs Regular Close
+            if abs(p_live - reg_close) > 0.01:
+                market_state = "POST" if now.hour >= 16 else "PRE"
+                ext_price = p_live
+                ext_pct = ((p_live - reg_close) / reg_close) * 100
+        else:
+            # Market Open: Main is Live
+            display_price = p_live
+            try: 
+                prev = tk.fast_info['regular_market_previous_close']
+                display_pct = ((p_live - prev) / prev) * 100
             except: pass
 
         hm = tk.history(period="1mo")
@@ -252,7 +279,7 @@ def get_pro_data(s):
                 st.session_state['storm_cooldown'][s] = datetime.now()
 
         return {
-            "p": p_live, "d": d_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
+            "p": display_price, "d": display_pct, "rsi": rsi, "tr": trend, "vol": vol_ratio,
             "chart": chart_data, "ai": ai_bias, "rat": rat, "earn": earn,
             "h": h['High'].max(), "l": h['Low'].min(), 
             "state": market_state, "ext_p": ext_price, "ext_d": ext_pct
@@ -329,7 +356,6 @@ def draw_pro_card(t, port_data=None):
         # AFTER-HOURS BADGE (COLOR & SIZE FIX)
         if d['state'] != "REG" and d['ext_p']:
             ext_sign = "+" if d['ext_d'] >= 0 else ""
-            # Dynamic Color Logic
             ext_col = "#4caf50" if d['ext_d'] >= 0 else "#ff4b4b" 
             
             st.markdown(f"""
@@ -452,7 +478,6 @@ with t3:
             try:
                 prog_bar.progress(20, text="Connecting to News Feeds...")
                 raw_items = []
-                # Iterate feeds
                 for f in FEEDS:
                     try:
                         r = requests.get(f, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
