@@ -17,7 +17,7 @@ except: pass
 # *** CONFIG ***
 WEBHOOK_URL = "" 
 LOGO_PATH = "logo.png"
-ADMIN_PASSWORD = "admin123" # CHANGE THIS
+ADMIN_PASSWORD = "admin123" 
 DATA_FILE = "user_data.json"
 
 # --- 2. PERSISTENCE ENGINE ---
@@ -119,35 +119,33 @@ def get_pro_data(s):
         disp_p = p_live if is_market else hard_close
         disp_pct = ((disp_p - prev_close)/prev_close)*100
         
+        # EXTENDED HOURS LOGIC (TUCKED)
         ext_str = ""
         if not is_tsx and not is_market and abs(p_live - hard_close) > 0.01:
             state = "POST" if now.hour >= 16 else "PRE"
-            col = "#4caf50" if p_live >= hard_close else "#ff4b4b"
-            ext_str = f"<div style='text-align:right; font-weight:bold; color:{col}; font-size:14px; margin-top:-8px;'>{state}: ${p_live:,.2f}</div>"
+            ext_pct = ((p_live - hard_close)/hard_close)*100
+            col = "#4caf50" if ext_pct >= 0 else "#ff4b4b"
+            # Visual formatting: Smaller, indented, with % beside price
+            ext_str = f"<div style='color:{col}; font-size:12px; margin-top:2px;'>{state}: ${p_live:,.2f} ({ext_pct:+.2f}%)</div>"
 
-        # 3. METADATA (SMART CACHING + NEXT/LAST LOGIC RESTORED)
+        # 3. METADATA
         today_str = now.strftime('%Y-%m-%d')
         cached = st.session_state['meta_cache'].get(s, {})
-        
-        if cached.get('date') == today_str:
-            meta = cached
+        if cached.get('date') == today_str: meta = cached
         else:
             info = safe_fetch(tk, "info") or {}
             cal = safe_fetch(tk, "calendar")
             earn = "N/A"
-            # RESTORED LOGIC: Check for Next, otherwise show Last
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 dates = cal['Earnings Date']
                 future = [d for d in dates if d.date() >= datetime.now().date()]
                 if future: earn = f"Next: {future[0].strftime('%b %d')}"
                 elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
-            
             rat = info.get('recommendationKey', 'N/A').upper().replace('_',' ')
             meta = {"rat": rat, "earn": earn, "name": info.get('longName', s), "date": today_str}
             st.session_state['meta_cache'][s] = meta
             save_data()
 
-        # Indicators
         rsi, trend, vol = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
             d = hm['Close'].diff(); u, dd = d.clip(lower=0), -1*d.clip(upper=0)
@@ -179,28 +177,18 @@ with st.sidebar:
     
     st.text_input("Tickers", key="w_input", on_change=update_params)
     
-    # SECURE ADMIN
     if st.text_input("Admin Key", type="password") == ADMIN_PASSWORD:
         with st.expander("💼 Portfolio Admin", expanded=True):
-            st.info("🔓 Access Granted")
             c1, c2, c3 = st.columns([2,2,2])
-            new_t = c1.text_input("Sym").upper()
-            new_p = c2.number_input("Px", 0.0)
-            new_q = c3.number_input("Qty", 0)
-            if st.button("➕ Add Asset"):
-                if new_t:
-                    st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
-                    save_data(); st.rerun()
+            new_t = c1.text_input("Sym").upper(); new_p = c2.number_input("Px", 0.0); new_q = c3.number_input("Qty", 0)
+            if st.button("➕ Add") and new_t: st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}; save_data(); st.rerun()
             rem_t = st.selectbox("Remove", [""] + list(st.session_state['portfolio'].keys()))
-            if st.button("🗑️ Remove"):
-                if rem_t: del st.session_state['portfolio'][rem_t]; save_data(); st.rerun()
+            if st.button("🗑️ Del") and rem_t: del st.session_state['portfolio'][rem_t]; save_data(); st.rerun()
 
     st.divider()
     st.subheader("🔔 Smart Alerts")
-    
     ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(st.session_state['portfolio'].keys())))
     if st.session_state.a_tick_input not in ALL_T and ALL_T: st.session_state.a_tick_input = ALL_T[0]
-    
     st.selectbox("Asset", sorted(ALL_T), key="a_tick_input", on_change=update_params)
     st.number_input("Target ($)", key="a_price_input", on_change=update_params)
     st.toggle("Price Alert", key="a_on_input", on_change=update_params)
@@ -234,8 +222,20 @@ def draw_card(t, port=None):
     if not d: return
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    st.markdown(f"""<div style="display:flex; justify-content:space-between;"><div><div style="font-size:24px; font-weight:900;">{d['name']}</div><div style="font-size:12px; color:#888;">{t}</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div><div style="color:{col}; font-weight:bold;">{d['d']:+.2f}%</div></div></div>""", unsafe_allow_html=True)
-    if d['ext_str']: st.markdown(d['ext_str'], unsafe_allow_html=True)
+    # VISUAL REFINEMENT: Grouping Price & %
+    st.markdown(f"""
+    <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:5px;">
+        <div>
+            <div style="font-size:24px; font-weight:900;">{d['name']}</div>
+            <div style="font-size:12px; color:#888;">{t}</div>
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:22px; font-weight:bold; line-height:1;">${d['p']:,.2f}</div>
+            <div style="font-size:14px; font-weight:bold; color:{col}; line-height:1; margin-top:2px;">{d['d']:+.2f}%</div>
+            {d['ext_str']}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     if port:
         gain = (d['p'] - port['e']) * port['q']
