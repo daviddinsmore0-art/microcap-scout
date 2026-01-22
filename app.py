@@ -6,14 +6,22 @@ import altair as alt
 import json
 import xml.etree.ElementTree as ET
 import email.utils 
+import os 
+import urllib.parse
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
+# *** CONFIGURATION SECTION ***
+WEBHOOK_URL = "" 
+LOGO_PATH = "logo.png" 
+# *****************************
+
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     defaults = {
+        # CHANGE YOUR DEFAULT WATCHLIST HERE
         'w_input': "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
         'a_tick_input': "TD.TO", 'a_price_input': 0.0,
         'a_on_input': False, 'flip_on_input': False,
@@ -50,12 +58,20 @@ def update_params():
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
+def send_discord_alert(msg):
+    if WEBHOOK_URL:
+        try:
+            data = {"content": f"🚨 **PENNY PULSE ALERT** 🚨\n{msg}"}
+            requests.post(WEBHOOK_URL, json=data)
+        except: pass
+
 def log_alert(msg, sound=True):
     if msg not in st.session_state.alert_log:
         st.session_state.alert_log.insert(0, f"{datetime.now().strftime('%H:%M')} - {msg}")
         if sound: 
             components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
         st.session_state['banner_msg'] = msg
+        send_discord_alert(msg)
 
 def get_relative_time(date_str):
     try:
@@ -126,7 +142,8 @@ c1, c2 = st.sidebar.columns(2)
 with c1: 
     if st.button("💾 Save"): update_params(); st.toast("Saved!")
 with c2: 
-    if st.button("🔊 Test"): components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
+    if st.button("🔊 Test"): 
+        log_alert("Test Signal to Discord!", sound=True)
 
 st.sidebar.divider()
 st.sidebar.subheader("🔔 Smart Alerts")
@@ -152,13 +169,43 @@ st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=update_p
 st.sidebar.toggle("💡 Keep Screen On (Mobile)", key="keep_on_input", on_change=update_params)
 st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=update_params)
 
-with st.sidebar.expander("📦 Backup & Restore"):
+# --- BACKUP, RESTORE & SHARE ---
+with st.sidebar.expander("📤 Share & Backup"):
+    # SHARE APP (Custom URL Generation)
+    st.caption("Share this Watchlist")
+    base_url = "http://localhost:8501" # In cloud this is auto-detected usually
+    # Try to grab current params
+    params = []
+    if 'w_input' in st.session_state: params.append(f"w={urllib.parse.quote(st.session_state.w_input)}")
+    query_str = "&".join(params)
+    st.code(f"/?{query_str}", language="text")
+    st.caption("Copy suffix to URL to share list.")
+
+    st.divider()
+    
+    # DOWNLOAD
     export_data = {k: st.session_state[k] for k in ['w_input', 'a_tick_input', 'a_price_input', 'a_on_input']}
     st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
+    
+    # RESTORE (UPLOAD)
+    uploaded_file = st.file_uploader("Restore Profile", type="json")
+    if uploaded_file is not None:
+        try:
+            data = json.load(uploaded_file)
+            for k, v in data.items():
+                st.session_state[k] = v
+                k_input = k + "_input" if "_input" not in k else k
+                if k_input in st.session_state:
+                    st.session_state[k_input] = v
+            st.toast("Profile Restored! Refreshing...")
+            time.sleep(1)
+            st.rerun()
+        except Exception as e:
+            st.error("Invalid Profile File")
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. DATA ENGINE (HARD CLOSE FIX) ---
+# --- 4. DATA ENGINE (HARD CLOSE + DISCORD) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -174,10 +221,8 @@ def get_pro_data(s):
             except: return None
         if h.empty: return None
         
-        # 1. LIVE PRICE (Can include pre/post)
         p_live = h['Close'].iloc[-1]
         
-        # 2. HARD CLOSE PRICE
         hm = tk.history(period="1mo")
         if not hm.empty:
             hard_close = hm['Close'].iloc[-1]
@@ -186,14 +231,12 @@ def get_pro_data(s):
             hard_close = p_live
             prev_close = p_live
 
-        # 3. MARKET HOURS CHECK
         now = datetime.utcnow() - timedelta(hours=5)
         is_market_open = (now.weekday() < 5) and (
             (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and (now.hour < 16)
         )
         is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
 
-        # 4. DISPLAY LOGIC
         if is_market_open:
             display_price = p_live
             display_pct = ((p_live - prev_close) / prev_close) * 100
@@ -201,7 +244,6 @@ def get_pro_data(s):
             display_price = hard_close
             display_pct = ((hard_close - prev_close) / prev_close) * 100
 
-        # 5. BADGE LOGIC
         market_state = "REG"
         ext_price = None
         ext_pct = 0.0
@@ -212,7 +254,6 @@ def get_pro_data(s):
                 ext_price = p_live
                 ext_pct = ((p_live - hard_close) / hard_close) * 100
 
-        # Indicators
         rsi, trend, vol_ratio = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
             diff = hm['Close'].diff(); u, d = diff.clip(lower=0), -1*diff.clip(upper=0)
@@ -263,11 +304,15 @@ def get_pro_data(s):
 
         last_alert = st.session_state['storm_cooldown'].get(s, datetime.min)
         if (datetime.now() - last_alert).total_seconds() > 300:
+            # PERFECT STORM (DIP BUY) - Discord Trigger
             if trend == "BULL" and rsi < 35 and vol_ratio > 1.2:
-                log_alert(f"PERFECT STORM: {s} (Dip Buy Opp)")
+                msg = f"⚡ **PERFECT STORM:** {s}\n- RSI: {rsi:.0f} (Oversold)\n- Vol: {vol_ratio:.1f}x (High)\n- Trend: Bullish Dip"
+                log_alert(msg)
                 st.session_state['storm_cooldown'][s] = datetime.now()
+            # DEATH BEAR (REJECTION) - Discord Trigger
             elif trend == "BEAR" and rsi > 65 and vol_ratio > 1.2:
-                log_alert(f"DEATH BEAR: {s} (Trend Rejection)")
+                msg = f"🐻 **DEATH BEAR:** {s}\n- RSI: {rsi:.0f} (Overbought)\n- Vol: {vol_ratio:.1f}x\n- Trend: Bearish Rejection"
+                log_alert(msg)
                 st.session_state['storm_cooldown'][s] = datetime.now()
 
         return {
@@ -282,7 +327,7 @@ def get_pro_data(s):
 @st.cache_data(ttl=60)
 def build_scroller_safe():
     try:
-        indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin"), ("GC=F", "Gold"), ("SI=F", "Silver")]
+        indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")]
         items = []
         for t, n in indices:
             d = get_pro_data(t)
@@ -303,8 +348,13 @@ st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px 
 
 h1, h2 = st.columns([2, 1])
 with h1:
-    st.title("⚡ Penny Pulse")
-    st.caption(f"Last Pulse: {datetime.utcnow().strftime('%H:%M:%S UTC')}")
+    if os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, width=300) 
+    else:
+        st.title("⚡ Penny Pulse")
+    
+    st.caption(f"Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}")
+
 with h2:
     components.html("""
     <div style="font-family:'Helvetica', sans-serif; display:flex; justify-content:flex-end; align-items:center; height:100%; padding-right:10px;">
@@ -447,16 +497,13 @@ with t2:
         st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">TOTAL RETURN</div><div style="font-size:24px;font-weight:900;color:{col};">${tpl:,.2f}<br><span style="font-size:32px;font-weight:900;">({total_roi:+.1f}%)</span></div></div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("Recommendations")
+    st.subheader("Holdings")
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: draw_pro_card(t, inf)
 
 with t3:
     FEEDS = [
-        "https://rss.app/feeds/bTa1Sl4l31RjlKAW.xml",
-        "https://rss.app/feeds/5JIQC7yOXxWPu7YB.xml",
-        "https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml",
         "https://finance.yahoo.com/news/rssindex",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
         "http://feeds.marketwatch.com/marketwatch/topstories"
@@ -466,7 +513,7 @@ with t3:
         if KEY:
             prog_bar = st.progress(0, text="Initializing AI...")
             try:
-                prog_bar.progress(20, text="AI Scanning News Feeds...")
+                prog_bar.progress(20, text="Connecting to News Feeds...")
                 raw_items = []
                 for f in FEEDS:
                     try:
