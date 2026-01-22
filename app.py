@@ -46,6 +46,7 @@ if 'initialized' not in st.session_state:
 
 # --- 2. FUNCTIONS ---
 def sync_input(key_data, key_widget):
+    """Syncs widget value to data state"""
     st.session_state[key_data] = st.session_state[key_widget]
     update_params()
 
@@ -356,41 +357,48 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# CENTERED DARK HEADER
+# CENTERED DARK HEADER BOX
+# This creates a black container that holds the logo/text and the timer.
 st.markdown(f"""
-<style>
-.header-container {{
-    display: flex;
-    align-items: center;
+<div style="
+    background-color: #000000; 
+    border: 1px solid #333; 
+    border-radius: 10px; 
+    padding: 20px; 
+    margin-bottom: 25px; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
     justify-content: center;
-    background-color: #000000;
-    padding: 20px;
-    border-radius: 10px;
-    margin-bottom: 20px;
-    border: 1px solid #333;
-}}
-</style>
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+">
 """, unsafe_allow_html=True)
 
-# Determine Logo Display
-h1, h2, h3 = st.columns([1, 2, 1])
+# 1. LOGO or TITLE
+if os.path.exists(LOGO_PATH):
+    st.image(LOGO_PATH, width=300) 
+else:
+    st.markdown("<h1 style='text-align: center; margin: 0; padding: 0;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
 
-with h2:
-    if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, use_container_width=True)
-    else:
-        st.markdown("<h1 style='text-align: center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-    
-    st.markdown(f"<div style='text-align: center; color: #888; font-size: 12px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>", unsafe_allow_html=True)
-    
-    components.html("""
-    <div style="display:flex; justify-content:center; margin-top:10px;">
-        <div style="background:#000000; border:1px solid #333; border-radius:8px; padding:5px 15px; color:#FF4B4B; font-family:'Courier New'; font-weight:bold;">
-            REFRESH: <span id="timer">--</span>s
-        </div>
+# 2. SUBTITLE
+st.markdown(f"<div style='text-align: center; color: #888; font-size: 12px; margin-top: 5px; margin-bottom: 15px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>", unsafe_allow_html=True)
+
+# 3. TIMER
+components.html("""
+<div style="display:flex; justify-content:center;">
+    <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
+        <span id="timer">60</span>s
     </div>
-    <script>setInterval(function(){var s=60-new Date().getSeconds();document.getElementById("timer").innerHTML=s<10?"0"+s:s;},1000);</script>
-    """, height=50)
+</div>
+<script>
+setInterval(function(){
+    var s = 60 - new Date().getSeconds();
+    document.getElementById("timer").innerHTML = s < 10 ? "0" + s : s;
+}, 1000);
+</script>
+""", height=50)
+
+st.markdown("</div>", unsafe_allow_html=True) # Close Black Box
 
 # --- 7. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
