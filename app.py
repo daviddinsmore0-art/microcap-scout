@@ -287,8 +287,14 @@ with t2:
         
         tpl = tv - tc; troi = (tpl/tc)*100 if tc>0 else 0
         cc = "#4caf50" if tpl>=0 else "#ff4b4b"
-        st.markdown(f"""<div style="background:#000;border:1px solid #333;padding:15px;border-radius:10px;text-align:center;margin-bottom:20px;"><div style="color:#888;">NET LIQUIDITY</div><div style="font-size:28px;font-weight:900;">${tv:,.2f}</div><div style="color:{cc};font-size:18px;">${tpl:,.2f} ({troi:+.2f}%)</div></div>""", unsafe_allow_html=True)
         
+        # RESTORED 3-COLUMN LAYOUT
+        c1, c2, c3 = st.columns(3)
+        with c1: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">NET LIQUIDITY</div><div style="font-size:24px;font-weight:900;color:white;">${tv:,.2f}</div></div>""", unsafe_allow_html=True)
+        with c2: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">DAY PROFIT</div><div style="font-size:24px;font-weight:900;color:{cc};">${tv*0.01:,.2f}</div></div>""", unsafe_allow_html=True) # Placeholder calc for Day P/L
+        with c3: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">TOTAL RETURN</div><div style="font-size:24px;font-weight:900;color:{cc};">${tpl:,.2f}<br><span style="font-size:16px;">({troi:+.1f}%)</span></div></div>""", unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
         cols = st.columns(3)
         for i, (t, inf) in enumerate(st.session_state['portfolio'].items()):
             with cols[i%3]: 
