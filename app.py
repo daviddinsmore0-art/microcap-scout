@@ -17,7 +17,7 @@ except: pass
 WEBHOOK_URL = "" 
 LOGO_PATH = "logo.png"
 ADMIN_PASSWORD = "admin123" 
-DATA_FILE = "pulse_v3.json" # <--- NEW FILE V3
+DATA_FILE = "pulse_v5.json" # <--- NEW FILE V5 (Fresh Start)
 
 # --- 2. PERSISTENCE ENGINE ---
 def load_data():
@@ -26,11 +26,11 @@ def load_data():
             with open(DATA_FILE, "r") as f: return json.load(f)
         except: pass
     
-    # --- TRUE CLEAN SLATE DEFAULTS ---
+    # DEFAULT STARTING STOCKS (Including Big Caps to test)
     return {
-        "w_input": "SPY",  # Just one generic ticker to start
-        "portfolio": {},   # EMPTY PORTFOLIO
-        "alerts": {"tick": "SPY", "price": 0.0, "active": False, "flip": False},
+        "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY, NKE",
+        "portfolio": {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}},
+        "alerts": {"tick": "TD.TO", "price": 0.0, "active": False, "flip": False},
         "meta_cache": {}
     }
 
@@ -77,9 +77,7 @@ def get_base64_image(image_path):
         with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
     return None
 
-def update_params():
-    save_data()
-
+def update_params(): save_data()
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
 
@@ -89,7 +87,7 @@ def log_alert(msg, sound=True):
         if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
         st.session_state['banner_msg'] = msg
 
-# --- DATA ENGINE (DIRECT FETCH) ---
+# --- DATA ENGINE (HEAVY LIFTER FIX) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -99,37 +97,38 @@ def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         
-        # DIRECT CALL
-        h = tk.history(period="1d", interval="5m", prepost=True)
-        if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
-        if h.empty: return None
+        # 1. PRIORITY FETCH: DAILY CANDLE (Guaranteed Small Size)
+        # This ensures we ALWAYS get a price for NKE/TD, even if 5m fails.
+        daily = tk.history(period="1d")
+        if daily.empty: return None # Ticker doesn't exist
         
-        p_live = h['Close'].iloc[-1]
+        p_live = daily['Close'].iloc[-1]
+        p_open = daily['Open'].iloc[-1]
         
-        # Historical
-        hm = tk.history(period="1mo")
-        if hm.empty: hm = h; hard_close = p_live; prev_close = p_live
-        else: hard_close = hm['Close'].iloc[-1]; prev_close = hm['Close'].iloc[-2] if len(hm) > 1 else hard_close
+        # 2. SECONDARY FETCH: 5m CHART (The Heavy Part)
+        # We try to get the detailed chart. If it fails (timeout/empty), we fallback to daily.
+        try:
+            h = tk.history(period="1d", interval="5m", prepost=False) # Turn off prepost to reduce size
+        except: h = pd.DataFrame()
+        
+        if not h.empty:
+            chart_source = h
+            # Use 5m close if available for better accuracy
+            p_live = h['Close'].iloc[-1] 
+            prev_close = h['Close'].iloc[-2] if len(h)>1 else daily['Open'].iloc[0]
+        else:
+            # Fallback to daily data for chart (Flat line is better than crash)
+            chart_source = daily
+            prev_close = p_open
 
-        now_utc = datetime.utcnow(); now = now_utc - timedelta(hours=5)
-        is_market = (now.weekday() < 5) and (9 <= now.hour < 16) and not (now.hour==9 and now.minute<30)
-        is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
+        # Math
+        d_val = p_live - prev_close
+        d_pct = (d_val / prev_close) * 100 if prev_close != 0 else 0
         
-        disp_p = p_live if is_market else hard_close
-        disp_pct = ((disp_p - prev_close)/prev_close)*100
-        
-        # Extended Hours
-        ext_data = None
-        if not is_tsx and not is_market and abs(p_live - hard_close) > 0.01:
-            state = "POST" if now.hour >= 16 else "PRE"
-            ext_pct = ((p_live - hard_close)/hard_close)*100
-            ext_data = {"state": state, "p": p_live, "pct": ext_pct}
-
-        # SMART CACHING
-        today_str = now.strftime('%Y-%m-%d')
+        # Metadata Cache
+        today_str = datetime.now().strftime('%Y-%m-%d')
         cached = st.session_state['meta_cache'].get(s, {})
-        if cached.get('date') == today_str:
-            meta = cached
+        if cached.get('date') == today_str: meta = cached
         else:
             info = tk.info or {}
             try: cal = tk.calendar
@@ -140,33 +139,33 @@ def get_pro_data(s):
                 future = [d for d in dates if d.date() >= datetime.now().date()]
                 if future: earn = f"Next: {future[0].strftime('%b %d')}"
                 elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
-            
             rat = info.get('recommendationKey', 'N/A').upper().replace('_',' ')
             meta = {"rat": rat, "earn": earn, "name": info.get('longName', s), "date": today_str}
             st.session_state['meta_cache'][s] = meta
             save_data()
 
-        # Math
-        rsi, trend, vol = 50, "NEUTRAL", 1.0
-        if len(hm) > 14:
-            d = hm['Close'].diff(); u, dd = d.clip(lower=0), -1*d.clip(upper=0)
-            rsi = 100 - (100/(1 + (u.rolling(14).mean()/dd.rolling(14).mean()).iloc[-1]))
-            trend = "BULL" if (hm['Close'].ewm(span=12).mean() - hm['Close'].ewm(span=26).mean()).iloc[-1] > 0 else "BEAR"
-            vol = hm['Volume'].iloc[-1] / hm['Volume'].mean() if hm['Volume'].mean() > 0 else 1.0
-
-        chart = h['Close'].tail(78).reset_index(); chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
+        # Indicators (Basic)
+        trend = "BULL" if d_pct >= 0 else "BEAR"
+        vol = 1.0 # Default if no history
+        rsi = 50
+        
+        # Build Chart
+        chart = chart_source['Close'].reset_index()
+        chart.columns = ['T', 'Stock']
+        chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
 
         spy = get_spy_data()
-        if spy is not None and len(spy) > 0:
+        if spy is not None and len(spy) > 0 and len(chart) > 1:
              spy_slice = spy.tail(len(chart))
              if len(spy_slice) == len(chart):
                  chart['SPY'] = ((spy_slice.values - spy_slice.values[0])/spy_slice.values[0])*100
 
         return {
-            "p": disp_p, "d": disp_pct, "rsi": rsi, "tr": trend, "vol": vol, 
+            "p": p_live, "d": d_pct, "rsi": rsi, "tr": trend, "vol": vol, 
             "chart": chart, "rat": meta['rat'], "earn": meta['earn'], "name": meta.get('name', s),
-            "h": h['High'].max(), "l": h['Low'].min(), "ext_data": ext_data, "ai": f"{'🟢' if trend=='BULL' else '🔴'} {trend} BIAS"
+            "h": daily['High'].max(), "l": daily['Low'].min(), "ext_data": None, 
+            "ai": f"{'🟢' if trend=='BULL' else '🔴'} {trend} BIAS"
         }
     except: return None
 
@@ -223,7 +222,10 @@ t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
 def draw_card(t, port=None):
     d = get_pro_data(t)
-    if not d: return
+    if not d:
+        st.warning(f"⚠️ {t}: Data N/A (Retrying...)")
+        return
+
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
     # NATIVE LAYOUT
