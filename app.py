@@ -54,8 +54,9 @@ def get_base64_image(image_path):
 
 def sync_input(key_data, key_widget):
     """Syncs widget value to data state"""
-    st.session_state[key_data] = st.session_state[key_widget]
-    update_params()
+    if key_widget in st.session_state:
+        st.session_state[key_data] = st.session_state[key_widget]
+        update_params()
 
 def update_params():
     st.query_params['w'] = st.session_state['w_data']
@@ -165,7 +166,7 @@ ALL_T = list(set([x.strip().upper() for x in st.session_state['w_data'].split(",
 st.sidebar.caption("Price Target Asset")
 # Ensure valid selection
 if st.session_state['at_data'] not in ALL_T and ALL_T:
-    st.session_state['at_data'] = ALL_T[0]
+    st.session_state['at_data'] = ALL_T[0] if ALL_T else ""
 
 # Safe Index Calculation
 try: idx = sorted(ALL_T).index(st.session_state['at_data'])
@@ -222,12 +223,12 @@ with st.sidebar.expander("📤 Share & Backup"):
                 if target_key in st.session_state:
                     st.session_state[target_key] = v
 
-            # 2. NUCLEAR OPTION: Delete Widget Keys to Force Reload
+            # 2. NUCLEAR OPTION: Delete Widget Keys to Force Reload from Data
             for w_key in ['w_widget', 'at_widget', 'ap_widget', 'ao_widget', 'fo_widget', 'ko_widget', 'no_widget']:
                 if w_key in st.session_state:
                     del st.session_state[w_key]
 
-            st.toast("Profile Restored! Refreshing...")
+            st.toast("Profile Restored! Reloading...")
             time.sleep(0.5)
             st.rerun()
         except Exception as e:
@@ -379,7 +380,7 @@ img_html = ""
 img_b64 = get_base64_image(LOGO_PATH)
 
 if img_b64:
-    # Use HTML image with centered styling if logo exists
+    # Embedded Image in HTML (Solves the "Gray Box" issue)
     img_html = f'<img src="data:image/png;base64,{img_b64}" style="max-height:80px; max-width:100%; display:block; margin: 0 auto 10px auto;">'
 else:
     # Fallback Text
@@ -400,23 +401,18 @@ st.markdown(f"""
 ">
     {img_html}
     <div style='text-align: center; color: #888; font-size: 12px; margin-bottom: 10px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>
-</div>
-""", unsafe_allow_html=True)
-
-# TIMER (Separate Component to maintain update loop)
-components.html("""
-<div style="display:flex; justify-content:center;">
-    <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
-        <span id="timer">60</span>s
+    <div id="timer_div" style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
+        <span id="timer">--</span>s
     </div>
 </div>
 <script>
-setInterval(function(){
+setInterval(function(){{
     var s = 60 - new Date().getSeconds();
-    document.getElementById("timer").innerHTML = s < 10 ? "0" + s : s;
-}, 1000);
+    var t = document.getElementById("timer");
+    if(t) t.innerHTML = s < 10 ? "0" + s : s;
+}}, 1000);
 </script>
-""", height=50)
+""", unsafe_allow_html=True)
 
 # --- 7. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
