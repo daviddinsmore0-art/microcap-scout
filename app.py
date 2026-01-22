@@ -20,23 +20,18 @@ LOGO_PATH = "logo.png"
 
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    defaults = {
-        # CHANGE YOUR DEFAULT WATCHLIST HERE
-        'w_input': "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
-        'a_tick_input': "TD.TO", 'a_price_input': 0.0,
-        'a_on_input': False, 'flip_on_input': False,
-        'keep_on_input': False, 'notify_input': False
-    }
+    # Core Data States
+    st.session_state['w_data'] = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
+    st.session_state['at_data'] = "TD.TO"
+    st.session_state['ap_data'] = 0.0
+    st.session_state['ao_data'] = False
+    st.session_state['fo_data'] = False
+    st.session_state['ko_data'] = False
+    st.session_state['no_data'] = False
+    
+    # Check URL Params to override defaults
     qp = st.query_params
-    for k, v in defaults.items():
-        pk = k.replace('_input','')
-        if pk in qp:
-            val = qp[pk]
-            if isinstance(v, bool): st.session_state[k] = (val.lower() == 'true')
-            else:
-                try: st.session_state[k] = float(val) if isinstance(v, float) else val
-                except: st.session_state[k] = val
-        else: st.session_state[k] = v
+    if 'w' in qp: st.session_state['w_data'] = qp['w']
 
     st.session_state.update({
         'news_results': [], 
@@ -50,10 +45,12 @@ if 'initialized' not in st.session_state:
     })
 
 # --- 2. FUNCTIONS ---
+def sync_input(key_data, key_widget):
+    st.session_state[key_data] = st.session_state[key_widget]
+    update_params()
+
 def update_params():
-    for k in ['w','at','ap','ao','fo','no','ko']:
-        kn = f"{k if len(k)>2 else k+'_input'}"
-        if kn in st.session_state: st.query_params[k] = str(st.session_state[kn]).lower()
+    st.query_params['w'] = st.session_state['w_data']
 
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
@@ -136,7 +133,8 @@ st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
-st.sidebar.text_input("Tickers", key="w_input", on_change=update_params)
+# Decoupled Widgets to Fix Restore Bug
+st.sidebar.text_input("Tickers", value=st.session_state['w_data'], key="w_widget", on_change=sync_input, args=('w_data','w_widget'))
 
 c1, c2 = st.sidebar.columns(2)
 with c1: 
@@ -154,59 +152,72 @@ if st.session_state.alert_log:
             st.caption(a)
 
 PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
-ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
+ALL_T = list(set([x.strip().upper() for x in st.session_state['w_data'].split(",") if x.strip()] + list(PORT.keys())))
 
 st.sidebar.caption("Price Target Asset")
-if st.session_state.a_tick_input not in ALL_T and ALL_T:
-    st.session_state.a_tick_input = ALL_T[0]
-st.sidebar.selectbox("", sorted(ALL_T), key="a_tick_input", on_change=update_params, label_visibility="collapsed")
+# Ensure valid selection
+if st.session_state['at_data'] not in ALL_T and ALL_T:
+    st.session_state['at_data'] = ALL_T[0]
+
+st.sidebar.selectbox("", sorted(ALL_T), index=sorted(ALL_T).index(st.session_state['at_data']) if st.session_state['at_data'] in ALL_T else 0, key="at_widget", on_change=sync_input, args=('at_data','at_widget'), label_visibility="collapsed")
 
 st.sidebar.caption("Target ($)")
-st.sidebar.number_input("", step=0.5, key="a_price_input", on_change=update_params, label_visibility="collapsed")
+st.sidebar.number_input("", step=0.5, value=float(st.session_state['ap_data']), key="ap_widget", on_change=sync_input, args=('ap_data','ap_widget'), label_visibility="collapsed")
 
-st.sidebar.toggle("Active Price Alert", key="a_on_input", on_change=update_params)
-st.sidebar.toggle("Alert on Trend Flip", key="flip_on_input", on_change=update_params)
-st.sidebar.toggle("💡 Keep Screen On (Mobile)", key="keep_on_input", on_change=update_params)
-st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=update_params)
+st.sidebar.toggle("Active Price Alert", value=st.session_state['ao_data'], key="ao_widget", on_change=sync_input, args=('ao_data','ao_widget'))
+st.sidebar.toggle("Alert on Trend Flip", value=st.session_state['fo_data'], key="fo_widget", on_change=sync_input, args=('fo_data','fo_widget'))
+st.sidebar.toggle("💡 Keep Screen On", value=st.session_state['ko_data'], key="ko_widget", on_change=sync_input, args=('ko_data','ko_widget'))
+st.sidebar.checkbox("Desktop Notifications", value=st.session_state['no_data'], key="no_widget", on_change=sync_input, args=('no_data','no_widget'))
 
 # --- BACKUP, RESTORE & SHARE ---
 with st.sidebar.expander("📤 Share & Backup"):
     # SHARE APP
     st.caption("Share this Watchlist")
     params = []
-    if 'w_input' in st.session_state: params.append(f"w={urllib.parse.quote(st.session_state.w_input)}")
+    if 'w_data' in st.session_state: params.append(f"w={urllib.parse.quote(st.session_state['w_data'])}")
     query_str = "&".join(params)
     st.code(f"/?{query_str}", language="text")
     
     st.divider()
     
     # DOWNLOAD
-    export_data = {k: st.session_state[k] for k in ['w_input', 'a_tick_input', 'a_price_input', 'a_on_input']}
+    export_data = {
+        'w_data': st.session_state['w_data'],
+        'at_data': st.session_state['at_data'],
+        'ap_data': st.session_state['ap_data'],
+        'ao_data': st.session_state['ao_data']
+    }
     st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
     
     # RESTORE (FIXED)
     uploaded_file = st.file_uploader("Restore Profile", type="json")
     if uploaded_file is not None:
         try:
-            # ROBUST READ FIX: Read bytes, decode to string, then parse
+            # ROBUST READ FIX
             string_data = uploaded_file.getvalue().decode("utf-8")
             data = json.loads(string_data)
             
+            # Map old keys if necessary or just load straight to data keys
+            mapping = {
+                'w_input': 'w_data', 'w_data': 'w_data',
+                'a_tick_input': 'at_data', 'at_data': 'at_data',
+                'a_price_input': 'ap_data', 'ap_data': 'ap_data',
+                'a_on_input': 'ao_data', 'ao_data': 'ao_data'
+            }
+            
             for k, v in data.items():
-                st.session_state[k] = v
-                k_input = k + "_input" if "_input" not in k else k
-                if k_input in st.session_state:
-                    st.session_state[k_input] = v
+                if k in mapping:
+                    st.session_state[mapping[k]] = v
             
             st.toast("Profile Restored! Refreshing...")
             time.sleep(1)
             st.rerun()
         except Exception as e:
-            st.error(f"Error: {e}") # Show actual error for debugging
+            st.error(f"Error: {e}")
 
-inject_wake_lock(st.session_state.keep_on_input)
+inject_wake_lock(st.session_state.get('ko_data', False))
 
-# --- 4. DATA ENGINE (HARD CLOSE + DISCORD) ---
+# --- 4. DATA ENGINE ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -305,12 +316,10 @@ def get_pro_data(s):
 
         last_alert = st.session_state['storm_cooldown'].get(s, datetime.min)
         if (datetime.now() - last_alert).total_seconds() > 300:
-            # PERFECT STORM (DIP BUY) - Discord Trigger
             if trend == "BULL" and rsi < 35 and vol_ratio > 1.2:
                 msg = f"⚡ **PERFECT STORM:** {s}\n- RSI: {rsi:.0f} (Oversold)\n- Vol: {vol_ratio:.1f}x (High)\n- Trend: Bullish Dip"
                 log_alert(msg)
                 st.session_state['storm_cooldown'][s] = datetime.now()
-            # DEATH BEAR (REJECTION) - Discord Trigger
             elif trend == "BEAR" and rsi > 65 and vol_ratio > 1.2:
                 msg = f"🐻 **DEATH BEAR:** {s}\n- RSI: {rsi:.0f} (Overbought)\n- Vol: {vol_ratio:.1f}x\n- Trend: Bearish Rejection"
                 log_alert(msg)
@@ -347,30 +356,59 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-h1, h2 = st.columns([2, 1])
-with h1:
-    if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, width=300) 
-    else:
-        st.title("⚡ Penny Pulse")
-    
-    st.caption(f"Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}")
+# CENTERED DARK HEADER
+st.markdown(f"""
+<style>
+.header-container {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #000000;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    border: 1px solid #333;
+}}
+.header-logo {{
+    max-height: 80px;
+    margin-right: 20px;
+}}
+.header-stats {{
+    text-align: right;
+    border-left: 1px solid #333;
+    padding-left: 20px;
+}}
+</style>
+""", unsafe_allow_html=True)
+
+# Determine Logo Display
+logo_html = ""
+if os.path.exists(LOGO_PATH):
+    # Convert image to base64 for embedding in HTML string if needed, 
+    # but simplest is to stick to Streamlit layout for image, OR standard Title
+    pass 
+
+# Using Standard Columns for Centering (CSS applied above helps generally)
+h1, h2, h3 = st.columns([1, 2, 1])
 
 with h2:
+    # Main Centered Area
+    if os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, use_container_width=True)
+    else:
+        st.markdown("<h1 style='text-align: center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+    
+    st.markdown(f"<div style='text-align: center; color: #888; font-size: 12px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>", unsafe_allow_html=True)
+    
+    # Timer
     components.html("""
-    <div style="font-family:'Helvetica', sans-serif; display:flex; justify-content:flex-end; align-items:center; height:100%; padding-right:10px;">
-        <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:10px 15px; display:flex; align-items:center; box-shadow:0 2px 5px rgba(0,0,0,0.5);">
-            <div style="text-align:right; margin-right:10px;">
-                <div style="font-size:10px; color:#888; font-weight:bold; letter-spacing:1px;">NEXT UPDATE</div>
-                <div style="font-size:10px; color:#555;">AUTO-REFRESH</div>
-            </div>
-            <div style="font-size:32px; font-weight:700; color:#FF4B4B; font-family:'Courier New', monospace; line-height:1;">
-                <span id="timer">--</span><span style="font-size:14px;">s</span>
-            </div>
+    <div style="display:flex; justify-content:center; margin-top:10px;">
+        <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 15px; color:#FF4B4B; font-family:'Courier New'; font-weight:bold;">
+            REFRESH: <span id="timer">--</span>s
         </div>
     </div>
     <script>setInterval(function(){var s=60-new Date().getSeconds();document.getElementById("timer").innerHTML=s<10?"0"+s:s;},1000);</script>
-    """, height=80)
+    """, height=50)
 
 # --- 7. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -470,7 +508,7 @@ def draw_pro_card(t, port_data=None):
 
 with t1:
     cols = st.columns(3)
-    W = [x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()]
+    W = [x.strip().upper() for x in st.session_state['w_data'].split(",") if x.strip()]
     for i, t in enumerate(W):
         with cols[i%3]: draw_pro_card(t)
 
