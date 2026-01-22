@@ -20,7 +20,7 @@ LOGO_PATH = "logo.png"
 
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    # Core Data States
+    # Core Data States (Decoupled from Widgets to fix Restore Bug)
     st.session_state['w_data'] = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
     st.session_state['at_data'] = "TD.TO"
     st.session_state['ap_data'] = 0.0
@@ -369,30 +369,13 @@ st.markdown(f"""
     margin-bottom: 20px;
     border: 1px solid #333;
 }}
-.header-logo {{
-    max-height: 80px;
-    margin-right: 20px;
-}}
-.header-stats {{
-    text-align: right;
-    border-left: 1px solid #333;
-    padding-left: 20px;
-}}
 </style>
 """, unsafe_allow_html=True)
 
 # Determine Logo Display
-logo_html = ""
-if os.path.exists(LOGO_PATH):
-    # Convert image to base64 for embedding in HTML string if needed, 
-    # but simplest is to stick to Streamlit layout for image, OR standard Title
-    pass 
-
-# Using Standard Columns for Centering (CSS applied above helps generally)
 h1, h2, h3 = st.columns([1, 2, 1])
 
 with h2:
-    # Main Centered Area
     if os.path.exists(LOGO_PATH):
         st.image(LOGO_PATH, use_container_width=True)
     else:
@@ -400,10 +383,9 @@ with h2:
     
     st.markdown(f"<div style='text-align: center; color: #888; font-size: 12px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>", unsafe_allow_html=True)
     
-    # Timer
     components.html("""
     <div style="display:flex; justify-content:center; margin-top:10px;">
-        <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 15px; color:#FF4B4B; font-family:'Courier New'; font-weight:bold;">
+        <div style="background:#000000; border:1px solid #333; border-radius:8px; padding:5px 15px; color:#FF4B4B; font-family:'Courier New'; font-weight:bold;">
             REFRESH: <span id="timer">--</span>s
         </div>
     </div>
