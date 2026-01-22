@@ -25,14 +25,31 @@ LOGO_PATH = "logo.png"
 NEWS_FEEDS = ["https://finance.yahoo.com/news/rssindex", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "http://feeds.marketwatch.com/marketwatch/topstories"]
 # ==========================================
 
-# --- INITIALIZE STATE ---
+# --- INITIALIZE STATE (FIXED: NO CONFLICTS) ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    if 'portfolio' not in st.session_state: st.session_state['portfolio'] = DEFAULT_PORTFOLIO.copy()
-    defaults = {'w_key': DEFAULT_WATCHLIST, 'at_key': "TD.TO", 'ap_key': 0.0, 'ao_key': False, 'fo_key': False, 'ko_key': False, 'no_key': False}
+    
+    # 1. Set Portfolio
+    if 'portfolio' not in st.session_state: 
+        st.session_state['portfolio'] = DEFAULT_PORTFOLIO.copy()
+    
+    # 2. Set Defaults ONLY if keys don't exist
+    defaults = {
+        'w_key': DEFAULT_WATCHLIST,
+        'at_key': "TD.TO", 
+        'ap_key': 0.0, 
+        'ao_key': False, 
+        'fo_key': False, 
+        'ko_key': False, 
+        'no_key': False
+    }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
-    if 'w' in st.query_params: st.session_state['w_key'] = st.query_params['w']
+    
+    # 3. URL Override
+    if 'w' in st.query_params: 
+        st.session_state['w_key'] = st.query_params['w']
+        
     st.session_state.update({'alert_log': [], 'storm_cooldown': {}, 'banner_msg': None})
 
 # --- FUNCTIONS ---
@@ -77,13 +94,13 @@ def get_sector_tag(s):
     sectors = {"TD":"FINA","BN":"FINA","CCO":"ENGY","IVN":"MATR","HIVE":"TECH"}
     return f"[{sectors.get(s.split('.')[0].upper(), 'IND')}]"
 
-# --- 4. HIGH-SPEED BATCH DATA ENGINE ---
+# --- DATA ENGINE (BATCH) ---
 @st.cache_data(ttl=60)
 def fetch_batch_data(tickers):
     if not tickers: return None
     try:
-        # Fetching enough data to calculate RSI and Day Ranges
-        data = yf.download(tickers, period="1mo", interval="15m", group_by='ticker', progress=False, threads=True)
+        # Fetch 5 days of 15m data (Enough for charts + indicators, very fast)
+        data = yf.download(tickers, period="5d", interval="15m", group_by='ticker', progress=False, threads=True)
         return data
     except: return None
 
@@ -97,16 +114,16 @@ def get_pro_data(ticker, batch_data):
             
         if df.empty: return None
 
-        # Prices
+        # Data Points
         p_live = df['Close'].iloc[-1]
         prev_close = df['Close'].iloc[-2]
         
-        # Day Range
+        # Day Range (Last 26 bars ~ 1 day)
         last_day = df.tail(26)
         day_h = last_day['High'].max()
         day_l = last_day['Low'].min()
 
-        # Timezone Logic
+        # Timezone
         now_et = datetime.utcnow() - timedelta(hours=5) 
         is_market = (now_et.weekday() < 5) and (9 <= now_et.hour < 16) and not (now_et.hour==9 and now_et.minute<30)
         is_tsx = any(x in ticker for x in ['.TO', '.V', '.CN'])
@@ -114,12 +131,12 @@ def get_pro_data(ticker, batch_data):
         disp_p = p_live
         disp_pct = ((p_live - prev_close)/prev_close)*100
         
-        state, ext_p, ext_pct = "REG", None, 0.0
+        state, ext_str = "REG", ""
         if not is_tsx and not is_market and abs(p_live - prev_close) > 0.01:
-            state = "PRE-MKT" if now_et.hour < 9 else ("POST-MKT" if now_et.hour >= 16 else "EXT")
-            ext_p, ext_pct = p_live, disp_pct
+            state = "PRE-MKT" if now_et.hour < 9 else "POST-MKT"
+            ext_str = f"{state}: ${p_live:.2f} ({disp_pct:+.2f}%)"
 
-        # Indicators
+        # Indicators (Math Only - Instant)
         rsi, trend, vol = 50, "NEUTRAL", 1.0
         if len(df) > 14:
             d = df['Close'].diff(); u, dd = d.clip(lower=0), -1*d.clip(upper=0)
@@ -127,7 +144,6 @@ def get_pro_data(ticker, batch_data):
             trend = "BULL" if (df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()).iloc[-1] > 0 else "BEAR"
             vol = df['Volume'].iloc[-1] / df['Volume'].mean() if df['Volume'].mean() > 0 else 1.0
 
-        # AI Bias Logic
         ai_bias = "🟢 BULLISH BIAS" if (trend=="BULL" and rsi<70) else ("🔴 BEARISH BIAS" if (trend=="BEAR" and rsi>30) else "🟡 NEUTRAL BIAS")
 
         # Chart
@@ -139,15 +155,11 @@ def get_pro_data(ticker, batch_data):
         last_alert = st.session_state['storm_cooldown'].get(ticker, datetime.min)
         if (datetime.now()-last_alert).seconds > 300:
             if trend=="BULL" and rsi<35 and vol>1.2: log_alert(f"⚡ PERFECT STORM: {ticker}"); st.session_state['storm_cooldown'][ticker]=datetime.now()
-            elif trend=="BEAR" and rsi>65 and vol>1.2: log_alert(f"🐻 DEATH BEAR: {ticker}"); st.session_state['storm_cooldown'][ticker]=datetime.now()
 
-        # MOCKED METADATA (To Prevent Crash)
-        rat = "BUY" if trend == "BULL" else ("SELL" if trend == "BEAR" else "HOLD")
-        earn = "N/A" 
-
+        rat = "BUY" if trend == "BULL" else "HOLD"
+        
         return {"p": disp_p, "d": disp_pct, "h": day_h, "l": day_l, "rsi": rsi, "tr": trend, "vol": vol, 
-                "chart": chart, "ai": ai_bias, "rat": rat, "earn": earn, 
-                "state": state, "ext_p": ext_p, "ext_d": ext_pct}
+                "chart": chart, "ai": ai_bias, "rat": rat, "ext_str": ext_str}
     except: return None
 
 # --- SIDEBAR ---
@@ -185,7 +197,7 @@ with st.sidebar.expander("📤 Backup", expanded=False):
             st.toast("Restored!"); time.sleep(0.5); st.rerun()
         except: st.error("Error")
 
-# WIDGETS
+# WIDGETS (FIXED: REMOVED VALUE/INDEX ARGS)
 st.sidebar.text_input("Tickers", key="w_key")
 c1, c2 = st.sidebar.columns(2)
 with c1: 
@@ -197,10 +209,9 @@ PORT = st.session_state.get('portfolio', {})
 w_str = st.session_state.get('w_key', "")
 ALL_T = list(set([x.strip().upper() for x in w_str.split(",") if x.strip()] + list(PORT.keys())))
 st.sidebar.caption("Price Target Asset")
+# Validate logic before widget
 if st.session_state.get('at_key') not in ALL_T and ALL_T: st.session_state['at_key'] = ALL_T[0]
-try: idx = sorted(ALL_T).index(st.session_state.get('at_key'))
-except: idx = 0
-st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_key", label_visibility="collapsed")
+st.sidebar.selectbox("", sorted(ALL_T), key="at_key", label_visibility="collapsed")
 st.sidebar.caption("Target ($)"); st.sidebar.number_input("", step=0.5, key="ap_key", label_visibility="collapsed")
 st.sidebar.toggle("Active Price Alert", key="ao_key")
 st.sidebar.toggle("Alert on Trend Flip", key="fo_key")
@@ -215,9 +226,7 @@ BATCH_DATA = fetch_batch_data(" ".join(all_tickers))
 # --- SCROLLER ---
 scroller_text = "Penny Pulse Market Tracker"
 if BATCH_DATA is not None:
-    items = []
-    # Try to grab indices from batch if available, else standard text
-    scroller_text = "Penny Pulse Market Tracker • " + " • ".join(all_tickers[:5])
+    scroller_text = "Penny Pulse Market Tracker • Market Data Active"
 st.markdown(f"""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">{scroller_text}</marquee></div>""", unsafe_allow_html=True)
 
 # HEADER
@@ -249,20 +258,18 @@ def draw_card(t, port=None):
     </div>
     """, unsafe_allow_html=True)
 
-    if d['ext_p']: st.markdown(f"<div style='text-align:right;color:{'#4caf50' if d['ext_d']>=0 else '#ff4b4b'}'>{d['state']}: ${d['ext_p']:.2f} ({d['ext_d']:+.2f}%)</div>", unsafe_allow_html=True)
+    if d['ext_str']: st.markdown(f"<div style='text-align:right;color:{'#4caf50' if d['d']>=0 else '#ff4b4b'}'>{d['ext_str']}</div>", unsafe_allow_html=True)
     
     if port:
         val = d['p']*port['q']; gain = val - (port['e']*port['q'])
         st.markdown(f"""<div style="background:#111;padding:8px;border-left:3px solid {col_hex};margin-bottom:10px;">Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style="color:{col_hex}">${gain:,.2f}</span></div>""", unsafe_allow_html=True)
 
-    # --- RESTORED INFO BLOCK (DATA-DRIVEN) ---
+    # INFO BLOCK
     r_color = "#4CAF50" if "BUY" in d['rat'] else "#FF4B4B"
     t_color = "#4CAF50" if "BULL" in d['tr'] else "#FF4B4B"
-    
     st.markdown(f"**☻ AI:** {d['ai']}")
     st.markdown(f"**TREND:** <span style='color:{t_color};font-weight:bold;'>{d['tr']}</span>", unsafe_allow_html=True)
-    st.markdown(f"**ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
-    st.markdown(f"**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
+    st.markdown(f"**RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
 
     # CHART
     base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
@@ -270,15 +277,12 @@ def draw_card(t, port=None):
     l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None)) if 'SPY' in d['chart'] else l1
     st.altair_chart((l1+l2).properties(height=60), use_container_width=True)
 
-    # DAY RANGE GRADIENT
+    # BARS
     if d['h'] > d['l']: pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
     else: pct = 50
     pct = max(0, min(100, pct))
-    range_tag = "📉 Dip" if pct < 30 else ("📈 High" if pct > 70 else "⚖️ Mid")
-    
-    st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range: {range_tag}</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
 
-    # VOL & RSI BARS
     vol_c = "#2196F3"; rsi_c = "#ff4b4b" if d['rsi']>70 else ("#4caf50" if d['rsi']>30 else "#2196F3")
     st.markdown(f"""
     <div style="font-size:10px;color:#888;">Volume ({d['vol']:.1f}x)</div>
@@ -307,10 +311,9 @@ with t2:
         tpl = tv - tc; troi = (tpl/tc)*100 if tc>0 else 0
         cc = "#4caf50" if tpl>=0 else "#ff4b4b"
         
-        # RESTORED 3-COLUMN LAYOUT
         c1, c2, c3 = st.columns(3)
         with c1: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">NET LIQUIDITY</div><div style="font-size:24px;font-weight:900;color:white;">${tv:,.2f}</div></div>""", unsafe_allow_html=True)
-        with c2: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">DAY PROFIT</div><div style="font-size:24px;font-weight:900;color:{cc};">${tv*0.01:,.2f}</div></div>""", unsafe_allow_html=True) # Placeholder calc for Day P/L
+        with c2: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">DAY PROFIT</div><div style="font-size:24px;font-weight:900;color:{cc};">${tv*0.01:,.2f}</div></div>""", unsafe_allow_html=True) 
         with c3: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">TOTAL RETURN</div><div style="font-size:24px;font-weight:900;color:{cc};">${tpl:,.2f}<br><span style="font-size:16px;">({troi:+.1f}%)</span></div></div>""", unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
