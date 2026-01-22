@@ -454,7 +454,9 @@ with t2:
 
 with t3:
     FEEDS = [
-        "https://rss.app/feeds/5JIQC7yOXxWPu7YB.xml"
+        "https://rss.app/feeds/bTa1Sl4l31RjlKAW.xml",
+        "https://rss.app/feeds/5JIQC7yOXxWPu7YB.xml",
+        "https://rss.app/feeds/Iz44ECtFw3ipVPNF.xml",
         "https://finance.yahoo.com/news/rssindex",
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
         "http://feeds.marketwatch.com/marketwatch/topstories"
