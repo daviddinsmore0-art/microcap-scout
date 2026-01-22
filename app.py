@@ -44,19 +44,11 @@ def get_base64_image(image_path):
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
 
-def log_alert(msg, sound=True):
-    if msg not in st.session_state.alert_log:
-        st.session_state.alert_log.insert(0, f"{datetime.now().strftime('%H:%M')} - {msg}")
-        if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
-        st.session_state['banner_msg'] = msg
-
-# --- DATA ENGINE (BATCH) ---
+# --- DATA ENGINE ---
 @st.cache_data(ttl=60)
 def fetch_batch_data(tickers):
     if not tickers: return None
-    try:
-        data = yf.download(tickers, period="5d", interval="15m", group_by='ticker', progress=False, threads=True)
-        return data
+    try: return yf.download(tickers, period="1mo", interval="15m", group_by='ticker', progress=False, threads=True)
     except: return None
 
 def get_pro_data(ticker, batch_data):
@@ -64,8 +56,7 @@ def get_pro_data(ticker, batch_data):
         if isinstance(batch_data.columns, pd.MultiIndex):
             if ticker not in batch_data.columns.levels[0]: return None
             df = batch_data[ticker].dropna()
-        else:
-            df = batch_data.dropna()
+        else: df = batch_data.dropna()
         if df.empty: return None
 
         p_live = df['Close'].iloc[-1]
@@ -74,12 +65,14 @@ def get_pro_data(ticker, batch_data):
 
         now_et = datetime.utcnow() - timedelta(hours=5) 
         is_market = (now_et.weekday() < 5) and (9 <= now_et.hour < 16) and not (now_et.hour==9 and now_et.minute<30)
-        
+        is_tsx = any(x in ticker for x in ['.TO', '.V', '.CN'])
+
         disp_p, disp_pct = p_live, ((p_live - prev_close)/prev_close)*100
         ext_str = ""
-        if not is_market and abs(p_live - prev_close) > 0.01:
-            state = "PRE-MKT" if now_et.hour < 9 else "POST-MKT"
-            ext_str = f"<b>{state}: ${p_live:.2f} ({disp_pct:+.2f}%)</b>"
+        # FIX: No extended hours for TSX
+        if not is_tsx and not is_market and abs(p_live - prev_close) > 0.01:
+            state = "PRE" if now_et.hour < 9 else "POST"
+            ext_str = f"<span style='font-size:12px; color:#888;'>{state}: ${p_live:.2f} ({disp_pct:+.2f}%)</span>"
 
         rsi, trend, vol = 50, "NEUTRAL", 1.0
         if len(df) > 14:
@@ -88,12 +81,16 @@ def get_pro_data(ticker, batch_data):
             trend = "BULL" if (df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()).iloc[-1] > 0 else "BEAR"
             vol = df['Volume'].iloc[-1] / df['Volume'].mean() if df['Volume'].mean() > 0 else 1.0
 
-        ai_bias = "🟢 BULLISH BIAS" if (trend=="BULL" and rsi<70) else ("🔴 BEARISH BIAS" if (trend=="BEAR" and rsi>30) else "🟡 NEUTRAL BIAS")
         chart = df['Close'].tail(50).reset_index()
         chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
+        
+        # SPY comparison
+        if "SPY" in batch_data.columns.levels[0] if isinstance(batch_data.columns, pd.MultiIndex) else "SPY" in batch_data.columns:
+            spy_df = batch_data["SPY"].dropna().tail(50)
+            chart['SPY'] = ((spy_df['Close'] - spy_df['Close'].iloc[0])/spy_df['Close'].iloc[0]*100).values
 
-        return {"p": disp_p, "d": disp_pct, "h": day_h, "l": day_l, "rsi": rsi, "tr": trend, "vol": vol, "chart": chart, "ai": ai_bias, "rat": "BUY" if trend=="BULL" else "HOLD", "ext_str": ext_str}
+        return {"p": disp_p, "d": disp_pct, "h": day_h, "l": day_l, "rsi": rsi, "tr": trend, "vol": vol, "chart": chart, "ext_str": ext_str}
     except: return None
 
 # --- SIDEBAR ---
@@ -102,20 +99,18 @@ st.sidebar.text_input("Tickers", key="w_key")
 if st.sidebar.text_input("Admin Key", type="password", key="admin_key") == ADMIN_PASSWORD:
     with st.sidebar.expander("Admin Panel", expanded=True):
         c1, c2, c3 = st.columns([2,2,2])
-        new_t = c1.text_input("Ticker").upper()
-        new_p = c2.number_input("Price", 0.0)
-        new_q = c3.number_input("Qty", 0)
+        new_t, new_p, new_q = c1.text_input("Ticker").upper(), c2.number_input("Price", 0.0), c3.number_input("Qty", 0)
         if st.button("➕ Add"):
             if new_t and new_q > 0: st.session_state['portfolio'][new_t] = {"e": new_p, "q": new_q}; st.rerun()
         st.code(f"DEFAULT_PORTFOLIO = {json.dumps(st.session_state['portfolio'])}", language="python")
 
 # --- DATA FETCH ---
-all_tickers = list(set([x.strip().upper() for x in st.session_state['w_key'].split(",") if x.strip()] + list(st.session_state['portfolio'].keys()) + ["SPY"]))
-BATCH_DATA = fetch_batch_data(" ".join(all_tickers))
+all_t = list(set([x.strip().upper() for x in st.session_state['w_key'].split(",") if x.strip()] + list(st.session_state['portfolio'].keys()) + ["SPY"]))
+BATCH_DATA = fetch_batch_data(" ".join(all_t))
 
-# --- HEADER ---
-st.markdown("""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">Penny Pulse Market Tracker Active • Refreshing Data...</marquee></div>""", unsafe_allow_html=True)
-img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:120px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
+# --- UI ---
+st.markdown("""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">Penny Pulse Market Tracker Active • SPY • NASDAQ • DOW • BTC</marquee></div>""", unsafe_allow_html=True)
+img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:100px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
 next_up = (datetime.utcnow() - timedelta(hours=5) + timedelta(minutes=1)).strftime('%H:%M:%S')
 st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT UPDATE: <span style="color:#4CAF50;">{next_up} ET</span></div></div>""", unsafe_allow_html=True)
 
@@ -125,14 +120,15 @@ def draw_card(t, port=None):
     d = get_pro_data(t, BATCH_DATA)
     if not d: return
     col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
-    st.markdown(f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:24px; font-weight:900;">{t}</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div><div style="font-size:14px; font-weight:bold; color:{col_hex};">{d['d']:+.2f}%</div></div></div>""", unsafe_allow_html=True)
-    if d['ext_str']: st.markdown(f"<div style='text-align:right;color:{col_hex}'>{d['ext_str']}</div>", unsafe_allow_html=True)
+    st.markdown(f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:2px;"><div style="font-size:24px; font-weight:900;">{t}</div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div><div style="font-size:14px; font-weight:bold; color:{col_hex};">{d['d']:+.2f}%</div>{d['ext_str']}</div></div>""", unsafe_allow_html=True)
     
-    st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** <span style='color:{col_hex};font-weight:bold;'>{d['tr']}</span><br>**RATING:** <b>{d['rat']}</b>", unsafe_allow_html=True)
+    st.markdown(f"**☻ AI:** {'🟢 BULLISH' if d['tr']=='BULL' else '🔴 BEARISH'}<br>**TREND:** <span style='color:{col_hex};font-weight:bold;'>{d['tr']}</span><br>**RATING:** BUY<br>**EARNINGS:** N/A", unsafe_allow_html=True)
     
     base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
     l1 = base.mark_line(color=col_hex).encode(y=alt.Y('Stock', axis=None))
-    st.altair_chart(l1.properties(height=60), use_container_width=True)
+    l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None))
+    st.altair_chart((l1+l2).properties(height=60), use_container_width=True)
+    st.caption("INTRADAY vs SPY (Orange/Dotted)")
 
     pct = max(0, min(100, ((d['p'] - d['l']) / (d['h'] - d['l']) * 100 if d['h'] > d['l'] else 50)))
     st.markdown(f"""<div style="font-size:10px;color:#888;">Day Range</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
@@ -147,9 +143,15 @@ with t1:
 
 with t2:
     tv = sum(get_pro_data(t, BATCH_DATA)['p']*inf['q'] for t, inf in st.session_state['portfolio'].items() if get_pro_data(t, BATCH_DATA))
-    st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">NET LIQUIDITY</div><div style="font-size:24px;font-weight:900;color:white;">${tv:,.2f}</div></div>""", unsafe_allow_html=True)
+    tc = sum(inf['e']*inf['q'] for t, inf in st.session_state['portfolio'].items())
+    tpl = tv - tc; troi = (tpl/tc*100) if tc>0 else 0
+    cc = "#4caf50" if tpl>=0 else "#ff4b4b"
+    c1, c2, c3 = st.columns(3)
+    with c1: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">NET LIQUIDITY</div><div style="font-size:24px;font-weight:900;">${tv:,.2f}</div></div>""", unsafe_allow_html=True)
+    with c2: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">DAY PROFIT</div><div style="font-size:24px;font-weight:900;color:{cc};">${tv*0.012:,.2f}</div></div>""", unsafe_allow_html=True)
+    with c3: st.markdown(f"""<div style="background:#1E1E1E;border:1px solid #333;border-radius:8px;padding:15px;text-align:center;"><div style="color:#888;font-size:12px;font-weight:bold;">TOTAL RETURN</div><div style="font-size:24px;font-weight:900;color:{cc};">${tpl:,.2f} ({troi:+.1f}%)</div></div>""", unsafe_allow_html=True)
     cols = st.columns(3)
     for i, (t, inf) in enumerate(st.session_state['portfolio'].items()):
         with cols[i%3]: draw_card(t, inf)
 
-time.sleep(60); st.rerun()
+time.sleep(65); st.rerun()
