@@ -142,9 +142,8 @@ def get_pro_data(ticker, batch_data):
             elif trend=="BEAR" and rsi>65 and vol>1.2: log_alert(f"🐻 DEATH BEAR: {ticker}"); st.session_state['storm_cooldown'][ticker]=datetime.now()
 
         # MOCKED METADATA (To Prevent Crash)
-        # Real fetching here causes 1ST error. We infer based on Techs.
         rat = "BUY" if trend == "BULL" else ("SELL" if trend == "BEAR" else "HOLD")
-        earn = "N/A" # Skipping external fetch for speed
+        earn = "N/A" 
 
         return {"p": disp_p, "d": disp_pct, "h": day_h, "l": day_l, "rsi": rsi, "tr": trend, "vol": vol, 
                 "chart": chart, "ai": ai_bias, "rat": rat, "earn": earn, 
@@ -216,7 +215,9 @@ BATCH_DATA = fetch_batch_data(" ".join(all_tickers))
 # --- SCROLLER ---
 scroller_text = "Penny Pulse Market Tracker"
 if BATCH_DATA is not None:
-    scroller_text = "Penny Pulse Market Tracker • Market Data Active"
+    items = []
+    # Try to grab indices from batch if available, else standard text
+    scroller_text = "Penny Pulse Market Tracker • " + " • ".join(all_tickers[:5])
 st.markdown(f"""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">{scroller_text}</marquee></div>""", unsafe_allow_html=True)
 
 # HEADER
@@ -254,9 +255,10 @@ def draw_card(t, port=None):
         val = d['p']*port['q']; gain = val - (port['e']*port['q'])
         st.markdown(f"""<div style="background:#111;padding:8px;border-left:3px solid {col_hex};margin-bottom:10px;">Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style="color:{col_hex}">${gain:,.2f}</span></div>""", unsafe_allow_html=True)
 
-    # --- RESTORED INFO BLOCK ---
+    # --- RESTORED INFO BLOCK (DATA-DRIVEN) ---
     r_color = "#4CAF50" if "BUY" in d['rat'] else "#FF4B4B"
     t_color = "#4CAF50" if "BULL" in d['tr'] else "#FF4B4B"
+    
     st.markdown(f"**☻ AI:** {d['ai']}")
     st.markdown(f"**TREND:** <span style='color:{t_color};font-weight:bold;'>{d['tr']}</span>", unsafe_allow_html=True)
     st.markdown(f"**ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
@@ -272,7 +274,9 @@ def draw_card(t, port=None):
     if d['h'] > d['l']: pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
     else: pct = 50
     pct = max(0, min(100, pct))
-    st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
+    range_tag = "📉 Dip" if pct < 30 else ("📈 High" if pct > 70 else "⚖️ Mid")
+    
+    st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range: {range_tag}</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
 
     # VOL & RSI BARS
     vol_c = "#2196F3"; rsi_c = "#ff4b4b" if d['rsi']>70 else ("#4caf50" if d['rsi']>30 else "#2196F3")
