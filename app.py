@@ -22,12 +22,10 @@ DATA_FILE = "user_data.json"
 
 # --- 2. PERSISTENCE ENGINE ---
 def load_data():
-    """Loads user settings from the local JSON file."""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f: return json.load(f)
         except: pass
-    # Default State
     return {
         "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
         "portfolio": {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}},
@@ -36,7 +34,6 @@ def load_data():
     }
 
 def save_data():
-    """Saves current session state to the local JSON file."""
     try:
         data = {
             "w_input": st.session_state.get('w_input', ""),
@@ -86,8 +83,8 @@ def log_alert(msg, sound=True):
         if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
         st.session_state['banner_msg'] = msg
 
-# INCREASED TIMEOUT to 2.0s to allow stocks to load without crashing
-def safe_fetch(ticker_obj, method, timeout=2.0):
+# INCREASED TIMEOUT TO 5.0 SECONDS
+def safe_fetch(ticker_obj, method, timeout=5.0):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         if method == "history": future = executor.submit(ticker_obj.history, period="1d", interval="5m", prepost=True)
         elif method == "history_5d": future = executor.submit(ticker_obj.history, period="5d", interval="15m", prepost=True)
@@ -214,37 +211,39 @@ for sym, name in indices:
 scroller_html = " &nbsp;&nbsp;|&nbsp;&nbsp; ".join(scroller_items) if scroller_items else "Market Tracker Active"
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 5. HEADER (FIXED NEXT PULSE) ---
+# --- 5. HEADER ---
 img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:100px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
-next_pulse = (datetime.utcnow() - timedelta(hours=5) + timedelta(minutes=1)).strftime('%H:%M:%S')
-st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{next_pulse} ET</span></div></div>""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{(datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')} ET</span></div></div>""", unsafe_allow_html=True)
 
 # --- 6. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
 def draw_card(t, port=None):
     d = get_pro_data(t)
-    if not d: return
+    if not d:
+        # Fallback card if data is missing (Wait/Error)
+        st.warning(f"⚠️ {t}: Data N/A (Retrying...)")
+        return
+
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    # NEW LAYOUT: Native Columns (No broken tags)
+    # NATIVE LAYOUT (Replaces HTML <div> errors)
     c_head, c_price = st.columns([2, 1])
     with c_head:
-        st.markdown(f"<div style='font-size:24px; font-weight:900; line-height:1.1;'>{d['name']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:12px; color:#888;'>{t}</div>", unsafe_allow_html=True)
+        st.markdown(f"### {d['name']}")
+        st.caption(f"{t}")
     with c_price:
-        st.markdown(f"<div style='text-align:right; font-size:22px; font-weight:bold; line-height:1;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='text-align:right; font-size:14px; font-weight:bold; color:{col}; line-height:1; margin-top:2px;'>{d['d']:+.2f}%</div>", unsafe_allow_html=True)
+        st.metric(label="", value=f"${d['p']:,.2f}", delta=f"{d['d']:.2f}%")
         if d['ext_data']:
             ed = d['ext_data']
-            ec = "#4caf50" if ed['pct'] >= 0 else "#ff4b4b"
-            st.markdown(f"<div style='text-align:right; color:{ec}; font-size:12px; margin-top:2px;'><b>{ed['state']}</b>: ${ed['p']:,.2f} ({ed['pct']:+.2f}%)</div>", unsafe_allow_html=True)
+            ec = "green" if ed['pct'] >= 0 else "red"
+            st.markdown(f":{ec}[**{ed['state']}**: ${ed['p']:,.2f} ({ed['pct']:+.2f}%)]")
 
     if port:
         gain = (d['p'] - port['e']) * port['q']
-        st.markdown(f"<div style='background:black; padding:5px; border-left:4px solid {col}; margin:5px 0;'>Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style='color:{col}'>${gain:,.2f}</span></div>", unsafe_allow_html=True)
+        st.info(f"Qty: {port['q']} | Avg: ${port['e']} | Gain: ${gain:,.2f}")
 
-    st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** <span style='color:{col};font-weight:bold;'>{d['tr']}</span><br>**RATING:** {d['rat']}<br>**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
+    st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** :{col.replace('#','')}[**{d['tr']}**]<br>**RATING:** {d['rat']}<br>**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
     
     chart = alt.Chart(d['chart']).mark_line(color=col).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
     if 'SPY' in d['chart'].columns: chart += alt.Chart(d['chart']).mark_line(color='orange', strokeDash=[2,2]).encode(x='Idx', y='SPY')
