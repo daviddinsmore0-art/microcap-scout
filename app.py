@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 import email.utils 
 import os 
 import urllib.parse
+import base64
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -45,6 +46,12 @@ if 'initialized' not in st.session_state:
     })
 
 # --- 2. FUNCTIONS ---
+def get_base64_image(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    return None
+
 def sync_input(key_data, key_widget):
     """Syncs widget value to data state"""
     st.session_state[key_data] = st.session_state[key_widget]
@@ -194,7 +201,7 @@ with st.sidebar.expander("📤 Share & Backup"):
     }
     st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
     
-    # RESTORE (FORCE REFRESH FIX)
+    # RESTORE (WIDGET RESET FIX)
     uploaded_file = st.file_uploader("Restore Profile", type="json")
     if uploaded_file is not None:
         try:
@@ -209,26 +216,19 @@ with st.sidebar.expander("📤 Share & Backup"):
                 'a_on_input': 'ao_data', 'ao_data': 'ao_data'
             }
             
-            # Map data keys to widget keys (To force UI update)
-            widget_map = {
-                'w_data': 'w_widget',
-                'at_data': 'at_widget',
-                'ap_data': 'ap_widget',
-                'ao_data': 'ao_widget'
-            }
-
+            # 1. Update Data States
             for k, v in data.items():
-                # 1. Update Data State
                 target_key = key_map.get(k, k)
                 if target_key in st.session_state:
                     st.session_state[target_key] = v
-                    
-                    # 2. Update Widget State (The Fix)
-                    if target_key in widget_map:
-                        st.session_state[widget_map[target_key]] = v
-            
+
+            # 2. NUCLEAR OPTION: Delete Widget Keys to Force Reload
+            for w_key in ['w_widget', 'at_widget', 'ap_widget', 'ao_widget', 'fo_widget', 'ko_widget', 'no_widget']:
+                if w_key in st.session_state:
+                    del st.session_state[w_key]
+
             st.toast("Profile Restored! Refreshing...")
-            time.sleep(1)
+            time.sleep(0.5)
             st.rerun()
         except Exception as e:
             st.error(f"Error: {e}")
@@ -374,7 +374,17 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# CENTERED DARK HEADER BOX
+# --- HEADER WITH BASE64 LOGO EMBEDDING ---
+img_html = ""
+img_b64 = get_base64_image(LOGO_PATH)
+
+if img_b64:
+    # Use HTML image with centered styling if logo exists
+    img_html = f'<img src="data:image/png;base64,{img_b64}" style="max-height:80px; max-width:100%; display:block; margin: 0 auto 10px auto;">'
+else:
+    # Fallback Text
+    img_html = "<h1 style='text-align: center; margin: 0; padding: 0; color: white;'>⚡ Penny Pulse</h1>"
+
 st.markdown(f"""
 <div style="
     background-color: #000000; 
@@ -388,18 +398,12 @@ st.markdown(f"""
     justify-content: center;
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 ">
+    {img_html}
+    <div style='text-align: center; color: #888; font-size: 12px; margin-bottom: 10px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>
+</div>
 """, unsafe_allow_html=True)
 
-# 1. LOGO or TITLE
-if os.path.exists(LOGO_PATH):
-    st.image(LOGO_PATH, width=300) 
-else:
-    st.markdown("<h1 style='text-align: center; margin: 0; padding: 0;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-
-# 2. SUBTITLE
-st.markdown(f"<div style='text-align: center; color: #888; font-size: 12px; margin-top: 5px; margin-bottom: 15px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>", unsafe_allow_html=True)
-
-# 3. TIMER
+# TIMER (Separate Component to maintain update loop)
 components.html("""
 <div style="display:flex; justify-content:center;">
     <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
@@ -413,8 +417,6 @@ setInterval(function(){
 }, 1000);
 </script>
 """, height=50)
-
-st.markdown("</div>", unsafe_allow_html=True) # Close Black Box
 
 # --- 7. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
