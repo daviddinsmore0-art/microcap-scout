@@ -17,172 +17,25 @@ except: pass
 # ==========================================
 # 🎛️ CONTROL TOWER (ADMIN SETTINGS)
 # ==========================================
-# 1. Default Watchlist
 DEFAULT_WATCHLIST = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
-
-# 2. Default Portfolio
 DEFAULT_PORTFOLIO = {'HIVE': {'e': 3.19, 'q': 50, 'd': 'Dec 01'}, 'BAER': {'e': 1.86, 'q': 100, 'd': 'Jan 10'}, 'TX': {'e': 38.1, 'q': 40, 'd': 'Nov 05'}, 'IMNN': {'e': 3.22, 'q': 100, 'd': 'Aug 20'}, 'RERE': {'e': 5.31, 'q': 100, 'd': 'Oct 12'}}
-
-# 3. Settings
 ADMIN_PASSWORD = "admin123" 
 WEBHOOK_URL = "" 
 LOGO_PATH = "logo.png" 
-NEWS_FEEDS = [
-    "https://finance.yahoo.com/news/rssindex",
-    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
-    "http://feeds.marketwatch.com/marketwatch/topstories"
-]
+NEWS_FEEDS = ["https://finance.yahoo.com/news/rssindex", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "http://feeds.marketwatch.com/marketwatch/topstories"]
 # ==========================================
 
-# --- MAIN APP LOGIC (WRAPPED IN SAFETY NET) ---
-def main():
-    # --- INITIALIZE STATE ---
-    if 'initialized' not in st.session_state:
-        st.session_state['initialized'] = True
-        if 'portfolio' not in st.session_state: st.session_state['portfolio'] = DEFAULT_PORTFOLIO.copy()
-        
-        defaults = {
-            'w_key': DEFAULT_WATCHLIST,
-            'at_key': "TD.TO", 'ap_key': 0.0,
-            'ao_key': False, 'fo_key': False,
-            'ko_key': False, 'no_key': False,
-            'admin_key': ""
-        }
-        for k, v in defaults.items():
-            if k not in st.session_state: st.session_state[k] = v
-                
-        qp = st.query_params
-        if 'w' in qp: st.session_state['w_key'] = qp['w']
+# --- INITIALIZE STATE ---
+if 'initialized' not in st.session_state:
+    st.session_state['initialized'] = True
+    if 'portfolio' not in st.session_state: st.session_state['portfolio'] = DEFAULT_PORTFOLIO.copy()
+    defaults = {'w_key': DEFAULT_WATCHLIST, 'at_key': "TD.TO", 'ap_key': 0.0, 'ao_key': False, 'fo_key': False, 'ko_key': False, 'no_key': False}
+    for k, v in defaults.items():
+        if k not in st.session_state: st.session_state[k] = v
+    if 'w' in st.query_params: st.session_state['w_key'] = st.query_params['w']
+    st.session_state.update({'news_results': [], 'raw_news_cache': [], 'news_offset': 0, 'alert_log': [], 'storm_cooldown': {}, 'spy_cache': None, 'banner_msg': None})
 
-        st.session_state.update({
-            'news_results': [], 'raw_news_cache': [], 'news_offset': 0,
-            'alert_log': [], 'storm_cooldown': {}, 'spy_cache': None,
-            'banner_msg': None
-        })
-
-    # --- SIDEBAR ---
-    st.sidebar.header("⚡ Penny Pulse")
-    if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-    else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
-
-    # ADMIN
-    st.sidebar.markdown("---")
-    admin_input = st.sidebar.text_input("Admin Key", type="password", key="admin_key")
-    is_admin = (admin_input == ADMIN_PASSWORD)
-
-    if is_admin:
-        st.sidebar.success("👑 Admin Mode")
-        with st.sidebar.expander("Panel", expanded=True):
-            c1, c2, c3 = st.columns([2,2,2])
-            new_t = c1.text_input("Ticker", key="adm_t").upper()
-            new_p = c2.number_input("Price", 0.0, key="adm_p")
-            new_q = c3.number_input("Qty", 0, key="adm_q")
-            if st.button("➕ Add"):
-                if new_t and new_q > 0:
-                    st.session_state['portfolio'][new_t] = {"e": new_p, "q": new_q, "d": datetime.now().strftime('%b %d')}
-                    st.rerun()
-            if st.button("🗑️ Clear"): st.session_state['portfolio'] = {}; st.rerun()
-            st.caption("GitHub Code:"); st.code(f"DEFAULT_PORTFOLIO = {json.dumps(st.session_state['portfolio'])}", language="python")
-
-    # RESTORE (HIDDEN)
-    with st.sidebar.expander("📤 Backup", expanded=False):
-        if st.session_state.get('w_key'): st.query_params['w'] = st.session_state['w_key']
-        current_w = st.session_state.get('w_key', "")
-        if current_w: st.code(f"/?w={urllib.parse.quote(current_w)}", language="text")
-        
-        export = {'w_key': st.session_state.get('w_key'), 'portfolio': st.session_state.get('portfolio'), 'at_key': st.session_state.get('at_key'), 'ap_key': st.session_state.get('ap_key'), 'ao_key': st.session_state.get('ao_key')}
-        st.download_button("Download", json.dumps(export), "pulse_profile.json")
-        
-        up = st.file_uploader("Restore", type="json")
-        if up:
-            try:
-                d = json.loads(up.getvalue().decode("utf-8"))
-                km = {'w_input': 'w_key', 'w_data': 'w_key', 'a_tick_input': 'at_key', 'a_price_input': 'ap_key'}
-                for k, v in d.items(): st.session_state[km.get(k, k)] = v
-                st.toast("Restored!"); time.sleep(0.5); st.rerun()
-            except: st.error("Error")
-
-    # WIDGETS
-    st.sidebar.text_input("Tickers", key="w_key")
-    c1, c2 = st.sidebar.columns(2)
-    with c1: 
-        if st.button("💾 Save"): st.toast("Saved!")
-    with c2: 
-        if st.button("🔊 Test"): log_alert("Test!", sound=True)
-
-    st.sidebar.divider()
-    PORT = st.session_state.get('portfolio', {})
-    w_str = st.session_state.get('w_key', "")
-    ALL_T = list(set([x.strip().upper() for x in w_str.split(",") if x.strip()] + list(PORT.keys())))
-
-    st.sidebar.caption("Price Target Asset")
-    if st.session_state.get('at_key') not in ALL_T and ALL_T: st.session_state['at_key'] = ALL_T[0]
-    try: idx = sorted(ALL_T).index(st.session_state.get('at_key'))
-    except: idx = 0
-    st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_key", label_visibility="collapsed")
-    st.sidebar.caption("Target ($)"); st.sidebar.number_input("", step=0.5, key="ap_key", label_visibility="collapsed")
-    st.sidebar.toggle("Active Price Alert", key="ao_key")
-    st.sidebar.toggle("Alert on Trend Flip", key="fo_key")
-    st.sidebar.toggle("💡 Keep Screen On", key="ko_key")
-    st.sidebar.checkbox("Desktop Notifications", key="no_key")
-    inject_wake_lock(st.session_state.get('ko_key', False))
-
-    # --- UI RENDER ---
-    if st.session_state['banner_msg']:
-        st.info(f"🔔 {st.session_state['banner_msg']}")
-        if st.button("Dismiss"): st.session_state['banner_msg'] = None; st.rerun()
-
-    st.markdown("""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">Penny Pulse Market Tracker</marquee></div>""", unsafe_allow_html=True)
-
-    # HEADER
-    img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:120px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
-    next_up = (datetime.utcnow() - timedelta(hours=5) + timedelta(minutes=1)).strftime('%H:%M:%S')
-    st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT UPDATE: <span style="color:#4CAF50;">{next_up} ET</span></div></div>""", unsafe_allow_html=True)
-
-    t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
-
-    with t1:
-        cols = st.columns(3)
-        try: w_list = [x.strip().upper() for x in st.session_state['w_key'].split(",") if x.strip()]
-        except: w_list = []
-        for i, t in enumerate(w_list):
-            with cols[i%3]: draw_card(t)
-
-    with t2:
-        if not st.session_state['portfolio']: st.info("Portfolio empty. Use Admin Mode.")
-        else:
-            tv = 0; tc = 0
-            for t, inf in st.session_state['portfolio'].items():
-                d = get_pro_data(t)
-                if d: tv += d['p']*inf['q']; tc += inf['e']*inf['q']
-            tpl = tv - tc; troi = (tpl/tc)*100 if tc>0 else 0
-            cc = "#4caf50" if tpl>=0 else "#ff4b4b"
-            st.markdown(f"""<div style="background:#000;border:1px solid #333;padding:15px;border-radius:10px;text-align:center;margin-bottom:20px;"><div style="color:#888;">NET LIQUIDITY</div><div style="font-size:28px;font-weight:bold;">${tv:,.2f}</div><div style="color:{cc};font-size:18px;">${tpl:,.2f} ({troi:+.2f}%)</div></div>""", unsafe_allow_html=True)
-            cols = st.columns(3)
-            for i, (t, inf) in enumerate(st.session_state['portfolio'].items()):
-                with cols[i%3]: 
-                    draw_card(t, inf)
-                    if is_admin and st.button(f"🗑️ Remove {t}", key=f"del_{t}"):
-                        del st.session_state['portfolio'][t]; st.rerun()
-
-    with t3:
-        if st.button("Analyze News"):
-            try:
-                raw = []
-                for f in NEWS_FEEDS:
-                    try: 
-                        r = requests.get(f, timeout=3); root = ET.fromstring(r.content)
-                        for i in root.findall('.//item')[:5]: raw.append({"title": i.find('title').text, "link": i.find('link').text, "time": "Recent"})
-                    except: continue
-                if KEY:
-                    res = process_ai_batch(raw[:15], KEY)
-                    for n in res:
-                        sc = "#4caf50" if n.get('sentiment')=="BULL" else "#ff4b4b"
-                        st.markdown(f"<div style='border-left:4px solid {sc};padding-left:10px;margin-bottom:10px;'><b>{n.get('ticker','MKT')}</b>: {n.get('summary')} <a href='{n.get('link')}'>Read</a></div>", unsafe_allow_html=True)
-                else: st.error("No API Key")
-            except: st.error("News Error")
-
-# --- FUNCTIONS & HELPERS ---
+# --- FUNCTIONS ---
 def get_base64_image(image_path):
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
@@ -230,25 +83,33 @@ def get_sector_tag(s):
     sectors = {"TD":"FINA","BN":"FINA","CCO":"ENGY","IVN":"MATR","HIVE":"TECH"}
     return f"[{sectors.get(s.split('.')[0].upper(), 'IND')}]"
 
+# --- 4. DATA ENGINE (VISUAL PRIORITY) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
     except: return None
 
 def get_pro_data(s):
+    # Simplified fetch to guarantee UI loading
     try:
         tk = yf.Ticker(s)
-        h = pd.DataFrame()
-        for _ in range(3):
-            try: h = tk.history(period="1d", interval="5m", prepost=True); break
-            except: time.sleep(0.1)
+        # Try fast fetch
+        try: h = tk.history(period="1d", interval="5m", prepost=True)
+        except: return None
+        
         if h.empty: 
+            # Fallback
             try: h = tk.history(period="5d", interval="15m", prepost=True)
             except: return None
         if h.empty: return None
         
         p_live = h['Close'].iloc[-1]
-        hm = tk.history(period="1mo")
+        
+        # Don't let history fetch kill the card
+        hm = pd.DataFrame()
+        try: hm = tk.history(period="1mo")
+        except: pass
+        
         hard_close = hm['Close'].iloc[-1] if not hm.empty else p_live
         prev_close = hm['Close'].iloc[-2] if len(hm)>1 else hard_close
 
@@ -276,15 +137,11 @@ def get_pro_data(s):
         spy = get_spy_data()
         if spy is not None:
             s_slice = spy.tail(len(chart)); 
-            chart['SPY'] = ((s_slice - s_slice.iloc[0])/s_slice.iloc[0]*100).values if len(s_slice)==len(chart) else 0
+            if len(s_slice)==len(chart): chart['SPY'] = ((s_slice - s_slice.iloc[0])/s_slice.iloc[0]*100).values
 
-        cal = tk.calendar
         earn = "N/A"
-        try: 
-            d = cal.get('Earnings Date', []) if isinstance(cal, dict) else []
-            if d: earn = f"Next: {d[0].strftime('%b %d')}"
-        except: pass
         
+        # Check alerts
         last_alert = st.session_state['storm_cooldown'].get(s, datetime.min)
         if (datetime.now()-last_alert).seconds > 300:
             if trend=="BULL" and rsi<35 and vol>1.2: log_alert(f"⚡ PERFECT STORM: {s}"); st.session_state['storm_cooldown'][s]=datetime.now()
@@ -295,26 +152,149 @@ def get_pro_data(s):
                 "state": state, "ext_p": ext_p, "ext_d": ext_pct}
     except: return None
 
-def draw_card(t, port=None):
-    d = get_pro_data(t)
-    if not d: st.markdown(f"<div style='border:1px solid #333;padding:10px;border-radius:5px;'>Loading {t}...</div>", unsafe_allow_html=True); return
-    col = "#4caf50" if d['d']>=0 else "#ff4b4b"
-    st.markdown(f"""<div style="border-bottom:1px solid #333;margin-bottom:10px;padding-bottom:10px;"><div style="font-size:24px;font-weight:900;">{get_name(t)} <span style="font-size:14px;color:#888;">{t}</span></div><div style="font-size:22px;font-weight:bold;">${d['p']:,.2f} <span style="color:{col};font-size:16px;">{d['d']:+.2f}%</span></div></div>""", unsafe_allow_html=True)
-    if d['ext_p']: st.markdown(f"<div style='text-align:right;color:{'#4caf50' if d['ext_d']>=0 else '#ff4b4b'}'>{d['state']}: ${d['ext_p']:.2f} ({d['ext_d']:+.2f}%)</div>", unsafe_allow_html=True)
-    if port:
-        val = d['p']*port['q']; gain = val - (port['e']*port['q'])
-        st.markdown(f"""<div style="background:#111;padding:8px;border-left:3px solid {col};margin-bottom:10px;">Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style="color:{col}">${gain:,.2f}</span></div>""", unsafe_allow_html=True)
-    base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
-    l1 = base.mark_line(color=col).encode(y=alt.Y('Stock', axis=None))
-    l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None)) if 'SPY' in d['chart'] else l1
-    st.altair_chart((l1+l2).properties(height=60), use_container_width=True)
-    st.markdown(f"**Trend:** <span style='color:{col}'>{d['tr']}</span> | **Vol:** {d['vol']:.1f}x | **RSI:** {d['rsi']:.0f}", unsafe_allow_html=True)
-    st.divider()
+# --- SIDEBAR ---
+st.sidebar.header("⚡ Penny Pulse")
+if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
+else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
-# --- EXECUTE SAFETY NET ---
-try:
-    main()
-    time.sleep(60)
-    st.rerun()
-except Exception:
-    st.rerun()
+# ADMIN
+st.sidebar.markdown("---")
+if st.sidebar.text_input("Admin Key", type="password", key="admin_key") == ADMIN_PASSWORD:
+    st.sidebar.success("👑 Admin Mode")
+    with st.sidebar.expander("Panel", expanded=True):
+        c1, c2, c3 = st.columns([2,2,2])
+        new_t = c1.text_input("Ticker").upper()
+        new_p = c2.number_input("Price", 0.0)
+        new_q = c3.number_input("Qty", 0)
+        if st.button("➕ Add"):
+            if new_t and new_q > 0: st.session_state['portfolio'][new_t] = {"e": new_p, "q": new_q}; st.rerun()
+        if st.button("🗑️ Clear"): st.session_state['portfolio'] = {}; st.rerun()
+        st.code(f"DEFAULT_PORTFOLIO = {json.dumps(st.session_state['portfolio'])}", language="python")
+
+# BACKUP
+with st.sidebar.expander("📤 Backup", expanded=False):
+    if st.session_state.get('w_key'): st.query_params['w'] = st.session_state['w_key']
+    current_w = st.session_state.get('w_key', "")
+    if current_w: st.code(f"/?w={urllib.parse.quote(current_w)}", language="text")
+    export = {'w_key': st.session_state.get('w_key'), 'portfolio': st.session_state.get('portfolio'), 'at_key': st.session_state.get('at_key'), 'ap_key': st.session_state.get('ap_key'), 'ao_key': st.session_state.get('ao_key')}
+    st.download_button("Download", json.dumps(export), "pulse_profile.json")
+    up = st.file_uploader("Restore", type="json")
+    if up:
+        try:
+            d = json.loads(up.getvalue().decode("utf-8"))
+            km = {'w_input': 'w_key', 'w_data': 'w_key', 'a_tick_input': 'at_key', 'a_price_input': 'ap_key'}
+            for k, v in d.items(): st.session_state[km.get(k, k)] = v
+            st.toast("Restored!"); time.sleep(0.5); st.rerun()
+        except: st.error("Error")
+
+# WIDGETS
+st.sidebar.text_input("Tickers", key="w_key")
+c1, c2 = st.sidebar.columns(2)
+with c1: 
+    if st.button("💾 Save"): st.toast("Saved!")
+with c2: 
+    if st.button("🔊 Test"): log_alert("Test!", sound=True)
+st.sidebar.divider()
+PORT = st.session_state.get('portfolio', {})
+w_str = st.session_state.get('w_key', "")
+ALL_T = list(set([x.strip().upper() for x in w_str.split(",") if x.strip()] + list(PORT.keys())))
+st.sidebar.caption("Price Target Asset")
+if st.session_state.get('at_key') not in ALL_T and ALL_T: st.session_state['at_key'] = ALL_T[0]
+try: idx = sorted(ALL_T).index(st.session_state.get('at_key'))
+except: idx = 0
+st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_key", label_visibility="collapsed")
+st.sidebar.caption("Target ($)"); st.sidebar.number_input("", step=0.5, key="ap_key", label_visibility="collapsed")
+st.sidebar.toggle("Active Price Alert", key="ao_key")
+st.sidebar.toggle("Alert on Trend Flip", key="fo_key")
+st.sidebar.toggle("💡 Keep Screen On", key="ko_key")
+st.sidebar.checkbox("Desktop Notifications", key="no_key")
+inject_wake_lock(st.session_state.get('ko_key', False))
+
+# --- SCROLLER (NOW OUTSIDE MAIN RENDER TO LOAD FAST) ---
+st.markdown("""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">Penny Pulse Market Tracker • SPY • NASDAQ • DOW • BTC</marquee></div>""", unsafe_allow_html=True)
+
+# HEADER
+img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:120px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
+next_up = (datetime.utcnow() - timedelta(hours=5) + timedelta(minutes=1)).strftime('%H:%M:%S')
+st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT UPDATE: <span style="color:#4CAF50;">{next_up} ET</span></div></div>""", unsafe_allow_html=True)
+
+# UI TABS
+t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
+
+def draw_card(t, port=None):
+    # Placeholders show immediately if data is slow
+    ph = st.empty()
+    try:
+        d = get_pro_data(t)
+        if not d:
+            ph.markdown(f"<div style='border:1px solid #333;padding:15px;border-radius:5px;margin-bottom:10px;background:#1E1E1E;color:#888;'>⏳ Loading {t}...</div>", unsafe_allow_html=True)
+            return
+
+        col = "#4caf50" if d['d']>=0 else "#ff4b4b"
+        
+        # Build Card HTML
+        html = f"""<div style="border-bottom:1px solid #333;margin-bottom:10px;padding-bottom:10px;"><div style="font-size:24px;font-weight:900;">{get_name(t)} <span style="font-size:14px;color:#888;">{t}</span></div><div style="font-size:22px;font-weight:bold;">${d['p']:,.2f} <span style="color:{col};font-size:16px;">{d['d']:+.2f}%</span></div></div>"""
+        if d['ext_p']: html += f"<div style='text-align:right;color:{'#4caf50' if d['ext_d']>=0 else '#ff4b4b'}'>{d['state']}: ${d['ext_p']:.2f} ({d['ext_d']:+.2f}%)</div>"
+        
+        if port:
+            val = d['p']*port['q']; gain = val - (port['e']*port['q'])
+            html += f"""<div style="background:#111;padding:8px;border-left:3px solid {col};margin-bottom:10px;">Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style="color:{col}">${gain:,.2f}</span></div>"""
+        
+        # Render
+        with ph.container():
+            st.markdown(html, unsafe_allow_html=True)
+            base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
+            l1 = base.mark_line(color=col).encode(y=alt.Y('Stock', axis=None))
+            l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None)) if 'SPY' in d['chart'] else l1
+            st.altair_chart((l1+l2).properties(height=60), use_container_width=True)
+            st.markdown(f"**Trend:** <span style='color:{col}'>{d['tr']}</span> | **Vol:** {d['vol']:.1f}x | **RSI:** {d['rsi']:.0f}", unsafe_allow_html=True)
+            st.divider()
+    except:
+        ph.markdown(f"<div style='border:1px solid #333;padding:15px;border-radius:5px;margin-bottom:10px;color:#FF4B4B;'>⚠️ Error loading {t}</div>", unsafe_allow_html=True)
+
+with t1:
+    cols = st.columns(3)
+    try: w_list = [x.strip().upper() for x in st.session_state['w_key'].split(",") if x.strip()]
+    except: w_list = []
+    for i, t in enumerate(w_list):
+        with cols[i%3]: draw_card(t)
+
+with t2:
+    if not st.session_state['portfolio']: st.info("Portfolio empty.")
+    else:
+        tv = 0; tc = 0
+        # Calc Total (Robust)
+        for t, inf in st.session_state['portfolio'].items():
+            d = get_pro_data(t)
+            if d: tv += d['p']*inf['q']; tc += inf['e']*inf['q']
+        
+        tpl = tv - tc; troi = (tpl/tc)*100 if tc>0 else 0
+        cc = "#4caf50" if tpl>=0 else "#ff4b4b"
+        st.markdown(f"""<div style="background:#000;border:1px solid #333;padding:15px;border-radius:10px;text-align:center;margin-bottom:20px;"><div style="color:#888;">NET LIQUIDITY</div><div style="font-size:28px;font-weight:900;">${tv:,.2f}</div><div style="color:{cc};font-size:18px;">${tpl:,.2f} ({troi:+.2f}%)</div></div>""", unsafe_allow_html=True)
+        
+        cols = st.columns(3)
+        for i, (t, inf) in enumerate(st.session_state['portfolio'].items()):
+            with cols[i%3]: 
+                draw_card(t, inf)
+                if st.session_state.get('admin_key') == ADMIN_PASSWORD and st.button(f"🗑️ Remove {t}", key=f"del_{t}"):
+                    del st.session_state['portfolio'][t]; st.rerun()
+
+with t3:
+    if st.button("Analyze News"):
+        try:
+            raw = []
+            for f in NEWS_FEEDS:
+                try: 
+                    r = requests.get(f, timeout=3); root = ET.fromstring(r.content)
+                    for i in root.findall('.//item')[:5]: raw.append({"title": i.find('title').text, "link": i.find('link').text, "time": "Recent"})
+                except: continue
+            if KEY:
+                res = process_ai_batch(raw[:15], KEY)
+                for n in res:
+                    sc = "#4caf50" if n.get('sentiment')=="BULL" else "#ff4b4b"
+                    st.markdown(f"<div style='border-left:4px solid {sc};padding-left:10px;margin-bottom:10px;'><b>{n.get('ticker','MKT')}</b>: {n.get('summary')} <a href='{n.get('link')}'>Read</a></div>", unsafe_allow_html=True)
+            else: st.error("No API Key")
+        except: st.error("News Error")
+
+time.sleep(60)
+st.rerun()
