@@ -171,37 +171,38 @@ st.sidebar.checkbox("Desktop Notifications", key="notify_input", on_change=updat
 
 # --- BACKUP, RESTORE & SHARE ---
 with st.sidebar.expander("📤 Share & Backup"):
-    # SHARE APP (Custom URL Generation)
+    # SHARE APP
     st.caption("Share this Watchlist")
-    base_url = "http://localhost:8501" # In cloud this is auto-detected usually
-    # Try to grab current params
     params = []
     if 'w_input' in st.session_state: params.append(f"w={urllib.parse.quote(st.session_state.w_input)}")
     query_str = "&".join(params)
     st.code(f"/?{query_str}", language="text")
-    st.caption("Copy suffix to URL to share list.")
-
+    
     st.divider()
     
     # DOWNLOAD
     export_data = {k: st.session_state[k] for k in ['w_input', 'a_tick_input', 'a_price_input', 'a_on_input']}
     st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
     
-    # RESTORE (UPLOAD)
+    # RESTORE (FIXED)
     uploaded_file = st.file_uploader("Restore Profile", type="json")
     if uploaded_file is not None:
         try:
-            data = json.load(uploaded_file)
+            # ROBUST READ FIX: Read bytes, decode to string, then parse
+            string_data = uploaded_file.getvalue().decode("utf-8")
+            data = json.loads(string_data)
+            
             for k, v in data.items():
                 st.session_state[k] = v
                 k_input = k + "_input" if "_input" not in k else k
                 if k_input in st.session_state:
                     st.session_state[k_input] = v
+            
             st.toast("Profile Restored! Refreshing...")
             time.sleep(1)
             st.rerun()
         except Exception as e:
-            st.error("Invalid Profile File")
+            st.error(f"Error: {e}") # Show actual error for debugging
 
 inject_wake_lock(st.session_state.keep_on_input)
 
@@ -551,36 +552,6 @@ with t3:
                 st.error(f"System Error: {e}")
         else:
             st.info("Enter OpenAI Key in Sidebar.")
-
-    if st.session_state['news_results']:
-        for n in st.session_state['news_results']:
-            s_color = "#4caf50" if n.get('sentiment')=="BULL" else ("#ff4b4b" if n.get('sentiment')=="BEAR" else "#888")
-            st.markdown(f"""
-            <div style="border-left: 4px solid {s_color}; padding-left: 10px; margin-bottom: 20px;">
-                <div style="font-weight:bold; font-size:18px;">
-                    <span style="background:{s_color}; color:white; padding:2px 6px; border-radius:4px; font-size:12px;">{n.get('ticker','MKT')}</span>
-                    {n.get('summary', n.get('title'))}
-                </div>
-                <div style="font-size:12px; color:#888; margin-top:4px;">
-                    {n.get('time','Recent')} &nbsp;|&nbsp; <a href="{n.get('link','#')}" style="color:#4dabf7; text-decoration:none;">Read Full Story ➤</a>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        remaining = len(st.session_state['raw_news_cache']) - st.session_state['news_offset']
-        if remaining > 0:
-            if st.button(f"Load Next 20 Stories ({remaining} left)"):
-                if KEY:
-                    with st.status("Analyzing Next Batch...", expanded=True):
-                        start = st.session_state['news_offset']
-                        end = start + 20
-                        batch = st.session_state['raw_news_cache'][start:end]
-                        new_analysis = process_ai_batch(batch, KEY)
-                        st.session_state['news_results'].extend(new_analysis)
-                        st.session_state['news_offset'] = end
-                        st.rerun()
-        else:
-            st.info("End of Feed. Click 'Analyze' to refresh.")
 
 sec_to_next_min = 60 - datetime.now().second
 time.sleep(sec_to_next_min)
