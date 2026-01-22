@@ -15,7 +15,7 @@ try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide"
 except: pass 
 
 # ==========================================
-# 🎛️ CONTROL TOWER (ADMIN SETTINGS)
+# 🎛️ CONTROL TOWER
 # ==========================================
 DEFAULT_WATCHLIST = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
 DEFAULT_PORTFOLIO = {'HIVE': {'e': 3.19, 'q': 50, 'd': 'Dec 01'}, 'BAER': {'e': 1.86, 'q': 100, 'd': 'Jan 10'}, 'TX': {'e': 38.1, 'q': 40, 'd': 'Nov 05'}, 'IMNN': {'e': 3.22, 'q': 100, 'd': 'Aug 20'}, 'RERE': {'e': 5.31, 'q': 100, 'd': 'Oct 12'}}
@@ -73,45 +73,54 @@ def process_ai_batch(items_to_process, key):
 NAMES = {"TD.TO":"TD Bank","BN.TO":"Brookfield","CCO.TO":"Cameco","IVN.TO":"Ivanhoe","HIVE":"Hive Digital","SPY":"S&P 500","NKE":"Nike"}
 def get_name(s): return NAMES.get(s, s.split('.')[0])
 
-# --- 4. HIGH-SPEED DATA ENGINE (BATCH FETCH) ---
+def get_sector_tag(s):
+    sectors = {"TD":"FINA","BN":"FINA","CCO":"ENGY","IVN":"MATR","HIVE":"TECH"}
+    return f"[{sectors.get(s.split('.')[0].upper(), 'IND')}]"
+
+# --- 4. HIGH-SPEED BATCH DATA ENGINE ---
 @st.cache_data(ttl=60)
 def fetch_batch_data(tickers):
     if not tickers: return None
     try:
-        # One single request for everything
-        data = yf.download(tickers, period="5d", interval="15m", group_by='ticker', progress=False, threads=True)
+        # Fetching enough data to calculate RSI and Day Ranges
+        data = yf.download(tickers, period="1mo", interval="15m", group_by='ticker', progress=False, threads=True)
         return data
     except: return None
 
-def get_single_stock_data(ticker, batch_data):
+def get_pro_data(ticker, batch_data):
     try:
-        # Extract specific ticker data from batch
         if isinstance(batch_data.columns, pd.MultiIndex):
             if ticker not in batch_data.columns.levels[0]: return None
             df = batch_data[ticker].dropna()
         else:
-            # Single ticker case
             df = batch_data.dropna()
             
         if df.empty: return None
 
-        # Process Data
+        # Prices
         p_live = df['Close'].iloc[-1]
-        prev_close = df['Close'].iloc[-2] if len(df) > 1 else p_live
+        prev_close = df['Close'].iloc[-2]
         
+        # Day Range (Using last 1 day of 15m intervals approx 26 bars)
+        # We will approximate Day High/Low from the last 24h of data
+        last_day = df.tail(26)
+        day_h = last_day['High'].max()
+        day_l = last_day['Low'].min()
+
         # Timezone Logic
         now_et = datetime.utcnow() - timedelta(hours=5) 
         is_market = (now_et.weekday() < 5) and (9 <= now_et.hour < 16) and not (now_et.hour==9 and now_et.minute<30)
         is_tsx = any(x in ticker for x in ['.TO', '.V', '.CN'])
 
         disp_p = p_live
-        # Calculate change from previous bar (approximate live change)
         disp_pct = ((p_live - prev_close)/prev_close)*100
         
-        # Ext Hours logic simplified for batch
         state, ext_p, ext_pct = "REG", None, 0.0
-        
-        # Tech Indicators
+        if not is_tsx and not is_market and abs(p_live - prev_close) > 0.01:
+            state = "PRE-MKT" if now_et.hour < 9 else ("POST-MKT" if now_et.hour >= 16 else "EXT")
+            ext_p, ext_pct = p_live, disp_pct
+
+        # Indicators
         rsi, trend, vol = 50, "NEUTRAL", 1.0
         if len(df) > 14:
             d = df['Close'].diff(); u, dd = d.clip(lower=0), -1*d.clip(upper=0)
@@ -119,16 +128,19 @@ def get_single_stock_data(ticker, batch_data):
             trend = "BULL" if (df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()).iloc[-1] > 0 else "BEAR"
             vol = df['Volume'].iloc[-1] / df['Volume'].mean() if df['Volume'].mean() > 0 else 1.0
 
-        # Chart Data
+        # Chart
         chart = df['Close'].tail(50).reset_index()
-        chart.columns = ['T', 'Stock']
-        chart['Idx'] = range(len(chart))
-        # Normalize
-        start_p = chart['Stock'].iloc[0] if chart['Stock'].iloc[0] != 0 else 1
-        chart['Stock'] = ((chart['Stock'] - start_p) / start_p) * 100
+        chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
+        chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
 
-        return {"p": disp_p, "d": disp_pct, "rsi": rsi, "tr": trend, "vol": vol, "chart": chart, 
-                "ai": "🟢 BULLISH" if trend=="BULL" else "🔴 BEARISH", "rat": "BUY", 
+        # Check alerts
+        last_alert = st.session_state['storm_cooldown'].get(ticker, datetime.min)
+        if (datetime.now()-last_alert).seconds > 300:
+            if trend=="BULL" and rsi<35 and vol>1.2: log_alert(f"⚡ PERFECT STORM: {ticker}"); st.session_state['storm_cooldown'][ticker]=datetime.now()
+            elif trend=="BEAR" and rsi>65 and vol>1.2: log_alert(f"🐻 DEATH BEAR: {ticker}"); st.session_state['storm_cooldown'][ticker]=datetime.now()
+
+        return {"p": disp_p, "d": disp_pct, "h": day_h, "l": day_l, "rsi": rsi, "tr": trend, "vol": vol, 
+                "chart": chart, "ai": "🟢 BULLISH" if trend=="BULL" else "🔴 BEARISH", "rat": "BUY", 
                 "state": state, "ext_p": ext_p, "ext_d": ext_pct}
     except: return None
 
@@ -191,20 +203,13 @@ st.sidebar.checkbox("Desktop Notifications", key="no_key")
 inject_wake_lock(st.session_state.get('ko_key', False))
 
 # --- BATCH PRE-FETCH ---
-# Gather ALL unique tickers to fetch in one go
 all_tickers = list(set([x.strip().upper() for x in w_str.split(",") if x.strip()] + list(PORT.keys()) + ["SPY"]))
 BATCH_DATA = fetch_batch_data(" ".join(all_tickers))
 
 # --- SCROLLER ---
 scroller_text = "Penny Pulse Market Tracker"
 if BATCH_DATA is not None:
-    items = []
-    for t in ["SPY", "QQQ", "DIA", "BTC-USD"]: # Standard Indices
-        # We assume indices might not be in batch, skip for speed or fetch separately if needed
-        # For simplicity, just showing static for now to ensure load
-        pass
     scroller_text = "Penny Pulse Market Tracker • Market Data Active"
-
 st.markdown(f"""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">{scroller_text}</marquee></div>""", unsafe_allow_html=True)
 
 # HEADER
@@ -216,39 +221,52 @@ st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
 def draw_card(t, port=None):
-    if BATCH_DATA is None:
-        st.warning(f"Waiting for data: {t}...")
-        return
-
-    d = get_single_stock_data(t, BATCH_DATA)
-    if not d: 
-        st.markdown(f"<div style='border:1px solid #333;padding:15px;border-radius:5px;margin-bottom:10px;background:#1E1E1E;color:#888;'>Data unavailable: {t}</div>", unsafe_allow_html=True)
-        return
-
-    col = "#4caf50" if d['d']>=0 else "#ff4b4b"
+    d = get_pro_data(t, BATCH_DATA)
+    if not d: st.markdown(f"<div style='border:1px solid #333;padding:10px;border-radius:5px;'>Loading {t}...</div>", unsafe_allow_html=True); return
     
-    # CARD HTML
-    html = f"""
-    <div style="border-bottom:1px solid #333;margin-bottom:10px;padding-bottom:10px;">
-        <div style="font-size:24px;font-weight:900;">{get_name(t)} <span style="font-size:14px;color:#888;">{t}</span></div>
-        <div style="font-size:22px;font-weight:bold;">${d['p']:,.2f} <span style="color:{col};font-size:16px;">{d['d']:+.2f}%</span></div>
+    col = "green" if d['d']>=0 else "red"
+    col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
+    
+    # CARD HEADER
+    st.markdown(f"""
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
+        <div style="flex:1;">
+            <div style="font-size:24px; font-weight:900;">{get_name(t)}</div>
+            <div style="font-size:14px; color:#BBB; font-weight:bold;">{t} <span style="color:#666; font-weight:normal;">{get_sector_tag(t)}</span></div>
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div>
+            <div style="font-size:14px; font-weight:bold; color:{col_hex};">{d['d']:+.2f}%</div>
+        </div>
     </div>
-    """
-    if d['ext_p']: html += f"<div style='text-align:right;color:{'#4caf50' if d['ext_d']>=0 else '#ff4b4b'}'>{d['state']}: ${d['ext_p']:.2f} ({d['ext_d']:+.2f}%)</div>"
+    """, unsafe_allow_html=True)
+
+    if d['ext_p']: st.markdown(f"<div style='text-align:right;color:{'#4caf50' if d['ext_d']>=0 else '#ff4b4b'}'>{d['state']}: ${d['ext_p']:.2f} ({d['ext_d']:+.2f}%)</div>", unsafe_allow_html=True)
     
     if port:
         val = d['p']*port['q']; gain = val - (port['e']*port['q'])
-        html += f"""<div style="background:#111;padding:8px;border-left:3px solid {col};margin-bottom:10px;">Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style="color:{col}">${gain:,.2f}</span></div>"""
-    
-    st.markdown(html, unsafe_allow_html=True)
-    
+        st.markdown(f"""<div style="background:#111;padding:8px;border-left:3px solid {col_hex};margin-bottom:10px;">Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style="color:{col_hex}">${gain:,.2f}</span></div>""", unsafe_allow_html=True)
+
     # CHART
     base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
-    l1 = base.mark_line(color=col).encode(y=alt.Y('Stock', axis=None))
-    st.altair_chart(l1.properties(height=60), use_container_width=True)
-    
-    # STATS
-    st.markdown(f"**Trend:** <span style='color:{col}'>{d['tr']}</span> | **Vol:** {d['vol']:.1f}x | **RSI:** {d['rsi']:.0f}", unsafe_allow_html=True)
+    l1 = base.mark_line(color=col_hex).encode(y=alt.Y('Stock', axis=None))
+    l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None)) if 'SPY' in d['chart'] else l1
+    st.altair_chart((l1+l2).properties(height=60), use_container_width=True)
+
+    # DAY RANGE GRADIENT
+    if d['h'] > d['l']: pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
+    else: pct = 50
+    pct = max(0, min(100, pct))
+    st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
+
+    # VOL & RSI BARS
+    vol_c = "#2196F3"; rsi_c = "#ff4b4b" if d['rsi']>70 else ("#4caf50" if d['rsi']>30 else "#2196F3")
+    st.markdown(f"""
+    <div style="font-size:10px;color:#888;">Volume ({d['vol']:.1f}x)</div>
+    <div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:8px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:{vol_c};"></div></div>
+    <div style="font-size:10px;color:#888;">RSI ({d['rsi']:.0f})</div>
+    <div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:15px;"><div style="width:{d['rsi']}%;height:100%;background:{rsi_c};"></div></div>
+    """, unsafe_allow_html=True)
     st.divider()
 
 with t1:
@@ -264,7 +282,7 @@ with t2:
         tv = 0; tc = 0
         if BATCH_DATA is not None:
             for t, inf in st.session_state['portfolio'].items():
-                d = get_single_stock_data(t, BATCH_DATA)
+                d = get_pro_data(t, BATCH_DATA)
                 if d: tv += d['p']*inf['q']; tc += inf['e']*inf['q']
         
         tpl = tv - tc; troi = (tpl/tc)*100 if tc>0 else 0
