@@ -17,7 +17,7 @@ except: pass
 WEBHOOK_URL = "" 
 LOGO_PATH = "logo.png"
 ADMIN_PASSWORD = "admin123" 
-DATA_FILE = "pulse_v2.json"
+DATA_FILE = "pulse_v3.json" # <--- NEW FILE V3
 
 # --- 2. PERSISTENCE ENGINE ---
 def load_data():
@@ -25,10 +25,12 @@ def load_data():
         try:
             with open(DATA_FILE, "r") as f: return json.load(f)
         except: pass
+    
+    # --- TRUE CLEAN SLATE DEFAULTS ---
     return {
-        "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
-        "portfolio": {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}},
-        "alerts": {"tick": "TD.TO", "price": 0.0, "active": False, "flip": False},
+        "w_input": "SPY",  # Just one generic ticker to start
+        "portfolio": {},   # EMPTY PORTFOLIO
+        "alerts": {"tick": "SPY", "price": 0.0, "active": False, "flip": False},
         "meta_cache": {}
     }
 
@@ -176,15 +178,11 @@ with st.sidebar:
     
     st.text_input("Tickers", key="w_input", on_change=update_params)
     
-    # --- SECURE ADMIN PANEL ---
     if st.text_input("Admin Key", type="password") == ADMIN_PASSWORD:
         with st.expander("💼 Portfolio Admin", expanded=True):
             st.info("🔓 Access Granted")
-            
-            # --- RESET BUTTON MOVED INSIDE HERE ---
             if st.button("🔴 Hard Reset App"): hard_reset()
             st.divider()
-            
             c1, c2, c3 = st.columns([2,2,2])
             new_t = c1.text_input("Sym").upper(); new_p = c2.number_input("Px", 0.0); new_q = c3.number_input("Qty", 0)
             if st.button("➕ Add") and new_t: st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}; save_data(); st.rerun()
@@ -225,13 +223,10 @@ t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
 def draw_card(t, port=None):
     d = get_pro_data(t)
-    if not d:
-        st.warning(f"⚠️ {t}: Data N/A (Retrying...)")
-        return
-
+    if not d: return
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    # NATIVE LAYOUT (Clean & Stable)
+    # NATIVE LAYOUT
     c_head, c_price = st.columns([2, 1])
     with c_head:
         st.markdown(f"### {d['name']}")
