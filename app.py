@@ -379,7 +379,7 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- HEADER (NO JS TIMER) ---
+# --- HEADER (NO TIMER / NEXT UPDATE) ---
 img_html = ""
 img_b64 = get_base64_image(LOGO_PATH)
 
@@ -388,7 +388,7 @@ if img_b64:
 else:
     img_html = "<h1 style='text-align: center; margin: 0; padding: 0; color: white;'>⚡ Penny Pulse</h1>"
 
-# Calculate Next Update (Time + 1 min)
+# Calculate Next Update
 now_et_obj = datetime.utcnow() - timedelta(hours=5)
 next_update = now_et_obj + timedelta(minutes=1)
 next_update_str = next_update.strftime('%H:%M:%S')
