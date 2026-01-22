@@ -30,7 +30,7 @@ if 'initialized' not in st.session_state:
     st.session_state['ko_data'] = False
     st.session_state['no_data'] = False
     
-    # Check URL Params to override defaults
+    # Check URL Params
     qp = st.query_params
     if 'w' in qp: st.session_state['w_data'] = qp['w']
 
@@ -53,7 +53,6 @@ def get_base64_image(image_path):
     return None
 
 def sync_input(key_data, key_widget):
-    """Syncs widget value to data state"""
     if key_widget in st.session_state:
         st.session_state[key_data] = st.session_state[key_widget]
         update_params()
@@ -136,13 +135,71 @@ def get_sector_tag(s):
     base = s.split('.')[0].upper()
     return f"[{sectors.get(base, 'IND')}]"
 
-# --- 3. SIDEBAR ---
+# --- 3. SIDEBAR (REORDERED FOR SAFETY) ---
 st.sidebar.header("⚡ Penny Pulse")
 
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
-# Decoupled Widgets
+# --- SECTION 1: RESTORE (MUST BE FIRST) ---
+# By placing this here, we update the data BEFORE the widgets below are drawn.
+with st.sidebar.expander("📤 Share & Backup", expanded=False):
+    # SHARE APP
+    st.caption("Share this Watchlist")
+    params = []
+    if 'w_data' in st.session_state: params.append(f"w={urllib.parse.quote(st.session_state['w_data'])}")
+    query_str = "&".join(params)
+    st.code(f"/?{query_str}", language="text")
+    
+    st.divider()
+    
+    # DOWNLOAD
+    export_data = {
+        'w_data': st.session_state['w_data'],
+        'at_data': st.session_state['at_data'],
+        'ap_data': st.session_state['ap_data'],
+        'ao_data': st.session_state['ao_data']
+    }
+    st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
+    
+    # RESTORE
+    uploaded_file = st.file_uploader("Restore Profile", type="json")
+    if uploaded_file is not None:
+        try:
+            string_data = uploaded_file.getvalue().decode("utf-8")
+            data = json.loads(string_data)
+            
+            # Map old keys to new keys
+            key_map = {
+                'w_input': 'w_data', 'w_data': 'w_data',
+                'a_tick_input': 'at_data', 'at_data': 'at_data',
+                'a_price_input': 'ap_data', 'ap_data': 'ap_data',
+                'a_on_input': 'ao_data', 'ao_data': 'ao_data'
+            }
+            
+            # Update Data AND Widget Keys (Safe here because widgets aren't drawn yet)
+            widget_map = {
+                'w_data': 'w_widget', 'at_data': 'at_widget', 
+                'ap_data': 'ap_widget', 'ao_data': 'ao_widget'
+            }
+
+            for k, v in data.items():
+                target = key_map.get(k, k)
+                st.session_state[target] = v
+                if target in widget_map:
+                    st.session_state[widget_map[target]] = v
+
+            st.toast("Profile Restored!")
+            time.sleep(0.5)
+            # No rerun needed strictly if widgets are below, but safer to do it once
+            if 'restored' not in st.session_state:
+                st.session_state['restored'] = True
+                st.rerun()
+                
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+# --- SECTION 2: WIDGETS (NOW SAFE) ---
 st.sidebar.text_input("Tickers", value=st.session_state['w_data'], key="w_widget", on_change=sync_input, args=('w_data','w_widget'))
 
 c1, c2 = st.sidebar.columns(2)
@@ -164,11 +221,9 @@ PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "J
 ALL_T = list(set([x.strip().upper() for x in st.session_state['w_data'].split(",") if x.strip()] + list(PORT.keys())))
 
 st.sidebar.caption("Price Target Asset")
-# Ensure valid selection
 if st.session_state['at_data'] not in ALL_T and ALL_T:
     st.session_state['at_data'] = ALL_T[0] if ALL_T else ""
 
-# Safe Index Calculation
 try: idx = sorted(ALL_T).index(st.session_state['at_data'])
 except: idx = 0
 
@@ -181,58 +236,6 @@ st.sidebar.toggle("Active Price Alert", value=st.session_state['ao_data'], key="
 st.sidebar.toggle("Alert on Trend Flip", value=st.session_state['fo_data'], key="fo_widget", on_change=sync_input, args=('fo_data','fo_widget'))
 st.sidebar.toggle("💡 Keep Screen On", value=st.session_state['ko_data'], key="ko_widget", on_change=sync_input, args=('ko_data','ko_widget'))
 st.sidebar.checkbox("Desktop Notifications", value=st.session_state['no_data'], key="no_widget", on_change=sync_input, args=('no_data','no_widget'))
-
-# --- BACKUP, RESTORE & SHARE ---
-with st.sidebar.expander("📤 Share & Backup"):
-    # SHARE APP
-    st.caption("Share this Watchlist")
-    params = []
-    if 'w_data' in st.session_state: params.append(f"w={urllib.parse.quote(st.session_state['w_data'])}")
-    query_str = "&".join(params)
-    st.code(f"/?{query_str}", language="text")
-    
-    st.divider()
-    
-    # DOWNLOAD
-    export_data = {
-        'w_data': st.session_state['w_data'],
-        'at_data': st.session_state['at_data'],
-        'ap_data': st.session_state['ap_data'],
-        'ao_data': st.session_state['ao_data']
-    }
-    st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
-    
-    # RESTORE (WIDGET RESET FIX)
-    uploaded_file = st.file_uploader("Restore Profile", type="json")
-    if uploaded_file is not None:
-        try:
-            string_data = uploaded_file.getvalue().decode("utf-8")
-            data = json.loads(string_data)
-            
-            # Map old keys to new keys
-            key_map = {
-                'w_input': 'w_data', 'w_data': 'w_data',
-                'a_tick_input': 'at_data', 'at_data': 'at_data',
-                'a_price_input': 'ap_data', 'ap_data': 'ap_data',
-                'a_on_input': 'ao_data', 'ao_data': 'ao_data'
-            }
-            
-            # 1. Update Data States
-            for k, v in data.items():
-                target_key = key_map.get(k, k)
-                if target_key in st.session_state:
-                    st.session_state[target_key] = v
-
-            # 2. NUCLEAR OPTION: Delete Widget Keys to Force Reload from Data
-            for w_key in ['w_widget', 'at_widget', 'ap_widget', 'ao_widget', 'fo_widget', 'ko_widget', 'no_widget']:
-                if w_key in st.session_state:
-                    del st.session_state[w_key]
-
-            st.toast("Profile Restored! Reloading...")
-            time.sleep(0.5)
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error: {e}")
 
 inject_wake_lock(st.session_state.get('ko_data', False))
 
@@ -380,7 +383,7 @@ img_html = ""
 img_b64 = get_base64_image(LOGO_PATH)
 
 if img_b64:
-    # Embedded Image in HTML (Solves the "Gray Box" issue)
+    # Embedded Image in HTML
     img_html = f'<img src="data:image/png;base64,{img_b64}" style="max-height:80px; max-width:100%; display:block; margin: 0 auto 10px auto;">'
 else:
     # Fallback Text
