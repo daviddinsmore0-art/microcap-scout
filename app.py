@@ -105,19 +105,29 @@ with st.sidebar:
     st.text_input("Admin Key", type="password", key="admin_key")
     st.divider()
     st.subheader("🔔 Smart Alerts")
-    st.selectbox("Asset", sorted(st.session_state['portfolio'].keys()), key="at_key")
+    w_str = st.session_state.get('w_key', "")
+    ALL_T = list(set([x.strip().upper() for x in w_str.split(",") if x.strip()] + list(st.session_state['portfolio'].keys())))
+    st.selectbox("Price Target Asset", sorted(ALL_T), key="at_key")
     st.number_input("Target ($)", key="ap_key")
-    st.toggle("Price Alert", key="ao_key")
-    st.toggle("Trend Alert", key="fo_key")
-    
+    st.toggle("Active Price Alert", key="ao_key")
+    st.toggle("Alert on Trend Flip", key="fo_key")
+
     if st.session_state['admin_key'] == ADMIN_PASSWORD:
-        with st.expander("👑 Admin Mode"):
-            t = st.text_input("Ticker (Admin)").upper()
-            p = st.number_input("Entry (Admin)")
-            q = st.number_input("Qty (Admin)", step=1)
-            if st.button("Add to House Picks"): st.session_state['portfolio'][t] = {"e": p, "q": int(q)}
+        with st.expander("👑 Admin Panel", expanded=True):
+            st.write("Add Portfolio Asset")
+            c1, c2, c3 = st.columns(3)
+            new_t = c1.text_input("Ticker (Admin)").upper()
+            new_p = c2.number_input("Price (Admin)")
+            new_q = c3.number_input("Qty (Admin)")
+            if st.button("➕ Add"):
+                if new_t: st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
 
 # --- UI LOGIC ---
+def get_base64_image(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as f: return base64.b64encode(f.read()).decode()
+    return None
+
 all_t = list(set([x.strip().upper() for x in st.session_state['w_key'].split(",") if x.strip()] + list(st.session_state['portfolio'].keys()) + ["^GSPC", "^IXIC", "BTC-USD"]))
 BATCH_DATA = fetch_batch_data(" ".join(all_t))
 
@@ -135,22 +145,23 @@ if BATCH_DATA is not None:
 st.markdown(f"""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">{" &nbsp;&nbsp;|&nbsp;&nbsp; ".join(scroller_items) if scroller_items else "Market Tracker Active"}</marquee></div>""", unsafe_allow_html=True)
 
 # Branding
-img_b64 = None
-if os.path.exists(LOGO_PATH):
-    with open(LOGO_PATH, "rb") as f: img_b64 = base64.b64encode(f.read()).decode()
+img_b64 = get_base64_image(LOGO_PATH)
 img_html = f'<img src="data:image/png;base64,{img_b64}" style="max-height:100px; display:block; margin:0 auto;">' if img_b64 else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
 next_up = (datetime.utcnow() - timedelta(hours=5) + timedelta(minutes=1)).strftime('%H:%M:%S')
 st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT UPDATE: <span style="color:#4CAF50;">{next_up} ET</span></div></div>""", unsafe_allow_html=True)
 
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 News"])
 
+def get_name(s): return {"TD.TO":"TD Bank","BN.TO":"Brookfield","CCO.TO":"Cameco","NKE":"Nike"}.get(s, s.split('.')[0])
+
 def draw_card(t, port=None):
     d = get_pro_data(t, BATCH_DATA)
     if not d: return
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
-    st.markdown(f"""<div style="display:flex; justify-content:space-between;"><div><div style="font-size:24px; font-weight:900;">{t}</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div><div style="color:{col}; font-weight:bold;">{d['d']:+.2f}%</div></div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="display:flex; justify-content:space-between;"><div><div style="font-size:24px; font-weight:900;">{get_name(t)}</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div><div style="color:{col}; font-weight:bold;">{d['d']:+.2f}%</div></div></div>""", unsafe_allow_html=True)
     if d['ext_str']: st.markdown(d['ext_str'], unsafe_allow_html=True)
     
+    # INFO BLOCK (DNA RESTORED)
     st.markdown(f"**☻ AI:** {'🟢' if d['tr']=='BULL' else '🔴'} {'BULLISH' if d['tr']=='BULL' else 'BEARISH'} BIAS<br>**TREND:** <span style='color:{col};font-weight:bold;'>{d['tr']}</span><br>**ANALYST RATING:** <span style='color:#4caf50;font-weight:bold;'>{d['rat']}</span><br>**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
     
     chart = alt.Chart(d['chart']).mark_line(color=col).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
