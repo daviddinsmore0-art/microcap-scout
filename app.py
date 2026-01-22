@@ -6,7 +6,6 @@ import altair as alt
 import json
 import xml.etree.ElementTree as ET
 import os
-import base64
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -14,7 +13,7 @@ except: pass
 
 # *** CONFIG ***
 ADMIN_PASSWORD = "admin123" 
-DATA_FILE = "pulse_v6.json" # New File = Fresh Start
+DATA_FILE = "pulse_v7.json" # New File = Fresh Start
 
 # --- 2. PERSISTENCE ENGINE ---
 def load_data():
@@ -68,11 +67,6 @@ if 'initialized' not in st.session_state:
     if not os.path.exists(DATA_FILE): save_data()
 
 # --- HELPERS ---
-def get_base64_image(image_path):
-    if os.path.exists(image_path):
-        with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
-    return None
-
 def update_params(): save_data()
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
@@ -88,35 +82,30 @@ def get_pro_data(s):
         tk = yf.Ticker(s)
         
         # --- PHASE 1: THE PRICE (Must Succeed) ---
-        # We fetch 1 day of data. This is small and almost guaranteed to work.
+        # Fetch 1 day of data. Small, fast, reliable.
         daily = tk.history(period="1d")
         
-        # If even this fails, the stock is invalid or Yahoo is down.
+        # If this fails, the ticker is invalid.
         if daily.empty: return None 
         
-        # We secured the price!
         p_live = daily['Close'].iloc[-1]
         p_open = daily['Open'].iloc[-1]
         
         # --- PHASE 2: THE CHART (Optional) ---
-        # We try to fetch the heavy 5m data. If it fails, we don't crash.
+        # Try to fetch heavy 5m data. If it fails, fallback to daily.
         try:
             intraday = tk.history(period="1d", interval="5m", prepost=False)
         except: 
-            intraday = pd.DataFrame() # Fail gracefully
+            intraday = pd.DataFrame() 
             
-        # Decision Time: Use Intraday if we have it, otherwise use Daily
         if not intraday.empty:
             chart_source = intraday
-            # Update price to the more precise 5m close if available
             p_live = intraday['Close'].iloc[-1]
-            # Use yesterday's close or today's open as baseline
             prev_close = intraday['Close'].iloc[0] 
         else:
             chart_source = daily
             prev_close = p_open
 
-        # Math
         d_val = p_live - prev_close
         d_pct = (d_val / prev_close) * 100 if prev_close != 0 else 0
         
@@ -126,7 +115,6 @@ def get_pro_data(s):
         if cached.get('date') == today_str: meta = cached
         else:
             info = tk.info or {}
-            # Safer Calendar Fetch
             try: cal = tk.calendar
             except: cal = {}
             earn = "N/A"
@@ -140,21 +128,17 @@ def get_pro_data(s):
             st.session_state['meta_cache'][s] = meta
             save_data()
 
-        # Build Chart Data
         chart = chart_source['Close'].reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
-        # Normalize to 0 start
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
 
-        # SPY Overlay (Only if we have a real chart)
         spy = get_spy_data()
         if spy is not None and len(spy) > 0 and len(chart) > 1 and not intraday.empty:
              spy_slice = spy.tail(len(chart))
              if len(spy_slice) == len(chart):
                  chart['SPY'] = ((spy_slice.values - spy_slice.values[0])/spy_slice.values[0])*100
 
-        # Indicators
         trend = "BULL" if d_pct >= 0 else "BEAR"
         
         return {
@@ -168,9 +152,6 @@ def get_pro_data(s):
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.header("⚡ Penny Pulse")
-    if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-    else: KEY = st.text_input("OpenAI Key", type="password") 
-    
     st.text_input("Tickers", key="w_input", on_change=update_params)
     
     if st.text_input("Admin Key", type="password") == ADMIN_PASSWORD:
@@ -209,9 +190,8 @@ for sym, name in indices:
 scroller_html = " &nbsp;&nbsp;|&nbsp;&nbsp; ".join(scroller_items) if scroller_items else "Market Tracker Active"
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 5. HEADER ---
-img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:100px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
-st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{(datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')} ET</span></div></div>""", unsafe_allow_html=True)
+# --- 5. HEADER (Simple Text) ---
+st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;"><h1>⚡ Penny Pulse</h1><div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{(datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')} ET</span></div></div>""", unsafe_allow_html=True)
 
 # --- 6. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -222,11 +202,9 @@ def draw_card(t, port=None):
         st.warning(f"⚠️ {t}: Data N/A (Retrying...)")
         return
 
-    # Colors for Streamlit Markdown (Green/Red strings, no hex)
     col_str = "green" if d['d']>=0 else "red"
     col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    # NATIVE LAYOUT
     c_head, c_price = st.columns([2, 1])
     with c_head:
         st.markdown(f"### {d['name']}")
@@ -238,7 +216,6 @@ def draw_card(t, port=None):
         gain = (d['p'] - port['e']) * port['q']
         st.info(f"Qty: {port['q']} | Avg: ${port['e']} | Gain: ${gain:,.2f}")
 
-    # FIXED MARKDOWN (No Hex Codes, No HTML Errors)
     st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** :{col_str}[**{d['tr']}**]<br>**RATING:** {d['rat']}<br>**EARNINGS:** {d['earn']}", unsafe_allow_html=True)
     
     chart = alt.Chart(d['chart']).mark_line(color=col_hex).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
@@ -246,7 +223,6 @@ def draw_card(t, port=None):
     st.altair_chart(chart, use_container_width=True)
     st.caption("INTRADAY vs SPY (Orange/Dotted)")
 
-    # Range Bar (No Text/Divs inside)
     pct = max(0, min(100, ((d['p']-d['l'])/(d['h']-d['l'])*100 if d['h']>d['l'] else 50)))
     st.markdown(f"""<div style="font-size:10px;color:#888;">Day Range</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
     st.divider()
@@ -270,15 +246,12 @@ with t2:
 
 with t3:
     if st.button("Analyze Market Context (Start)"):
-        if KEY:
-            raw = []
-            for f in ["https://finance.yahoo.com/news/rssindex", "http://feeds.marketwatch.com/marketwatch/topstories"]:
-                try: 
-                    r = requests.get(f, timeout=3); root = ET.fromstring(r.content)
-                    for i in root.findall('.//item')[:5]: raw.append({"title": i.find('title').text, "link": i.find('link').text, "time": "Recent"})
-                except: continue
-            if raw:
-                for n in raw: st.markdown(f"<div style='border-left:4px solid #4caf50; padding-left:10px; margin-bottom:10px;'>{n.get('title')} <a href='{n.get('link')}'>Read</a></div>", unsafe_allow_html=True)
-        else: st.error("No API Key")
+        raw = []
+        for f in ["https://finance.yahoo.com/news/rssindex", "http://feeds.marketwatch.com/marketwatch/topstories"]:
+            try: 
+                r = requests.get(f, timeout=3); root = ET.fromstring(r.content)
+                for i in root.findall('.//item')[:5]: raw.append({"title": i.find('title').text, "link": i.find('link').text, "time": "Recent"})
+            except: continue
+        for n in raw: st.markdown(f"<div style='border-left:4px solid #4caf50; padding-left:10px; margin-bottom:10px;'>{n.get('title')} <a href='{n.get('link')}'>Read</a></div>", unsafe_allow_html=True)
 
 time.sleep(60); st.rerun()
