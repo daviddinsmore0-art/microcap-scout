@@ -20,7 +20,7 @@ LOGO_PATH = "logo.png"
 
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    # Core Data States (Decoupled from Widgets to fix Restore Bug)
+    # Core Data States
     st.session_state['w_data'] = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
     st.session_state['at_data'] = "TD.TO"
     st.session_state['ap_data'] = 0.0
@@ -134,7 +134,7 @@ st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
-# Decoupled Widgets to Fix Restore Bug
+# Decoupled Widgets
 st.sidebar.text_input("Tickers", value=st.session_state['w_data'], key="w_widget", on_change=sync_input, args=('w_data','w_widget'))
 
 c1, c2 = st.sidebar.columns(2)
@@ -160,7 +160,11 @@ st.sidebar.caption("Price Target Asset")
 if st.session_state['at_data'] not in ALL_T and ALL_T:
     st.session_state['at_data'] = ALL_T[0]
 
-st.sidebar.selectbox("", sorted(ALL_T), index=sorted(ALL_T).index(st.session_state['at_data']) if st.session_state['at_data'] in ALL_T else 0, key="at_widget", on_change=sync_input, args=('at_data','at_widget'), label_visibility="collapsed")
+# Safe Index Calculation
+try: idx = sorted(ALL_T).index(st.session_state['at_data'])
+except: idx = 0
+
+st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_widget", on_change=sync_input, args=('at_data','at_widget'), label_visibility="collapsed")
 
 st.sidebar.caption("Target ($)")
 st.sidebar.number_input("", step=0.5, value=float(st.session_state['ap_data']), key="ap_widget", on_change=sync_input, args=('ap_data','ap_widget'), label_visibility="collapsed")
@@ -190,25 +194,38 @@ with st.sidebar.expander("📤 Share & Backup"):
     }
     st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
     
-    # RESTORE (FIXED)
+    # RESTORE (FORCE REFRESH FIX)
     uploaded_file = st.file_uploader("Restore Profile", type="json")
     if uploaded_file is not None:
         try:
-            # ROBUST READ FIX
             string_data = uploaded_file.getvalue().decode("utf-8")
             data = json.loads(string_data)
             
-            # Map old keys if necessary or just load straight to data keys
-            mapping = {
+            # Map old keys to new keys
+            key_map = {
                 'w_input': 'w_data', 'w_data': 'w_data',
                 'a_tick_input': 'at_data', 'at_data': 'at_data',
                 'a_price_input': 'ap_data', 'ap_data': 'ap_data',
                 'a_on_input': 'ao_data', 'ao_data': 'ao_data'
             }
             
+            # Map data keys to widget keys (To force UI update)
+            widget_map = {
+                'w_data': 'w_widget',
+                'at_data': 'at_widget',
+                'ap_data': 'ap_widget',
+                'ao_data': 'ao_widget'
+            }
+
             for k, v in data.items():
-                if k in mapping:
-                    st.session_state[mapping[k]] = v
+                # 1. Update Data State
+                target_key = key_map.get(k, k)
+                if target_key in st.session_state:
+                    st.session_state[target_key] = v
+                    
+                    # 2. Update Widget State (The Fix)
+                    if target_key in widget_map:
+                        st.session_state[widget_map[target_key]] = v
             
             st.toast("Profile Restored! Refreshing...")
             time.sleep(1)
@@ -358,7 +375,6 @@ scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
 # CENTERED DARK HEADER BOX
-# This creates a black container that holds the logo/text and the timer.
 st.markdown(f"""
 <div style="
     background-color: #000000; 
