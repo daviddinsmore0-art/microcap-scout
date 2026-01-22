@@ -19,9 +19,10 @@ WEBHOOK_URL = ""
 LOGO_PATH = "logo.png" 
 # *****************************
 
-# Initialize Session State
+# --- INITIALIZE SESSION STATE (The "Brain") ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
+    # Default values
     st.session_state['w_key'] = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
     st.session_state['at_key'] = "TD.TO"
     st.session_state['ap_key'] = 0.0
@@ -30,7 +31,7 @@ if 'initialized' not in st.session_state:
     st.session_state['ko_key'] = False
     st.session_state['no_key'] = False
     
-    # URL Override
+    # Check URL Params to override defaults on first load
     qp = st.query_params
     if 'w' in qp: st.session_state['w_key'] = qp['w']
 
@@ -133,11 +134,12 @@ st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
-# --- RESTORE LOGIC (RUNS BEFORE WIDGETS) ---
+# --- RESTORE LOGIC (MUST RUN FIRST) ---
 with st.sidebar.expander("📤 Share & Backup", expanded=False):
     # Share
     st.caption("Share this Watchlist")
     params = []
+    # Use .get() to avoid errors
     current_w = st.session_state.get('w_key', "")
     if current_w: params.append(f"w={urllib.parse.quote(current_w)}")
     query_str = "&".join(params)
@@ -153,15 +155,14 @@ with st.sidebar.expander("📤 Share & Backup", expanded=False):
     }
     st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
     
-    # Restore
+    # Restore (THE FIX)
     uploaded_file = st.file_uploader("Restore Profile", type="json")
     if uploaded_file is not None:
         try:
-            # Force string read to avoid byte errors
             string_data = uploaded_file.getvalue().decode("utf-8")
             data = json.loads(string_data)
             
-            # Map old keys to new simple keys
+            # Map old/new keys
             key_map = {
                 'w_input': 'w_key', 'w_data': 'w_key', 'w_key': 'w_key',
                 'a_tick_input': 'at_key', 'at_data': 'at_key', 'at_key': 'at_key',
@@ -169,18 +170,19 @@ with st.sidebar.expander("📤 Share & Backup", expanded=False):
                 'a_on_input': 'ao_key', 'ao_data': 'ao_key', 'ao_key': 'ao_key'
             }
             
-            # Update Session State DIRECTLY
+            # Update State
             for k, v in data.items():
                 target = key_map.get(k, k)
                 st.session_state[target] = v
 
-            st.toast("Profile Restored!")
-            # No rerun needed here if widgets read from session_state immediately below
+            st.toast("Restored! Reloading...")
+            time.sleep(0.5)
+            st.rerun() # <--- CRITICAL FIX: Restart app to refresh widgets
                 
         except Exception as e:
-            st.error(f"Error reading file: {e}")
+            st.error(f"Error: {e}")
 
-# --- WIDGETS (READ/WRITE DIRECTLY TO SESSION STATE) ---
+# --- WIDGETS (After Rerun, they pick up new session_state values automatically) ---
 st.sidebar.text_input("Tickers", key="w_key")
 
 c1, c2 = st.sidebar.columns(2)
@@ -199,19 +201,22 @@ if st.session_state.alert_log:
             st.caption(a)
 
 PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
-ALL_T = list(set([x.strip().upper() for x in st.session_state['w_key'].split(",") if x.strip()] + list(PORT.keys())))
+# Safe parsing
+w_str = st.session_state.get('w_key', "")
+ALL_T = list(set([x.strip().upper() for x in w_str.split(",") if x.strip()] + list(PORT.keys())))
 
 st.sidebar.caption("Price Target Asset")
 # Validate Selection
 if st.session_state.get('at_key') not in ALL_T and ALL_T:
     st.session_state['at_key'] = ALL_T[0]
 
-try: 
-    # Use index to ensure widget stays in sync
-    idx = sorted(ALL_T).index(st.session_state['at_key'])
+# If key doesn't exist in options, default to index 0
+try:
+    idx = sorted(ALL_T).index(st.session_state.get('at_key'))
     st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_key", label_visibility="collapsed")
 except:
-    st.sidebar.selectbox("", sorted(ALL_T), key="at_key", label_visibility="collapsed")
+    if ALL_T:
+        st.sidebar.selectbox("", sorted(ALL_T), index=0, key="at_key", label_visibility="collapsed")
 
 st.sidebar.caption("Target ($)")
 st.sidebar.number_input("", step=0.5, key="ap_key", label_visibility="collapsed")
@@ -362,7 +367,7 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- HEADER (OLED BLACK BOX) ---
+# --- HEADER (SINGLE BLOCK) ---
 img_html = ""
 img_b64 = get_base64_image(LOGO_PATH)
 
@@ -371,6 +376,7 @@ if img_b64:
 else:
     img_html = "<h1 style='text-align: center; margin: 0; padding: 0; color: white;'>⚡ Penny Pulse</h1>"
 
+# Combined HTML block for Logo + Time + Timer to ensure unified black background
 st.markdown(f"""
 <div style="
     background-color: #000000; 
@@ -386,7 +392,7 @@ st.markdown(f"""
 ">
     {img_html}
     <div style='text-align: center; color: #888; font-size: 12px; margin-bottom: 10px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>
-    <div id="timer_div" style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
+    <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
         <span id="timer">--</span>s
     </div>
 </div>
