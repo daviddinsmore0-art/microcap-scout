@@ -23,7 +23,6 @@ LOGO_PATH = "logo.png"
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
-    # 1. Defaults
     defaults = {
         'w_key': "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
         'at_key': "TD.TO",
@@ -34,12 +33,10 @@ if 'initialized' not in st.session_state:
         'no_key': False
     }
 
-    # 2. Load Defaults
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
             
-    # 3. URL Recovery (This saves you from crashes)
     qp = st.query_params
     if 'w' in qp: st.session_state['w_key'] = qp['w']
 
@@ -146,8 +143,8 @@ else: KEY = st.sidebar.text_input("OpenAI Key", type="password")
 with st.sidebar.expander("📤 Share & Backup", expanded=False):
     st.caption("Share this Watchlist")
     
-    # Force update URL with current watchlist so refreshes don't lose data
-    if st.session_state['w_key']:
+    # URL Sync
+    if st.session_state.get('w_key'):
         st.query_params['w'] = st.session_state['w_key']
         
     params = []
@@ -241,11 +238,8 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        # Fetching data with basic error handling to prevent "1ST" crashes
-        try:
-            h = tk.history(period="1d", interval="5m", prepost=True)
-        except: 
-            return None
+        try: h = tk.history(period="1d", interval="5m", prepost=True)
+        except: return None
             
         if h.empty: 
             try: h = tk.history(period="5d", interval="15m", prepost=True)
@@ -254,8 +248,6 @@ def get_pro_data(s):
         
         p_live = h['Close'].iloc[-1]
         
-        # Optimize: Only fetch 1mo history if we really need it for alerts
-        # But keeping it for now for consistency
         hm = tk.history(period="1mo")
         if not hm.empty:
             hard_close = hm['Close'].iloc[-1]
@@ -264,15 +256,10 @@ def get_pro_data(s):
             hard_close = p_live
             prev_close = p_live
 
-        # --- TIMEZONE LOGIC (ET FIXED) ---
-        # 1. Get Current UTC
+        # Timezone Logic (ET)
         utc_now = datetime.utcnow()
-        # 2. Convert to ET (Standard is UTC-5)
-        # Note: This is simple offset. For true DST you'd need pytz library, 
-        # but this works for 99% of cases without extra dependencies.
         now_et = utc_now - timedelta(hours=5) 
         
-        # Market Hours: 9:30 AM - 4:00 PM ET, Mon-Fri (Weekday < 5)
         market_open = datetime(now_et.year, now_et.month, now_et.day, 9, 30)
         market_close = datetime(now_et.year, now_et.month, now_et.day, 16, 0)
         
@@ -290,16 +277,14 @@ def get_pro_data(s):
         ext_price = None
         ext_pct = 0.0
         
-        # Extended Hours Detection
         if not is_tsx and not is_market_open:
-            # If price is significantly different from close, show extended
             if abs(p_live - hard_close) > 0.01:
                 if now_et.hour < 9 or (now_et.hour == 9 and now_et.minute < 30):
                     market_state = "PRE-MKT"
                 elif now_et.hour >= 16:
                     market_state = "POST-MKT"
                 else:
-                    market_state = "EXT" # Weekend/Late night
+                    market_state = "EXT"
                 
                 ext_price = p_live
                 ext_pct = ((p_live - hard_close) / hard_close) * 100
@@ -394,7 +379,7 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- HEADER (OLED BLACK BOX) ---
+# --- HEADER (OLED BLACK BOX + LIVE TIMER FIX) ---
 img_html = ""
 img_b64 = get_base64_image(LOGO_PATH)
 
@@ -422,15 +407,18 @@ st.markdown(f"""
     {img_html}
     <div style='text-align: center; color: #888; font-size: 12px; margin-bottom: 10px;'>Last Sync: {now_et_str}</div>
     <div id="timer_div" style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
-        <span id="timer">--</span>s
+        <span id="timer">60</span>s
     </div>
 </div>
 <script>
-setInterval(function(){{
+// Timer Logic: Initialize immediately with browser time
+function updateTimer() {{
     var s = 60 - new Date().getSeconds();
     var t = document.getElementById("timer");
-    if(t) t.innerHTML = s < 10 ? "0" + s : s;
-}}, 1000);
+    if(t) t.innerHTML = (s < 10 ? "0" : "") + s;
+}}
+updateTimer(); // Run once immediately
+setInterval(updateTimer, 1000); // Run every second
 </script>
 """, unsafe_allow_html=True)
 
