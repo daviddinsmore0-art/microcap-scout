@@ -229,23 +229,31 @@ st.sidebar.checkbox("Desktop Notifications", key="no_key")
 
 inject_wake_lock(st.session_state.get('ko_key', False))
 
-# --- 4. DATA ENGINE (ROBUST) ---
+# --- 4. DATA ENGINE (RETRY LOGIC) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
     except: return None
 
 def get_pro_data(s):
-    try:
-        tk = yf.Ticker(s)
-        try: h = tk.history(period="1d", interval="5m", prepost=True)
-        except: return None
+    # RETRY LOGIC FOR STABILITY
+    tk = yf.Ticker(s)
+    h = pd.DataFrame()
+    
+    for attempt in range(3): # Try 3 times
+        try:
+            h = tk.history(period="1d", interval="5m", prepost=True)
+            if not h.empty: break
+        except: 
+            time.sleep(0.2) # Wait slightly before retrying
             
-        if h.empty: 
-            try: h = tk.history(period="5d", interval="15m", prepost=True)
-            except: return None
-        if h.empty: return None
-        
+    if h.empty: 
+        try: h = tk.history(period="5d", interval="15m", prepost=True)
+        except: return None
+    
+    if h.empty: return None
+    
+    try:
         p_live = h['Close'].iloc[-1]
         
         hm = tk.history(period="1mo")
@@ -418,96 +426,106 @@ t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
 def draw_pro_card(t, port_data=None):
     d = get_pro_data(t)
-    if d:
-        name = get_name(t)
-        sec = get_sector_tag(t)
-        col = "green" if d['d']>=0 else "red"
-        col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
-        
+    
+    # ERROR HANDLING / FALLBACK CARD
+    if d is None:
         st.markdown(f"""
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
-            <div style="flex:1;">
-                <div style="font-size:24px; font-weight:900;">{name}</div>
-                <div style="font-size:14px; color:#BBB; font-weight:bold;">{t} <span style="color:#666; font-weight:normal;">{sec}</span></div>
-            </div>
-            <div style="text-align:right;">
-                <div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div>
-                <div style="font-size:14px; font-weight:bold; color:{col_hex};">{d['d']:+.2f}%</div>
-            </div>
+        <div style="border:1px solid #333; border-radius:8px; padding:15px; margin-bottom:15px; background:#1E1E1E;">
+            <div style="font-weight:bold; font-size:18px; color:#888;">{get_name(t)}</div>
+            <div style="color:#FF4B4B; font-size:12px;">⚠️ Connection Issue - Retrying...</div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    name = get_name(t)
+    sec = get_sector_tag(t)
+    col = "green" if d['d']>=0 else "red"
+    col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
+    
+    st.markdown(f"""
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #333;">
+        <div style="flex:1;">
+            <div style="font-size:24px; font-weight:900;">{name}</div>
+            <div style="font-size:14px; color:#BBB; font-weight:bold;">{t} <span style="color:#666; font-weight:normal;">{sec}</span></div>
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:22px; font-weight:bold;">${d['p']:,.2f}</div>
+            <div style="font-size:14px; font-weight:bold; color:{col_hex};">{d['d']:+.2f}%</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if d['state'] != "REG" and d['ext_p']:
+        ext_sign = "+" if d['ext_d'] >= 0 else ""
+        ext_col = "#4caf50" if d['ext_d'] >= 0 else "#ff4b4b" 
+        st.markdown(f"""
+        <div style="text-align:right; margin-top:-8px; margin-bottom:8px;">
+            <span style="color:{ext_col}; font-size:14px; font-weight:bold;">
+                {d['state']}: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
+            </span>
         </div>
         """, unsafe_allow_html=True)
 
-        if d['state'] != "REG" and d['ext_p']:
-            ext_sign = "+" if d['ext_d'] >= 0 else ""
-            ext_col = "#4caf50" if d['ext_d'] >= 0 else "#ff4b4b" 
-            st.markdown(f"""
-            <div style="text-align:right; margin-top:-8px; margin-bottom:8px;">
-                <span style="color:{ext_col}; font-size:14px; font-weight:bold;">
-                    {d['state']}: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        if port_data:
-            qty = port_data['q']
-            entry = port_data['e']
-            val = d['p'] * qty
-            profit = val - (entry * qty)
-            roi = ((d['p'] - entry) / entry) * 100
-            p_col = "#4caf50" if profit >= 0 else "#ff4b4b"
-            
-            st.markdown(f"""
-            <div style="background-color:black; color:white; border-left:4px solid {p_col}; padding:8px; margin-bottom:10px; font-size:15px; font-weight:bold; font-family:sans-serif;">
-                <span style="color:white;">Qty: {qty}</span> &nbsp;&nbsp; 
-                <span style="color:white;">Avg: ${entry}</span> &nbsp;&nbsp; 
-                <span style="color:white;">Gain: <span style="color:{p_col};">${profit:,.2f} ({roi:+.1f}%)</span></span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        r_color = "#888"
-        if "STRONG BUY" in d['rat']: r_color = "#00FF00" 
-        elif "BUY" in d['rat']: r_color = "#4CAF50"      
-        elif "HOLD" in d['rat']: r_color = "#FFC107"     
-        elif "SELL" in d['rat']: r_color = "#FF4B4B"     
-
-        t_color = "#FF4B4B" if "BEAR" in d['tr'] else "#4CAF50"
-
-        st.markdown(f"**☻ AI:** {d['ai']}")
-        st.markdown(f"**TREND:** <span style='color:{t_color};font-weight:bold;'>{d['tr']}</span>", unsafe_allow_html=True)
-        st.markdown(f"**ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
-        st.markdown(f"**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
-        
-        base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
-        l1 = base.mark_line(color=col).encode(y=alt.Y('Stock', axis=None))
-        if 'SPY' in d['chart'].columns:
-            l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None))
-            st.altair_chart((l1+l2).properties(height=60), use_container_width=True)
-        else:
-            st.altair_chart(l1.properties(height=60), use_container_width=True)
-        
-        st.caption("INTRADAY vs SPY (Orange/Dotted)")
-        
-        if d['h'] > d['l']: pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
-        else: pct = 50
-        pct = max(0, min(100, pct))
-        range_tag = "📉 Bottom (Dip)" if pct < 30 else ("📈 Top (High)" if pct > 70 else "⚖️ Mid-Range")
-        
-        st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range: {range_tag}</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:15px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
-
-        vol_tag = "⚡ Surge" if d['vol'] > 1.5 else ("💤 Quiet" if d['vol'] < 0.8 else "🌊 Normal")
-        rsi_tag = "🔥 Hot (Sell)" if d['rsi'] > 70 else ("❄️ Cold (Buy)" if d['rsi'] < 30 else "⚖️ Neutral")
-        rsi_pct = min(100, max(0, d['rsi']))
+    if port_data:
+        qty = port_data['q']
+        entry = port_data['e']
+        val = d['p'] * qty
+        profit = val - (entry * qty)
+        roi = ((d['p'] - entry) / entry) * 100
+        p_col = "#4caf50" if profit >= 0 else "#ff4b4b"
         
         st.markdown(f"""
-        <div style="font-size:10px;color:#888;">Volume: {vol_tag} ({d['vol']:.1f}x)</div>
-        <div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:10px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div>
-        
-        <div style="font-size:10px;color:#888;">RSI: {rsi_tag} ({d['rsi']:.0f})</div>
-        <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;margin-bottom:20px;">
-            <div style="width:{rsi_pct}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div>
+        <div style="background-color:black; color:white; border-left:4px solid {p_col}; padding:8px; margin-bottom:10px; font-size:15px; font-weight:bold; font-family:sans-serif;">
+            <span style="color:white;">Qty: {qty}</span> &nbsp;&nbsp; 
+            <span style="color:white;">Avg: ${entry}</span> &nbsp;&nbsp; 
+            <span style="color:white;">Gain: <span style="color:{p_col};">${profit:,.2f} ({roi:+.1f}%)</span></span>
         </div>
         """, unsafe_allow_html=True)
-        st.divider()
+
+    r_color = "#888"
+    if "STRONG BUY" in d['rat']: r_color = "#00FF00" 
+    elif "BUY" in d['rat']: r_color = "#4CAF50"      
+    elif "HOLD" in d['rat']: r_color = "#FFC107"     
+    elif "SELL" in d['rat']: r_color = "#FF4B4B"     
+
+    t_color = "#FF4B4B" if "BEAR" in d['tr'] else "#4CAF50"
+
+    st.markdown(f"**☻ AI:** {d['ai']}")
+    st.markdown(f"**TREND:** <span style='color:{t_color};font-weight:bold;'>{d['tr']}</span>", unsafe_allow_html=True)
+    st.markdown(f"**ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
+    st.markdown(f"**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
+    
+    base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
+    l1 = base.mark_line(color=col).encode(y=alt.Y('Stock', axis=None))
+    if 'SPY' in d['chart'].columns:
+        l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None))
+        st.altair_chart((l1+l2).properties(height=60), use_container_width=True)
+    else:
+        st.altair_chart(l1.properties(height=60), use_container_width=True)
+    
+    st.caption("INTRADAY vs SPY (Orange/Dotted)")
+    
+    if d['h'] > d['l']: pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
+    else: pct = 50
+    pct = max(0, min(100, pct))
+    range_tag = "📉 Bottom (Dip)" if pct < 30 else ("📈 Top (High)" if pct > 70 else "⚖️ Mid-Range")
+    
+    st.markdown(f"""<div style="font-size:10px;color:#888;margin-bottom:2px;">Day Range: {range_tag}</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:15px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
+
+    vol_tag = "⚡ Surge" if d['vol'] > 1.5 else ("💤 Quiet" if d['vol'] < 0.8 else "🌊 Normal")
+    rsi_tag = "🔥 Hot (Sell)" if d['rsi'] > 70 else ("❄️ Cold (Buy)" if d['rsi'] < 30 else "⚖️ Neutral")
+    rsi_pct = min(100, max(0, d['rsi']))
+    
+    st.markdown(f"""
+    <div style="font-size:10px;color:#888;">Volume: {vol_tag} ({d['vol']:.1f}x)</div>
+    <div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:10px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div>
+    
+    <div style="font-size:10px;color:#888;">RSI: {rsi_tag} ({d['rsi']:.0f})</div>
+    <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;margin-bottom:20px;">
+        <div style="width:{rsi_pct}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.divider()
 
 with t1:
     cols = st.columns(3)
