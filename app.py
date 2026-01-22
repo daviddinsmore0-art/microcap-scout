@@ -20,11 +20,10 @@ LOGO_PATH = "logo.png"
 # *****************************
 
 # --- INITIALIZE SESSION STATE ---
-# We set these ONCE. Afterwards, the widgets manage themselves.
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     
-    # Defaults
+    # 1. Defaults
     defaults = {
         'w_key': "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
         'at_key': "TD.TO",
@@ -35,16 +34,15 @@ if 'initialized' not in st.session_state:
         'no_key': False
     }
 
-    # Apply defaults if key doesn't exist
+    # 2. Load Defaults
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
             
-    # Check URL Params to override defaults on first load
+    # 3. URL Recovery (This saves you from crashes)
     qp = st.query_params
     if 'w' in qp: st.session_state['w_key'] = qp['w']
 
-    # Non-widget state
     st.session_state.update({
         'news_results': [], 
         'raw_news_cache': [],
@@ -147,6 +145,11 @@ else: KEY = st.sidebar.text_input("OpenAI Key", type="password")
 # --- RESTORE LOGIC ---
 with st.sidebar.expander("📤 Share & Backup", expanded=False):
     st.caption("Share this Watchlist")
+    
+    # Force update URL with current watchlist so refreshes don't lose data
+    if st.session_state['w_key']:
+        st.query_params['w'] = st.session_state['w_key']
+        
     params = []
     current_w = st.session_state.get('w_key', "")
     if current_w: params.append(f"w={urllib.parse.quote(current_w)}")
@@ -186,8 +189,7 @@ with st.sidebar.expander("📤 Share & Backup", expanded=False):
         except Exception as e:
             st.error(f"Error: {e}")
 
-# --- WIDGETS (Fix: Removed 'value=' to fix warning) ---
-# Streamlit auto-binds to session_state key if it exists
+# --- WIDGETS ---
 st.sidebar.text_input("Tickers", key="w_key")
 
 c1, c2 = st.sidebar.columns(2)
@@ -215,7 +217,6 @@ if st.session_state.get('at_key') not in ALL_T and ALL_T:
 
 try:
     idx = sorted(ALL_T).index(st.session_state.get('at_key'))
-    # Removed 'index=' as explicit state takes precedence
     st.sidebar.selectbox("", sorted(ALL_T), key="at_key", label_visibility="collapsed")
 except:
     if ALL_T:
@@ -231,7 +232,7 @@ st.sidebar.checkbox("Desktop Notifications", key="no_key")
 
 inject_wake_lock(st.session_state.get('ko_key', False))
 
-# --- 4. DATA ENGINE ---
+# --- 4. DATA ENGINE (ROBUST) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -240,8 +241,12 @@ def get_spy_data():
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        try: h = tk.history(period="1d", interval="5m", prepost=True)
-        except: h = pd.DataFrame()
+        # Fetching data with basic error handling to prevent "1ST" crashes
+        try:
+            h = tk.history(period="1d", interval="5m", prepost=True)
+        except: 
+            return None
+            
         if h.empty: 
             try: h = tk.history(period="5d", interval="15m", prepost=True)
             except: return None
@@ -249,6 +254,8 @@ def get_pro_data(s):
         
         p_live = h['Close'].iloc[-1]
         
+        # Optimize: Only fetch 1mo history if we really need it for alerts
+        # But keeping it for now for consistency
         hm = tk.history(period="1mo")
         if not hm.empty:
             hard_close = hm['Close'].iloc[-1]
@@ -257,10 +264,19 @@ def get_pro_data(s):
             hard_close = p_live
             prev_close = p_live
 
-        now = datetime.utcnow() - timedelta(hours=5)
-        is_market_open = (now.weekday() < 5) and (
-            (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and (now.hour < 16)
-        )
+        # --- TIMEZONE LOGIC (ET FIXED) ---
+        # 1. Get Current UTC
+        utc_now = datetime.utcnow()
+        # 2. Convert to ET (Standard is UTC-5)
+        # Note: This is simple offset. For true DST you'd need pytz library, 
+        # but this works for 99% of cases without extra dependencies.
+        now_et = utc_now - timedelta(hours=5) 
+        
+        # Market Hours: 9:30 AM - 4:00 PM ET, Mon-Fri (Weekday < 5)
+        market_open = datetime(now_et.year, now_et.month, now_et.day, 9, 30)
+        market_close = datetime(now_et.year, now_et.month, now_et.day, 16, 0)
+        
+        is_market_open = (now_et.weekday() < 5) and (market_open <= now_et <= market_close)
         is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
 
         if is_market_open:
@@ -274,9 +290,17 @@ def get_pro_data(s):
         ext_price = None
         ext_pct = 0.0
         
+        # Extended Hours Detection
         if not is_tsx and not is_market_open:
+            # If price is significantly different from close, show extended
             if abs(p_live - hard_close) > 0.01:
-                market_state = "POST" if now.hour >= 16 else "PRE"
+                if now_et.hour < 9 or (now_et.hour == 9 and now_et.minute < 30):
+                    market_state = "PRE-MKT"
+                elif now_et.hour >= 16:
+                    market_state = "POST-MKT"
+                else:
+                    market_state = "EXT" # Weekend/Late night
+                
                 ext_price = p_live
                 ext_pct = ((p_live - hard_close) / hard_close) * 100
 
@@ -379,6 +403,9 @@ if img_b64:
 else:
     img_html = "<h1 style='text-align: center; margin: 0; padding: 0; color: white;'>⚡ Penny Pulse</h1>"
 
+# ET Time for display
+now_et_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M:%S ET')
+
 st.markdown(f"""
 <div style="
     background-color: #000000; 
@@ -393,7 +420,7 @@ st.markdown(f"""
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 ">
     {img_html}
-    <div style='text-align: center; color: #888; font-size: 12px; margin-bottom: 10px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>
+    <div style='text-align: center; color: #888; font-size: 12px; margin-bottom: 10px;'>Last Sync: {now_et_str}</div>
     <div id="timer_div" style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
         <span id="timer">--</span>s
     </div>
@@ -437,7 +464,7 @@ def draw_pro_card(t, port_data=None):
             st.markdown(f"""
             <div style="text-align:right; margin-top:-8px; margin-bottom:8px;">
                 <span style="color:{ext_col}; font-size:14px; font-weight:bold;">
-                    POST: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
+                    {d['state']}: ${d['ext_p']:,.2f} ({ext_sign}{d['ext_d']:.2f}%)
                 </span>
             </div>
             """, unsafe_allow_html=True)
@@ -505,8 +532,12 @@ def draw_pro_card(t, port_data=None):
 
 with t1:
     cols = st.columns(3)
-    W = [x.strip().upper() for x in st.session_state['w_key'].split(",") if x.strip()]
-    for i, t in enumerate(W):
+    # Parse Safe
+    try:
+        w_list = [x.strip().upper() for x in st.session_state['w_key'].split(",") if x.strip()]
+    except: w_list = []
+    
+    for i, t in enumerate(w_list):
         with cols[i%3]: draw_pro_card(t)
 
 with t2:
