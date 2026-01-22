@@ -17,7 +17,7 @@ except: pass
 # *** CONFIG ***
 WEBHOOK_URL = "" 
 LOGO_PATH = "logo.png"
-ADMIN_PASSWORD = "admin123" # CHANGE THIS PASSWORD
+ADMIN_PASSWORD = "admin123" # CHANGE THIS
 DATA_FILE = "user_data.json"
 
 # --- 2. PERSISTENCE ENGINE ---
@@ -61,6 +61,7 @@ if 'initialized' not in st.session_state:
     st.session_state['keep_on_input'] = False
     st.session_state['notify_input'] = False
     st.session_state.update({'news_results': [], 'raw_news_cache': [], 'news_offset': 0, 'alert_log': [], 'storm_cooldown': {}, 'spy_cache': None, 'spy_last_fetch': datetime.min, 'banner_msg': None})
+    if not os.path.exists(DATA_FILE): save_data()
 
 # --- HELPERS ---
 def get_base64_image(image_path):
@@ -124,7 +125,7 @@ def get_pro_data(s):
             col = "#4caf50" if p_live >= hard_close else "#ff4b4b"
             ext_str = f"<div style='text-align:right; font-weight:bold; color:{col}; font-size:14px; margin-top:-8px;'>{state}: ${p_live:,.2f}</div>"
 
-        # 3. SMART CACHING (METADATA)
+        # 3. METADATA (SMART CACHING + NEXT/LAST LOGIC RESTORED)
         today_str = now.strftime('%Y-%m-%d')
         cached = st.session_state['meta_cache'].get(s, {})
         
@@ -134,8 +135,13 @@ def get_pro_data(s):
             info = safe_fetch(tk, "info") or {}
             cal = safe_fetch(tk, "calendar")
             earn = "N/A"
+            # RESTORED LOGIC: Check for Next, otherwise show Last
             if isinstance(cal, dict) and 'Earnings Date' in cal:
-                earn = f"Next: {cal['Earnings Date'][0].strftime('%b %d')}"
+                dates = cal['Earnings Date']
+                future = [d for d in dates if d.date() >= datetime.now().date()]
+                if future: earn = f"Next: {future[0].strftime('%b %d')}"
+                elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
+            
             rat = info.get('recommendationKey', 'N/A').upper().replace('_',' ')
             meta = {"rat": rat, "earn": earn, "name": info.get('longName', s), "date": today_str}
             st.session_state['meta_cache'][s] = meta
@@ -173,11 +179,10 @@ with st.sidebar:
     
     st.text_input("Tickers", key="w_input", on_change=update_params)
     
-    # SECURE ADMIN PANEL
-    admin_input = st.text_input("Admin Key", type="password")
-    if admin_input == ADMIN_PASSWORD:
+    # SECURE ADMIN
+    if st.text_input("Admin Key", type="password") == ADMIN_PASSWORD:
         with st.expander("💼 Portfolio Admin", expanded=True):
-            st.info("Unlocked")
+            st.info("🔓 Access Granted")
             c1, c2, c3 = st.columns([2,2,2])
             new_t = c1.text_input("Sym").upper()
             new_p = c2.number_input("Px", 0.0)
@@ -185,15 +190,10 @@ with st.sidebar:
             if st.button("➕ Add Asset"):
                 if new_t:
                     st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
-                    save_data()
-                    st.rerun()
-            
+                    save_data(); st.rerun()
             rem_t = st.selectbox("Remove", [""] + list(st.session_state['portfolio'].keys()))
             if st.button("🗑️ Remove"):
-                if rem_t:
-                    del st.session_state['portfolio'][rem_t]
-                    save_data()
-                    st.rerun()
+                if rem_t: del st.session_state['portfolio'][rem_t]; save_data(); st.rerun()
 
     st.divider()
     st.subheader("🔔 Smart Alerts")
@@ -280,8 +280,7 @@ with t3:
                     for i in root.findall('.//item')[:5]: raw.append({"title": i.find('title').text, "link": i.find('link').text, "time": "Recent"})
                 except: continue
             if raw:
-                for n in raw:
-                    st.markdown(f"<div style='border-left:4px solid #4caf50; padding-left:10px; margin-bottom:10px;'>{n.get('title')} <a href='{n.get('link')}'>Read</a></div>", unsafe_allow_html=True)
+                for n in raw: st.markdown(f"<div style='border-left:4px solid #4caf50; padding-left:10px; margin-bottom:10px;'>{n.get('title')} <a href='{n.get('link')}'>Read</a></div>", unsafe_allow_html=True)
         else: st.error("No API Key")
 
 time.sleep(60); st.rerun()
