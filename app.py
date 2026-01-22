@@ -22,10 +22,12 @@ DATA_FILE = "user_data.json"
 
 # --- 2. PERSISTENCE ENGINE ---
 def load_data():
+    """Loads user settings from the local JSON file."""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f: return json.load(f)
         except: pass
+    # Default State
     return {
         "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
         "portfolio": {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}},
@@ -34,18 +36,21 @@ def load_data():
     }
 
 def save_data():
-    data = {
-        "w_input": st.session_state.get('w_input', ""),
-        "portfolio": st.session_state.get('portfolio', {}),
-        "alerts": {
-            "tick": st.session_state.get('a_tick_input', ""), 
-            "price": st.session_state.get('a_price_input', 0.0),
-            "active": st.session_state.get('a_on_input', False),
-            "flip": st.session_state.get('flip_on_input', False)
-        },
-        "meta_cache": st.session_state.get('meta_cache', {})
-    }
-    with open(DATA_FILE, "w") as f: json.dump(data, f)
+    """Saves current session state to the local JSON file."""
+    try:
+        data = {
+            "w_input": st.session_state.get('w_input', ""),
+            "portfolio": st.session_state.get('portfolio', {}),
+            "alerts": {
+                "tick": st.session_state.get('a_tick_input', ""), 
+                "price": st.session_state.get('a_price_input', 0.0),
+                "active": st.session_state.get('a_on_input', False),
+                "flip": st.session_state.get('flip_on_input', False)
+            },
+            "meta_cache": st.session_state.get('meta_cache', {})
+        }
+        with open(DATA_FILE, "w") as f: json.dump(data, f)
+    except: pass
 
 # --- INITIALIZATION ---
 if 'initialized' not in st.session_state:
@@ -119,13 +124,12 @@ def get_pro_data(s):
         disp_p = p_live if is_market else hard_close
         disp_pct = ((disp_p - prev_close)/prev_close)*100
         
-        ext_str = ""
+        # EXTENDED HOURS LOGIC
+        ext_data = None
         if not is_tsx and not is_market and abs(p_live - hard_close) > 0.01:
             state = "POST" if now.hour >= 16 else "PRE"
             ext_pct = ((p_live - hard_close)/hard_close)*100
-            col = "#4caf50" if ext_pct >= 0 else "#ff4b4b"
-            # Fixed Formatting for HTML
-            ext_str = f"<div style='color:{col}; font-size:12px; margin-top:0px;'>{state}: ${p_live:,.2f} ({ext_pct:+.2f}%)</div>"
+            ext_data = {"state": state, "p": p_live, "pct": ext_pct}
 
         # 3. METADATA
         today_str = now.strftime('%Y-%m-%d')
@@ -164,7 +168,7 @@ def get_pro_data(s):
         return {
             "p": disp_p, "d": disp_pct, "rsi": rsi, "tr": trend, "vol": vol, 
             "chart": chart, "rat": meta['rat'], "earn": meta['earn'], "name": meta.get('name', s),
-            "h": h['High'].max(), "l": h['Low'].min(), "ext_str": ext_str, "ai": f"{'🟢' if trend=='BULL' else '🔴'} {trend} BIAS"
+            "h": h['High'].max(), "l": h['Low'].min(), "ext_data": ext_data, "ai": f"{'🟢' if trend=='BULL' else '🔴'} {trend} BIAS"
         }
     except: return None
 
@@ -221,23 +225,21 @@ def draw_card(t, port=None):
     if not d: return
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    # HTML FIX: Removed nesting risk by using clean f-strings
-    # This structure guarantees no </div> errors will print on screen
-    header_html = f"""
-    <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:5px;">
-        <div style="flex-grow:1;">
-            <div style="font-size:24px; font-weight:900;">{d['name']}</div>
-            <div style="font-size:12px; color:#888;">{t}</div>
-        </div>
-        <div style="text-align:right;">
-            <div style="font-size:22px; font-weight:bold; line-height:1;">${d['p']:,.2f}</div>
-            <div style="font-size:14px; font-weight:bold; color:{col}; line-height:1; margin-top:2px;">{d['d']:+.2f}%</div>
-            {d['ext_str']}
-        </div>
-    </div>
-    """
-    st.markdown(header_html, unsafe_allow_html=True)
-    
+    # NEW LAYOUT: Native Columns (No more </div> errors)
+    c_head, c_price = st.columns([2, 1])
+    with c_head:
+        st.markdown(f"<div style='font-size:24px; font-weight:900; line-height:1.1;'>{d['name']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:12px; color:#888;'>{t}</div>", unsafe_allow_html=True)
+    with c_price:
+        st.markdown(f"<div style='text-align:right; font-size:22px; font-weight:bold; line-height:1;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:right; font-size:14px; font-weight:bold; color:{col}; line-height:1; margin-top:2px;'>{d['d']:+.2f}%</div>", unsafe_allow_html=True)
+        
+        # Extended Hours (Tucked Safely)
+        if d['ext_data']:
+            ed = d['ext_data']
+            ec = "#4caf50" if ed['pct'] >= 0 else "#ff4b4b"
+            st.markdown(f"<div style='text-align:right; color:{ec}; font-size:12px; margin-top:2px;'><b>{ed['state']}</b>: ${ed['p']:,.2f} ({ed['pct']:+.2f}%)</div>", unsafe_allow_html=True)
+
     if port:
         gain = (d['p'] - port['e']) * port['q']
         st.markdown(f"<div style='background:black; padding:5px; border-left:4px solid {col}; margin:5px 0;'>Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style='color:{col}'>${gain:,.2f}</span></div>", unsafe_allow_html=True)
