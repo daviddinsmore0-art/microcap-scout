@@ -18,25 +18,48 @@ except: pass
 WEBHOOK_URL = "" 
 LOGO_PATH = "logo.png"
 ADMIN_PASSWORD = "admin123"
+NEWS_FEEDS = [
+    "https://finance.yahoo.com/news/rssindex",
+    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
+    "http://feeds.marketwatch.com/marketwatch/topstories"
+]
 
-# --- 2. STATE INITIALIZATION (FIXED INDENTATION & WARNINGS) ---
+# --- 2. STATE INITIALIZATION ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    # Default inputs aligned with your code
     if 'w_input' not in st.session_state: st.session_state['w_input'] = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
     if 'a_tick_input' not in st.session_state: st.session_state['a_tick_input'] = "TD.TO"
     if 'a_price_input' not in st.session_state: st.session_state['a_price_input'] = 0.0
     if 'a_on_input' not in st.session_state: st.session_state['a_on_input'] = False
     if 'flip_on_input' not in st.session_state: st.session_state['flip_on_input'] = False
-    if 'keep_on_input' not in st.session_state: st.session_state['keep_on_input'] = False
-    if 'notify_input' not in st.session_state: st.session_state['notify_input'] = False
     
     st.session_state.update({
         'news_results': [], 'raw_news_cache': [], 'news_offset': 0,
         'alert_log': [], 'storm_cooldown': {}, 'meta_cache': {}, 'banner_msg': None
     })
 
-# --- STABILITY ARMOR: PREVENT "1ST" CRASH ---
+# --- AI & NEWS HELPERS ---
+def get_relative_time(date_str):
+    try:
+        dt = email.utils.parsedate_to_datetime(date_str)
+        now = datetime.now(dt.tzinfo); diff = now - dt; s = diff.total_seconds()
+        if s < 60: return "Just now"
+        elif s < 3600: return f"{int(s//60)}m ago"
+        elif s < 86400: return f"{int(s//3600)}h ago"
+        else: return "Yesterday"
+    except: return "Recent"
+
+def process_ai_batch(items_to_process, key):
+    try:
+        from openai import OpenAI
+        cl = OpenAI(api_key=key)
+        prompt = "Analyze financial headlines. Return JSON: {'items': [{'ticker': '...', 'sentiment': 'BULL/BEAR/NEUTRAL', 'summary': '...', 'link': '...', 'time': '...'}]}"
+        ai_input = "\n".join([f"{x['title']} | {x['time']} | {x['link']}" for x in items_to_process])
+        resp = cl.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content": prompt}, {"role":"user", "content": ai_input}], response_format={"type": "json_object"})
+        return json.loads(resp.choices[0].message.content).get('items', [])
+    except: return []
+
+# --- STABILITY ARMOR ---
 def safe_fetch(ticker_obj, method, timeout=0.8):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         if method == "history": future = executor.submit(ticker_obj.history, period="1mo", interval="15m")
@@ -45,22 +68,14 @@ def safe_fetch(ticker_obj, method, timeout=0.8):
         try: return future.result(timeout=timeout)
         except: return None
 
-# --- 3. FUNCTIONS ---
-def update_params():
-    for k in ['w','at','ap','ao','fo','no','ko']:
-        kn = f"{k if len(k)>2 else k+'_input'}"
-        if kn in st.session_state: st.query_params[k] = str(st.session_state[kn]).lower() 
-
+# --- 3. DATA LOGIC ---
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         h = safe_fetch(tk, "history")
         if h is None or h.empty: return None
+        p_live, prev_close = h['Close'].iloc[-1], h['Close'].iloc[-2]
         
-        p_live = h['Close'].iloc[-1]
-        prev_close = h['Close'].iloc[-2] if len(h) > 1 else p_live
-        
-        # Meta Data Caching
         now = time.time()
         if s not in st.session_state['meta_cache'] or (now - st.session_state['meta_cache'][s][1] > 3600):
             info = safe_fetch(tk, "info") or {}
@@ -71,45 +86,40 @@ def get_pro_data(s):
             st.session_state['meta_cache'][s] = (res, now)
         
         meta = st.session_state['meta_cache'][s][0]
-        
-        # Indicators
         diff = h['Close'].diff(); u, d = diff.clip(lower=0), -1*diff.clip(upper=0)
         rsi = 100 - (100/(1 + (u.rolling(14).mean()/d.rolling(14).mean()).iloc[-1]))
         trend = "BULL" if (h['Close'].ewm(span=12).mean() - h['Close'].ewm(span=26).mean()).iloc[-1] > 0 else "BEAR"
         vol = h['Volume'].iloc[-1] / h['Volume'].mean() if h['Volume'].mean() > 0 else 1.0
-
         chart = h['Close'].tail(50).reset_index(); chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0]) / chart['Stock'].iloc[0]) * 100
 
-        return {
-            "p": p_live, "d": ((p_live - prev_close)/prev_close)*100, "rsi": rsi, "tr": trend, 
-            "vol": vol, "chart": chart, "rat": meta['rat'], "earn": meta['earn'],
-            "h": h['High'].tail(26).max(), "l": h['Low'].tail(26).min(), "name": meta['name']
-        }
+        return {"p": p_live, "d": ((p_live - prev_close)/prev_close)*100, "rsi": rsi, "tr": trend, "vol": vol, "chart": chart, "rat": meta['rat'], "earn": meta['earn'], "h": h['High'].tail(26).max(), "l": h['Low'].tail(26).min(), "name": meta['name']}
     except: return None
 
 # --- 4. SIDEBAR ---
+if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
+else: KEY = st.sidebar.text_input("OpenAI Key", type="password")
+
 with st.sidebar:
     st.header("⚡ Penny Pulse")
-    st.text_input("Tickers", key="w_input", on_change=update_params)
+    st.text_input("Tickers", key="w_input")
     st.divider()
     st.subheader("🔔 Smart Alerts")
     PORT = {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}}
     ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
-    st.selectbox("Price Target Asset", sorted(ALL_T), key="a_tick_input", on_change=update_params)
-    st.number_input("Target ($)", key="a_price_input", on_change=update_params)
+    st.selectbox("Price Target Asset", sorted(ALL_T), key="a_tick_input")
+    st.number_input("Target ($)", key="a_price_input")
     st.toggle("Active Price Alert", key="a_on_input")
     st.toggle("Alert on Trend Flip", key="flip_on_input")
 
-# --- 5. SCROLLER (FIXED NaN) ---
+# --- 5. SCROLLER ---
 idx_items = []
 for sym, name in [("^GSPC", "S&P 500"), ("^IXIC", "Nasdaq"), ("BTC-USD", "Bitcoin")]:
     d = get_pro_data(sym)
     if d and not pd.isna(d['p']):
         col = "#4caf50" if d['d']>=0 else "#ff4b4b"
         idx_items.append(f"{name}: <span style='color:{col}'>${d['p']:,.2f} ({d['d']:+.2f}%)</span>")
-scroller_html = " &nbsp;&nbsp;|&nbsp;&nbsp; ".join(idx_items) if idx_items else "Market Data Active"
-st.markdown(f"""<div style="background:#0E1117;padding:10px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background:#0E1117;padding:10px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="font-weight:bold;font-size:18px;color:#EEE;">{" &nbsp;&nbsp;|&nbsp;&nbsp; ".join(idx_items) if idx_items else "Market Data Active"}</marquee></div>""", unsafe_allow_html=True)
 
 # --- 6. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -143,6 +153,20 @@ with t2:
         with cols[i%3]: draw_card(t, inf)
 
 with t3:
-    if st.button("Analyze Market News Feed"): st.info("Fetching Sentiment...")
+    if st.button("Analyze Market Context (Start)"):
+        if KEY:
+            raw_items = []
+            for f in NEWS_FEEDS:
+                try:
+                    r = requests.get(f, timeout=5); root = ET.fromstring(r.content)
+                    for item in root.findall('.//item')[:10]:
+                        raw_items.append({"title": item.find('title').text, "link": item.find('link').text, "time": "Recent"})
+                except: continue
+            if raw_items:
+                analyzed = process_ai_batch(raw_items[:15], KEY)
+                for n in analyzed:
+                    s_color = "#4caf50" if n.get('sentiment')=="BULL" else "#ff4b4b"
+                    st.markdown(f"<div style='border-left:4px solid {s_color}; padding-left:10px; margin-bottom:15px;'><b>{n.get('ticker')}</b>: {n.get('summary')} <a href='{n.get('link')}'>Read</a></div>", unsafe_allow_html=True)
+        else: st.error("No API Key")
 
 time.sleep(60); st.rerun()
