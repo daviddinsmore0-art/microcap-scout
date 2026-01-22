@@ -17,38 +17,64 @@ except: pass
 # *** CONFIG ***
 WEBHOOK_URL = "" 
 LOGO_PATH = "logo.png"
-ADMIN_PASSWORD = "admin123"
+DATA_FILE = "user_data.json"
 
-# --- 2. STATE INITIALIZATION (FIXED) ---
+# --- 2. PERSISTENCE ENGINE (The "Anti-Eraser") ---
+def load_data():
+    """Loads user settings and cached metadata from disk."""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r") as f: return json.load(f)
+        except: pass
+    # Defaults if no file exists
+    return {
+        "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
+        "portfolio": {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}},
+        "alerts": {"tick": "TD.TO", "price": 0.0, "active": False, "flip": False},
+        "meta_cache": {} # Stores Earnings/Ratings/AI Bias so we don't re-fetch
+    }
+
+def save_data():
+    """Saves current settings to disk immediately."""
+    data = {
+        "w_input": st.session_state.get('w_input', ""),
+        "portfolio": st.session_state.get('portfolio', {}),
+        "alerts": {
+            "tick": st.session_state.get('a_tick_input', ""), 
+            "price": st.session_state.get('a_price_input', 0.0),
+            "active": st.session_state.get('a_on_input', False),
+            "flip": st.session_state.get('flip_on_input', False)
+        },
+        "meta_cache": st.session_state.get('meta_cache', {})
+    }
+    with open(DATA_FILE, "w") as f: json.dump(data, f)
+
+# --- INITIALIZATION ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    # Initialize defaults cleanly to stop Yellow Box Warning
-    defaults = {
-        'w_input': "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
-        'a_tick_input': "TD.TO", 
-        'a_price_input': 0.0,
-        'a_on_input': False, 
-        'flip_on_input': False,
-        'keep_on_input': False, 
-        'notify_input': False
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state: st.session_state[k] = v
+    saved = load_data()
     
-    st.session_state.update({
-        'news_results': [], 'raw_news_cache': [], 'news_offset': 0,
-        'alert_log': [], 'storm_cooldown': {}, 'meta_cache': {}, 'banner_msg': None,
-        'spy_cache': None, 'spy_last_fetch': datetime.min
-    })
+    st.session_state['w_input'] = saved.get('w_input')
+    st.session_state['portfolio'] = saved.get('portfolio')
+    st.session_state['a_tick_input'] = saved['alerts'].get('tick')
+    st.session_state['a_price_input'] = saved['alerts'].get('price')
+    st.session_state['a_on_input'] = saved['alerts'].get('active')
+    st.session_state['flip_on_input'] = saved['alerts'].get('flip')
+    st.session_state['meta_cache'] = saved.get('meta_cache', {})
+    
+    # UI defaults
+    st.session_state['keep_on_input'] = False
+    st.session_state['notify_input'] = False
+    st.session_state.update({'news_results': [], 'raw_news_cache': [], 'news_offset': 0, 'alert_log': [], 'storm_cooldown': {}, 'spy_cache': None, 'spy_last_fetch': datetime.min, 'banner_msg': None})
 
-# --- HELPER FUNCTIONS ---
+# --- HELPERS ---
 def get_base64_image(image_path):
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
     return None
 
 def update_params():
-    pass # State is handled automatically by widget keys
+    save_data() # Save whenever a user changes a setting
 
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
@@ -59,20 +85,18 @@ def log_alert(msg, sound=True):
         if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
         st.session_state['banner_msg'] = msg
 
-# --- STABILITY ARMOR (The Crash Fix) ---
+# --- STABILITY ARMOR ---
 def safe_fetch(ticker_obj, method, timeout=0.8):
-    """Prevents server timeout by killing slow requests."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         if method == "history": future = executor.submit(ticker_obj.history, period="1d", interval="5m", prepost=True)
         elif method == "history_5d": future = executor.submit(ticker_obj.history, period="5d", interval="15m", prepost=True)
         elif method == "history_1mo": future = executor.submit(ticker_obj.history, period="1mo")
         elif method == "info": future = executor.submit(lambda: ticker_obj.info)
         elif method == "calendar": future = executor.submit(lambda: ticker_obj.calendar)
-        
         try: return future.result(timeout=timeout)
         except: return None
 
-# --- DATA ENGINE ---
+# --- DATA ENGINE (OPTIMIZED) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -82,22 +106,19 @@ def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         
-        # 1. Price Data (Fastest)
+        # 1. LIVE DATA (Always Fetch)
         h = safe_fetch(tk, "history")
         if h is None or h.empty: h = safe_fetch(tk, "history_5d")
         if h is None or h.empty: return None
-        
         p_live = h['Close'].iloc[-1]
         
-        # 2. Historical (Medium)
+        # 2. HISTORICAL (Medium Speed)
         hm = safe_fetch(tk, "history_1mo", timeout=1.0)
-        if hm is None or hm.empty:
-            hm = h; hard_close = p_live; prev_close = p_live
-        else:
-            hard_close = hm['Close'].iloc[-1]
-            prev_close = hm['Close'].iloc[-2] if len(hm) > 1 else hard_close
+        if hm is None or hm.empty: hm = h; hard_close = p_live; prev_close = p_live
+        else: hard_close = hm['Close'].iloc[-1]; prev_close = hm['Close'].iloc[-2] if len(hm) > 1 else hard_close
 
-        now = datetime.utcnow() - timedelta(hours=5)
+        now_utc = datetime.utcnow()
+        now = now_utc - timedelta(hours=5)
         is_market = (now.weekday() < 5) and (9 <= now.hour < 16) and not (now.hour==9 and now.minute<30)
         is_tsx = any(x in s for x in ['.TO', '.V', '.CN'])
         
@@ -110,18 +131,24 @@ def get_pro_data(s):
             col = "#4caf50" if p_live >= hard_close else "#ff4b4b"
             ext_str = f"<div style='text-align:right; font-weight:bold; color:{col}; font-size:14px; margin-top:-8px;'>{state}: ${p_live:,.2f}</div>"
 
-        # 3. Metadata (Protected)
-        now_ts = time.time()
-        if s not in st.session_state['meta_cache'] or (now_ts - st.session_state['meta_cache'][s][1] > 3600):
+        # 3. METADATA (SMART CACHING) - The "Once a Day" Logic
+        today_str = now.strftime('%Y-%m-%d')
+        cached = st.session_state['meta_cache'].get(s, {})
+        
+        if cached.get('date') == today_str:
+            # USE SAVED DATA (Instant)
+            meta = cached
+        else:
+            # FETCH NEW DATA (Once per day)
             info = safe_fetch(tk, "info") or {}
             cal = safe_fetch(tk, "calendar")
             earn = "N/A"
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 earn = f"Next: {cal['Earnings Date'][0].strftime('%b %d')}"
             rat = info.get('recommendationKey', 'N/A').upper().replace('_',' ')
-            st.session_state['meta_cache'][s] = ({"rat": rat, "earn": earn, "name": info.get('longName', s)}, now_ts)
-        
-        meta = st.session_state['meta_cache'][s][0]
+            meta = {"rat": rat, "earn": earn, "name": info.get('longName', s), "date": today_str}
+            st.session_state['meta_cache'][s] = meta
+            save_data() # Save to disk immediately
 
         # Indicators
         rsi, trend, vol = 50, "NEUTRAL", 1.0
@@ -134,7 +161,6 @@ def get_pro_data(s):
         chart = h['Close'].tail(78).reset_index(); chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
 
-        # SPY Overlay
         spy = get_spy_data()
         if spy is not None and len(spy) > 0:
              spy_slice = spy.tail(len(chart))
@@ -143,7 +169,7 @@ def get_pro_data(s):
 
         return {
             "p": disp_p, "d": disp_pct, "rsi": rsi, "tr": trend, "vol": vol, 
-            "chart": chart, "rat": meta['rat'], "earn": meta['earn'], "name": meta['name'],
+            "chart": chart, "rat": meta['rat'], "earn": meta['earn'], "name": meta.get('name', s),
             "h": h['High'].max(), "l": h['Low'].min(), "ext_str": ext_str, "ai": f"{'🟢' if trend=='BULL' else '🔴'} {trend} BIAS"
         }
     except: return None
@@ -155,31 +181,41 @@ with st.sidebar:
     else: KEY = st.text_input("OpenAI Key", type="password") 
     
     st.text_input("Tickers", key="w_input", on_change=update_params)
-    c1, c2 = st.columns(2)
-    with c1: 
-        if st.button("💾 Save"): st.toast("Saved!")
-    with c2: 
-        if st.button("🔊 Test"): log_alert("Test Signal Active", sound=True)
+    
+    # Portfolio Admin
+    with st.expander("💼 Portfolio Admin"):
+        c1, c2, c3 = st.columns([2,2,2])
+        new_t = c1.text_input("Sym").upper()
+        new_p = c2.number_input("Px", 0.0)
+        new_q = c3.number_input("Qty", 0)
+        if st.button("➕ Add Asset"):
+            if new_t:
+                st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
+                save_data()
+                st.rerun()
+        
+        rem_t = st.selectbox("Remove", [""] + list(st.session_state['portfolio'].keys()))
+        if st.button("🗑️ Remove"):
+            if rem_t:
+                del st.session_state['portfolio'][rem_t]
+                save_data()
+                st.rerun()
 
     st.divider()
     st.subheader("🔔 Smart Alerts")
     
-    PORT = {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}}
-    ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(PORT.keys())))
-    
+    ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(st.session_state['portfolio'].keys())))
     if st.session_state.a_tick_input not in ALL_T and ALL_T: st.session_state.a_tick_input = ALL_T[0]
+    
     st.selectbox("Asset", sorted(ALL_T), key="a_tick_input", on_change=update_params)
     st.number_input("Target ($)", key="a_price_input", on_change=update_params)
     st.toggle("Price Alert", key="a_on_input", on_change=update_params)
     st.toggle("Trend Alert", key="flip_on_input", on_change=update_params)
     st.toggle("Keep Screen On", key="keep_on_input", on_change=update_params)
-    
-    with st.expander("Backup"):
-        st.download_button("Download Profile", json.dumps({k:st.session_state[k] for k in ['w_input']}), "profile.json")
 
 inject_wake_lock(st.session_state.keep_on_input)
 
-# --- 4. SCROLLER (FIXED) ---
+# --- 4. SCROLLER ---
 indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("BTC-USD", "Bitcoin")]
 scroller_items = []
 for sym, name in indices:
@@ -230,10 +266,14 @@ with t1:
         with cols[i%3]: draw_card(t)
 
 with t2:
+    # Uses persistent portfolio from session state (which is loaded from file)
+    PORT = st.session_state['portfolio']
     tv = sum(get_pro_data(tk)['p']*inf['q'] for tk, inf in PORT.items() if get_pro_data(tk))
     tc = sum(inf['e']*inf['q'] for inf in PORT.values())
     profit = tv - tc
-    st.markdown(f"""<div style="background:#1E1E1E; border-radius:10px; padding:15px; text-align:center; border:1px solid #333; margin-bottom:10px;"><div style="color:#888; font-size:12px;">NET LIQUIDITY</div><div style="font-size:28px; font-weight:bold; color:white;">${tv:,.2f}</div></div><div style="background:#111; border-radius:10px; padding:15px; text-align:center; border:1px solid #333; margin-bottom:10px;"><div style="color:#888; font-size:12px;">DAY PROFIT</div><div style="font-size:28px; font-weight:bold; color:#4caf50;">${tv*0.012:,.2f}</div></div><div style="background:#111; border-radius:10px; padding:15px; text-align:center; border:1px solid #333;"><div style="color:#888; font-size:12px;">TOTAL RETURN</div><div style="font-size:28px; font-weight:bold; color:#4caf50;">${profit:+,.2f} ({(profit/tc*100):+.1f}%)</div></div>""", unsafe_allow_html=True)
+    pct_gain = (profit/tc*100) if tc > 0 else 0
+    
+    st.markdown(f"""<div style="background:#1E1E1E; border-radius:10px; padding:15px; text-align:center; border:1px solid #333; margin-bottom:10px;"><div style="color:#888; font-size:12px;">NET LIQUIDITY</div><div style="font-size:28px; font-weight:bold; color:white;">${tv:,.2f}</div></div><div style="background:#111; border-radius:10px; padding:15px; text-align:center; border:1px solid #333; margin-bottom:10px;"><div style="color:#888; font-size:12px;">DAY PROFIT</div><div style="font-size:28px; font-weight:bold; color:#4caf50;">${tv*0.012:,.2f}</div></div><div style="background:#111; border-radius:10px; padding:15px; text-align:center; border:1px solid #333;"><div style="color:#888; font-size:12px;">TOTAL RETURN</div><div style="font-size:28px; font-weight:bold; color:{'#4caf50' if profit>=0 else '#ff4b4b'};">${profit:+,.2f} ({pct_gain:+.1f}%)</div></div>""", unsafe_allow_html=True)
     cols = st.columns(3)
     for i, (t, inf) in enumerate(PORT.items()):
         with cols[i%3]: draw_card(t, inf)
@@ -248,8 +288,7 @@ with t3:
                     for i in root.findall('.//item')[:5]: raw.append({"title": i.find('title').text, "link": i.find('link').text, "time": "Recent"})
                 except: continue
             if raw:
-                # Need to define process_ai_batch or import logic here if using news
-                # For basic functionality we can just list them
+                # Basic display to avoid complex imports if process_ai_batch isn't defined
                 for n in raw:
                     st.markdown(f"<div style='border-left:4px solid #4caf50; padding-left:10px; margin-bottom:10px;'>{n.get('title')} <a href='{n.get('link')}'>Read</a></div>", unsafe_allow_html=True)
         else: st.error("No API Key")
