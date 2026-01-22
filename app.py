@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 import email.utils 
 import os
 import base64
+import concurrent.futures
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -33,20 +34,18 @@ def load_data():
     }
 
 def save_data():
-    try:
-        data = {
-            "w_input": st.session_state.get('w_input', ""),
-            "portfolio": st.session_state.get('portfolio', {}),
-            "alerts": {
-                "tick": st.session_state.get('a_tick_input', ""), 
-                "price": st.session_state.get('a_price_input', 0.0),
-                "active": st.session_state.get('a_on_input', False),
-                "flip": st.session_state.get('flip_on_input', False)
-            },
-            "meta_cache": st.session_state.get('meta_cache', {})
-        }
-        with open(DATA_FILE, "w") as f: json.dump(data, f)
-    except: pass
+    data = {
+        "w_input": st.session_state.get('w_input', ""),
+        "portfolio": st.session_state.get('portfolio', {}),
+        "alerts": {
+            "tick": st.session_state.get('a_tick_input', ""), 
+            "price": st.session_state.get('a_price_input', 0.0),
+            "active": st.session_state.get('a_on_input', False),
+            "flip": st.session_state.get('flip_on_input', False)
+        },
+        "meta_cache": st.session_state.get('meta_cache', {})
+    }
+    with open(DATA_FILE, "w") as f: json.dump(data, f)
 
 # --- INITIALIZATION ---
 if 'initialized' not in st.session_state:
@@ -82,7 +81,17 @@ def log_alert(msg, sound=True):
         if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
         st.session_state['banner_msg'] = msg
 
-# --- DATA ENGINE (DIRECT MODE) ---
+def safe_fetch(ticker_obj, method, timeout=0.8):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        if method == "history": future = executor.submit(ticker_obj.history, period="1d", interval="5m", prepost=True)
+        elif method == "history_5d": future = executor.submit(ticker_obj.history, period="5d", interval="15m", prepost=True)
+        elif method == "history_1mo": future = executor.submit(ticker_obj.history, period="1mo")
+        elif method == "info": future = executor.submit(lambda: ticker_obj.info)
+        elif method == "calendar": future = executor.submit(lambda: ticker_obj.calendar)
+        try: return future.result(timeout=timeout)
+        except: return None
+
+# --- DATA ENGINE ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -92,16 +101,15 @@ def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         
-        # DIRECT FETCH (Restoring your original logic)
-        h = tk.history(period="1d", interval="5m", prepost=True)
-        if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
-        if h.empty: return None
-        
+        # 1. LIVE DATA
+        h = safe_fetch(tk, "history")
+        if h is None or h.empty: h = safe_fetch(tk, "history_5d")
+        if h is None or h.empty: return None
         p_live = h['Close'].iloc[-1]
         
-        # Historical for Indicators
-        hm = tk.history(period="1mo")
-        if hm.empty: hm = h; hard_close = p_live; prev_close = p_live
+        # 2. HISTORICAL
+        hm = safe_fetch(tk, "history_1mo", timeout=1.0)
+        if hm is None or hm.empty: hm = h; hard_close = p_live; prev_close = p_live
         else: hard_close = hm['Close'].iloc[-1]; prev_close = hm['Close'].iloc[-2] if len(hm) > 1 else hard_close
 
         now_utc = datetime.utcnow(); now = now_utc - timedelta(hours=5)
@@ -111,36 +119,33 @@ def get_pro_data(s):
         disp_p = p_live if is_market else hard_close
         disp_pct = ((disp_p - prev_close)/prev_close)*100
         
-        # Extended Hours
-        ext_data = None
+        # EXTENDED HOURS LOGIC (TUCKED)
+        ext_str = ""
         if not is_tsx and not is_market and abs(p_live - hard_close) > 0.01:
             state = "POST" if now.hour >= 16 else "PRE"
             ext_pct = ((p_live - hard_close)/hard_close)*100
-            ext_data = {"state": state, "p": p_live, "pct": ext_pct}
+            col = "#4caf50" if ext_pct >= 0 else "#ff4b4b"
+            # Visual formatting: Smaller, indented, with % beside price
+            ext_str = f"<div style='color:{col}; font-size:12px; margin-top:2px;'>{state}: ${p_live:,.2f} ({ext_pct:+.2f}%)</div>"
 
-        # SMART CACHING (Only for Heavy Data)
+        # 3. METADATA
         today_str = now.strftime('%Y-%m-%d')
         cached = st.session_state['meta_cache'].get(s, {})
-        if cached.get('date') == today_str:
-            meta = cached
+        if cached.get('date') == today_str: meta = cached
         else:
-            # We ONLY check heavy data if cache is old
-            info = tk.info or {}
-            try: cal = tk.calendar
-            except: cal = {}
+            info = safe_fetch(tk, "info") or {}
+            cal = safe_fetch(tk, "calendar")
             earn = "N/A"
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 dates = cal['Earnings Date']
                 future = [d for d in dates if d.date() >= datetime.now().date()]
                 if future: earn = f"Next: {future[0].strftime('%b %d')}"
                 elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
-            
             rat = info.get('recommendationKey', 'N/A').upper().replace('_',' ')
             meta = {"rat": rat, "earn": earn, "name": info.get('longName', s), "date": today_str}
             st.session_state['meta_cache'][s] = meta
             save_data()
 
-        # Math
         rsi, trend, vol = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
             d = hm['Close'].diff(); u, dd = d.clip(lower=0), -1*d.clip(upper=0)
@@ -160,7 +165,7 @@ def get_pro_data(s):
         return {
             "p": disp_p, "d": disp_pct, "rsi": rsi, "tr": trend, "vol": vol, 
             "chart": chart, "rat": meta['rat'], "earn": meta['earn'], "name": meta.get('name', s),
-            "h": h['High'].max(), "l": h['Low'].min(), "ext_data": ext_data, "ai": f"{'🟢' if trend=='BULL' else '🔴'} {trend} BIAS"
+            "h": h['High'].max(), "l": h['Low'].min(), "ext_str": ext_str, "ai": f"{'🟢' if trend=='BULL' else '🔴'} {trend} BIAS"
         }
     except: return None
 
@@ -207,35 +212,36 @@ st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px 
 
 # --- 5. HEADER ---
 img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:100px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
-st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{(datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')} ET</span></div></div>""", unsafe_allow_html=True)
+st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">REFRESHING IN: <span id='count'>60</span>s</div></div><script>var c=60;setInterval(function(){{c--;if(c<0)c=60;document.getElementById('count').innerHTML=c;}},1000);</script>""", unsafe_allow_html=True)
 
 # --- 6. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 
 def draw_card(t, port=None):
     d = get_pro_data(t)
-    if not d:
-        st.warning(f"⚠️ {t}: Loading...")
-        return
-
+    if not d: return
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    c_head, c_price = st.columns([2, 1])
-    with c_head:
-        st.markdown(f"### {d['name']}")
-        st.caption(f"{t}")
-    with c_price:
-        st.metric(label="", value=f"${d['p']:,.2f}", delta=f"{d['d']:.2f}%")
-        if d['ext_data']:
-            ed = d['ext_data']
-            ec = "green" if ed['pct'] >= 0 else "red"
-            st.markdown(f":{ec}[**{ed['state']}**: ${ed['p']:,.2f} ({ed['pct']:+.2f}%)]")
-
+    # VISUAL REFINEMENT: Grouping Price & %
+    st.markdown(f"""
+    <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:5px;">
+        <div>
+            <div style="font-size:24px; font-weight:900;">{d['name']}</div>
+            <div style="font-size:12px; color:#888;">{t}</div>
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:22px; font-weight:bold; line-height:1;">${d['p']:,.2f}</div>
+            <div style="font-size:14px; font-weight:bold; color:{col}; line-height:1; margin-top:2px;">{d['d']:+.2f}%</div>
+            {d['ext_str']}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
     if port:
         gain = (d['p'] - port['e']) * port['q']
-        st.info(f"Qty: {port['q']} | Avg: ${port['e']} | Gain: ${gain:,.2f}")
+        st.markdown(f"<div style='background:black; padding:5px; border-left:4px solid {col}; margin:5px 0;'>Qty: {port['q']} | Avg: ${port['e']} | Gain: <span style='color:{col}'>${gain:,.2f}</span></div>", unsafe_allow_html=True)
 
-    st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** :{col.replace('#','')}[**{d['tr']}**]<br>**RATING:** {d['rat']}<br>**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
+    st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** <span style='color:{col};font-weight:bold;'>{d['tr']}</span><br>**RATING:** {d['rat']}<br>**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
     
     chart = alt.Chart(d['chart']).mark_line(color=col).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
     if 'SPY' in d['chart'].columns: chart += alt.Chart(d['chart']).mark_line(color='orange', strokeDash=[2,2]).encode(x='Idx', y='SPY')
