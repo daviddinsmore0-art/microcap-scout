@@ -19,22 +19,32 @@ WEBHOOK_URL = ""
 LOGO_PATH = "logo.png" 
 # *****************************
 
-# --- INITIALIZE SESSION STATE (The "Brain") ---
+# --- INITIALIZE SESSION STATE ---
+# We set these ONCE. Afterwards, the widgets manage themselves.
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    # Default values
-    st.session_state['w_key'] = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
-    st.session_state['at_key'] = "TD.TO"
-    st.session_state['ap_key'] = 0.0
-    st.session_state['ao_key'] = False
-    st.session_state['fo_key'] = False
-    st.session_state['ko_key'] = False
-    st.session_state['no_key'] = False
     
+    # Defaults
+    defaults = {
+        'w_key': "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
+        'at_key': "TD.TO",
+        'ap_key': 0.0,
+        'ao_key': False,
+        'fo_key': False,
+        'ko_key': False,
+        'no_key': False
+    }
+
+    # Apply defaults if key doesn't exist
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+            
     # Check URL Params to override defaults on first load
     qp = st.query_params
     if 'w' in qp: st.session_state['w_key'] = qp['w']
 
+    # Non-widget state
     st.session_state.update({
         'news_results': [], 
         'raw_news_cache': [],
@@ -134,19 +144,16 @@ st.sidebar.header("⚡ Penny Pulse")
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
-# --- RESTORE LOGIC (MUST RUN FIRST) ---
+# --- RESTORE LOGIC ---
 with st.sidebar.expander("📤 Share & Backup", expanded=False):
-    # Share
     st.caption("Share this Watchlist")
     params = []
-    # Use .get() to avoid errors
     current_w = st.session_state.get('w_key', "")
     if current_w: params.append(f"w={urllib.parse.quote(current_w)}")
     query_str = "&".join(params)
     st.code(f"/?{query_str}", language="text")
     st.divider()
     
-    # Download
     export_data = {
         'w_key': st.session_state.get('w_key'),
         'at_key': st.session_state.get('at_key'),
@@ -155,14 +162,12 @@ with st.sidebar.expander("📤 Share & Backup", expanded=False):
     }
     st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
     
-    # Restore (THE FIX)
     uploaded_file = st.file_uploader("Restore Profile", type="json")
     if uploaded_file is not None:
         try:
             string_data = uploaded_file.getvalue().decode("utf-8")
             data = json.loads(string_data)
             
-            # Map old/new keys
             key_map = {
                 'w_input': 'w_key', 'w_data': 'w_key', 'w_key': 'w_key',
                 'a_tick_input': 'at_key', 'at_data': 'at_key', 'at_key': 'at_key',
@@ -170,19 +175,19 @@ with st.sidebar.expander("📤 Share & Backup", expanded=False):
                 'a_on_input': 'ao_key', 'ao_data': 'ao_key', 'ao_key': 'ao_key'
             }
             
-            # Update State
             for k, v in data.items():
                 target = key_map.get(k, k)
                 st.session_state[target] = v
 
             st.toast("Restored! Reloading...")
             time.sleep(0.5)
-            st.rerun() # <--- CRITICAL FIX: Restart app to refresh widgets
+            st.rerun() 
                 
         except Exception as e:
             st.error(f"Error: {e}")
 
-# --- WIDGETS (After Rerun, they pick up new session_state values automatically) ---
+# --- WIDGETS (Fix: Removed 'value=' to fix warning) ---
+# Streamlit auto-binds to session_state key if it exists
 st.sidebar.text_input("Tickers", key="w_key")
 
 c1, c2 = st.sidebar.columns(2)
@@ -201,22 +206,20 @@ if st.session_state.alert_log:
             st.caption(a)
 
 PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "Jan 10", "q": 100}, "TX": {"e": 38.10, "d": "Nov 05", "q": 40}, "IMNN": {"e": 3.22, "d": "Aug 20", "q": 100}, "RERE": {"e": 5.31, "d": "Oct 12", "q": 100}}
-# Safe parsing
 w_str = st.session_state.get('w_key', "")
 ALL_T = list(set([x.strip().upper() for x in w_str.split(",") if x.strip()] + list(PORT.keys())))
 
 st.sidebar.caption("Price Target Asset")
-# Validate Selection
 if st.session_state.get('at_key') not in ALL_T and ALL_T:
     st.session_state['at_key'] = ALL_T[0]
 
-# If key doesn't exist in options, default to index 0
 try:
     idx = sorted(ALL_T).index(st.session_state.get('at_key'))
-    st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_key", label_visibility="collapsed")
+    # Removed 'index=' as explicit state takes precedence
+    st.sidebar.selectbox("", sorted(ALL_T), key="at_key", label_visibility="collapsed")
 except:
     if ALL_T:
-        st.sidebar.selectbox("", sorted(ALL_T), index=0, key="at_key", label_visibility="collapsed")
+        st.sidebar.selectbox("", sorted(ALL_T), key="at_key", label_visibility="collapsed")
 
 st.sidebar.caption("Target ($)")
 st.sidebar.number_input("", step=0.5, key="ap_key", label_visibility="collapsed")
@@ -367,7 +370,7 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- HEADER (SINGLE BLOCK) ---
+# --- HEADER (OLED BLACK BOX) ---
 img_html = ""
 img_b64 = get_base64_image(LOGO_PATH)
 
@@ -376,7 +379,6 @@ if img_b64:
 else:
     img_html = "<h1 style='text-align: center; margin: 0; padding: 0; color: white;'>⚡ Penny Pulse</h1>"
 
-# Combined HTML block for Logo + Time + Timer to ensure unified black background
 st.markdown(f"""
 <div style="
     background-color: #000000; 
@@ -392,7 +394,7 @@ st.markdown(f"""
 ">
     {img_html}
     <div style='text-align: center; color: #888; font-size: 12px; margin-bottom: 10px;'>Last Sync: {datetime.utcnow().strftime('%H:%M:%S UTC')}</div>
-    <div style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
+    <div id="timer_div" style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
         <span id="timer">--</span>s
     </div>
 </div>
