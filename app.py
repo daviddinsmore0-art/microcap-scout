@@ -25,31 +25,14 @@ LOGO_PATH = "logo.png"
 NEWS_FEEDS = ["https://finance.yahoo.com/news/rssindex", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "http://feeds.marketwatch.com/marketwatch/topstories"]
 # ==========================================
 
-# --- INITIALIZE STATE (FIXED: NO CONFLICTS) ---
+# --- INITIALIZE STATE ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    
-    # 1. Set Portfolio
-    if 'portfolio' not in st.session_state: 
-        st.session_state['portfolio'] = DEFAULT_PORTFOLIO.copy()
-    
-    # 2. Set Defaults ONLY if keys don't exist
-    defaults = {
-        'w_key': DEFAULT_WATCHLIST,
-        'at_key': "TD.TO", 
-        'ap_key': 0.0, 
-        'ao_key': False, 
-        'fo_key': False, 
-        'ko_key': False, 
-        'no_key': False
-    }
+    if 'portfolio' not in st.session_state: st.session_state['portfolio'] = DEFAULT_PORTFOLIO.copy()
+    defaults = {'w_key': DEFAULT_WATCHLIST, 'at_key': "TD.TO", 'ap_key': 0.0, 'ao_key': False, 'fo_key': False, 'ko_key': False, 'no_key': False}
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
-    
-    # 3. URL Override
-    if 'w' in st.query_params: 
-        st.session_state['w_key'] = st.query_params['w']
-        
+    if 'w' in st.query_params: st.session_state['w_key'] = st.query_params['w']
     st.session_state.update({'alert_log': [], 'storm_cooldown': {}, 'banner_msg': None})
 
 # --- FUNCTIONS ---
@@ -94,13 +77,12 @@ def get_sector_tag(s):
     sectors = {"TD":"FINA","BN":"FINA","CCO":"ENGY","IVN":"MATR","HIVE":"TECH"}
     return f"[{sectors.get(s.split('.')[0].upper(), 'IND')}]"
 
-# --- DATA ENGINE (BATCH) ---
+# --- 4. HIGH-SPEED BATCH DATA ENGINE ---
 @st.cache_data(ttl=60)
 def fetch_batch_data(tickers):
     if not tickers: return None
     try:
-        # Fetch 5 days of 15m data (Enough for charts + indicators, very fast)
-        data = yf.download(tickers, period="5d", interval="15m", group_by='ticker', progress=False, threads=True)
+        data = yf.download(tickers, period="1mo", interval="15m", group_by='ticker', progress=False, threads=True)
         return data
     except: return None
 
@@ -114,16 +96,16 @@ def get_pro_data(ticker, batch_data):
             
         if df.empty: return None
 
-        # Data Points
+        # Prices
         p_live = df['Close'].iloc[-1]
         prev_close = df['Close'].iloc[-2]
         
-        # Day Range (Last 26 bars ~ 1 day)
+        # Day Range
         last_day = df.tail(26)
         day_h = last_day['High'].max()
         day_l = last_day['Low'].min()
 
-        # Timezone
+        # Timezone Logic
         now_et = datetime.utcnow() - timedelta(hours=5) 
         is_market = (now_et.weekday() < 5) and (9 <= now_et.hour < 16) and not (now_et.hour==9 and now_et.minute<30)
         is_tsx = any(x in ticker for x in ['.TO', '.V', '.CN'])
@@ -133,10 +115,11 @@ def get_pro_data(ticker, batch_data):
         
         state, ext_str = "REG", ""
         if not is_tsx and not is_market and abs(p_live - prev_close) > 0.01:
-            state = "PRE-MKT" if now_et.hour < 9 else "POST-MKT"
-            ext_str = f"{state}: ${p_live:.2f} ({disp_pct:+.2f}%)"
+            state = "PRE-MKT" if now_et.hour < 9 else ("POST-MKT" if now_et.hour >= 16 else "EXT")
+            # --- FIX: BOLD FORMATTING FOR EXTENDED HOURS ---
+            ext_str = f"<b>{state}: ${p_live:.2f} ({disp_pct:+.2f}%)</b>"
 
-        # Indicators (Math Only - Instant)
+        # Indicators
         rsi, trend, vol = 50, "NEUTRAL", 1.0
         if len(df) > 14:
             d = df['Close'].diff(); u, dd = d.clip(lower=0), -1*d.clip(upper=0)
@@ -197,7 +180,7 @@ with st.sidebar.expander("📤 Backup", expanded=False):
             st.toast("Restored!"); time.sleep(0.5); st.rerun()
         except: st.error("Error")
 
-# WIDGETS (FIXED: REMOVED VALUE/INDEX ARGS)
+# WIDGETS
 st.sidebar.text_input("Tickers", key="w_key")
 c1, c2 = st.sidebar.columns(2)
 with c1: 
@@ -209,9 +192,10 @@ PORT = st.session_state.get('portfolio', {})
 w_str = st.session_state.get('w_key', "")
 ALL_T = list(set([x.strip().upper() for x in w_str.split(",") if x.strip()] + list(PORT.keys())))
 st.sidebar.caption("Price Target Asset")
-# Validate logic before widget
 if st.session_state.get('at_key') not in ALL_T and ALL_T: st.session_state['at_key'] = ALL_T[0]
-st.sidebar.selectbox("", sorted(ALL_T), key="at_key", label_visibility="collapsed")
+try: idx = sorted(ALL_T).index(st.session_state.get('at_key'))
+except: idx = 0
+st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_key", label_visibility="collapsed")
 st.sidebar.caption("Target ($)"); st.sidebar.number_input("", step=0.5, key="ap_key", label_visibility="collapsed")
 st.sidebar.toggle("Active Price Alert", key="ao_key")
 st.sidebar.toggle("Alert on Trend Flip", key="fo_key")
@@ -226,7 +210,17 @@ BATCH_DATA = fetch_batch_data(" ".join(all_tickers))
 # --- SCROLLER ---
 scroller_text = "Penny Pulse Market Tracker"
 if BATCH_DATA is not None:
-    scroller_text = "Penny Pulse Market Tracker • Market Data Active"
+    # --- FIX: SCROLLER SHOWS LIVE DATA ---
+    items = []
+    for t in ["SPY", "BTC-USD"]:
+        try:
+            d = BATCH_DATA[t]['Close'].iloc[-1]
+            pct = ((d - BATCH_DATA[t]['Open'].iloc[-1])/BATCH_DATA[t]['Open'].iloc[-1])*100
+            c = "#4caf50" if pct >= 0 else "#ff4b4b"
+            items.append(f"{t}: <span style='color:{c}'>${d:,.2f} ({pct:+.2f}%)</span>")
+        except: pass
+    if items: scroller_text = " &nbsp;&nbsp;|&nbsp;&nbsp; ".join(items)
+
 st.markdown(f"""<div style="background:#0E1117;padding:5px;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="color:#EEE;font-size:18px;">{scroller_text}</marquee></div>""", unsafe_allow_html=True)
 
 # HEADER
@@ -258,6 +252,7 @@ def draw_card(t, port=None):
     </div>
     """, unsafe_allow_html=True)
 
+    # --- FIX: BOLD EXTENDED HOURS ---
     if d['ext_str']: st.markdown(f"<div style='text-align:right;color:{'#4caf50' if d['d']>=0 else '#ff4b4b'}'>{d['ext_str']}</div>", unsafe_allow_html=True)
     
     if port:
@@ -269,13 +264,21 @@ def draw_card(t, port=None):
     t_color = "#4CAF50" if "BULL" in d['tr'] else "#FF4B4B"
     st.markdown(f"**☻ AI:** {d['ai']}")
     st.markdown(f"**TREND:** <span style='color:{t_color};font-weight:bold;'>{d['tr']}</span>", unsafe_allow_html=True)
-    st.markdown(f"**RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
+    st.markdown(f"**ANALYST RATING:** <span style='color:{r_color};font-weight:bold;'>{d['rat']}</span>", unsafe_allow_html=True)
+    st.markdown(f"**EARNINGS:** <b>N/A (Batch)</b>", unsafe_allow_html=True)
 
     # CHART
     base = alt.Chart(d['chart']).encode(x=alt.X('Idx', axis=None))
     l1 = base.mark_line(color=col_hex).encode(y=alt.Y('Stock', axis=None))
-    l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None)) if 'SPY' in d['chart'] else l1
-    st.altair_chart((l1+l2).properties(height=60), use_container_width=True)
+    
+    # --- FIX: CHART LEGEND & SPY ---
+    charts = l1
+    if 'SPY' in d['chart']:
+        l2 = base.mark_line(color='orange', strokeDash=[2,2]).encode(y=alt.Y('SPY', axis=None)) 
+        charts = l1 + l2
+        
+    st.altair_chart(charts.properties(height=60), use_container_width=True)
+    st.caption("INTRADAY vs SPY (Orange/Dotted)")
 
     # BARS
     if d['h'] > d['l']: pct = (d['p'] - d['l']) / (d['h'] - d['l']) * 100
@@ -341,5 +344,5 @@ with t3:
             else: st.error("No API Key")
         except: st.error("News Error")
 
-time.sleep(60)
+time.sleep(65)
 st.rerun()
