@@ -379,7 +379,7 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- HEADER (OLED BLACK BOX + LIVE TIMER FIX) ---
+# --- HEADER (NO JS TIMER) ---
 img_html = ""
 img_b64 = get_base64_image(LOGO_PATH)
 
@@ -388,8 +388,10 @@ if img_b64:
 else:
     img_html = "<h1 style='text-align: center; margin: 0; padding: 0; color: white;'>⚡ Penny Pulse</h1>"
 
-# ET Time for display
-now_et_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%H:%M:%S ET')
+# Calculate Next Update (Time + 1 min)
+now_et_obj = datetime.utcnow() - timedelta(hours=5)
+next_update = now_et_obj + timedelta(minutes=1)
+next_update_str = next_update.strftime('%H:%M:%S')
 
 st.markdown(f"""
 <div style="
@@ -405,21 +407,10 @@ st.markdown(f"""
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 ">
     {img_html}
-    <div style='text-align: center; color: #888; font-size: 12px; margin-bottom: 10px;'>Last Sync: {now_et_str}</div>
-    <div id="timer_div" style="background:#1E1E1E; border:1px solid #333; border-radius:8px; padding:5px 20px; color:#FF4B4B; font-family:'Courier New', monospace; font-weight:bold; font-size: 20px;">
-        <span id="timer">60</span>s
+    <div style='color: #888; font-size: 14px; margin-top: 10px; font-family: monospace; font-weight: bold;'>
+        NEXT UPDATE: <span style="color: #4CAF50;">{next_update_str} ET</span>
     </div>
 </div>
-<script>
-// Timer Logic: Initialize immediately with browser time
-function updateTimer() {{
-    var s = 60 - new Date().getSeconds();
-    var t = document.getElementById("timer");
-    if(t) t.innerHTML = (s < 10 ? "0" : "") + s;
-}}
-updateTimer(); // Run once immediately
-setInterval(updateTimer, 1000); // Run every second
-</script>
 """, unsafe_allow_html=True)
 
 # --- 7. TABS ---
