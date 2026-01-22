@@ -8,7 +8,6 @@ import xml.etree.ElementTree as ET
 import email.utils 
 import os
 import base64
-import concurrent.futures
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -83,18 +82,7 @@ def log_alert(msg, sound=True):
         if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
         st.session_state['banner_msg'] = msg
 
-# INCREASED TIMEOUT TO 5.0 SECONDS
-def safe_fetch(ticker_obj, method, timeout=5.0):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        if method == "history": future = executor.submit(ticker_obj.history, period="1d", interval="5m", prepost=True)
-        elif method == "history_5d": future = executor.submit(ticker_obj.history, period="5d", interval="15m", prepost=True)
-        elif method == "history_1mo": future = executor.submit(ticker_obj.history, period="1mo")
-        elif method == "info": future = executor.submit(lambda: ticker_obj.info)
-        elif method == "calendar": future = executor.submit(lambda: ticker_obj.calendar)
-        try: return future.result(timeout=timeout)
-        except: return None
-
-# --- DATA ENGINE ---
+# --- DATA ENGINE (DIRECT MODE) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -104,15 +92,16 @@ def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         
-        # 1. LIVE DATA
-        h = safe_fetch(tk, "history")
-        if h is None or h.empty: h = safe_fetch(tk, "history_5d")
-        if h is None or h.empty: return None
+        # DIRECT FETCH (Restoring your original logic)
+        h = tk.history(period="1d", interval="5m", prepost=True)
+        if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
+        if h.empty: return None
+        
         p_live = h['Close'].iloc[-1]
         
-        # 2. HISTORICAL
-        hm = safe_fetch(tk, "history_1mo")
-        if hm is None or hm.empty: hm = h; hard_close = p_live; prev_close = p_live
+        # Historical for Indicators
+        hm = tk.history(period="1mo")
+        if hm.empty: hm = h; hard_close = p_live; prev_close = p_live
         else: hard_close = hm['Close'].iloc[-1]; prev_close = hm['Close'].iloc[-2] if len(hm) > 1 else hard_close
 
         now_utc = datetime.utcnow(); now = now_utc - timedelta(hours=5)
@@ -122,31 +111,36 @@ def get_pro_data(s):
         disp_p = p_live if is_market else hard_close
         disp_pct = ((disp_p - prev_close)/prev_close)*100
         
-        # EXTENDED HOURS LOGIC
+        # Extended Hours
         ext_data = None
         if not is_tsx and not is_market and abs(p_live - hard_close) > 0.01:
             state = "POST" if now.hour >= 16 else "PRE"
             ext_pct = ((p_live - hard_close)/hard_close)*100
             ext_data = {"state": state, "p": p_live, "pct": ext_pct}
 
-        # 3. METADATA
+        # SMART CACHING (Only for Heavy Data)
         today_str = now.strftime('%Y-%m-%d')
         cached = st.session_state['meta_cache'].get(s, {})
-        if cached.get('date') == today_str: meta = cached
+        if cached.get('date') == today_str:
+            meta = cached
         else:
-            info = safe_fetch(tk, "info") or {}
-            cal = safe_fetch(tk, "calendar")
+            # We ONLY check heavy data if cache is old
+            info = tk.info or {}
+            try: cal = tk.calendar
+            except: cal = {}
             earn = "N/A"
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 dates = cal['Earnings Date']
                 future = [d for d in dates if d.date() >= datetime.now().date()]
                 if future: earn = f"Next: {future[0].strftime('%b %d')}"
                 elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
+            
             rat = info.get('recommendationKey', 'N/A').upper().replace('_',' ')
             meta = {"rat": rat, "earn": earn, "name": info.get('longName', s), "date": today_str}
             st.session_state['meta_cache'][s] = meta
             save_data()
 
+        # Math
         rsi, trend, vol = 50, "NEUTRAL", 1.0
         if len(hm) > 14:
             d = hm['Close'].diff(); u, dd = d.clip(lower=0), -1*d.clip(upper=0)
@@ -221,13 +215,11 @@ t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
 def draw_card(t, port=None):
     d = get_pro_data(t)
     if not d:
-        # Fallback card if data is missing (Wait/Error)
-        st.warning(f"⚠️ {t}: Data N/A (Retrying...)")
+        st.warning(f"⚠️ {t}: Loading...")
         return
 
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    # NATIVE LAYOUT (Replaces HTML <div> errors)
     c_head, c_price = st.columns([2, 1])
     with c_head:
         st.markdown(f"### {d['name']}")
