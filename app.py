@@ -237,6 +237,7 @@ def draw_card(t, port=None):
         gain = (d['p'] - port['e']) * port['q']
         st.info(f"Qty: {port['q']} | Avg: ${port['e']} | Gain: ${gain:,.2f}")
 
+    # FIXED MARKDOWN (No Hex Codes, No HTML Errors)
     st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** :{col_str}[**{d['tr']}**]<br>**RATING:** {d['rat']}<br>**EARNINGS:** {d['earn']}", unsafe_allow_html=True)
     
     chart = alt.Chart(d['chart']).mark_line(color=col_hex).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
