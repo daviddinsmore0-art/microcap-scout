@@ -19,9 +19,9 @@ WEBHOOK_URL = ""
 LOGO_PATH = "logo.png" 
 # *****************************
 
+# Initialize Session State "Source of Truth"
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    # Core Data States
     st.session_state['w_data'] = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY"
     st.session_state['at_data'] = "TD.TO"
     st.session_state['ap_data'] = 0.0
@@ -30,7 +30,7 @@ if 'initialized' not in st.session_state:
     st.session_state['ko_data'] = False
     st.session_state['no_data'] = False
     
-    # Check URL Params
+    # URL Override
     qp = st.query_params
     if 'w' in qp: st.session_state['w_data'] = qp['w']
 
@@ -52,13 +52,13 @@ def get_base64_image(image_path):
             return base64.b64encode(img_file.read()).decode()
     return None
 
-def sync_input(key_data, key_widget):
+def sync_widget(key_data, key_widget):
+    """Syncs the visible widget value back to the data state"""
     if key_widget in st.session_state:
         st.session_state[key_data] = st.session_state[key_widget]
-        update_params()
-
-def update_params():
-    st.query_params['w'] = st.session_state['w_data']
+        # Auto-update URL for sharing
+        if key_data == 'w_data':
+            st.query_params['w'] = st.session_state['w_data']
 
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0)
@@ -135,25 +135,23 @@ def get_sector_tag(s):
     base = s.split('.')[0].upper()
     return f"[{sectors.get(base, 'IND')}]"
 
-# --- 3. SIDEBAR (REORDERED FOR SAFETY) ---
+# --- 3. SIDEBAR ---
 st.sidebar.header("⚡ Penny Pulse")
 
 if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
 else: KEY = st.sidebar.text_input("OpenAI Key", type="password") 
 
-# --- SECTION 1: RESTORE (MUST BE FIRST) ---
-# By placing this here, we update the data BEFORE the widgets below are drawn.
+# --- A. RESTORE SECTION (LOGIC FIRST) ---
 with st.sidebar.expander("📤 Share & Backup", expanded=False):
-    # SHARE APP
+    # Share
     st.caption("Share this Watchlist")
     params = []
     if 'w_data' in st.session_state: params.append(f"w={urllib.parse.quote(st.session_state['w_data'])}")
     query_str = "&".join(params)
     st.code(f"/?{query_str}", language="text")
-    
     st.divider()
     
-    # DOWNLOAD
+    # Download
     export_data = {
         'w_data': st.session_state['w_data'],
         'at_data': st.session_state['at_data'],
@@ -162,14 +160,14 @@ with st.sidebar.expander("📤 Share & Backup", expanded=False):
     }
     st.download_button("Download Profile", json.dumps(export_data), "pulse_profile.json")
     
-    # RESTORE
+    # Restore
     uploaded_file = st.file_uploader("Restore Profile", type="json")
     if uploaded_file is not None:
         try:
             string_data = uploaded_file.getvalue().decode("utf-8")
             data = json.loads(string_data)
             
-            # Map old keys to new keys
+            # Map old keys to new keys if needed
             key_map = {
                 'w_input': 'w_data', 'w_data': 'w_data',
                 'a_tick_input': 'at_data', 'at_data': 'at_data',
@@ -177,34 +175,25 @@ with st.sidebar.expander("📤 Share & Backup", expanded=False):
                 'a_on_input': 'ao_data', 'ao_data': 'ao_data'
             }
             
-            # Update Data AND Widget Keys (Safe here because widgets aren't drawn yet)
-            widget_map = {
-                'w_data': 'w_widget', 'at_data': 'at_widget', 
-                'ap_data': 'ap_widget', 'ao_data': 'ao_widget'
-            }
-
+            # Update ONLY the data state, let widgets catch up on rerun
             for k, v in data.items():
                 target = key_map.get(k, k)
                 st.session_state[target] = v
-                if target in widget_map:
-                    st.session_state[widget_map[target]] = v
 
-            st.toast("Profile Restored!")
+            st.toast("Profile Restored! Refreshing...")
             time.sleep(0.5)
-            # No rerun needed strictly if widgets are below, but safer to do it once
-            if 'restored' not in st.session_state:
-                st.session_state['restored'] = True
-                st.rerun()
+            # Rerun forces widgets to redraw using the new session state values
+            st.rerun()
                 
         except Exception as e:
             st.error(f"Error: {e}")
 
-# --- SECTION 2: WIDGETS (NOW SAFE) ---
-st.sidebar.text_input("Tickers", value=st.session_state['w_data'], key="w_widget", on_change=sync_input, args=('w_data','w_widget'))
+# --- B. WIDGET SECTION (RENDERS FROM DATA STATE) ---
+st.sidebar.text_input("Tickers", value=st.session_state['w_data'], key="w_widget", on_change=sync_widget, args=('w_data','w_widget'))
 
 c1, c2 = st.sidebar.columns(2)
 with c1: 
-    if st.button("💾 Save"): update_params(); st.toast("Saved!")
+    if st.button("💾 Save"): st.toast("Saved!") # Data already syncs on change
 with c2: 
     if st.button("🔊 Test"): 
         log_alert("Test Signal to Discord!", sound=True)
@@ -221,21 +210,22 @@ PORT = {"HIVE": {"e": 3.19, "d": "Dec 01", "q": 50}, "BAER": {"e": 1.86, "d": "J
 ALL_T = list(set([x.strip().upper() for x in st.session_state['w_data'].split(",") if x.strip()] + list(PORT.keys())))
 
 st.sidebar.caption("Price Target Asset")
+# Validate
 if st.session_state['at_data'] not in ALL_T and ALL_T:
     st.session_state['at_data'] = ALL_T[0] if ALL_T else ""
 
 try: idx = sorted(ALL_T).index(st.session_state['at_data'])
 except: idx = 0
 
-st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_widget", on_change=sync_input, args=('at_data','at_widget'), label_visibility="collapsed")
+st.sidebar.selectbox("", sorted(ALL_T), index=idx, key="at_widget", on_change=sync_widget, args=('at_data','at_widget'), label_visibility="collapsed")
 
 st.sidebar.caption("Target ($)")
-st.sidebar.number_input("", step=0.5, value=float(st.session_state['ap_data']), key="ap_widget", on_change=sync_input, args=('ap_data','ap_widget'), label_visibility="collapsed")
+st.sidebar.number_input("", step=0.5, value=float(st.session_state['ap_data']), key="ap_widget", on_change=sync_widget, args=('ap_data','ap_widget'), label_visibility="collapsed")
 
-st.sidebar.toggle("Active Price Alert", value=st.session_state['ao_data'], key="ao_widget", on_change=sync_input, args=('ao_data','ao_widget'))
-st.sidebar.toggle("Alert on Trend Flip", value=st.session_state['fo_data'], key="fo_widget", on_change=sync_input, args=('fo_data','fo_widget'))
-st.sidebar.toggle("💡 Keep Screen On", value=st.session_state['ko_data'], key="ko_widget", on_change=sync_input, args=('ko_data','ko_widget'))
-st.sidebar.checkbox("Desktop Notifications", value=st.session_state['no_data'], key="no_widget", on_change=sync_input, args=('no_data','no_widget'))
+st.sidebar.toggle("Active Price Alert", value=st.session_state['ao_data'], key="ao_widget", on_change=sync_widget, args=('ao_data','ao_widget'))
+st.sidebar.toggle("Alert on Trend Flip", value=st.session_state['fo_data'], key="fo_widget", on_change=sync_widget, args=('fo_data','fo_widget'))
+st.sidebar.toggle("💡 Keep Screen On", value=st.session_state['ko_data'], key="ko_widget", on_change=sync_widget, args=('ko_data','ko_widget'))
+st.sidebar.checkbox("Desktop Notifications", value=st.session_state['no_data'], key="no_widget", on_change=sync_widget, args=('no_data','no_widget'))
 
 inject_wake_lock(st.session_state.get('ko_data', False))
 
@@ -378,7 +368,7 @@ if st.session_state['banner_msg']:
 scroller_html = build_scroller_safe()
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee scrollamount="10" style="width:100%;font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- HEADER WITH BASE64 LOGO EMBEDDING ---
+# --- HEADER (OLED BLACK BOX + EMBEDDED LOGO) ---
 img_html = ""
 img_b64 = get_base64_image(LOGO_PATH)
 
