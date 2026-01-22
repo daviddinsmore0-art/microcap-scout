@@ -17,16 +17,14 @@ except: pass
 WEBHOOK_URL = "" 
 LOGO_PATH = "logo.png"
 ADMIN_PASSWORD = "admin123" 
-DATA_FILE = "pulse_storage.json" # <--- NEW FILENAME (Fixes the "Hardcoded Loop")
+DATA_FILE = "pulse_v2.json"
 
 # --- 2. PERSISTENCE ENGINE ---
 def load_data():
-    """Loads user settings from the local JSON file."""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f: return json.load(f)
         except: pass
-    # FRESH START DEFAULTS
     return {
         "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY",
         "portfolio": {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}},
@@ -35,7 +33,6 @@ def load_data():
     }
 
 def save_data():
-    """Saves current session state to the local JSON file."""
     try:
         data = {
             "w_input": st.session_state.get('w_input', ""),
@@ -50,6 +47,11 @@ def save_data():
         }
         with open(DATA_FILE, "w") as f: json.dump(data, f)
     except: pass
+
+def hard_reset():
+    if os.path.exists(DATA_FILE): os.remove(DATA_FILE)
+    for key in list(st.session_state.keys()): del st.session_state[key]
+    st.rerun()
 
 # --- INITIALIZATION ---
 if 'initialized' not in st.session_state:
@@ -85,7 +87,7 @@ def log_alert(msg, sound=True):
         if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
         st.session_state['banner_msg'] = msg
 
-# --- DATA ENGINE (DIRECT FETCH - RESTORED) ---
+# --- DATA ENGINE (DIRECT FETCH) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -95,7 +97,7 @@ def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         
-        # DIRECT CALL (Restored from v174 - No Shield)
+        # DIRECT CALL
         h = tk.history(period="1d", interval="5m", prepost=True)
         if h.empty: h = tk.history(period="5d", interval="15m", prepost=True)
         if h.empty: return None
@@ -121,13 +123,12 @@ def get_pro_data(s):
             ext_pct = ((p_live - hard_close)/hard_close)*100
             ext_data = {"state": state, "p": p_live, "pct": ext_pct}
 
-        # SMART CACHING (Restored Logic)
+        # SMART CACHING
         today_str = now.strftime('%Y-%m-%d')
         cached = st.session_state['meta_cache'].get(s, {})
         if cached.get('date') == today_str:
             meta = cached
         else:
-            # Only fetch heavy data if cache is old
             info = tk.info or {}
             try: cal = tk.calendar
             except: cal = {}
@@ -175,8 +176,15 @@ with st.sidebar:
     
     st.text_input("Tickers", key="w_input", on_change=update_params)
     
+    # --- SECURE ADMIN PANEL ---
     if st.text_input("Admin Key", type="password") == ADMIN_PASSWORD:
         with st.expander("💼 Portfolio Admin", expanded=True):
+            st.info("🔓 Access Granted")
+            
+            # --- RESET BUTTON MOVED INSIDE HERE ---
+            if st.button("🔴 Hard Reset App"): hard_reset()
+            st.divider()
+            
             c1, c2, c3 = st.columns([2,2,2])
             new_t = c1.text_input("Sym").upper(); new_p = c2.number_input("Px", 0.0); new_q = c3.number_input("Qty", 0)
             if st.button("➕ Add") and new_t: st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}; save_data(); st.rerun()
@@ -223,7 +231,7 @@ def draw_card(t, port=None):
 
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    # NATIVE LAYOUT (No HTML Errors)
+    # NATIVE LAYOUT (Clean & Stable)
     c_head, c_price = st.columns([2, 1])
     with c_head:
         st.markdown(f"### {d['name']}")
