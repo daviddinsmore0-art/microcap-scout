@@ -4,10 +4,7 @@ import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
 import json
-import xml.etree.ElementTree as ET
 import os
-import base64
-import concurrent.futures
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -15,11 +12,11 @@ except: pass
 
 # *** CONFIG ***
 ADMIN_PASSWORD = "admin123" 
-DATA_FILE = "pulse_v8.json" # New File = Clean Start
-LOGO_PATH = "logo.png"
+DATA_FILE = "pulse_v9.json" # New File = Fresh Start
 
-# --- 2. PERSISTENCE ENGINE (Restored) ---
+# --- 2. PERSISTENCE ENGINE (OPTIMIZED) ---
 def load_data():
+    """Loads user settings from disk."""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f: return json.load(f)
@@ -29,11 +26,11 @@ def load_data():
     return {
         "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY, NKE",
         "portfolio": {},
-        "alerts": {"tick": "TD.TO", "price": 0.0, "active": False, "flip": False},
-        "meta_cache": {}
+        "alerts": {"tick": "TD.TO", "price": 0.0, "active": False, "flip": False}
     }
 
 def save_data():
+    """Saves ONLY user settings. NEVER called during data fetch."""
     try:
         data = {
             "w_input": st.session_state.get('w_input', ""),
@@ -43,8 +40,7 @@ def save_data():
                 "price": st.session_state.get('a_price_input', 0.0),
                 "active": st.session_state.get('a_on_input', False),
                 "flip": st.session_state.get('flip_on_input', False)
-            },
-            "meta_cache": st.session_state.get('meta_cache', {})
+            }
         }
         with open(DATA_FILE, "w") as f: json.dump(data, f)
     except: pass
@@ -64,30 +60,19 @@ if 'initialized' not in st.session_state:
     st.session_state['a_price_input'] = saved['alerts'].get('price')
     st.session_state['a_on_input'] = saved['alerts'].get('active')
     st.session_state['flip_on_input'] = saved['alerts'].get('flip')
-    st.session_state['meta_cache'] = saved.get('meta_cache', {})
+    # Meta cache is now RAM-ONLY (Prevents I/O crashes)
+    st.session_state['meta_cache'] = {} 
     st.session_state['keep_on_input'] = False
-    st.session_state.update({'news_results': [], 'raw_news_cache': [], 'alert_log': [], 'banner_msg': None})
+    
+    # Force first save to create file
     if not os.path.exists(DATA_FILE): save_data()
 
-# --- HELPERS (Safe Location) ---
-def get_base64_image(image_path):
-    if os.path.exists(image_path):
-        with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
-    return None
-
-def update_params(): save_data()
+# --- HELPERS ---
+def update_params(): save_data() # Only save on user input
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
 
-# --- SAFE FETCH (Threading Wrapper) ---
-def safe_chart_fetch(ticker_obj, timeout=3.0):
-    # Only used for the HEAVY chart data.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(ticker_obj.history, period="1d", interval="5m", prepost=False)
-        try: return future.result(timeout=timeout)
-        except: return pd.DataFrame()
-
-# --- DATA ENGINE (Hybrid) ---
+# --- DATA ENGINE (DIRECT & READ-ONLY) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -97,20 +82,17 @@ def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         
-        # --- PHASE 1: DIRECT FETCH (Price) ---
-        # We fetch the daily candle DIRECTLY (No shield, no timeout).
-        # This guarantees "TD.TO" gets a price instantly.
+        # 1. PRICE (Daily - Guaranteed)
         daily = tk.history(period="1d")
-        
         if daily.empty: return None 
         
         p_live = daily['Close'].iloc[-1]
         p_open = daily['Open'].iloc[-1]
         
-        # --- PHASE 2: SHIELDED FETCH (Chart) ---
-        # We try to get the 5m chart using the Thread Shield.
-        # If TD takes too long, the shield kills it, but we still have the price from Phase 1.
-        intraday = safe_chart_fetch(tk, timeout=3.0)
+        # 2. CHART (Intraday - Best Effort)
+        try:
+            intraday = tk.history(period="1d", interval="5m", prepost=False)
+        except: intraday = pd.DataFrame()
             
         if not intraday.empty:
             chart_source = intraday
@@ -124,10 +106,10 @@ def get_pro_data(s):
         d_val = p_live - prev_close
         d_pct = (d_val / prev_close) * 100 if prev_close != 0 else 0
         
-        # --- PHASE 3: METADATA (Cached) ---
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        cached = st.session_state['meta_cache'].get(s, {})
-        if cached.get('date') == today_str: meta = cached
+        # 3. METADATA (RAM Cache Only - NO DISK WRITE)
+        # This prevents the loop from locking the file system
+        if s in st.session_state['meta_cache']:
+            meta = st.session_state['meta_cache'][s]
         else:
             info = tk.info or {}
             try: cal = tk.calendar
@@ -139,17 +121,15 @@ def get_pro_data(s):
                 if future: earn = f"Next: {future[0].strftime('%b %d')}"
                 elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
             rat = info.get('recommendationKey', 'N/A').upper().replace('_',' ')
-            meta = {"rat": rat, "earn": earn, "name": info.get('longName', s), "date": today_str}
-            st.session_state['meta_cache'][s] = meta
-            save_data()
+            meta = {"rat": rat, "earn": earn, "name": info.get('longName', s)}
+            st.session_state['meta_cache'][s] = meta # Store in RAM only
 
-        # Build Chart
+        # Chart
         chart = chart_source['Close'].reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
 
-        # SPY Overlay
         spy = get_spy_data()
         if spy is not None and len(spy) > 0 and len(chart) > 1 and not intraday.empty:
              spy_slice = spy.tail(len(chart))
@@ -169,9 +149,8 @@ def get_pro_data(s):
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.header("⚡ Penny Pulse")
-    if "OPENAI_KEY" in st.secrets: KEY = st.secrets["OPENAI_KEY"]
-    else: KEY = st.text_input("OpenAI Key", type="password") 
-    
+    # This input triggers 'update_params', which saves to file. 
+    # The main loop DOES NOT save to file.
     st.text_input("Tickers", key="w_input", on_change=update_params)
     
     if st.text_input("Admin Key", type="password") == ADMIN_PASSWORD:
@@ -181,9 +160,15 @@ with st.sidebar:
             st.divider()
             c1, c2, c3 = st.columns([2,2,2])
             new_t = c1.text_input("Sym").upper(); new_p = c2.number_input("Px", 0.0); new_q = c3.number_input("Qty", 0)
-            if st.button("➕ Add") and new_t: st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}; save_data(); st.rerun()
+            if st.button("➕ Add") and new_t: 
+                st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
+                save_data() # Save only on button click
+                st.rerun()
             rem_t = st.selectbox("Remove", [""] + list(st.session_state['portfolio'].keys()))
-            if st.button("🗑️ Del") and rem_t: del st.session_state['portfolio'][rem_t]; save_data(); st.rerun()
+            if st.button("🗑️ Del") and rem_t: 
+                del st.session_state['portfolio'][rem_t]
+                save_data() # Save only on button click
+                st.rerun()
 
     st.divider()
     st.subheader("🔔 Smart Alerts")
@@ -210,9 +195,8 @@ for sym, name in indices:
 scroller_html = " &nbsp;&nbsp;|&nbsp;&nbsp; ".join(scroller_items) if scroller_items else "Market Tracker Active"
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 5. HEADER (Logo Restored) ---
-img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:100px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
-st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{(datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')} ET</span></div></div>""", unsafe_allow_html=True)
+# --- 5. HEADER ---
+st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;"><h1>⚡ Penny Pulse</h1><div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{(datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')} ET</span></div></div>""", unsafe_allow_html=True)
 
 # --- 6. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -237,7 +221,6 @@ def draw_card(t, port=None):
         gain = (d['p'] - port['e']) * port['q']
         st.info(f"Qty: {port['q']} | Avg: ${port['e']} | Gain: ${gain:,.2f}")
 
-    # FIXED MARKDOWN (No Hex Codes, No HTML Errors)
     st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** :{col_str}[**{d['tr']}**]<br>**RATING:** {d['rat']}<br>**EARNINGS:** {d['earn']}", unsafe_allow_html=True)
     
     chart = alt.Chart(d['chart']).mark_line(color=col_hex).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
