@@ -282,7 +282,7 @@ def get_pro_data(s):
 @st.cache_data(ttl=60)
 def build_scroller_safe():
     try:
-        indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")], ("GL-F", "GOLD")
+        indices = [("SPY", "S&P 500"), ("^IXIC", "Nasdaq"), ("^DJI", "Dow Jones"), ("BTC-USD", "Bitcoin")], ("GC-F", "GOLD")]
         items = []
         for t, n in indices:
             d = get_pro_data(t)
