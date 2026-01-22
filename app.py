@@ -3,76 +3,51 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt 
-import json
+import xml.etree.ElementTree as ET
 import os
+import base64
 
 # --- 1. SETUP ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
 # *** CONFIG ***
-ADMIN_PASSWORD = "admin123" 
-DATA_FILE = "pulse_v9.json" # New File = Fresh Start
+ADMIN_PASSWORD = "admin123"
+LOGO_PATH = "logo.png"
 
-# --- 2. PERSISTENCE ENGINE (OPTIMIZED) ---
-def load_data():
-    """Loads user settings from disk."""
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r") as f: return json.load(f)
-        except: pass
-    
-    # Defaults
-    return {
-        "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY, NKE",
-        "portfolio": {},
-        "alerts": {"tick": "TD.TO", "price": 0.0, "active": False, "flip": False}
-    }
-
-def save_data():
-    """Saves ONLY user settings. NEVER called during data fetch."""
-    try:
-        data = {
-            "w_input": st.session_state.get('w_input', ""),
-            "portfolio": st.session_state.get('portfolio', {}),
-            "alerts": {
-                "tick": st.session_state.get('a_tick_input', ""), 
-                "price": st.session_state.get('a_price_input', 0.0),
-                "active": st.session_state.get('a_on_input', False),
-                "flip": st.session_state.get('flip_on_input', False)
-            }
-        }
-        with open(DATA_FILE, "w") as f: json.dump(data, f)
-    except: pass
-
-def hard_reset():
-    if os.path.exists(DATA_FILE): os.remove(DATA_FILE)
-    for key in list(st.session_state.keys()): del st.session_state[key]
-    st.rerun()
-
-# --- INITIALIZATION ---
+# --- 2. SESSION STATE (RAM ONLY - NO FILE SAVING) ---
 if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
-    saved = load_data()
-    st.session_state['w_input'] = saved.get('w_input')
-    st.session_state['portfolio'] = saved.get('portfolio')
-    st.session_state['a_tick_input'] = saved['alerts'].get('tick')
-    st.session_state['a_price_input'] = saved['alerts'].get('price')
-    st.session_state['a_on_input'] = saved['alerts'].get('active')
-    st.session_state['flip_on_input'] = saved['alerts'].get('flip')
-    # Meta cache is now RAM-ONLY (Prevents I/O crashes)
-    st.session_state['meta_cache'] = {} 
-    st.session_state['keep_on_input'] = False
+    # YOUR DEFAULT LIST (Hardcoded since we aren't saving)
+    st.session_state['w_input'] = "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY, NKE, VCIG, AIRE, IMNN, BAER, RERE"
     
-    # Force first save to create file
-    if not os.path.exists(DATA_FILE): save_data()
+    # YOUR DEFAULT PORTFOLIO (Hardcoded)
+    st.session_state['portfolio'] = {
+        "HIVE": {"e": 3.19, "q": 50}, 
+        "BAER": {"e": 1.86, "q": 100}, 
+        "TX": {"e": 38.10, "q": 40}, 
+        "IMNN": {"e": 3.22, "q": 100}, 
+        "RERE": {"e": 5.31, "q": 100}
+    }
+    
+    st.session_state['alerts'] = {"tick": "TD.TO", "price": 0.0, "active": False, "flip": False}
+    st.session_state['meta_cache'] = {} # RAM Cache only
+    st.session_state['keep_on_input'] = False
+    st.session_state['a_tick_input'] = "TD.TO"
+    st.session_state['a_price_input'] = 0.0
+    st.session_state['a_on_input'] = False
+    st.session_state['flip_on_input'] = False
 
 # --- HELPERS ---
-def update_params(): save_data() # Only save on user input
+def get_base64_image(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file: return base64.b64encode(img_file.read()).decode()
+    return None
+
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
 
-# --- DATA ENGINE (DIRECT & READ-ONLY) ---
+# --- DATA ENGINE (DIRECT & DECOUPLED) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -106,8 +81,7 @@ def get_pro_data(s):
         d_val = p_live - prev_close
         d_pct = (d_val / prev_close) * 100 if prev_close != 0 else 0
         
-        # 3. METADATA (RAM Cache Only - NO DISK WRITE)
-        # This prevents the loop from locking the file system
+        # 3. METADATA (RAM Cache Only)
         if s in st.session_state['meta_cache']:
             meta = st.session_state['meta_cache'][s]
         else:
@@ -122,7 +96,7 @@ def get_pro_data(s):
                 elif dates: earn = f"Last: {dates[0].strftime('%b %d')}"
             rat = info.get('recommendationKey', 'N/A').upper().replace('_',' ')
             meta = {"rat": rat, "earn": earn, "name": info.get('longName', s)}
-            st.session_state['meta_cache'][s] = meta # Store in RAM only
+            st.session_state['meta_cache'][s] = meta
 
         # Chart
         chart = chart_source['Close'].reset_index()
@@ -149,36 +123,36 @@ def get_pro_data(s):
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.header("⚡ Penny Pulse")
-    # This input triggers 'update_params', which saves to file. 
-    # The main loop DOES NOT save to file.
-    st.text_input("Tickers", key="w_input", on_change=update_params)
+    
+    # Simple Text Input (RAM Only)
+    new_w = st.text_input("Tickers", value=st.session_state.w_input)
+    if new_w != st.session_state.w_input:
+        st.session_state.w_input = new_w
+        st.rerun()
     
     if st.text_input("Admin Key", type="password") == ADMIN_PASSWORD:
         with st.expander("💼 Portfolio Admin", expanded=True):
-            st.info("🔓 Access Granted")
-            if st.button("🔴 Hard Reset App"): hard_reset()
-            st.divider()
+            st.info("🔓 Access Granted (RAM Only)")
             c1, c2, c3 = st.columns([2,2,2])
             new_t = c1.text_input("Sym").upper(); new_p = c2.number_input("Px", 0.0); new_q = c3.number_input("Qty", 0)
             if st.button("➕ Add") and new_t: 
                 st.session_state['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
-                save_data() # Save only on button click
                 st.rerun()
             rem_t = st.selectbox("Remove", [""] + list(st.session_state['portfolio'].keys()))
             if st.button("🗑️ Del") and rem_t: 
                 del st.session_state['portfolio'][rem_t]
-                save_data() # Save only on button click
                 st.rerun()
 
     st.divider()
     st.subheader("🔔 Smart Alerts")
     ALL_T = list(set([x.strip().upper() for x in st.session_state.w_input.split(",") if x.strip()] + list(st.session_state['portfolio'].keys())))
     if st.session_state.a_tick_input not in ALL_T and ALL_T: st.session_state.a_tick_input = ALL_T[0]
-    st.selectbox("Asset", sorted(ALL_T), key="a_tick_input", on_change=update_params)
-    st.number_input("Target ($)", key="a_price_input", on_change=update_params)
-    st.toggle("Price Alert", key="a_on_input", on_change=update_params)
-    st.toggle("Trend Alert", key="flip_on_input", on_change=update_params)
-    st.toggle("Keep Screen On", key="keep_on_input", on_change=update_params)
+    
+    st.selectbox("Asset", sorted(ALL_T), key="a_tick_input")
+    st.number_input("Target ($)", key="a_price_input")
+    st.toggle("Price Alert", key="a_on_input")
+    st.toggle("Trend Alert", key="flip_on_input")
+    st.toggle("Keep Screen On", key="keep_on_input")
 
 inject_wake_lock(st.session_state.keep_on_input)
 
@@ -196,7 +170,8 @@ scroller_html = " &nbsp;&nbsp;|&nbsp;&nbsp; ".join(scroller_items) if scroller_i
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
 # --- 5. HEADER ---
-st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;"><h1>⚡ Penny Pulse</h1><div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{(datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')} ET</span></div></div>""", unsafe_allow_html=True)
+img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:100px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
+st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{(datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')} ET</span></div></div>""", unsafe_allow_html=True)
 
 # --- 6. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
