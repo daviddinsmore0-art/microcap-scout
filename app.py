@@ -5,7 +5,6 @@ import pandas as pd
 import altair as alt 
 import json
 import xml.etree.ElementTree as ET
-import email.utils 
 import os
 import base64
 
@@ -14,10 +13,8 @@ try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide"
 except: pass 
 
 # *** CONFIG ***
-WEBHOOK_URL = "" 
-LOGO_PATH = "logo.png"
 ADMIN_PASSWORD = "admin123" 
-DATA_FILE = "pulse_v5.json" # <--- NEW FILE V5 (Fresh Start)
+DATA_FILE = "pulse_v6.json" # New File = Fresh Start
 
 # --- 2. PERSISTENCE ENGINE ---
 def load_data():
@@ -26,10 +23,10 @@ def load_data():
             with open(DATA_FILE, "r") as f: return json.load(f)
         except: pass
     
-    # DEFAULT STARTING STOCKS (Including Big Caps to test)
+    # Defaults
     return {
         "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY, NKE",
-        "portfolio": {"HIVE": {"e": 3.19, "q": 50}, "BAER": {"e": 1.86, "q": 100}, "TX": {"e": 38.10, "q": 40}, "IMNN": {"e": 3.22, "q": 100}, "RERE": {"e": 5.31, "q": 100}},
+        "portfolio": {},
         "alerts": {"tick": "TD.TO", "price": 0.0, "active": False, "flip": False},
         "meta_cache": {}
     }
@@ -67,8 +64,7 @@ if 'initialized' not in st.session_state:
     st.session_state['flip_on_input'] = saved['alerts'].get('flip')
     st.session_state['meta_cache'] = saved.get('meta_cache', {})
     st.session_state['keep_on_input'] = False
-    st.session_state['notify_input'] = False
-    st.session_state.update({'news_results': [], 'raw_news_cache': [], 'news_offset': 0, 'alert_log': [], 'storm_cooldown': {}, 'spy_cache': None, 'spy_last_fetch': datetime.min, 'banner_msg': None})
+    st.session_state.update({'news_results': [], 'raw_news_cache': [], 'alert_log': [], 'banner_msg': None})
     if not os.path.exists(DATA_FILE): save_data()
 
 # --- HELPERS ---
@@ -81,13 +77,7 @@ def update_params(): save_data()
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
 
-def log_alert(msg, sound=True):
-    if msg not in st.session_state.alert_log:
-        st.session_state.alert_log.insert(0, f"{datetime.now().strftime('%H:%M')} - {msg}")
-        if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
-        st.session_state['banner_msg'] = msg
-
-# --- DATA ENGINE (HEAVY LIFTER FIX) ---
+# --- DATA ENGINE (DECOUPLED) ---
 @st.cache_data(ttl=300)
 def get_spy_data():
     try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
@@ -97,27 +87,32 @@ def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         
-        # 1. PRIORITY FETCH: DAILY CANDLE (Guaranteed Small Size)
-        # This ensures we ALWAYS get a price for NKE/TD, even if 5m fails.
+        # --- PHASE 1: THE PRICE (Must Succeed) ---
+        # We fetch 1 day of data. This is small and almost guaranteed to work.
         daily = tk.history(period="1d")
-        if daily.empty: return None # Ticker doesn't exist
         
+        # If even this fails, the stock is invalid or Yahoo is down.
+        if daily.empty: return None 
+        
+        # We secured the price!
         p_live = daily['Close'].iloc[-1]
         p_open = daily['Open'].iloc[-1]
         
-        # 2. SECONDARY FETCH: 5m CHART (The Heavy Part)
-        # We try to get the detailed chart. If it fails (timeout/empty), we fallback to daily.
+        # --- PHASE 2: THE CHART (Optional) ---
+        # We try to fetch the heavy 5m data. If it fails, we don't crash.
         try:
-            h = tk.history(period="1d", interval="5m", prepost=False) # Turn off prepost to reduce size
-        except: h = pd.DataFrame()
-        
-        if not h.empty:
-            chart_source = h
-            # Use 5m close if available for better accuracy
-            p_live = h['Close'].iloc[-1] 
-            prev_close = h['Close'].iloc[-2] if len(h)>1 else daily['Open'].iloc[0]
+            intraday = tk.history(period="1d", interval="5m", prepost=False)
+        except: 
+            intraday = pd.DataFrame() # Fail gracefully
+            
+        # Decision Time: Use Intraday if we have it, otherwise use Daily
+        if not intraday.empty:
+            chart_source = intraday
+            # Update price to the more precise 5m close if available
+            p_live = intraday['Close'].iloc[-1]
+            # Use yesterday's close or today's open as baseline
+            prev_close = intraday['Close'].iloc[0] 
         else:
-            # Fallback to daily data for chart (Flat line is better than crash)
             chart_source = daily
             prev_close = p_open
 
@@ -125,12 +120,13 @@ def get_pro_data(s):
         d_val = p_live - prev_close
         d_pct = (d_val / prev_close) * 100 if prev_close != 0 else 0
         
-        # Metadata Cache
+        # --- PHASE 3: METADATA (Cached) ---
         today_str = datetime.now().strftime('%Y-%m-%d')
         cached = st.session_state['meta_cache'].get(s, {})
         if cached.get('date') == today_str: meta = cached
         else:
             info = tk.info or {}
+            # Safer Calendar Fetch
             try: cal = tk.calendar
             except: cal = {}
             earn = "N/A"
@@ -144,27 +140,27 @@ def get_pro_data(s):
             st.session_state['meta_cache'][s] = meta
             save_data()
 
-        # Indicators (Basic)
-        trend = "BULL" if d_pct >= 0 else "BEAR"
-        vol = 1.0 # Default if no history
-        rsi = 50
-        
-        # Build Chart
+        # Build Chart Data
         chart = chart_source['Close'].reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
+        # Normalize to 0 start
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
 
+        # SPY Overlay (Only if we have a real chart)
         spy = get_spy_data()
-        if spy is not None and len(spy) > 0 and len(chart) > 1:
+        if spy is not None and len(spy) > 0 and len(chart) > 1 and not intraday.empty:
              spy_slice = spy.tail(len(chart))
              if len(spy_slice) == len(chart):
                  chart['SPY'] = ((spy_slice.values - spy_slice.values[0])/spy_slice.values[0])*100
 
+        # Indicators
+        trend = "BULL" if d_pct >= 0 else "BEAR"
+        
         return {
-            "p": p_live, "d": d_pct, "rsi": rsi, "tr": trend, "vol": vol, 
+            "p": p_live, "d": d_pct, "tr": trend,
             "chart": chart, "rat": meta['rat'], "earn": meta['earn'], "name": meta.get('name', s),
-            "h": daily['High'].max(), "l": daily['Low'].min(), "ext_data": None, 
+            "h": daily['High'].max(), "l": daily['Low'].min(), 
             "ai": f"{'🟢' if trend=='BULL' else '🔴'} {trend} BIAS"
         }
     except: return None
@@ -226,7 +222,9 @@ def draw_card(t, port=None):
         st.warning(f"⚠️ {t}: Data N/A (Retrying...)")
         return
 
-    col = "#4caf50" if d['d']>=0 else "#ff4b4b"
+    # Colors for Streamlit Markdown (Green/Red strings, no hex)
+    col_str = "green" if d['d']>=0 else "red"
+    col_hex = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
     # NATIVE LAYOUT
     c_head, c_price = st.columns([2, 1])
@@ -235,25 +233,22 @@ def draw_card(t, port=None):
         st.caption(f"{t}")
     with c_price:
         st.metric(label="", value=f"${d['p']:,.2f}", delta=f"{d['d']:.2f}%")
-        if d['ext_data']:
-            ed = d['ext_data']
-            ec = "green" if ed['pct'] >= 0 else "red"
-            st.markdown(f":{ec}[**{ed['state']}**: ${ed['p']:,.2f} ({ed['pct']:+.2f}%)]")
 
     if port:
         gain = (d['p'] - port['e']) * port['q']
         st.info(f"Qty: {port['q']} | Avg: ${port['e']} | Gain: ${gain:,.2f}")
 
-    st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** :{col.replace('#','')}[**{d['tr']}**]<br>**RATING:** {d['rat']}<br>**EARNINGS:** <b>{d['earn']}</b>", unsafe_allow_html=True)
+    # FIXED MARKDOWN (No Hex Codes, No HTML Errors)
+    st.markdown(f"**☻ AI:** {d['ai']}<br>**TREND:** :{col_str}[**{d['tr']}**]<br>**RATING:** {d['rat']}<br>**EARNINGS:** {d['earn']}", unsafe_allow_html=True)
     
-    chart = alt.Chart(d['chart']).mark_line(color=col).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
+    chart = alt.Chart(d['chart']).mark_line(color=col_hex).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
     if 'SPY' in d['chart'].columns: chart += alt.Chart(d['chart']).mark_line(color='orange', strokeDash=[2,2]).encode(x='Idx', y='SPY')
     st.altair_chart(chart, use_container_width=True)
     st.caption("INTRADAY vs SPY (Orange/Dotted)")
 
+    # Range Bar (No Text/Divs inside)
     pct = max(0, min(100, ((d['p']-d['l'])/(d['h']-d['l'])*100 if d['h']>d['l'] else 50)))
     st.markdown(f"""<div style="font-size:10px;color:#888;">Day Range</div><div style="width:100%;height:8px;background:linear-gradient(90deg, #ff4b4b, #ffff00, #4caf50);border-radius:4px;position:relative;margin-bottom:10px;"><div style="position:absolute;left:{pct}%;top:-2px;width:3px;height:12px;background:white;border:1px solid #333;"></div></div>""", unsafe_allow_html=True)
-    st.markdown(f"""<div style="font-size:10px;color:#888;">Volume ({d['vol']:.1f}x)</div><div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:8px;"><div style="width:{min(100, d['vol']*50)}%;height:100%;background:#2196F3;"></div></div><div style="font-size:10px;color:#888;">RSI ({d['rsi']:.0f})</div><div style="width:100%;height:6px;background:#333;border-radius:3px;margin-bottom:15px;"><div style="width:{d['rsi']}%;height:100%;background:{'#ff4b4b' if d['rsi']>70 else '#4caf50'};"></div></div>""", unsafe_allow_html=True)
     st.divider()
 
 with t1:
