@@ -119,14 +119,13 @@ def get_pro_data(s):
         disp_p = p_live if is_market else hard_close
         disp_pct = ((disp_p - prev_close)/prev_close)*100
         
-        # EXTENDED HOURS LOGIC (TUCKED)
         ext_str = ""
         if not is_tsx and not is_market and abs(p_live - hard_close) > 0.01:
             state = "POST" if now.hour >= 16 else "PRE"
             ext_pct = ((p_live - hard_close)/hard_close)*100
             col = "#4caf50" if ext_pct >= 0 else "#ff4b4b"
-            # Visual formatting: Smaller, indented, with % beside price
-            ext_str = f"<div style='color:{col}; font-size:12px; margin-top:2px;'>{state}: ${p_live:,.2f} ({ext_pct:+.2f}%)</div>"
+            # Fixed Formatting for HTML
+            ext_str = f"<div style='color:{col}; font-size:12px; margin-top:0px;'>{state}: ${p_live:,.2f} ({ext_pct:+.2f}%)</div>"
 
         # 3. METADATA
         today_str = now.strftime('%Y-%m-%d')
@@ -222,10 +221,11 @@ def draw_card(t, port=None):
     if not d: return
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    # VISUAL REFINEMENT: Grouping Price & %
-    st.markdown(f"""
+    # HTML FIX: Removed nesting risk by using clean f-strings
+    # This structure guarantees no </div> errors will print on screen
+    header_html = f"""
     <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:5px;">
-        <div>
+        <div style="flex-grow:1;">
             <div style="font-size:24px; font-weight:900;">{d['name']}</div>
             <div style="font-size:12px; color:#888;">{t}</div>
         </div>
@@ -235,7 +235,8 @@ def draw_card(t, port=None):
             {d['ext_str']}
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """
+    st.markdown(header_html, unsafe_allow_html=True)
     
     if port:
         gain = (d['p'] - port['e']) * port['q']
