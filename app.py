@@ -86,7 +86,8 @@ def log_alert(msg, sound=True):
         if sound: components.html("""<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>""", height=0)
         st.session_state['banner_msg'] = msg
 
-def safe_fetch(ticker_obj, method, timeout=0.8):
+# INCREASED TIMEOUT to 2.0s to allow stocks to load without crashing
+def safe_fetch(ticker_obj, method, timeout=2.0):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         if method == "history": future = executor.submit(ticker_obj.history, period="1d", interval="5m", prepost=True)
         elif method == "history_5d": future = executor.submit(ticker_obj.history, period="5d", interval="15m", prepost=True)
@@ -113,7 +114,7 @@ def get_pro_data(s):
         p_live = h['Close'].iloc[-1]
         
         # 2. HISTORICAL
-        hm = safe_fetch(tk, "history_1mo", timeout=1.0)
+        hm = safe_fetch(tk, "history_1mo")
         if hm is None or hm.empty: hm = h; hard_close = p_live; prev_close = p_live
         else: hard_close = hm['Close'].iloc[-1]; prev_close = hm['Close'].iloc[-2] if len(hm) > 1 else hard_close
 
@@ -213,9 +214,10 @@ for sym, name in indices:
 scroller_html = " &nbsp;&nbsp;|&nbsp;&nbsp; ".join(scroller_items) if scroller_items else "Market Tracker Active"
 st.markdown(f"""<div style="background:#0E1117;padding:10px 0;border-bottom:1px solid #333;margin-bottom:15px;"><marquee style="font-weight:bold;font-size:18px;color:#EEE;">{scroller_html}</marquee></div>""", unsafe_allow_html=True)
 
-# --- 5. HEADER ---
+# --- 5. HEADER (FIXED NEXT PULSE) ---
 img_html = f'<img src="data:image/png;base64,{get_base64_image(LOGO_PATH)}" style="max-height:100px; display:block; margin:0 auto;">' if get_base64_image(LOGO_PATH) else "<h1 style='text-align:center;'>⚡ Penny Pulse</h1>"
-st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">REFRESHING IN: <span id='count'>60</span>s</div></div><script>var c=60;setInterval(function(){{c--;if(c<0)c=60;document.getElementById('count').innerHTML=c;}},1000);</script>""", unsafe_allow_html=True)
+next_pulse = (datetime.utcnow() - timedelta(hours=5) + timedelta(minutes=1)).strftime('%H:%M:%S')
+st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">{img_html}<div style="color:#888;font-size:12px;margin-top:10px;">NEXT PULSE: <span style="color:#4caf50; font-weight:bold;">{next_pulse} ET</span></div></div>""", unsafe_allow_html=True)
 
 # --- 6. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Dashboard", "🚀 My Picks", "📰 Market News"])
@@ -225,7 +227,7 @@ def draw_card(t, port=None):
     if not d: return
     col = "#4caf50" if d['d']>=0 else "#ff4b4b"
     
-    # NEW LAYOUT: Native Columns (No more </div> errors)
+    # NEW LAYOUT: Native Columns (No broken tags)
     c_head, c_price = st.columns([2, 1])
     with c_head:
         st.markdown(f"<div style='font-size:24px; font-weight:900; line-height:1.1;'>{d['name']}</div>", unsafe_allow_html=True)
@@ -233,8 +235,6 @@ def draw_card(t, port=None):
     with c_price:
         st.markdown(f"<div style='text-align:right; font-size:22px; font-weight:bold; line-height:1;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='text-align:right; font-size:14px; font-weight:bold; color:{col}; line-height:1; margin-top:2px;'>{d['d']:+.2f}%</div>", unsafe_allow_html=True)
-        
-        # Extended Hours (Tucked Safely)
         if d['ext_data']:
             ed = d['ext_data']
             ec = "#4caf50" if ed['pct'] >= 0 else "#ff4b4b"
