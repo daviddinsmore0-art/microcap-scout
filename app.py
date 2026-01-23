@@ -92,28 +92,56 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- DATA ENGINE ---
+# --- NEW: FUNDAMENTAL DATA ENGINE (Cached for 24 Hours) ---
+@st.cache_data(ttl=86400) # Only runs once a day per ticker
+def get_fundamentals(s):
+    try:
+        tk = yf.Ticker(s)
+        # 1. Analyst Rating
+        try: rating = tk.info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
+        except: rating = "N/A"
+        
+        # 2. Next Earnings Date
+        try: 
+            cal = tk.calendar
+            if cal is not None and not cal.empty:
+                # Get the next Earnings Date
+                next_earn = cal.iloc[0][0] # Often the first row
+                earn_str = next_earn.strftime('%b %d')
+            else:
+                earn_str = "N/A"
+        except: earn_str = "N/A"
+        
+        return {"rating": rating, "earn": earn_str}
+    except:
+        return {"rating": "N/A", "earn": "N/A"}
+
+# --- LIVE DATA ENGINE ---
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
         hist = tk.history(period="1mo", interval="1d")
         if hist.empty: return None 
         
+        # Prices
         p_live = hist['Close'].iloc[-1]
-        p_open = hist['Open'].iloc[-1]
-        prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_open
-        
-        try: 
-            intraday = tk.history(period="1d", interval="5m", prepost=False)
-            if not intraday.empty:
-                chart_source = intraday
-                p_live = intraday['Close'].iloc[-1]
-            else:
-                chart_source = hist.tail(20)
-        except: 
-            chart_source = hist.tail(20)
-
+        prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
+
+        # --- PRE/POST MARKET LOGIC (Approximation) ---
+        # We check if 'fast_info' has extended hours data
+        pre_post_txt = ""
+        try:
+            # Check fast_info for after hours
+            last_price = tk.fast_info.get('last_price', p_live)
+            
+            # Simple check: If fast_info price is different from history close
+            if abs(last_price - p_live) > 0.01:
+                pp_pct = ((last_price - p_live) / p_live) * 100
+                lbl = "POST" # Default to POST for simplicity, or check time
+                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
+                pre_post_txt = f"<span style='color:#888; font-size:10px; font-weight:bold;'>{lbl}: </span><span style='color:{col}; font-size:10px;'>${last_price:,.2f} ({pp_pct:+.2f}%)</span>"
+        except: pass
 
         # Metrics
         rsi_series = calculate_rsi(hist['Close'])
@@ -126,8 +154,12 @@ def get_pro_data(s):
         day_high = hist['High'].iloc[-1]
         day_low = hist['Low'].iloc[-1]
         range_pos = ((p_live - day_low) / (day_high - day_low)) * 100 if day_high != day_low else 50
+        
+        # AI Trend Calculation (Price vs 20 SMA)
+        sma20 = hist['Close'].tail(20).mean()
+        ai_trend = "BULLISH" if p_live > sma20 else "BEARISH"
 
-        chart = chart_source['Close'].reset_index()
+        chart = hist['Close'].tail(20).reset_index() # Use last 20 days for chart
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
@@ -138,7 +170,7 @@ def get_pro_data(s):
         return {
             "p": p_live, "d": d_pct, "chart": chart, "name": name,
             "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos,
-            "h": day_high, "l": day_low
+            "h": day_high, "l": day_low, "ai": ai_trend, "pp": pre_post_txt
         }
     except: return None
 
@@ -184,11 +216,22 @@ st.markdown("""
         .ticker { display: inline-block; padding-left: 100%; animation: ticker 30s linear infinite; }
         @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
 
-        /* DEEP DATA BARS */
+        /* METRIC BARS & INFO PILLS */
         .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; }
         .bar-fill { height: 100%; border-radius: 3px; }
         .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
         .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; }
+        
+        .info-pill {
+            font-size: 11px; 
+            color: #333; 
+            background: #f4f4f4; 
+            padding: 4px 8px; 
+            border-radius: 5px; 
+            font-weight: 600;
+            margin-right: 5px;
+            display: inline-block;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -299,9 +342,11 @@ else:
             st.warning(f"⚠️ {t}: Fetching...")
             return
         
+        # Fetch Fundamental Data (Cached 24h)
+        fund = get_fundamentals(t)
+        
         border_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-        trend_txt = "BULLISH" if d['d'] >= 0 else "BEARISH"
-        trend_icon = "🟢" if d['d'] >= 0 else "🔴"
+        ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         arrow = "▲" if d['d'] >= 0 else "▼"
         
         with st.container():
@@ -311,22 +356,27 @@ else:
             st.markdown(f"""
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;">
                     <div>
-                        <div style="display:flex; align-items:center;">
-                            <span style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</span>
-                            <span style="font-size:10px; background:#f0f2f6; padding:2px 6px; border-radius:4px; color:#555; vertical-align:middle;">
-                                {trend_icon} {trend_txt}
-                            </span>
-                        </div>
+                        <div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div>
                         <div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div>
                     </div>
                     <div style="text-align:right;">
                         <div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div>
                         <div style="font-size:13px; font-weight:bold; color:{border_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>
-                    </div>
+                        {d['pp']} </div>
                 </div>
             """, unsafe_allow_html=True)
             
-            # 2. SPARKLINE CHART
+            # --- INTELLIGENCE ROW (Pills) ---
+            # AI Trend | Rating | Earnings
+            st.markdown(f"""
+                <div style="margin-bottom:10px;">
+                    <span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d['ai']}</span>
+                    <span class="info-pill">RATING: {fund['rating']}</span>
+                    <span class="info-pill">EARN: {fund['earn']}</span>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # SPARKLINE CHART
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':border_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=border_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
@@ -336,43 +386,28 @@ else:
             ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
 
-            # 3. DEEP DATA BARS
-            # A. DAY RANGE
+            # METRIC BARS
+            # Range
             st.markdown(f"""
-            <div class="metric-label">
-                <span>Day Range</span>
-                <span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span>
-            </div>
-            <div class="bar-bg">
-                <div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div>
-            </div>
+            <div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>
             """, unsafe_allow_html=True)
-
-            # B. RSI
+            
+            # RSI
             rsi = d['rsi']
             rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
             rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
             rsi_fill = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#888"
             st.markdown(f"""
-            <div class="metric-label">
-                <span>RSI ({int(rsi)})</span>
-                <span class="tag" style="background:{rsi_bg}">{rsi_tag}</span>
-            </div>
-            <div class="bar-bg">
-                <div class="bar-fill" style="width:{rsi}%; background:{rsi_fill};"></div>
-            </div>
+            <div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_fill};"></div></div>
             """, unsafe_allow_html=True)
-
-            # C. VOLUME
+            
+            # Volume
             vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
             st.markdown(f"""
-            <div class="metric-label">
-                <span>Volume ({d['vol_pct']:.0f}%)</span>
-                <span style="color:#3498db; font-weight:bold;">{vol_stat}</span>
-            </div>
-            <div class="bar-bg">
-                <div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div>
-            </div>
+            <div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{vol_stat}</span></div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>
             """, unsafe_allow_html=True)
 
             if port:
@@ -383,7 +418,6 @@ else:
                     <span>Avg: <b>${port['e']}</b></span>
                     <span style="color:{gain_col}; font-weight:bold;">${gain:+,.0f}</span>
                 </div>""", unsafe_allow_html=True)
-            
             st.divider()
 
     with t1:
