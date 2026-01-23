@@ -76,7 +76,6 @@ def save_user(username, data):
 
 # --- HELPERS ---
 def get_base64_image(path):
-    """Converts image to string so it can be used in HTML headers"""
     if os.path.exists(path):
         with open(path, "rb") as f: return base64.b64encode(f.read()).decode()
     return None
@@ -123,8 +122,11 @@ st.markdown("""
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
         
-        /* Reduce top padding on mobile so logo sits higher */
-        .block-container {padding-top: 1rem; padding-bottom: 2rem;}
+        /* INCREASED PADDING TO FIX "TOO HIGH" ISSUE */
+        .block-container {
+            padding-top: 3.5rem; 
+            padding-bottom: 2rem;
+        }
         
         /* Card Styling */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
@@ -144,7 +146,7 @@ st.markdown("""
         .main-header {
             background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
             padding: 10px 15px;
-            border-radius: 0 0 15px 15px;
+            border-radius: 15px; /* Rounded all corners since it now floats a bit lower */
             color: white;
             margin-bottom: 20px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
@@ -165,8 +167,6 @@ if 'init' not in st.session_state:
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        # NO EXTRA PADDING HERE - Logo will sit at the top
-        
         if os.path.exists(LOGO_PATH):
             lc1, lc2, lc3 = st.columns([1,2,1])
             with lc2:
@@ -240,12 +240,11 @@ else:
     # -- TOP HEADER WITH LOGO --
     t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M %p')
     
-    # Convert local logo to Base64 to embed in HTML
     img_b64 = get_base64_image(LOGO_PATH)
     if img_b64:
         logo_html = f'<img src="data:image/png;base64,{img_b64}" style="height:40px; vertical-align:middle; margin-right:10px;">'
     else:
-        logo_html = "⚡ " # Fallback if image fails
+        logo_html = "⚡ "
 
     st.markdown(f"""
         <div class="main-header">
