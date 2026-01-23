@@ -93,21 +93,32 @@ def calculate_rsi(data, window=14):
     return 100 - (100 / (1 + rs))
 
 # --- NEW: FUNDAMENTAL DATA ENGINE (Cached for 24 Hours) ---
-@st.cache_data(ttl=86400) # Only runs once a day per ticker
+@st.cache_data(ttl=86400) 
 def get_fundamentals(s):
     try:
         tk = yf.Ticker(s)
         # 1. Analyst Rating
-        try: rating = tk.info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
+        try: 
+            rating = tk.info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
+            if rating == "NONE": rating = "N/A"
         except: rating = "N/A"
         
         # 2. Next Earnings Date
         try: 
             cal = tk.calendar
             if cal is not None and not cal.empty:
-                # Get the next Earnings Date
-                next_earn = cal.iloc[0][0] # Often the first row
-                earn_str = next_earn.strftime('%b %d')
+                # Different versions of yfinance return different structures for calendar
+                # We try to grab the first date found
+                if isinstance(cal, dict):
+                    next_earn = cal.get('Earnings Date', [None])[0]
+                else:
+                    # If it's a dataframe
+                    next_earn = cal.iloc[0][0]
+                
+                if next_earn:
+                    earn_str = next_earn.strftime('%b %d')
+                else: 
+                    earn_str = "N/A"
             else:
                 earn_str = "N/A"
         except: earn_str = "N/A"
@@ -128,19 +139,17 @@ def get_pro_data(s):
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
-        # --- PRE/POST MARKET LOGIC (Approximation) ---
-        # We check if 'fast_info' has extended hours data
+        # --- PRE/POST MARKET LOGIC ---
         pre_post_txt = ""
         try:
-            # Check fast_info for after hours
-            last_price = tk.fast_info.get('last_price', p_live)
-            
-            # Simple check: If fast_info price is different from history close
-            if abs(last_price - p_live) > 0.01:
-                pp_pct = ((last_price - p_live) / p_live) * 100
-                lbl = "POST" # Default to POST for simplicity, or check time
+            # We try to get real-time price from fast_info
+            rt_price = tk.fast_info.get('last_price', None)
+            if rt_price and abs(rt_price - p_live) > (p_live * 0.001): # 0.1% diff
+                # If the fast_info price is different from the historical close, we assume extended hours or live gap
+                pp_pct = ((rt_price - p_live) / p_live) * 100
+                lbl = "POST" 
                 col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                pre_post_txt = f"<span style='color:#888; font-size:10px; font-weight:bold;'>{lbl}: </span><span style='color:{col}; font-size:10px;'>${last_price:,.2f} ({pp_pct:+.2f}%)</span>"
+                pre_post_txt = f"<div style='color:#888; font-size:10px; margin-top:2px; text-align:right;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${rt_price:,.2f} ({pp_pct:+.2f}%)</span></div>"
         except: pass
 
         # Metrics
@@ -155,11 +164,14 @@ def get_pro_data(s):
         day_low = hist['Low'].iloc[-1]
         range_pos = ((p_live - day_low) / (day_high - day_low)) * 100 if day_high != day_low else 50
         
-        # AI Trend Calculation (Price vs 20 SMA)
+        # Trend Calculation
         sma20 = hist['Close'].tail(20).mean()
         ai_trend = "BULLISH" if p_live > sma20 else "BEARISH"
+        
+        # Simple Trend Text
+        trend_txt = "UPTREND" if p_live > sma20 else "DOWNTREND"
 
-        chart = hist['Close'].tail(20).reset_index() # Use last 20 days for chart
+        chart = hist['Close'].tail(20).reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
@@ -170,7 +182,7 @@ def get_pro_data(s):
         return {
             "p": p_live, "d": d_pct, "chart": chart, "name": name,
             "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos,
-            "h": day_high, "l": day_low, "ai": ai_trend, "pp": pre_post_txt
+            "h": day_high, "l": day_low, "ai": ai_trend, "trend": trend_txt, "pp": pre_post_txt
         }
     except: return None
 
@@ -222,15 +234,17 @@ st.markdown("""
         .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
         .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; }
         
+        /* THE STATUS PILL STYLE */
         .info-pill {
-            font-size: 11px; 
+            font-size: 10px; 
             color: #333; 
-            background: #f4f4f4; 
-            padding: 4px 8px; 
-            border-radius: 5px; 
+            background: #f8f9fa; 
+            padding: 3px 8px; 
+            border-radius: 4px; 
             font-weight: 600;
-            margin-right: 5px;
+            margin-right: 6px;
             display: inline-block;
+            border: 1px solid #eee;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -342,17 +356,25 @@ else:
             st.warning(f"⚠️ {t}: Fetching...")
             return
         
-        # Fetch Fundamental Data (Cached 24h)
         fund = get_fundamentals(t)
         
         border_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-        ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         arrow = "▲" if d['d'] >= 0 else "▼"
         
+        # Colors for pills
+        ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
+        trend_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
+        
+        # Analyst Rating Color Logic
+        r_up = fund['rating'].upper()
+        if "BUY" in r_up or "OUTPERFORM" in r_up: rating_col = "#4caf50"
+        elif "SELL" in r_up or "UNDERPERFORM" in r_up: rating_col = "#ff4b4b"
+        else: rating_col = "#f1c40f" # Yellow for Hold
+
         with st.container():
             st.markdown(f"<div style='height:4px; width:100%; background-color:{border_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             
-            # --- CUSTOM HEADER LAYOUT (FLEXBOX) ---
+            # --- HEADER (Ticker + Price) ---
             st.markdown(f"""
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;">
                     <div>
@@ -362,17 +384,18 @@ else:
                     <div style="text-align:right;">
                         <div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div>
                         <div style="font-size:13px; font-weight:bold; color:{border_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>
-                        {d['pp']} </div>
+                        {d['pp']} 
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
             
-            # --- INTELLIGENCE ROW (Pills) ---
-            # AI Trend | Rating | Earnings
+            # --- INTELLIGENCE ROW (Colored Border Pills) ---
             st.markdown(f"""
-                <div style="margin-bottom:10px;">
+                <div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">
                     <span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d['ai']}</span>
-                    <span class="info-pill">RATING: {fund['rating']}</span>
-                    <span class="info-pill">EARN: {fund['earn']}</span>
+                    <span class="info-pill" style="border-left: 3px solid {trend_col}">{d['trend']}</span>
+                    <span class="info-pill" style="border-left: 3px solid {rating_col}">RATING: {fund['rating']}</span>
+                    <span class="info-pill" style="border-left: 3px solid #333">EARN: {fund['earn']}</span>
                 </div>
             """, unsafe_allow_html=True)
             
