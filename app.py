@@ -9,7 +9,6 @@ from mysql.connector import Error
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import os
-import base64
 
 # --- SETUP & STYLING ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -17,7 +16,7 @@ except: pass
 
 # *** CONFIG ***
 ADMIN_PASSWORD = "admin123"
-LOGO_PATH = "logo.png"
+LOGO_PATH = "logo.png"  # <--- Matches your GitHub filename
 
 # *** DATABASE CONFIG ***
 DB_CONFIG = {
@@ -28,10 +27,9 @@ DB_CONFIG = {
     "connect_timeout": 10
 }
 
-# --- CUSTOM CSS (The "Dressing Up" Part) ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
-        /* Mobile Menu Visibility Fix */
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
         
@@ -107,12 +105,6 @@ def save_user(username, data):
         conn.close()
     except: pass
 
-# --- HELPERS ---
-def get_base64_image(path):
-    if os.path.exists(path):
-        with open(path, "rb") as f: return base64.b64encode(f.read()).decode()
-    return None
-
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
 
@@ -164,14 +156,19 @@ if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown(f"""
-        <div style="text-align:center; padding:30px; background:#f0f2f6; border-radius:15px;">
-            <h1 style='color:#333;'>⚡ Penny Pulse</h1>
-            <p style='color:#666;'>Professional Market Intelligence</p>
-        </div>
-        """, unsafe_allow_html=True)
         
-        st.markdown("<br>", unsafe_allow_html=True)
+        # --- LOGO LOGIC ---
+        if os.path.exists(LOGO_PATH):
+            # Centering the image using columns inside the form area
+            lc1, lc2, lc3 = st.columns([1,2,1])
+            with lc2:
+                st.image(LOGO_PATH, use_container_width=True)
+        else:
+            st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        # ------------------
+        
+        st.markdown("<h3 style='text-align:center; color:#666;'>Market Intelligence</h3>", unsafe_allow_html=True)
+        
         with st.form("login"):
             user = st.text_input("Identity Access", placeholder="Enter Username")
             if st.form_submit_button("Authenticate", type="primary") and user:
@@ -190,7 +187,14 @@ else:
 
     # -- SIDEBAR --
     with st.sidebar:
-        st.title(f"👤 {st.session_state['username']}")
+        # --- SIDEBAR LOGO ---
+        if os.path.exists(LOGO_PATH):
+            st.image(LOGO_PATH, width=150)
+        else:
+            st.title("⚡ Penny Pulse")
+        # --------------------
+
+        st.markdown(f"**Operator:** {st.session_state['username']}")
         if st.button("Logout", type="secondary"):
             st.session_state['logged_in'] = False
             st.rerun()
@@ -224,7 +228,7 @@ else:
                     push()
                     st.rerun()
         
-        st.caption("v208.0 Pro")
+        st.caption("v209.0 Pro")
         st.checkbox("Always On Display", key="keep_on")
     
     inject_wake_lock(st.session_state['keep_on'])
@@ -249,13 +253,9 @@ else:
             st.warning(f"⚠️ {t}: Fetching...")
             return
         
-        # Dynamic Border Color
         border_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
         
-        # Render Card
         with st.container():
-            # Apply a colored border using markdown logic isn't perfect in Streamlit containers, 
-            # so we use a colored divider line at the top of the card
             st.markdown(f"<div style='height:4px; width:100%; background-color:{border_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             
             c1, c2 = st.columns([1.5, 1])
@@ -267,7 +267,6 @@ else:
                 st.markdown(f"<div style='text-align:right; font-size:22px; font-weight:bold;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='text-align:right; color:{border_col}; font-weight:bold;'>{arrow} {d['d']:.2f}%</div>", unsafe_allow_html=True)
             
-            # Chart
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':border_col},
                 color=alt.Gradient(
@@ -283,7 +282,6 @@ else:
             
             st.altair_chart(chart, use_container_width=True)
             
-            # Portfolio Data
             if port:
                 gain = (d['p'] - port['e']) * port['q']
                 gain_col = "#4caf50" if gain >= 0 else "#ff4b4b"
@@ -300,7 +298,7 @@ else:
     # -- TAB 1: WATCHLIST --
     with t1:
         tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
-        cols = st.columns(3) # Grid Layout
+        cols = st.columns(3) 
         for i, t in enumerate(tickers):
             with cols[i%3]: draw(t)
 
