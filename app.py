@@ -114,7 +114,7 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- DATA ENGINE (FIXED DATE LOGIC) ---
+# --- DATA ENGINE ---
 @st.cache_data(ttl=600) 
 def get_fundamentals(s):
     try:
@@ -127,23 +127,18 @@ def get_fundamentals(s):
         try:
             cal = tk.calendar
             next_earn = None
-            
-            # Extract whatever date exists
             if hasattr(cal, 'iloc') and not cal.empty: 
                 next_earn = cal.iloc[0][0]
             elif isinstance(cal, dict): 
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
-            # --- SAFE COMPARISON ---
             if next_earn:
-                # Convert to pandas Timestamp to handle any format
                 ts = pd.Timestamp(next_earn)
-                # Compare pure DATE vs pure DATE (No timezones allowed)
                 if ts.date() >= datetime.now().date():
                     earn_str = ts.strftime('%b %d')
                 else:
-                    earn_str = "N/A" # Hides Past Dates
+                    earn_str = "N/A"
         except: pass
         
         return {"rating": rating, "earn": earn_str}
@@ -159,16 +154,23 @@ def get_pro_data(s):
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
+        # --- PRE/POST MARKET LOGIC ---
         pre_post_html = ""
         try:
             rt_price = tk.fast_info.get('last_price', p_live)
-            if rt_price and abs(rt_price - p_live) > 0.001:
+            # Only show if there is a real price difference (> 1 cent)
+            if rt_price and abs(rt_price - p_live) > 0.01:
                 pp_pct = ((rt_price - p_live) / p_live) * 100
-                now = datetime.now(timezone.utc) - timedelta(hours=5)
+                
+                # Determine label based on UTC time (approximate)
+                now = datetime.now(timezone.utc) - timedelta(hours=5) # EST
                 lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
+                
                 col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
                 pct_fmt = f"{pp_pct:+.2f}%"
-                pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
+                
+                # New Format: Small separate line
+                pre_post_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${rt_price:,.2f} ({pct_fmt})</span></div>"
         except: pass
 
         sma20 = hist['Close'].tail(20).mean()
@@ -242,7 +244,6 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* 3.5rem top padding - fits header perfectly */
         .block-container { padding-top: 3.5rem !important; padding-bottom: 2rem; }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
@@ -320,9 +321,7 @@ else:
     components.html(header_html, height=50)
 
     with st.sidebar:
-        # User Name Display (No Logo)
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>User: {st.session_state['username']}</b></div>", unsafe_allow_html=True)
-        
         st.subheader("Operator Control")
         new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""), height=150)
         if new_w != st.session_state['user_data']['w_input']:
@@ -388,7 +387,8 @@ else:
         ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         tr_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
 
-        header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}% {d['pp']}</div></div></div>"""
+        # Pre/Post is now d['pp'], which is a full DIV string that sits below this block
+        header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div>"""
         
         pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span>'
         pills_html += f'<span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
