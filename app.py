@@ -236,4 +236,97 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if not st.session_state['logged_in']:
-    c1, c2, c3 = st.columns(
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2:
+        if os.path.exists(LOGO_PATH):
+            lc1, lc2, lc3 = st.columns([1,2,1])
+            with lc2: st.image(LOGO_PATH, use_container_width=True)
+        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        user = st.text_input("Identity Access")
+        if st.button("Authenticate", type="primary") and user:
+            st.query_params["token"] = create_session(user.strip())
+            st.session_state['username'] = user.strip()
+            st.session_state['user_data'] = load_user(user.strip())
+            st.session_state['logged_in'] = True
+            st.rerun()
+else:
+    def push(): save_user(st.session_state['username'], st.session_state['user_data'])
+    
+    # --- HEADER ---
+    t_str = (datetime.utcnow()-timedelta(hours=5)).strftime('%I:%M:%S %p')
+    img_b64 = get_base64_image(LOGO_PATH)
+    logo_src = f'<img src="data:image/png;base64,{img_b64}" style="height:35px; vertical-align:middle; margin-right:10px;">' if img_b64 else "⚡ "
+    tape = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
+    
+    st.markdown(f"""
+        <div class="header-container">
+            <div class="header-top">
+                <div style="display:flex; align-items:center; font-size:22px; font-weight:900; letter-spacing:-1px;">
+                    {logo_src} Penny Pulse
+                </div>
+                <div style="font-family:monospace; font-size:14px; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:5px;">● {t_str} ET</div>
+            </div>
+            <div class="ticker-wrap"><div class="ticker">{tape} {tape}</div></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    with st.sidebar:
+        if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
+        st.subheader("Operator Control")
+        new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""))
+        if new_w != st.session_state['user_data']['w_input']:
+            st.session_state['user_data']['w_input'] = new_w
+            push()
+            st.rerun()
+        if st.button("Logout"):
+            logout_session(st.query_params.get("token"))
+            st.query_params.clear()
+            st.session_state['logged_in'] = False
+            st.rerun()
+            
+    inject_wake_lock(True)
+
+    def draw(t):
+        d = get_pro_data(t)
+        if not d: return
+        f = get_fundamentals(t)
+        b_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+        
+        with st.container():
+            st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
+            
+            # Unified Price Header
+            st.markdown(f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{d['d']:+.2f}% {d['pp']}</div></div></div>""", unsafe_allow_html=True)
+            
+            # Pills
+            p_html = f'<span class="info-pill" style="border-left: 3px solid {b_col}">AI: {d["ai"]}</span>'
+            p_html += f'<span class="info-pill" style="border-left: 3px solid {b_col}">TREND: {d["trend"]}</span>'
+            if f['rating'] != "N/A": p_html += f'<span class="info-pill" style="border-left: 3px solid {b_col}">RAT: {f["rating"]}</span>'
+            if f['earn'] != "N/A": p_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
+            st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{p_html}</div>', unsafe_allow_html=True)
+
+            # Sparkline
+            chart = alt.Chart(d['chart']).mark_area(line={'color':b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('Idx:Q', axis=None), y=alt.Y('Stock:Q', scale=alt.Scale(zero=False), axis=None), tooltip=[]).properties(height=45)
+            st.altair_chart(chart, use_container_width=True)
+            
+            # Bars
+            st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
+            
+            rsi = d['rsi']
+            rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
+            rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
+            st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_bg};"></div></div>""", unsafe_allow_html=True)
+            
+            vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
+            st.markdown(f"""<div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{vol_stat}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>""", unsafe_allow_html=True)
+            
+            st.divider()
+
+    # Dynamic Watchlist Loop
+    tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
+    cols = st.columns(3)
+    for i, t in enumerate(tickers):
+        with cols[i%3]: draw(t)
+
+    time.sleep(30)
+    st.rerun()
