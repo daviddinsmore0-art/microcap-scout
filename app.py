@@ -49,9 +49,6 @@ def create_session(username):
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        # Delete old sessions for this user to keep it clean (Single Device Login)
-        # OR remove this line if you want multi-device login.
-        # Currently: One active session per user.
         cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
         cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
         conn.commit()
@@ -64,7 +61,6 @@ def validate_session(token):
         conn = get_connection()
         if not conn.is_connected(): conn.reconnect(attempts=3, delay=1)
         cursor = conn.cursor()
-        # This query does NOT check time. Token is valid until manually deleted.
         cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
         res = cursor.fetchone()
         conn.close()
@@ -118,7 +114,7 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- DATA ENGINE ---
+# --- DATA ENGINE (FIXED DATE LOGIC) ---
 @st.cache_data(ttl=600) 
 def get_fundamentals(s):
     try:
@@ -131,21 +127,25 @@ def get_fundamentals(s):
         try:
             cal = tk.calendar
             next_earn = None
+            
+            # Extract whatever date exists
             if hasattr(cal, 'iloc') and not cal.empty: 
                 next_earn = cal.iloc[0][0]
             elif isinstance(cal, dict): 
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
-            # --- FUTURE EARNINGS FILTER ---
+            # --- SAFE COMPARISON ---
             if next_earn:
-                if isinstance(next_earn, pd.Timestamp): next_earn = next_earn.to_pydatetime()
-                # If date is today or future, show it. Else hide.
-                if next_earn.date() >= datetime.now().date():
-                    earn_str = next_earn.strftime('%b %d')
+                # Convert to pandas Timestamp to handle any format
+                ts = pd.Timestamp(next_earn)
+                # Compare pure DATE vs pure DATE (No timezones allowed)
+                if ts.date() >= datetime.now().date():
+                    earn_str = ts.strftime('%b %d')
                 else:
-                    earn_str = "N/A"
+                    earn_str = "N/A" # Hides Past Dates
         except: pass
+        
         return {"rating": rating, "earn": earn_str}
     except: return {"rating": "N/A", "earn": "N/A"}
 
@@ -319,10 +319,9 @@ else:
     """
     components.html(header_html, height=50)
 
-    # --- SIDEBAR (LOGO REMOVED, NAME ADDED) ---
     with st.sidebar:
-        # Username Display
-        st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
+        # User Name Display (No Logo)
+        st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>User: {st.session_state['username']}</b></div>", unsafe_allow_html=True)
         
         st.subheader("Operator Control")
         new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""), height=150)
