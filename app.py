@@ -122,7 +122,6 @@ def get_fundamentals(s):
         rating = inf.get('recommendationKey', 'N/A').replace('_', ' ').upper()
         if rating == "NONE": rating = "N/A"
         
-        # RAW EARNINGS (Restored)
         earn_str = "N/A"
         try:
             cal = tk.calendar
@@ -203,12 +202,10 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                
-                # RAW SYMBOLS
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
-                items.append(f"<span style='color:#ccc; font-weight:bold; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
+                items.append(f"<span style='color:#ccc; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
         except: pass
     return "   ".join(items)
 
@@ -230,8 +227,7 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* THIS PADDING PREVENTS HEADER OVERLAP */
-        .block-container { padding-top: 3.5rem !important; padding-bottom: 2rem; }
+        .block-container { padding-top: 4rem !important; padding-bottom: 2rem; }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
@@ -265,25 +261,32 @@ else:
     
     tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
     
-    # --- IFRAME TICKER (The robust way) ---
-    # Seamless loop: Content repeated 4x, Animation 25% duration
+    # --- IFRAME TICKER (BOLD FONT) ---
     header_html = f"""
     <!DOCTYPE html>
     <html>
     <head>
     <style>
-        body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; }}
+        body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }}
         .ticker-container {{
             width: 100%; height: 45px; background: #111;
             display: flex; align-items: center;
             border-bottom: 1px solid #333;
-            border-radius: 0 0 15px 15px; /* Rounded Bottom */
+            border-radius: 0 0 15px 15px; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }}
         .ticker-wrap {{ width: 100%; overflow: hidden; white-space: nowrap; }}
-        .ticker-move {{ display: inline-block; animation: ticker 25s linear infinite; }}
+        .ticker-move {{ display: inline-block; animation: ticker 15s linear infinite; }}
         @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-25%, 0, 0); }} }}
-        .ticker-item {{ display: inline-block; color: white; font-family: monospace; font-size: 14px; padding: 0 20px; }}
+        
+        /* BOLD FONT STYLE */
+        .ticker-item {{ 
+            display: inline-block; 
+            color: white; 
+            font-weight: 900; /* BOLD */
+            font-size: 16px; 
+            padding: 0 20px; 
+        }}
     </style>
     </head>
     <body>
@@ -297,8 +300,6 @@ else:
     </body>
     </html>
     """
-    # Use components.html to render it safely
-    # height=50 ensures no scrollbars, slightly more than the 45px div
     components.html(header_html, height=50)
 
     with st.sidebar:
