@@ -9,6 +9,7 @@ from mysql.connector import Error
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import os
+import base64
 
 # --- SETUP & STYLING ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -16,7 +17,7 @@ except: pass
 
 # *** CONFIG ***
 ADMIN_PASSWORD = "admin123"
-LOGO_PATH = "logo.png"  # <--- Matches your GitHub filename
+LOGO_PATH = "logo.png"
 
 # *** DATABASE CONFIG ***
 DB_CONFIG = {
@@ -26,38 +27,6 @@ DB_CONFIG = {
     "database": "penny_pulse",
     "connect_timeout": 10
 }
-
-# --- CUSTOM CSS ---
-st.markdown("""
-    <style>
-        #MainMenu {visibility: visible;}
-        footer {visibility: hidden;}
-        
-        /* Card Styling */
-        div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
-            background-color: #ffffff;
-            border-radius: 10px;
-            padding: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        
-        /* Metric Styling */
-        [data-testid="stMetricValue"] {
-            font-size: 1.8rem !important;
-            font-weight: 700 !important;
-        }
-        
-        /* Header Gradient */
-        .main-header {
-            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
-            padding: 15px;
-            border-radius: 0 0 15px 15px;
-            color: white;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 # --- DATABASE ENGINE ---
 def get_connection():
@@ -105,10 +74,16 @@ def save_user(username, data):
         conn.close()
     except: pass
 
+# --- HELPERS ---
+def get_base64_image(path):
+    """Converts image to string so it can be used in HTML headers"""
+    if os.path.exists(path):
+        with open(path, "rb") as f: return base64.b64encode(f.read()).decode()
+    return None
+
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
 
-# --- DATA ENGINE ---
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
@@ -142,6 +117,41 @@ def get_pro_data(s):
         return {"p": p_live, "d": d_pct, "tr": trend, "chart": chart, "name": name}
     except: return None
 
+# --- CUSTOM CSS ---
+st.markdown("""
+    <style>
+        #MainMenu {visibility: visible;}
+        footer {visibility: hidden;}
+        
+        /* Reduce top padding on mobile so logo sits higher */
+        .block-container {padding-top: 1rem; padding-bottom: 2rem;}
+        
+        /* Card Styling */
+        div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
+            background-color: #ffffff;
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        /* Metric Styling */
+        [data-testid="stMetricValue"] {
+            font-size: 1.8rem !important;
+            font-weight: 700 !important;
+        }
+        
+        /* Header Gradient */
+        .main-header {
+            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
+            padding: 10px 15px;
+            border-radius: 0 0 15px 15px;
+            color: white;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- APP LOGIC ---
 if 'init' not in st.session_state:
     st.session_state['init'] = True
@@ -155,19 +165,16 @@ if 'init' not in st.session_state:
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        # NO EXTRA PADDING HERE - Logo will sit at the top
         
-        # --- LOGO LOGIC ---
         if os.path.exists(LOGO_PATH):
-            # Centering the image using columns inside the form area
             lc1, lc2, lc3 = st.columns([1,2,1])
             with lc2:
                 st.image(LOGO_PATH, use_container_width=True)
         else:
             st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-        # ------------------
         
-        st.markdown("<h3 style='text-align:center; color:#666;'>Market Intelligence</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align:center; color:#666; margin-top:-10px;'>Market Intelligence</h3>", unsafe_allow_html=True)
         
         with st.form("login"):
             user = st.text_input("Identity Access", placeholder="Enter Username")
@@ -187,12 +194,10 @@ else:
 
     # -- SIDEBAR --
     with st.sidebar:
-        # --- SIDEBAR LOGO ---
         if os.path.exists(LOGO_PATH):
             st.image(LOGO_PATH, width=150)
         else:
             st.title("⚡ Penny Pulse")
-        # --------------------
 
         st.markdown(f"**Operator:** {st.session_state['username']}")
         if st.button("Logout", type="secondary"):
@@ -202,7 +207,7 @@ else:
         
         st.subheader("Watchlist")
         curr_w = st.session_state['user_data'].get('w_input', "")
-        new_w = st.text_area("Edit Tickers", value=curr_w, height=150, help="Comma separated e.g. AAPL, TSLA")
+        new_w = st.text_area("Edit Tickers", value=curr_w, height=150)
         if new_w != curr_w:
             st.session_state['user_data']['w_input'] = new_w
             push()
@@ -228,17 +233,26 @@ else:
                     push()
                     st.rerun()
         
-        st.caption("v209.0 Pro")
         st.checkbox("Always On Display", key="keep_on")
     
     inject_wake_lock(st.session_state['keep_on'])
 
-    # -- TOP HEADER --
+    # -- TOP HEADER WITH LOGO --
     t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M %p')
+    
+    # Convert local logo to Base64 to embed in HTML
+    img_b64 = get_base64_image(LOGO_PATH)
+    if img_b64:
+        logo_html = f'<img src="data:image/png;base64,{img_b64}" style="height:40px; vertical-align:middle; margin-right:10px;">'
+    else:
+        logo_html = "⚡ " # Fallback if image fails
+
     st.markdown(f"""
         <div class="main-header">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="font-size:26px; font-weight:900; letter-spacing:-1px;">⚡ Penny Pulse <span style="font-size:12px; font-weight:normal; opacity:0.7;">PRO</span></div>
+                <div style="display:flex; align-items:center; font-size:24px; font-weight:900; letter-spacing:-1px;">
+                    {logo_html} Penny Pulse
+                </div>
                 <div style="font-family:monospace; font-size:16px; background:rgba(255,255,255,0.1); padding:5px 10px; border-radius:5px;">● {t_str} ET</div>
             </div>
         </div>
