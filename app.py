@@ -92,51 +92,41 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- DATA ENGINE (ENHANCED) ---
+# --- DATA ENGINE ---
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
-        # Get 1 month data to calculate RSI accurately
         hist = tk.history(period="1mo", interval="1d")
-        
         if hist.empty: return None 
         
-        # Current Data Points
         p_live = hist['Close'].iloc[-1]
         p_open = hist['Open'].iloc[-1]
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_open
         
-        # Intraday Check for Live Chart
         try: 
             intraday = tk.history(period="1d", interval="5m", prepost=False)
             if not intraday.empty:
                 chart_source = intraday
                 p_live = intraday['Close'].iloc[-1]
             else:
-                chart_source = hist.tail(20) # Fallback to recent daily
+                chart_source = hist.tail(20)
         except: 
             chart_source = hist.tail(20)
 
-        # Percent Change
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
-        # --- ADVANCED METRICS ---
-        # 1. RSI
+        # Metrics
         rsi_series = calculate_rsi(hist['Close'])
         rsi_val = rsi_series.iloc[-1] if not rsi_series.empty else 50
         
-        # 2. Volume Status
         avg_vol = hist['Volume'].mean()
         curr_vol = hist['Volume'].iloc[-1]
         vol_pct = (curr_vol / avg_vol) * 100 if avg_vol > 0 else 0
         
-        # 3. Day Range Position
         day_high = hist['High'].iloc[-1]
         day_low = hist['Low'].iloc[-1]
-        # Avoid division by zero
         range_pos = ((p_live - day_low) / (day_high - day_low)) * 100 if day_high != day_low else 50
 
-        # Chart Prep
         chart = chart_source['Close'].reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
@@ -144,11 +134,6 @@ def get_pro_data(s):
         
         try: name = tk.info.get('longName', s)
         except: name = s
-
-        # Post Market Mockup (Yahoo free API is spotty on this, so we use logic)
-        post_txt = ""
-        # If market is closed, we could simulate or leave blank. 
-        # For now, let's show the Pre/Post logic placeholder if needed.
 
         return {
             "p": p_live, "d": d_pct, "chart": chart, "name": name,
@@ -181,60 +166,29 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
+        .block-container { padding-top: 1rem !important; padding-bottom: 2rem; }
         
-        .block-container {
-            padding-top: 1rem !important; 
-            padding-bottom: 2rem;
-        }
-        
-        /* CARD CONTAINER */
+        /* CARD STYLING */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
-            border-radius: 10px;
-            padding: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            border: 1px solid #f0f0f0;
         }
         
-        /* HEADER */
-        .header-container {
-            position: sticky;
-            top: 0;
-            z-index: 999;
-            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2)); 
-        }
-        .header-top {
-            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
-            padding: 10px 15px;
-            padding-top: 3.5rem; 
-            color: white;
-            border-radius: 0; 
-        }
-        .ticker-wrap {
-            width: 100%;
-            overflow: hidden;
-            background-color: #111; 
-            border-top: 1px solid #333;
-            white-space: nowrap;
-            box-sizing: border-box;
-            padding: 8px 0;
-            color: white;
-            border-radius: 0 0 15px 15px; 
-        }
-        .ticker {
-            display: inline-block;
-            padding-left: 100%;
-            animation: ticker 30s linear infinite;
-        }
-        @keyframes ticker {
-            0%   { transform: translate3d(0, 0, 0); }
-            100% { transform: translate3d(-100%, 0, 0); }
-        }
+        /* HEADER & TICKER */
+        .header-container { position: sticky; top: 0; z-index: 999; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2)); }
+        .header-top { background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%); padding: 10px 15px; padding-top: 3.5rem; color: white; border-radius: 0; }
+        .ticker-wrap { width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333; white-space: nowrap; box-sizing: border-box; padding: 8px 0; color: white; border-radius: 0 0 15px 15px; }
+        .ticker { display: inline-block; padding-left: 100%; animation: ticker 30s linear infinite; }
+        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
 
-        /* CUSTOM METRIC BARS CSS */
-        .bar-bg { background: #eee; height: 6px; border-radius: 3px; width: 100%; margin-top: 4px; overflow: hidden; }
-        .bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
-        .metric-label { font-size: 11px; color: #666; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; }
-        .tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: white; }
+        /* DEEP DATA BARS */
+        .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 3px; }
+        .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
+        .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -254,8 +208,7 @@ if not st.session_state['logged_in']:
         if os.path.exists(LOGO_PATH):
             lc1, lc2, lc3 = st.columns([1,2,1])
             with lc2: st.image(LOGO_PATH, use_container_width=True)
-        else:
-            st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
         st.markdown("<h3 style='text-align:center; color:#666; margin-top:-10px;'>Market Intelligence</h3>", unsafe_allow_html=True)
         with st.form("login"):
             user = st.text_input("Identity Access", placeholder="Enter Username")
@@ -346,34 +299,32 @@ else:
             st.warning(f"⚠️ {t}: Fetching...")
             return
         
-        # Colors
         border_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+        trend_txt = "BULLISH" if d['d'] >= 0 else "BEARISH"
+        trend_icon = "🟢" if d['d'] >= 0 else "🔴"
         
-        # Container
         with st.container():
             st.markdown(f"<div style='height:4px; width:100%; background-color:{border_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             
-            # 1. TOP ROW: Name & Price
+            # 1. TOP ROW: Name & Trend (UPDATED LOCATION)
             c1, c2 = st.columns([1.5, 1])
             with c1:
-                st.markdown(f"<h3 style='margin:0; padding:0;'>{t}</h3>", unsafe_allow_html=True)
+                # Ticker + Trend inline
+                st.markdown(f"""
+                    <div style="display:flex; align-items:center;">
+                        <h3 style='margin:0; padding:0; margin-right:10px;'>{t}</h3>
+                        <span style='font-size:11px; background:#f0f2f6; padding:2px 6px; border-radius:4px; color:#555;'>
+                            {trend_icon} {trend_txt}
+                        </span>
+                    </div>
+                """, unsafe_allow_html=True)
                 st.caption(d['name'][:25])
             with c2:
                 arrow = "▲" if d['d'] >= 0 else "▼"
                 st.markdown(f"<div style='text-align:right; font-size:20px; font-weight:bold;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
                 st.markdown(f"<div style='text-align:right; color:{border_col}; font-weight:bold; font-size:14px;'>{arrow} {d['d']:.2f}%</div>", unsafe_allow_html=True)
             
-            # 2. MARKET STRIP (The Divider Line)
-            # Example text for Pre/Post market or Trend
-            trend_txt = "BULLISH BIAS" if d['d'] >= 0 else "BEARISH PRESSURE"
-            trend_icon = "🟢" if d['d'] >= 0 else "🔴"
-            st.markdown(f"""
-            <div style="border-top: 1px solid #eee; margin-top:5px; margin-bottom:10px; padding-top:2px; font-size:11px; color:#888; text-align:right;">
-               {trend_icon} {trend_txt} 
-            </div>
-            """, unsafe_allow_html=True)
-
-            # 3. SPARKLINE CHART
+            # 2. SPARKLINE CHART (Immediate flow)
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':border_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=border_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
@@ -383,10 +334,9 @@ else:
             ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
 
-            # 4. DEEP DATA BARS (The new stuff)
+            # 3. DEEP DATA BARS
             
             # A. DAY RANGE
-            # range_pos is 0 to 100
             st.markdown(f"""
             <div class="metric-label">
                 <span>Day Range</span>
@@ -399,9 +349,9 @@ else:
 
             # B. RSI
             rsi = d['rsi']
-            rsi_col = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#888"
             rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
             rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
+            rsi_fill = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#888"
             
             st.markdown(f"""
             <div class="metric-label">
@@ -409,24 +359,22 @@ else:
                 <span class="tag" style="background:{rsi_bg}">{rsi_tag}</span>
             </div>
             <div class="bar-bg">
-                <div class="bar-fill" style="width:{rsi}%; background:{rsi_col};"></div>
+                <div class="bar-fill" style="width:{rsi}%; background:{rsi_fill};"></div>
             </div>
             """, unsafe_allow_html=True)
 
             # C. VOLUME
             vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
-            vol_col = "#3498db"
             st.markdown(f"""
             <div class="metric-label">
                 <span>Volume ({d['vol_pct']:.0f}%)</span>
-                <span style="color:{vol_col}; font-weight:bold;">{vol_stat}</span>
+                <span style="color:#3498db; font-weight:bold;">{vol_stat}</span>
             </div>
             <div class="bar-bg">
-                <div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:{vol_col};"></div>
+                <div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div>
             </div>
             """, unsafe_allow_html=True)
 
-            # Portfolio Footer
             if port:
                 gain = (d['p'] - port['e']) * port['q']
                 gain_col = "#4caf50" if gain >= 0 else "#ff4b4b"
