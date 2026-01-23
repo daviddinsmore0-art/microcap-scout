@@ -173,44 +173,44 @@ def relative_time(date_str):
         return f"{int(seconds // 86400)}d ago"
     except: return "Recent"
 
-@st.cache_data(ttl=900) 
+@st.cache_data(ttl=600) # Reduced cache to 10 mins for fresher news
 def fetch_news(feeds, tickers, api_key):
-    """
-    feeds: List of generic RSS URLs (e.g. Yahoo Top News).
-    tickers: List of specific symbols (e.g. AAPL, TSLA).
-    
-    If tickers are provided, we GENERATE specific feeds for them.
-    If only feeds are provided (tickers=[]), we scan those general feeds.
-    """
     if not NEWS_LIB_READY: return []
-    
     all_feeds = feeds.copy()
-    for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
+    
+    # If specific tickers are provided, generate custom feeds
+    if tickers:
+        for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
     
     articles = []
     seen = set()
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            for entry in f.entries[:3]: 
+            # INCREASED LIMIT TO 10 FOR DISCOVERY
+            limit = 3 if tickers else 10 
+            
+            for entry in f.entries[:limit]: 
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
+                    
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. Sentiment options: BULLISH, BEARISH, NEUTRAL. If no specific ticker, return NONE|NEUTRAL."
+                            # AGGRESSIVE PROMPT
+                            prompt = f"Analyze headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. If a specific company is mentioned, use its ticker. If general market news, return MARKET|SENTIMENT. Sentiment must be BULLISH, BEARISH, or NEUTRAL."
                             response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans:
                                 parts = ans.split("|")
                                 t_raw = parts[0].strip()
-                                if t_raw != "NONE": found_ticker = t_raw
+                                if t_raw not in ["NONE", "NULL"]: found_ticker = t_raw
                                 sentiment = parts[1].strip()
                         except: pass
                     
-                    # If AI missed it, check specific list
-                    if not found_ticker:
+                    # Fallback Search
+                    if not found_ticker and tickers:
                         for t in tickers:
                             if t in entry.title.upper():
                                 found_ticker = t; break
@@ -366,7 +366,6 @@ else:
                 new_key = st.text_input("OpenAI Key", value=curr_k, type="password")
                 if new_key != curr_k: GLOBAL['openai_key'] = new_key; push_global(); st.rerun()
         
-        # --- NEW DEDICATED NEWS MANAGER ---
         with st.expander("📰 News Feed Manager"):
             if st.text_input("Auth", type="password") == ADMIN_PASSWORD:
                 st.caption("GLOBAL RSS SOURCES")
@@ -384,7 +383,6 @@ else:
                     GLOBAL['rss_feeds'].remove(feed_to_rem)
                     push_global()
                     st.rerun()
-        # ----------------------------------
 
         st.checkbox("Always On Display", key="keep_on")
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state['logged_in'] = False; st.rerun()
@@ -449,20 +447,20 @@ else:
         color_code = "#333"
         if n['sentiment'] == "BULLISH": color_code = "#4caf50"
         elif n['sentiment'] == "BEARISH": color_code = "#ff4b4b"
-        ticker_html = f"<span class='ticker-badge' style='background-color:{color_code}'>{n['ticker']}</span>" if n['ticker'] else ""
+        
+        # Display Ticker OR "MARKET" if general news
+        disp_txt = n['ticker'] if n['ticker'] else "MARKET"
+        
+        ticker_html = f"<span class='ticker-badge' style='background-color:{color_code}'>{disp_txt}</span>"
         st.markdown(f"""<div class="news-card" style="border-left-color: {color_code};"><div style="display:flex; align-items:center;">{ticker_html}<a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
 
     with t3:
         if not NEWS_LIB_READY: st.error("Missing Libraries.")
         else:
-            # MY NEWS: Only specific tickers
             watchlist = [x.strip().upper() for x in USER.get('w_input', "").split(",") if x.strip()]
             port_list = list(GLOBAL.get('portfolio', {}).keys())
             combined = list(set(watchlist + port_list))
-            
-            # Fetch using ONLY tickers (empty feeds list forces generation)
             news_items = fetch_news([], combined, ACTIVE_KEY)
-            
             if not news_items: st.info("No news for your tickers.")
             else:
                 for n in news_items: render_news(n)
@@ -470,10 +468,8 @@ else:
     with t4:
         if not NEWS_LIB_READY: st.error("Missing Libraries.")
         else:
-            # DISCOVERY: Only Global Feeds (empty ticker list)
             feeds = GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
             news_items = fetch_news(feeds, [], ACTIVE_KEY)
-            
             if not news_items: st.info("No discovery news found.")
             else:
                 for n in news_items: render_news(n)
