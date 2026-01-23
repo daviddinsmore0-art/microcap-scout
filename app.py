@@ -83,7 +83,12 @@ def load_user(username):
         res = cursor.fetchone()
         conn.close()
         if res: return json.loads(res[0])
-        else: return {"w_input": "TD.TO, NKE, SPY", "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F", "portfolio": {}}
+        else: return {
+            "w_input": "TD.TO, NKE, SPY",
+            "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F",
+            "portfolio": {},
+            "settings": {"active": False}
+        }
     except: return None
 
 def save_user(username, data):
@@ -131,12 +136,11 @@ def get_fundamentals(s):
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
+            # FUTURE ONLY
             if next_earn:
                 if isinstance(next_earn, pd.Timestamp): next_earn = next_earn.to_pydatetime()
                 if next_earn.date() >= datetime.now().date():
                     earn_str = next_earn.strftime('%b %d')
-                else:
-                    earn_str = "N/A" # HIDE PAST EARNINGS
         except: pass
         return {"rating": rating, "earn": earn_str}
     except: return {"rating": "N/A", "earn": "N/A"}
@@ -214,7 +218,7 @@ if 'init' not in st.session_state:
             st.session_state['user_data'] = load_user(user)
             st.session_state['logged_in'] = True
 
-# --- CSS (THE GOLDEN STATE RESTORED) ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
@@ -275,30 +279,57 @@ else:
         </div>
     """, unsafe_allow_html=True)
 
+    # --- SIDEBAR RESTORED ---
     with st.sidebar:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
         st.subheader("Operator Control")
-        new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""))
+        new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""), height=150)
         if new_w != st.session_state['user_data']['w_input']:
             st.session_state['user_data']['w_input'] = new_w
             push()
             st.rerun()
+        st.divider()
         
-        with st.expander("Tape Settings"):
-            curr_tape = st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F")
-            new_tape = st.text_input("Symbols", value=curr_tape)
-            if new_tape != curr_tape:
-                st.session_state['user_data']['tape_input'] = new_tape
-                push()
-                st.rerun()
-
+        # RESTORED ADMIN PANEL
+        with st.expander("💼 Portfolio & Admin"):
+            if st.text_input("Password", type="password") == ADMIN_PASSWORD:
+                st.caption("SCROLLING TICKER TAPE")
+                curr_tape = st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F")
+                new_tape = st.text_input("Symbols", value=curr_tape)
+                if new_tape != curr_tape:
+                    st.session_state['user_data']['tape_input'] = new_tape
+                    push()
+                    st.rerun()
+                st.divider()
+                st.caption("ADD HOLDING")
+                new_t = st.text_input("Ticker Symbol").upper()
+                c1, c2 = st.columns(2)
+                new_p = c1.number_input("Avg Price")
+                new_q = c2.number_input("Quantity", step=1)
+                if st.button("Save Trade", type="primary") and new_t: 
+                    if 'portfolio' not in st.session_state['user_data']: st.session_state['user_data']['portfolio'] = {}
+                    st.session_state['user_data']['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
+                    push()
+                    st.rerun()
+                
+                st.divider()
+                st.caption("REMOVE HOLDING")
+                port_keys = list(st.session_state['user_data'].get('portfolio', {}).keys())
+                rem = st.selectbox("Select Asset", [""] + port_keys)
+                if st.button("Delete Asset") and rem: 
+                    del st.session_state['user_data']['portfolio'][rem]
+                    push()
+                    st.rerun()
+        
+        # RESTORED ALWAYS ON
+        st.checkbox("Always On Display", key="keep_on")
         if st.button("Logout"):
             logout_session(st.query_params.get("token"))
             st.query_params.clear()
             st.session_state['logged_in'] = False
             st.rerun()
             
-    inject_wake_lock(True)
+    inject_wake_lock(st.session_state.get('keep_on', False))
 
     def draw(t, port=None):
         d = get_pro_data(t)
