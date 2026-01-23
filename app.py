@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
 import base64
-import numpy as np
+import uuid
 
 # --- SETUP & STYLING ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
@@ -37,10 +37,19 @@ def init_db():
     try:
         conn = get_connection()
         cursor = conn.cursor()
+        # User Profiles Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_profiles (
                 username VARCHAR(255) PRIMARY KEY,
                 user_data TEXT
+            )
+        """)
+        # Session Tokens Table (For Auto-Login)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                token VARCHAR(255) PRIMARY KEY,
+                username VARCHAR(255),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
         conn.close()
@@ -48,6 +57,42 @@ def init_db():
     except Error as e:
         print(f"DB Error: {e}")
         return False
+
+# --- AUTHENTICATION LOGIC ---
+def create_session(username):
+    """Generates a token, saves to DB, and returns it."""
+    token = str(uuid.uuid4())
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        # Clear old sessions for this user (optional, keeps DB clean)
+        cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
+        # Insert new token
+        cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
+        conn.commit()
+        conn.close()
+        return token
+    except: return None
+
+def validate_session(token):
+    """Checks if token exists in DB and returns username."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
+        res = cursor.fetchone()
+        conn.close()
+        return res[0] if res else None
+    except: return None
+
+def logout_session(token):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_sessions WHERE token = %s", (token,))
+        conn.commit()
+        conn.close()
+    except: pass
 
 def load_user(username):
     try:
@@ -98,8 +143,6 @@ def get_fundamentals(s):
     try:
         tk = yf.Ticker(s)
         rating = "N/A"
-        # Try multiple keys for rating
-        keys = ['recommendationKey', 'targetMeanPrice'] 
         info = tk.info
         if 'recommendationKey' in info and info['recommendationKey'] != 'none':
              rating = info['recommendationKey'].replace('_', ' ').upper()
@@ -112,10 +155,8 @@ def get_fundamentals(s):
                 else: next_earn = cal.iloc[0][0]
                 if next_earn: earn_str = next_earn.strftime('%b %d')
         except: pass
-        
         return {"rating": rating, "earn": earn_str}
-    except:
-        return {"rating": "N/A", "earn": "N/A"}
+    except: return {"rating": "N/A", "earn": "N/A"}
 
 # --- LIVE DATA ENGINE ---
 def get_pro_data(s):
@@ -128,36 +169,30 @@ def get_pro_data(s):
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
-        # --- SMART PRE/POST MARKET LOGIC ---
+        # --- PRE/POST MARKET LOGIC ---
         pre_post_html = ""
-        
-        # 1. Check if CAD stock (Force Hide)
-        if not (s.endswith('.TO') or s.endswith('.V') or s.endswith('.CN')):
+        try:
+            # We explicitly check fast_info for extended hours
+            rt_price = tk.fast_info.get('last_price', None)
             
-            # 2. Check Time (ET)
-            # UTC is 4 or 5 hours ahead of ET. We use a simple offset.
-            now_utc = datetime.now(timezone.utc)
-            now_et = now_utc - timedelta(hours=5) # Approx ET (Standard time)
+            # Fallback if fast_info is None (common in some libs)
+            if rt_price is None: rt_price = p_live 
+
+            diff = rt_price - p_live
             
-            mode = "OFF"
-            # Pre-Market: 4:00 AM - 9:30 AM
-            if (now_et.hour == 4) or (now_et.hour > 4 and now_et.hour < 9) or (now_et.hour == 9 and now_et.minute < 30):
-                mode = "PRE"
-            # Post-Market: 4:00 PM - 8:00 PM
-            elif (now_et.hour >= 16 and now_et.hour < 20):
-                mode = "POST"
-            
-            if mode != "OFF":
-                try:
-                    rt_price = tk.fast_info.get('last_price', None)
-                    if rt_price:
-                        # Calculate change vs CLOSE
-                        pp_pct = ((rt_price - p_live) / p_live) * 100
-                        col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                        pct_fmt = f"{pp_pct:+.2f}%"
-                        # INLINE HTML
-                        pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{mode}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
-                except: pass
+            # Show if diff is > 1 cent
+            if abs(diff) > 0.01:
+                pp_pct = ((rt_price - p_live) / p_live) * 100
+                
+                # Determine Label based on NY Time
+                now_utc = datetime.now(timezone.utc)
+                now_et = now_utc - timedelta(hours=5)
+                lbl = "POST" if now_et.hour >= 16 else "PRE" if now_et.hour < 9 else "LIVE"
+                
+                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
+                pct_fmt = f"{pp_pct:+.2f}%"
+                pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
+        except: pass
 
         # Metrics
         rsi_series = calculate_rsi(hist['Close'])
@@ -171,7 +206,6 @@ def get_pro_data(s):
         day_low = hist['Low'].iloc[-1]
         range_pos = ((p_live - day_low) / (day_high - day_low)) * 100 if day_high != day_low else 50
         
-        # Trend
         sma20 = hist['Close'].tail(20).mean()
         ai_trend = "BULLISH" if p_live > sma20 else "BEARISH"
         trend_txt = "UPTREND" if p_live > sma20 else "DOWNTREND"
@@ -215,9 +249,8 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        .block-container { padding-top: 1rem !important; padding-bottom: 2rem; }
+        .block-container { padding-top: 0rem !important; padding-bottom: 2rem; }
         
-        /* CARD STYLING */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 12px;
@@ -226,34 +259,15 @@ st.markdown("""
             border: 1px solid #f0f0f0;
         }
         
-        /* HEADER & TICKER */
-        .header-container { position: sticky; top: 0; z-index: 999; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2)); }
-        .header-top { background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%); padding: 10px 15px; padding-top: 3.5rem; color: white; border-radius: 0; }
-        .ticker-wrap { width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333; white-space: nowrap; box-sizing: border-box; padding: 8px 0; color: white; border-radius: 0 0 15px 15px; }
-        .ticker { display: inline-block; padding-left: 100%; animation: ticker 30s linear infinite; }
-        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
-
-        /* METRIC BARS & INFO PILLS */
+        .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
         .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; }
         .bar-fill { height: 100%; border-radius: 3px; }
-        .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
         .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; }
-        
-        .info-pill {
-            font-size: 10px; 
-            color: #333; 
-            background: #f8f9fa; 
-            padding: 3px 8px; 
-            border-radius: 4px; 
-            font-weight: 600;
-            margin-right: 6px;
-            display: inline-block;
-            border: 1px solid #eee;
-        }
+        .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- APP LOGIC ---
+# --- APP STARTUP ---
 if 'init' not in st.session_state:
     st.session_state['init'] = True
     st.session_state['logged_in'] = False
@@ -262,7 +276,22 @@ if 'init' not in st.session_state:
     st.session_state['keep_on'] = False
     init_db() 
 
-# LOGIN
+    # --- AUTO-LOGIN CHECK ---
+    # Check URL for token
+    query_params = st.query_params
+    url_token = query_params.get("token", None)
+    
+    if url_token:
+        user = validate_session(url_token)
+        if user:
+            data = load_user(user)
+            if data:
+                st.session_state['username'] = user
+                st.session_state['user_data'] = data
+                st.session_state['logged_in'] = True
+                st.session_state['token'] = url_token # Keep token in session
+
+# LOGIN SCREEN
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
@@ -276,13 +305,17 @@ if not st.session_state['logged_in']:
             if st.form_submit_button("Authenticate", type="primary") and user:
                 data = load_user(user.strip())
                 if data:
+                    # Login Success -> Generate Token
+                    token = create_session(user.strip())
+                    st.query_params["token"] = token # Set URL param for persistence
+                    
                     st.session_state['username'] = user.strip()
                     st.session_state['user_data'] = data
                     st.session_state['logged_in'] = True
                     st.rerun()
                 else: st.error("Access Denied.")
 
-# DASHBOARD
+# MAIN DASHBOARD
 else:
     def push(): save_user(st.session_state['username'], st.session_state['user_data'])
 
@@ -291,6 +324,9 @@ else:
         else: st.title("⚡ Penny Pulse")
         st.markdown(f"**Operator:** {st.session_state['username']}")
         if st.button("Logout", type="secondary"):
+            # Clear Token
+            if 'token' in st.session_state: logout_session(st.session_state['token'])
+            st.query_params.clear()
             st.session_state['logged_in'] = False
             st.rerun()
         st.divider()
@@ -330,39 +366,65 @@ else:
     
     inject_wake_lock(st.session_state['keep_on'])
 
-    # HEADER WITH JS CLOCK
+    # --- UNIFIED HEADER COMPONENT (Fixes Clock & Layout) ---
     img_b64 = get_base64_image(LOGO_PATH)
-    logo_html = f'<img src="data:image/png;base64,{img_b64}" style="height:35px; vertical-align:middle; margin-right:10px;">' if img_b64 else "⚡ "
-    tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
+    logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
+    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
 
-    # JAVASCRIPT CLOCK INJECTION
-    clock_js = """
-    <script>
-    function updateClock() {
-        var now = new Date();
-        var time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
-        document.getElementById('live_clock').innerHTML = '● ' + time + ' ET';
-    }
-    setInterval(updateClock, 1000);
-    </script>
-    """
-    
-    st.components.v1.html(clock_js, height=0)
-
-    st.markdown(f"""
+    # This HTML runs in an iframe, so the JS Clock works perfectly now
+    header_component = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+        body {{ margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: transparent; }}
+        .header-container {{
+            position: fixed; top: 0; left: 0; width: 100%; z-index: 999;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }}
+        .header-top {{
+            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
+            padding: 12px 20px; color: white; display: flex; justify-content: space-between; align-items: center;
+        }}
+        .brand {{ display: flex; align-items: center; font-size: 24px; font-weight: 900; letter-spacing: -1px; }}
+        .brand img {{ height: 35px; margin-right: 12px; }}
+        .clock {{ font-family: 'Courier New', monospace; font-size: 16px; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 5px; }}
+        
+        .ticker-wrap {{
+            width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333;
+            white-space: nowrap; padding: 8px 0; color: white; font-size: 14px;
+        }}
+        .ticker {{ display: inline-block; animation: ticker 30s linear infinite; }}
+        @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-100%, 0, 0); }} }}
+    </style>
+    </head>
+    <body>
         <div class="header-container">
             <div class="header-top">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="display:flex; align-items:center; font-size:22px; font-weight:900; letter-spacing:-1px;">
-                        {logo_html} Penny Pulse
-                    </div>
-                    <div id="live_clock" style="font-family:monospace; font-size:14px; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:5px;">● --:--:-- ET</div>
+                <div class="brand">
+                    <img src="{logo_src}"> Penny Pulse
                 </div>
+                <div class="clock" id="clock">--:--:--</div>
             </div>
-            <div class="ticker-wrap"><div class="ticker">{tape_content} {tape_content} {tape_content}</div></div>
+            <div class="ticker-wrap">
+                <div class="ticker">{tape_html} {tape_html}</div>
+            </div>
         </div>
-        <br>
-    """, unsafe_allow_html=True)
+        <script>
+            function updateClock() {{
+                var now = new Date();
+                var time = now.toLocaleTimeString('en-US', {{ hour12: true, timeZone: 'America/New_York' }});
+                document.getElementById('clock').innerHTML = '● ' + time + ' ET';
+            }}
+            setInterval(updateClock, 1000);
+            updateClock();
+        </script>
+    </body>
+    </html>
+    """
+    
+    # Render the header as a component with fixed height to reserve space
+    components.html(header_component, height=110)
 
     t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
@@ -378,11 +440,9 @@ else:
         border_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
         arrow = "▲" if d['d'] >= 0 else "▼"
         
-        # Colors for pills
         ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         trend_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
         
-        # Rating Color
         r_up = fund['rating'].upper()
         if "BUY" in r_up or "OUTPERFORM" in r_up: rating_col = "#4caf50"
         elif "SELL" in r_up or "UNDERPERFORM" in r_up: rating_col = "#ff4b4b"
@@ -390,22 +450,16 @@ else:
 
         header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{border_col}; margin-top:-4px;">{arrow} {d['d']:.2f}% {d['pp']}</div></div></div>"""
         
-        # Intelligence Row
         pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span>'
         pills_html += f'<span class="info-pill" style="border-left: 3px solid {trend_col}">{d["trend"]}</span>'
-        
-        if fund['rating'] != "N/A":
-            pills_html += f'<span class="info-pill" style="border-left: 3px solid {rating_col}">RATING: {fund["rating"]}</span>'
-        
-        if fund['earn'] != "N/A":
-            pills_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {fund["earn"]}</span>'
+        if fund['rating'] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid {rating_col}">RATING: {fund["rating"]}</span>'
+        if fund['earn'] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {fund["earn"]}</span>'
 
         with st.container():
             st.markdown(f"<div style='height:4px; width:100%; background-color:{border_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             st.markdown(header_html, unsafe_allow_html=True)
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
             
-            # SPARKLINE CHART
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':border_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=border_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
@@ -416,13 +470,12 @@ else:
             ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
 
-            # METRIC BARS
             st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
             
             rsi = d['rsi']
-            rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
             rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
             rsi_fill = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#888"
+            rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
             st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_fill};"></div></div>""", unsafe_allow_html=True)
             
             vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
