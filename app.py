@@ -302,29 +302,31 @@ else:
         border_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
         trend_txt = "BULLISH" if d['d'] >= 0 else "BEARISH"
         trend_icon = "🟢" if d['d'] >= 0 else "🔴"
+        arrow = "▲" if d['d'] >= 0 else "▼"
         
         with st.container():
             st.markdown(f"<div style='height:4px; width:100%; background-color:{border_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             
-            # 1. TOP ROW: Name & Trend (UPDATED LOCATION)
-            c1, c2 = st.columns([1.5, 1])
-            with c1:
-                # Ticker + Trend inline
-                st.markdown(f"""
-                    <div style="display:flex; align-items:center;">
-                        <h3 style='margin:0; padding:0; margin-right:10px;'>{t}</h3>
-                        <span style='font-size:11px; background:#f0f2f6; padding:2px 6px; border-radius:4px; color:#555;'>
-                            {trend_icon} {trend_txt}
-                        </span>
+            # --- CUSTOM HEADER LAYOUT (FLEXBOX) ---
+            st.markdown(f"""
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;">
+                    <div>
+                        <div style="display:flex; align-items:center;">
+                            <span style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</span>
+                            <span style="font-size:10px; background:#f0f2f6; padding:2px 6px; border-radius:4px; color:#555; vertical-align:middle;">
+                                {trend_icon} {trend_txt}
+                            </span>
+                        </div>
+                        <div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div>
                     </div>
-                """, unsafe_allow_html=True)
-                st.caption(d['name'][:25])
-            with c2:
-                arrow = "▲" if d['d'] >= 0 else "▼"
-                st.markdown(f"<div style='text-align:right; font-size:20px; font-weight:bold;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='text-align:right; color:{border_col}; font-weight:bold; font-size:14px;'>{arrow} {d['d']:.2f}%</div>", unsafe_allow_html=True)
+                    <div style="text-align:right;">
+                        <div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div>
+                        <div style="font-size:13px; font-weight:bold; color:{border_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
             
-            # 2. SPARKLINE CHART (Immediate flow)
+            # 2. SPARKLINE CHART
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':border_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=border_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
@@ -335,7 +337,6 @@ else:
             st.altair_chart(chart, use_container_width=True)
 
             # 3. DEEP DATA BARS
-            
             # A. DAY RANGE
             st.markdown(f"""
             <div class="metric-label">
@@ -352,7 +353,6 @@ else:
             rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
             rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
             rsi_fill = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#888"
-            
             st.markdown(f"""
             <div class="metric-label">
                 <span>RSI ({int(rsi)})</span>
