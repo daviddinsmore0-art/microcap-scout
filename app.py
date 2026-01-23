@@ -348,4 +348,46 @@ else:
             if f['earn'] != "N/A": p_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{p_html}</div>', unsafe_allow_html=True)
 
-            chart = alt.Chart(d['chart']).mark_area(line={'color':b_col}, color=alt.Gradient(gradient='linear', stops=[alt.
+            chart = alt.Chart(d['chart']).mark_area(line={'color':b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('Idx:Q', axis=None), y=alt.Y('Stock:Q', scale=alt.Scale(zero=False), axis=None), tooltip=[]).properties(height=45)
+            st.altair_chart(chart, use_container_width=True)
+            
+            st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
+            
+            rsi = d['rsi']
+            rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
+            rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
+            st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_bg};"></div></div>""", unsafe_allow_html=True)
+            
+            vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
+            st.markdown(f"""<div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{vol_stat}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>""", unsafe_allow_html=True)
+            
+            if port:
+                gain = (d['p'] - port['e']) * port['q']
+                gain_col = "#4caf50" if gain >= 0 else "#ff4b4b"
+                st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port['q']}</b></span><span>Avg: <b>${port['e']}</b></span><span style="color:{gain_col}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
+
+            st.divider()
+
+    t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
+
+    with t1:
+        tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
+        cols = st.columns(3)
+        for i, t in enumerate(tickers):
+            with cols[i%3]: draw(t)
+
+    with t2:
+        port = st.session_state['user_data'].get('portfolio', {})
+        if not port: st.info("Portfolio Empty.")
+        else:
+            total_val = 0
+            for k, v in port.items():
+                d = get_pro_data(k)
+                if d: total_val += d['p'] * v['q']
+            st.markdown(f"""<div style="text-align:center; padding:15px; background:#f0f2f6; border-radius:10px; margin-bottom:15px;"><div style="font-size:12px; color:#555;">NET ASSETS</div><div style="font-size:32px; font-weight:bold;">${total_val:,.2f}</div></div>""", unsafe_allow_html=True)
+            cols = st.columns(3)
+            for i, (k, v) in enumerate(port.items()):
+                with cols[i%3]: draw(k, v)
+
+    time.sleep(30)
+    st.rerun()
