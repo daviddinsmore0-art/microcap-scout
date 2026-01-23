@@ -177,20 +177,25 @@ def relative_time(date_str):
 def fetch_news(feeds, tickers, api_key):
     if not NEWS_LIB_READY: return []
     all_feeds = feeds.copy()
+    
+    # Add dynamic feeds for user tickers
     for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
+    
     articles = []
     seen = set()
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            for entry in f.entries[:3]: # FETCH LIMIT: 3 PER TICKER
+            for entry in f.entries[:3]: # Limit to 3 per feed for speed
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
+                    
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Extract the specific stock ticker (e.g. AAPL, TSLA) and sentiment from headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. Sentiment must be BULLISH, BEARISH, or NEUTRAL. If no ticker found, return NONE|NEUTRAL."
+                            # GLOBAL SCAN PROMPT: Ask AI to identify ANY ticker in the headline
+                            prompt = f"Analyze headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. If a stock is mentioned, extract it. Sentiment options: BULLISH, BEARISH, NEUTRAL. If no specific ticker, return NONE|NEUTRAL."
                             response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans:
@@ -199,10 +204,13 @@ def fetch_news(feeds, tickers, api_key):
                                 if t_raw != "NONE": found_ticker = t_raw
                                 sentiment = parts[1].strip()
                         except: pass
+                    
+                    # Fallback Search if AI didn't run or missed it
                     if not found_ticker:
                         for t in tickers:
                             if t in entry.title.upper():
                                 found_ticker = t; break
+                                
                     articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get('published', '')), "ticker": found_ticker, "sentiment": sentiment})
         except: pass
     return articles
@@ -294,7 +302,7 @@ if 'init' not in st.session_state:
             st.session_state['logged_in'] = True
 
 # --- CUSTOM CSS ---
-st.markdown("""<style> #MainMenu {visibility: visible;} footer {visibility: hidden;} .block-container { padding-top: 4.5rem !important; padding-bottom: 2rem; } div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; } .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; } .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; } .bar-fill { height: 100%; border-radius: 3px; } .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; } .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; } .news-card { padding: 8px 0 8px 15px; margin-bottom: 15px; border-left: 6px solid #ccc; background-color: #fff; } .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; } .news-meta { font-size: 11px; color: #888; } .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-right: 6px; display: inline-block; } </style>""", unsafe_allow_html=True)
+st.markdown("""<style> #MainMenu {visibility: visible;} footer {visibility: hidden;} .block-container { padding-top: 4.5rem !important; padding-bottom: 2rem; } div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; } .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; } .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; } .bar-fill { height: 100%; border-radius: 3px; } .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; } .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; } .news-card { padding: 8px 0 8px 15px; margin-bottom: 15px; border-left: 6px solid #ccc; background-color: #fff; } .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; } .news-meta { font-size: 11px; color: #888; } .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-right: 6px; display: inline-block; vertical-align: middle; } </style>""", unsafe_allow_html=True)
 
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
@@ -348,6 +356,23 @@ else:
 
                 st.divider()
                 st.caption("APP CONFIG")
+                
+                # --- RSS FEEDS RESTORED HERE ---
+                feed_to_add = st.text_input("Add RSS Feed")
+                if st.button("Save Feed") and feed_to_add:
+                    if 'rss_feeds' not in GLOBAL: GLOBAL['rss_feeds'] = ["https://finance.yahoo.com/news/rssindex"]
+                    GLOBAL['rss_feeds'].append(feed_to_add)
+                    push_global()
+                    st.rerun()
+                
+                current_feeds = GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
+                feed_to_rem = st.selectbox("Remove Feed", [""] + current_feeds)
+                if st.button("Delete Feed") and feed_to_rem:
+                    GLOBAL['rss_feeds'].remove(feed_to_rem)
+                    push_global()
+                    st.rerun()
+                # --------------------------------
+
                 new_tape = st.text_input("Ticker Tape", value=GLOBAL.get('tape_input', ""))
                 if new_tape != GLOBAL.get('tape_input', ""): GLOBAL['tape_input'] = new_tape; push_global(); st.rerun()
                 curr_k = GLOBAL.get('openai_key', "")
@@ -423,8 +448,8 @@ else:
             if not news_items: st.info("No news found.")
             else:
                 for n in news_items:
-                    # Dynamic Color Logic for Both Border and Badge
-                    color_code = "#333" # Default Dark Grey (Neutral)
+                    # DYNAMIC COLORS FOR BORDER AND BADGE
+                    color_code = "#333" # Neutral Dark Grey
                     if n['sentiment'] == "BULLISH": color_code = "#4caf50" # Green
                     elif n['sentiment'] == "BEARISH": color_code = "#ff4b4b" # Red
                     
