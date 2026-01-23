@@ -18,10 +18,10 @@ except: pass
 # Custom CSS for "Dressing it up"
 st.markdown("""
     <style>
-        /* Hide Streamlit Menu/Footer for clean look */
-        #MainMenu {visibility: hidden;}
+        /* Only hide the footer, KEEP the header so mobile users can see the menu */
+        #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        header {visibility: hidden;}
+        /* header {visibility: hidden;}  <-- I REMOVED THIS LINE SO YOU CAN SEE THE MENU */
         
         /* tighten up the top spacing */
         .block-container {padding-top: 1rem; padding-bottom: 1rem;}
