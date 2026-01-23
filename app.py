@@ -139,7 +139,7 @@ def get_pro_data(s):
                 pp_pct = ((rt_price - p_live) / p_live) * 100
                 lbl = "POST" 
                 col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                # FIXED: Cleaner HTML string construction
+                # Removed indentation to prevent Markdown code block issues
                 pre_post_html = f"<div style='color:#888; font-size:10px; margin-top:2px; text-align:right;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${rt_price:,.2f} ({pp_pct:+.2f}%)</span></div>"
         except: pass
 
@@ -359,20 +359,8 @@ else:
         elif "SELL" in r_up or "UNDERPERFORM" in r_up: rating_col = "#ff4b4b"
         else: rating_col = "#f1c40f"
 
-        # Safe String Construction (Prevents </div> ghost bugs)
-        header_html = f"""
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;">
-                <div>
-                    <div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div>
-                    <div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div>
-                </div>
-                <div style="text-align:right;">
-                    <div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div>
-                    <div style="font-size:13px; font-weight:bold; color:{border_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>
-                    {d['pp']} 
-                </div>
-            </div>
-        """
+        # FIXED: Collapsed to single line to prevent indentation bugs in Streamlit
+        header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{border_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div>"""
         
         # Intelligence Row (Conditional Rendering - Hides N/A items)
         pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span>'
