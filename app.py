@@ -37,14 +37,12 @@ def init_db():
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        # User Profiles Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_profiles (
                 username VARCHAR(255) PRIMARY KEY,
                 user_data TEXT
             )
         """)
-        # Session Tokens Table (For Auto-Login)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_sessions (
                 token VARCHAR(255) PRIMARY KEY,
@@ -58,16 +56,13 @@ def init_db():
         print(f"DB Error: {e}")
         return False
 
-# --- AUTHENTICATION LOGIC ---
+# --- AUTHENTICATION ---
 def create_session(username):
-    """Generates a token, saves to DB, and returns it."""
     token = str(uuid.uuid4())
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        # Clear old sessions for this user (optional, keeps DB clean)
         cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
-        # Insert new token
         cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
         conn.commit()
         conn.close()
@@ -75,7 +70,6 @@ def create_session(username):
     except: return None
 
 def validate_session(token):
-    """Checks if token exists in DB and returns username."""
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -138,25 +132,42 @@ def calculate_rsi(data, window=14):
     return 100 - (100 / (1 + rs))
 
 # --- FUNDAMENTAL DATA ---
-@st.cache_data(ttl=600) 
+@st.cache_data(ttl=300) # Short cache to retry often
 def get_fundamentals(s):
     try:
         tk = yf.Ticker(s)
-        rating = "N/A"
-        info = tk.info
-        if 'recommendationKey' in info and info['recommendationKey'] != 'none':
-             rating = info['recommendationKey'].replace('_', ' ').upper()
         
+        # 1. Analyst Rating (Robust Fetch)
+        rating = "N/A"
+        try:
+            # Info dict is the best source
+            info = tk.info
+            if info and 'recommendationKey' in info:
+                r = info['recommendationKey']
+                if r and r.lower() != 'none':
+                    rating = r.replace('_', ' ').upper()
+        except: pass
+        
+        # 2. Earnings Date
         earn_str = "N/A"
         try: 
+            # Calendar is sometimes a dict, sometimes a dataframe
             cal = tk.calendar
-            if cal is not None and not cal.empty:
-                if isinstance(cal, dict): next_earn = cal.get('Earnings Date', [None])[0]
-                else: next_earn = cal.iloc[0][0]
-                if next_earn: earn_str = next_earn.strftime('%b %d')
+            if cal is not None:
+                # Handle DataFrame
+                if hasattr(cal, 'iloc') and not cal.empty:
+                    next_earn = cal.iloc[0][0]
+                    if next_earn: earn_str = next_earn.strftime('%b %d')
+                # Handle Dict
+                elif isinstance(cal, dict):
+                    dates = cal.get('Earnings Date', [])
+                    if dates:
+                        earn_str = dates[0].strftime('%b %d')
         except: pass
+        
         return {"rating": rating, "earn": earn_str}
-    except: return {"rating": "N/A", "earn": "N/A"}
+    except:
+        return {"rating": "N/A", "earn": "N/A"}
 
 # --- LIVE DATA ENGINE ---
 def get_pro_data(s):
@@ -169,29 +180,26 @@ def get_pro_data(s):
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
-        # --- PRE/POST MARKET LOGIC ---
+        # --- PRE/POST MARKET LOGIC (NOISE FILTER) ---
         pre_post_html = ""
         try:
-            # We explicitly check fast_info for extended hours
+            # We trust fast_info for the absolute latest price
             rt_price = tk.fast_info.get('last_price', None)
             
-            # Fallback if fast_info is None (common in some libs)
-            if rt_price is None: rt_price = p_live 
-
-            diff = rt_price - p_live
-            
-            # Show if diff is > 1 cent
-            if abs(diff) > 0.01:
-                pp_pct = ((rt_price - p_live) / p_live) * 100
-                
-                # Determine Label based on NY Time
-                now_utc = datetime.now(timezone.utc)
-                now_et = now_utc - timedelta(hours=5)
-                lbl = "POST" if now_et.hour >= 16 else "PRE" if now_et.hour < 9 else "LIVE"
-                
-                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                pct_fmt = f"{pp_pct:+.2f}%"
-                pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
+            if rt_price is not None:
+                diff = rt_price - p_live
+                # SHOW ONLY IF MOVEMENT > 0.01% (Filters out dead 0.00% noise)
+                if abs(diff) > (p_live * 0.0001):
+                    pp_pct = ((rt_price - p_live) / p_live) * 100
+                    
+                    # Time check for Label
+                    now_utc = datetime.now(timezone.utc)
+                    now_et = now_utc - timedelta(hours=5)
+                    lbl = "POST" if now_et.hour >= 16 else "PRE" if now_et.hour < 9 else "LIVE"
+                    
+                    col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
+                    pct_fmt = f"{pp_pct:+.2f}%"
+                    pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
         except: pass
 
         # Metrics
@@ -277,10 +285,8 @@ if 'init' not in st.session_state:
     init_db() 
 
     # --- AUTO-LOGIN CHECK ---
-    # Check URL for token
     query_params = st.query_params
     url_token = query_params.get("token", None)
-    
     if url_token:
         user = validate_session(url_token)
         if user:
@@ -289,9 +295,9 @@ if 'init' not in st.session_state:
                 st.session_state['username'] = user
                 st.session_state['user_data'] = data
                 st.session_state['logged_in'] = True
-                st.session_state['token'] = url_token # Keep token in session
+                st.session_state['token'] = url_token
 
-# LOGIN SCREEN
+# LOGIN
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
@@ -305,17 +311,15 @@ if not st.session_state['logged_in']:
             if st.form_submit_button("Authenticate", type="primary") and user:
                 data = load_user(user.strip())
                 if data:
-                    # Login Success -> Generate Token
                     token = create_session(user.strip())
-                    st.query_params["token"] = token # Set URL param for persistence
-                    
+                    st.query_params["token"] = token 
                     st.session_state['username'] = user.strip()
                     st.session_state['user_data'] = data
                     st.session_state['logged_in'] = True
                     st.rerun()
                 else: st.error("Access Denied.")
 
-# MAIN DASHBOARD
+# DASHBOARD
 else:
     def push(): save_user(st.session_state['username'], st.session_state['user_data'])
 
@@ -324,7 +328,6 @@ else:
         else: st.title("⚡ Penny Pulse")
         st.markdown(f"**Operator:** {st.session_state['username']}")
         if st.button("Logout", type="secondary"):
-            # Clear Token
             if 'token' in st.session_state: logout_session(st.session_state['token'])
             st.query_params.clear()
             st.session_state['logged_in'] = False
@@ -366,12 +369,12 @@ else:
     
     inject_wake_lock(st.session_state['keep_on'])
 
-    # --- UNIFIED HEADER COMPONENT (Fixes Clock & Layout) ---
+    # --- UNIFIED HEADER (FIXED FOR NOTCH) ---
     img_b64 = get_base64_image(LOGO_PATH)
     logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
     tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
 
-    # This HTML runs in an iframe, so the JS Clock works perfectly now
+    # Iframe Header with Notch Safety padding
     header_component = f"""
     <!DOCTYPE html>
     <html>
@@ -379,12 +382,19 @@ else:
     <style>
         body {{ margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: transparent; }}
         .header-container {{
-            position: fixed; top: 0; left: 0; width: 100%; z-index: 999;
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            z-index: 999;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }}
         .header-top {{
             background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
-            padding: 12px 20px; color: white; display: flex; justify-content: space-between; align-items: center;
+            /* EXTRA PADDING FOR NOTCH/STATUS BAR */
+            padding: 12px 20px; 
+            padding-top: max(12px, env(safe-area-inset-top)); 
+            color: white; display: flex; justify-content: space-between; align-items: center;
         }}
         .brand {{ display: flex; align-items: center; font-size: 24px; font-weight: 900; letter-spacing: -1px; }}
         .brand img {{ height: 35px; margin-right: 12px; }}
@@ -423,8 +433,8 @@ else:
     </html>
     """
     
-    # Render the header as a component with fixed height to reserve space
-    components.html(header_component, height=110)
+    # Increased component height to push app content down further
+    components.html(header_component, height=130)
 
     t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
