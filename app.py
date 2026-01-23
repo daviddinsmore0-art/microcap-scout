@@ -180,26 +180,29 @@ def get_pro_data(s):
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
-        # --- PRE/POST MARKET LOGIC (NOISE FILTER) ---
+        # --- PRE/POST MARKET LOGIC (ALWAYS SHOW) ---
         pre_post_html = ""
         try:
             # We trust fast_info for the absolute latest price
             rt_price = tk.fast_info.get('last_price', None)
             
+            # Fallback
+            if rt_price is None: rt_price = tk.info.get('currentPrice', None)
+            
             if rt_price is not None:
-                diff = rt_price - p_live
-                # SHOW ONLY IF MOVEMENT > 0.01% (Filters out dead 0.00% noise)
-                if abs(diff) > (p_live * 0.0001):
-                    pp_pct = ((rt_price - p_live) / p_live) * 100
-                    
-                    # Time check for Label
-                    now_utc = datetime.now(timezone.utc)
-                    now_et = now_utc - timedelta(hours=5)
-                    lbl = "POST" if now_et.hour >= 16 else "PRE" if now_et.hour < 9 else "LIVE"
-                    
-                    col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                    pct_fmt = f"{pp_pct:+.2f}%"
-                    pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
+                # Show ALWAYS, regardless of difference
+                pp_pct = ((rt_price - p_live) / p_live) * 100
+                
+                # Determine Label based on NY Time
+                now_utc = datetime.now(timezone.utc)
+                now_et = now_utc - timedelta(hours=5)
+                lbl = "POST" if now_et.hour >= 16 else "PRE" if now_et.hour < 9 else "LIVE"
+                
+                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
+                pct_fmt = f"{pp_pct:+.2f}%"
+                if abs(pp_pct) < 0.01: col = "#888" # Grey if flat
+                
+                pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
         except: pass
 
         # Metrics
@@ -257,7 +260,11 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        .block-container { padding-top: 0rem !important; padding-bottom: 2rem; }
+        /* PUSH CONTENT DOWN FOR MOBILE HEADER */
+        .block-container { 
+            padding-top: 9rem !important; /* Plenty of space for the header */
+            padding-bottom: 2rem; 
+        }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
@@ -267,6 +274,30 @@ st.markdown("""
             border: 1px solid #f0f0f0;
         }
         
+        /* FIXED HEADER CSS (DOM BASED) */
+        .header-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 99999;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .header-top {
+            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
+            /* SMART NOTCH PADDING */
+            padding: 15px 20px;
+            padding-top: max(15px, env(safe-area-inset-top)); 
+            color: white;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .ticker-wrap {
+            width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333;
+            white-space: nowrap; padding: 8px 0; color: white; font-size: 14px;
+        }
+        .ticker { display: inline-block; animation: ticker 30s linear infinite; }
+        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
+
         .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
         .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; }
         .bar-fill { height: 100%; border-radius: 3px; }
@@ -369,72 +400,24 @@ else:
     
     inject_wake_lock(st.session_state['keep_on'])
 
-    # --- UNIFIED HEADER (FIXED FOR NOTCH) ---
+    # --- UNIFIED HEADER (DOM BASED) ---
     img_b64 = get_base64_image(LOGO_PATH)
-    logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
-    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
+    logo_src = f'<img src="data:image/png;base64,{img_b64}" style="height:35px; vertical-align:middle; margin-right:10px;">' if img_b64 else "⚡ "
+    tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
+    t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M:%S %p')
 
-    # Iframe Header with Notch Safety padding
-    header_component = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <style>
-        body {{ margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: transparent; }}
-        .header-container {{
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            z-index: 999;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }}
-        .header-top {{
-            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
-            /* EXTRA PADDING FOR NOTCH/STATUS BAR */
-            padding: 12px 20px; 
-            padding-top: max(12px, env(safe-area-inset-top)); 
-            color: white; display: flex; justify-content: space-between; align-items: center;
-        }}
-        .brand {{ display: flex; align-items: center; font-size: 24px; font-weight: 900; letter-spacing: -1px; }}
-        .brand img {{ height: 35px; margin-right: 12px; }}
-        .clock {{ font-family: 'Courier New', monospace; font-size: 16px; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 5px; }}
-        
-        .ticker-wrap {{
-            width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333;
-            white-space: nowrap; padding: 8px 0; color: white; font-size: 14px;
-        }}
-        .ticker {{ display: inline-block; animation: ticker 30s linear infinite; }}
-        @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-100%, 0, 0); }} }}
-    </style>
-    </head>
-    <body>
+    # This markdown block creates the header in the Main DOM, respecting safe-area
+    st.markdown(f"""
         <div class="header-container">
             <div class="header-top">
-                <div class="brand">
-                    <img src="{logo_src}"> Penny Pulse
+                <div style="display:flex; align-items:center; font-size:22px; font-weight:900; letter-spacing:-1px;">
+                    {logo_src} Penny Pulse
                 </div>
-                <div class="clock" id="clock">--:--:--</div>
+                <div style="font-family:monospace; font-size:14px; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:5px;">● {t_str} ET</div>
             </div>
-            <div class="ticker-wrap">
-                <div class="ticker">{tape_html} {tape_html}</div>
-            </div>
+            <div class="ticker-wrap"><div class="ticker">{tape_content} {tape_content} {tape_content}</div></div>
         </div>
-        <script>
-            function updateClock() {{
-                var now = new Date();
-                var time = now.toLocaleTimeString('en-US', {{ hour12: true, timeZone: 'America/New_York' }});
-                document.getElementById('clock').innerHTML = '● ' + time + ' ET';
-            }}
-            setInterval(updateClock, 1000);
-            updateClock();
-        </script>
-    </body>
-    </html>
-    """
-    
-    # Increased component height to push app content down further
-    components.html(header_component, height=130)
+    """, unsafe_allow_html=True)
 
     t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
