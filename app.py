@@ -122,6 +122,7 @@ def get_fundamentals(s):
         rating = inf.get('recommendationKey', 'N/A').replace('_', ' ').upper()
         if rating == "NONE": rating = "N/A"
         
+        # RAW EARNINGS (No Filter)
         earn_str = "N/A"
         try:
             cal = tk.calendar
@@ -203,6 +204,7 @@ def get_tape_data(symbol_string):
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
                 
+                # RAW SYMBOLS
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
@@ -228,39 +230,9 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* PADDING: Adjusted so content is visible right under the ticker */
+        /* SMALLER PADDING - Puts Watchlist visibly below the ticker */
         .block-container { padding-top: 4rem !important; padding-bottom: 2rem; }
         
-        /* TICKER TAPE CSS (Fixed to Top) */
-        .ticker-container {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 45px;
-            background-color: #111;
-            z-index: 99999;
-            border-bottom: 1px solid #333;
-            border-radius: 0 0 10px 10px; /* ROUNDED BOTTOM */
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-        }
-        .ticker-text {
-            white-space: nowrap;
-            display: inline-block;
-            animation: ticker 25s linear infinite; /* Faster Speed */
-            color: white;
-            font-family: monospace;
-            font-size: 14px;
-            padding-left: 100%; /* Start off screen */
-        }
-        @keyframes ticker {
-            0% { transform: translate3d(0, 0, 0); }
-            100% { transform: translate3d(-100%, 0, 0); }
-        }
-
         /* CARD STYLE */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
@@ -295,12 +267,30 @@ if not st.session_state['logged_in']:
 else:
     def push(): save_user(st.session_state['username'], st.session_state['user_data'])
     
-    # --- RENDER STICKY TICKER ---
+    # --- RENDER STICKY TICKER (HTML ONLY) ---
     tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
+    
+    # Simple, Fast, Sticky Ticker
+    # Animation duration set to 15s for speed
+    # Content duplicated 4 times to prevent gaps
     st.markdown(f"""
-        <div class="ticker-container">
-            <div class="ticker-text">{tape_content} &nbsp;&nbsp;&nbsp;&nbsp; {tape_content} &nbsp;&nbsp;&nbsp;&nbsp; {tape_content}</div>
+        <div style="
+            position: fixed; top: 0; left: 0; width: 100%; height: 45px;
+            background-color: #111; z-index: 99999;
+            border-bottom: 1px solid #333;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            overflow: hidden; display: flex; align-items: center;">
+            <div style="
+                white-space: nowrap; display: inline-block;
+                animation: ticker 15s linear infinite;
+                color: white; font-family: monospace; font-size: 14px;">
+                {tape_content} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; {tape_content} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; {tape_content} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; {tape_content}
+            </div>
         </div>
+        <style>
+            @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-50%, 0, 0); }} }}
+        </style>
     """, unsafe_allow_html=True)
 
     with st.sidebar:
@@ -382,7 +372,6 @@ else:
             st.markdown(header_html, unsafe_allow_html=True)
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
             
-            # Sparkline
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':b_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
@@ -393,7 +382,6 @@ else:
             ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
             
-            # Metrics
             st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
             
             rsi = d['rsi']
