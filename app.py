@@ -26,12 +26,13 @@ DB_CONFIG = {
     "user": "penny_user",
     "password": "123456",
     "database": "penny_pulse",
-    "connect_timeout": 20
+    "connect_timeout": 30 # Increased timeout for stability
 }
 
 # --- DATABASE ENGINE ---
 def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+    conn = mysql.connector.connect(**DB_CONFIG)
+    return conn
 
 def init_db():
     try:
@@ -59,6 +60,7 @@ def create_session(username):
 def validate_session(token):
     try:
         conn = get_connection()
+        if not conn.is_connected(): conn.reconnect(attempts=3, delay=1)
         cursor = conn.cursor()
         cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
         res = cursor.fetchone()
@@ -202,7 +204,6 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                # TSX REPLACEMENT ADDED HERE
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("^GSPTSE", "TSX").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
@@ -228,8 +229,8 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* PADDING CUT IN HALF (Was 4rem, Now 2rem) */
-        .block-container { padding-top: 2rem !important; padding-bottom: 2rem; }
+        /* PADDING FIX: 3.5rem ensures clear visibility below the 45px ticker */
+        .block-container { padding-top: 3.5rem !important; padding-bottom: 2rem; }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
@@ -250,7 +251,10 @@ st.markdown("""
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        if os.path.exists(LOGO_PATH):
+            st.image(LOGO_PATH, width=120)
+        else:
+            st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
         user = st.text_input("Identity Access")
         if st.button("Authenticate", type="primary") and user:
             st.query_params["token"] = create_session(user.strip())
