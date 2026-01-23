@@ -82,7 +82,7 @@ def load_user(username):
         res = cursor.fetchone()
         conn.close()
         if res: return json.loads(res[0])
-        else: return {"w_input": "TD.TO, NKE, SPY", "tape_input": "^DJI, ^IXIC, GC=F", "portfolio": {}}
+        else: return {"w_input": "TD.TO, NKE, SPY", "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F", "portfolio": {}}
     except: return None
 
 def save_user(username, data):
@@ -124,9 +124,28 @@ def get_fundamentals(s):
         earn_str = "N/A"
         try:
             cal = tk.calendar
-            if hasattr(cal, 'iloc') and not cal.empty: earn_str = cal.iloc[0][0].strftime('%b %d')
-            elif isinstance(cal, dict): earn_str = cal.get('Earnings Date', [None])[0].strftime('%b %d')
+            next_earn = None
+            
+            # Extract date safely
+            if hasattr(cal, 'iloc') and not cal.empty: 
+                next_earn = cal.iloc[0][0]
+            elif isinstance(cal, dict): 
+                dates = cal.get('Earnings Date', [])
+                if dates: next_earn = dates[0]
+            
+            # --- "FUTURE ONLY" CHECK ---
+            if next_earn:
+                # Ensure it's a datetime object
+                if isinstance(next_earn, pd.Timestamp):
+                    next_earn = next_earn.to_pydatetime()
+                
+                # If date is in the past, ignore it (Show N/A -> Hidden)
+                if next_earn.date() >= datetime.now().date():
+                    earn_str = next_earn.strftime('%b %d')
+                else:
+                    earn_str = "N/A" # Hides past earnings
         except: pass
+        
         return {"rating": rating, "earn": earn_str}
     except: return {"rating": "N/A", "earn": "N/A"}
 
@@ -183,7 +202,16 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
+                
+                # --- LABEL REPLACEMENT MAP ---
+                short_name = s.replace("^DJI", "DOW")\
+                              .replace("^IXIC", "NASDAQ")\
+                              .replace("^GSPC", "S&P500")\
+                              .replace("^GSPTSE", "TSX")\
+                              .replace("GC=F", "GOLD")\
+                              .replace("SI=F", "SILVER")\
+                              .replace("BTC-USD", "BTC")
+                
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
                 items.append(f"<span style='color:#ccc; font-weight:bold; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
@@ -203,14 +231,13 @@ if 'init' not in st.session_state:
             st.session_state['user_data'] = load_user(user)
             st.session_state['logged_in'] = True
 
-# --- CUSTOM CSS (THE FIX FOR THE CARDS) ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
         .block-container { padding-top: 9rem !important; padding-bottom: 2rem; }
         
-        /* THIS RESTORES THE WHITE CARD STYLE */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 12px;
@@ -219,14 +246,27 @@ st.markdown("""
             border: 1px solid #f0f0f0;
         }
 
-        /* HEADER */
-        .header-container { position: fixed; top: 0; left: 0; width: 100%; z-index: 99999; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
-        .header-top { background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%); padding: 15px 20px; padding-top: max(15px, env(safe-area-inset-top)); color: white; display: flex; justify-content: space-between; align-items: center; }
-        .ticker-wrap { width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333; white-space: nowrap; padding: 8px 0; color: white; font-size: 14px; }
+        /* HEADER FIXES */
+        .header-container { 
+            position: fixed; top: 0; left: 0; width: 100%; z-index: 99999; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3); 
+        }
+        .header-top { 
+            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%); 
+            padding: 15px 20px; 
+            padding-top: max(15px, env(safe-area-inset-top)); 
+            color: white; 
+            display: flex; justify-content: space-between; align-items: center; 
+        }
+        .ticker-wrap { 
+            width: 100%; overflow: hidden; background-color: #111; 
+            border-top: 1px solid #333; white-space: nowrap; 
+            padding: 10px 0; /* Added padding to prevent cut-off */
+            color: white; font-size: 14px; 
+        }
         .ticker { display: inline-block; animation: ticker 30s linear infinite; }
         @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
 
-        /* ELEMENTS */
         .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; border: 1px solid #eee; }
         .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; }
         .bar-fill { height: 100%; border-radius: 3px; }
@@ -295,21 +335,17 @@ else:
         with st.container():
             st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             
-            # Unified Price Header
             st.markdown(f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{d['d']:+.2f}% {d['pp']}</div></div></div>""", unsafe_allow_html=True)
             
-            # Pills
             p_html = f'<span class="info-pill" style="border-left: 3px solid {b_col}">AI: {d["ai"]}</span>'
             p_html += f'<span class="info-pill" style="border-left: 3px solid {b_col}">TREND: {d["trend"]}</span>'
             if f['rating'] != "N/A": p_html += f'<span class="info-pill" style="border-left: 3px solid {b_col}">RAT: {f["rating"]}</span>'
             if f['earn'] != "N/A": p_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{p_html}</div>', unsafe_allow_html=True)
 
-            # Sparkline
             chart = alt.Chart(d['chart']).mark_area(line={'color':b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('Idx:Q', axis=None), y=alt.Y('Stock:Q', scale=alt.Scale(zero=False), axis=None), tooltip=[]).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
             
-            # Bars
             st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
             
             rsi = d['rsi']
@@ -322,7 +358,6 @@ else:
             
             st.divider()
 
-    # Dynamic Watchlist Loop
     tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
     cols = st.columns(3)
     for i, t in enumerate(tickers):
