@@ -89,8 +89,6 @@ def logout_session(token):
     except: pass
 
 # --- DATA LOADERS ---
-
-# 1. Load the INDIVIDUAL User's Data (Watchlist)
 def load_user_profile(username):
     try:
         conn = get_connection()
@@ -99,7 +97,7 @@ def load_user_profile(username):
         res = cursor.fetchone()
         conn.close()
         if res: return json.loads(res[0])
-        else: return {"w_input": "TD.TO, NKE, SPY"} # Default for new users
+        else: return {"w_input": "TD.TO, NKE, SPY"} 
     except: return {"w_input": "TD.TO, NKE, SPY"}
 
 def save_user_profile(username, data):
@@ -113,7 +111,6 @@ def save_user_profile(username, data):
         conn.close()
     except: pass
 
-# 2. Load the GLOBAL Config (Picks, API Key, Feeds) - SHARED BY ALL
 def load_global_config():
     try:
         conn = get_connection()
@@ -141,6 +138,20 @@ def save_global_config(data):
         conn.close()
     except: pass
 
+# --- GLOBAL KEY FINDER ---
+def get_global_config_data():
+    api_key = None
+    rss_feeds = ["https://finance.yahoo.com/news/rssindex"]
+    try: api_key = st.secrets.get("OPENAI_KEY") or st.secrets.get("OPENAI_API_KEY")
+    except: pass
+    
+    # Check DB Global Config
+    g = load_global_config()
+    if not api_key: api_key = g.get('openai_key')
+    if g.get('rss_feeds'): rss_feeds = g.get('rss_feeds')
+    
+    return api_key, rss_feeds, g
+
 # --- HELPERS ---
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
@@ -166,14 +177,10 @@ def relative_time(date_str):
 @st.cache_data(ttl=900) 
 def fetch_news(feeds, tickers, api_key):
     if not NEWS_LIB_READY: return []
-    
     all_feeds = feeds.copy()
-    for t in tickers:
-        all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    
+    for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
     articles = []
     seen = set()
-    
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
@@ -181,11 +188,11 @@ def fetch_news(feeds, tickers, api_key):
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
-                    
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze headline: '{entry.title}'. Return format: TICKER|SENTIMENT. Sentiment options: BULLISH, BEARISH, NEUTRAL. If no specific ticker, return NONE|NEUTRAL."
+                            # IMPROVED PROMPT
+                            prompt = f"Extract the specific stock ticker (e.g. AAPL, TSLA) and sentiment from headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. Sentiment must be BULLISH, BEARISH, or NEUTRAL. If no ticker found, return NONE|NEUTRAL."
                             response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans:
@@ -194,13 +201,10 @@ def fetch_news(feeds, tickers, api_key):
                                 if t_raw != "NONE": found_ticker = t_raw
                                 sentiment = parts[1].strip()
                         except: pass
-                    
                     if not found_ticker:
                         for t in tickers:
                             if t in entry.title.upper():
-                                found_ticker = t
-                                break
-
+                                found_ticker = t; break
                     articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get('published', '')), "ticker": found_ticker, "sentiment": sentiment})
         except: pass
     return articles
@@ -219,7 +223,6 @@ def get_fundamentals(s):
             next_earn = None
             if hasattr(cal, 'iloc') and not cal.empty: next_earn = cal.iloc[0][0]
             elif isinstance(cal, dict): dates = cal.get('Earnings Date', []); next_earn = dates[0] if dates else None
-            
             if next_earn:
                 ts = pd.Timestamp(next_earn)
                 if ts.date() >= datetime.now().date(): earn_str = ts.strftime('%b %d')
@@ -233,11 +236,9 @@ def get_pro_data(s):
         tk = yf.Ticker(s)
         hist = tk.history(period="1mo", interval="1d")
         if hist.empty: return None 
-        
         p_live = hist['Close'].iloc[-1]
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
-
         pre_post_html = ""
         try:
             rt_price = tk.fast_info.get('last_price', p_live)
@@ -245,27 +246,22 @@ def get_pro_data(s):
                 pp_pct = ((rt_price - p_live) / p_live) * 100
                 now = datetime.now(timezone.utc) - timedelta(hours=5)
                 lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
-                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                pct_fmt = f"{pp_pct:+.2f}%"
+                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"; pct_fmt = f"{pp_pct:+.2f}%"
                 pre_post_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${rt_price:,.2f} ({pct_fmt})</span></div>"
         except: pass
-
         sma20 = hist['Close'].tail(20).mean()
         rsi_val = 50 
         try:
-            rsi_series = calculate_rsi(hist['Close'])
+            rsi_series = calculate_rsi(hist['Close']); 
             if not rsi_series.empty: rsi_val = rsi_series.iloc[-1]
         except: pass
-        
         vol_pct = 0
         if not hist['Volume'].empty: vol_pct = (hist['Volume'].iloc[-1] / hist['Volume'].mean()) * 100
         range_pos = 50
         day_h = hist['High'].iloc[-1]; day_l = hist['Low'].iloc[-1]
         if day_h != day_l: range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
-
         chart = hist['Close'].tail(20).reset_index(); chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
-
         return {"p": p_live, "d": d_pct, "name": tk.info.get('longName', s), "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if p_live > sma20 else "BEARISH", "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html, "chart": chart}
     except: return None
 
@@ -296,26 +292,11 @@ if 'init' not in st.session_state:
         if user:
             st.session_state['username'] = user
             st.session_state['user_data'] = load_user_profile(user)
-            st.session_state['global_data'] = load_global_config() # Load shared data
+            st.session_state['global_data'] = load_global_config()
             st.session_state['logged_in'] = True
 
 # --- CUSTOM CSS ---
-st.markdown("""
-    <style>
-        #MainMenu {visibility: visible;} footer {visibility: hidden;}
-        .block-container { padding-top: 4.5rem !important; padding-bottom: 2rem; }
-        div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; }
-        .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
-        .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; }
-        .bar-fill { height: 100%; border-radius: 3px; }
-        .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; }
-        .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; }
-        .news-card { padding: 8px 0 8px 15px; margin-bottom: 15px; border-left: 6px solid #ccc; background-color: #fff; }
-        .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; }
-        .news-meta { font-size: 11px; color: #888; }
-        .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; background: #eee; color: #333; font-weight: bold; margin-right: 6px; display: inline-block; border: 1px solid #ddd; }
-    </style>
-""", unsafe_allow_html=True)
+st.markdown("""<style> #MainMenu {visibility: visible;} footer {visibility: hidden;} .block-container { padding-top: 4.5rem !important; padding-bottom: 2rem; } div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; } .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; } .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; } .bar-fill { height: 100%; border-radius: 3px; } .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; } .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; } .news-card { padding: 8px 0 8px 15px; margin-bottom: 15px; border-left: 6px solid #ccc; background-color: #fff; } .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; } .news-meta { font-size: 11px; color: #888; } .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; background: #eee; color: #333; font-weight: bold; margin-right: 6px; display: inline-block; border: 1px solid #ddd; } </style>""", unsafe_allow_html=True)
 
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
@@ -327,22 +308,16 @@ if not st.session_state['logged_in']:
             st.query_params["token"] = create_session(user.strip())
             st.session_state['username'] = user.strip()
             st.session_state['user_data'] = load_user_profile(user.strip())
-            st.session_state['global_data'] = load_global_config() # Load shared data
+            st.session_state['global_data'] = load_global_config()
             st.session_state['logged_in'] = True
             st.rerun()
 else:
     def push_user(): save_user_profile(st.session_state['username'], st.session_state['user_data'])
     def push_global(): save_global_config(st.session_state['global_data'])
     
-    # --- GLOBAL DATA ---
     GLOBAL = st.session_state['global_data']
     USER = st.session_state['user_data']
-    
-    # API Key Priority: Secrets -> Global Config -> None
-    ACTIVE_KEY = None
-    try: ACTIVE_KEY = st.secrets.get("OPENAI_KEY") or st.secrets.get("OPENAI_API_KEY")
-    except: pass
-    if not ACTIVE_KEY: ACTIVE_KEY = GLOBAL.get('openai_key')
+    ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 
     tape_content = get_tape_data(GLOBAL.get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
     header_html = f"""<!DOCTYPE html><html><head><style>body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }} .ticker-container {{ width: 100%; height: 45px; background: #111; display: flex; align-items: center; border-bottom: 1px solid #333; border-radius: 0 0 15px 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }} .ticker-wrap {{ width: 100%; overflow: hidden; white-space: nowrap; }} .ticker-move {{ display: inline-block; animation: ticker 15s linear infinite; }} @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-25%, 0, 0); }} }} .ticker-item {{ display: inline-block; color: white; font-weight: 900; font-size: 16px; padding: 0 20px; }}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content}</span></div></div></div></body></html>"""
@@ -350,75 +325,39 @@ else:
 
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
-        
-        # USER CONTROL (WATCHLIST)
         st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get('w_input', ""), height=100)
         if new_w != USER.get('w_input'):
-            USER['w_input'] = new_w
-            push_user()
-            st.rerun()
+            USER['w_input'] = new_w; push_user(); st.rerun()
         st.divider()
 
-        # ADMIN CONTROL (PROTECTED)
         with st.expander("🔐 Admin Controls"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 st.divider()
-                st.caption("GLOBAL PORTFOLIO (Picks)")
-                
-                # Add Pick
-                new_t = st.text_input("Ticker").upper()
-                c1, c2 = st.columns(2)
-                new_p = c1.number_input("Avg Cost")
-                new_q = c2.number_input("Qty", step=1)
+                st.caption("GLOBAL PORTFOLIO")
+                if 'portfolio' in USER and USER['portfolio'] and not GLOBAL.get('portfolio'):
+                    if st.button("⚠️ IMPORT MY OLD PICKS TO GLOBAL"):
+                        GLOBAL['portfolio'] = USER['portfolio']; push_global(); st.success("Picks Restored!"); time.sleep(1); st.rerun()
+
+                new_t = st.text_input("Ticker").upper(); c1, c2 = st.columns(2)
+                new_p = c1.number_input("Avg Cost"); new_q = c2.number_input("Qty", step=1)
                 if st.button("Add Pick") and new_t:
                     if 'portfolio' not in GLOBAL: GLOBAL['portfolio'] = {}
-                    GLOBAL['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
-                    push_global()
-                    st.rerun()
-                
-                # Remove Pick
+                    GLOBAL['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}; push_global(); st.rerun()
                 port_keys = list(GLOBAL.get('portfolio', {}).keys())
                 rem = st.selectbox("Remove Pick", [""] + port_keys)
-                if st.button("Delete") and rem:
-                    del GLOBAL['portfolio'][rem]
-                    push_global()
-                    st.rerun()
+                if st.button("Delete") and rem: del GLOBAL['portfolio'][rem]; push_global(); st.rerun()
 
                 st.divider()
                 st.caption("APP CONFIG")
-                
-                # Tape
                 new_tape = st.text_input("Ticker Tape", value=GLOBAL.get('tape_input', ""))
-                if new_tape != GLOBAL.get('tape_input', ""):
-                    GLOBAL['tape_input'] = new_tape
-                    push_global()
-                    st.rerun()
-
-                # API Key
+                if new_tape != GLOBAL.get('tape_input', ""): GLOBAL['tape_input'] = new_tape; push_global(); st.rerun()
                 curr_k = GLOBAL.get('openai_key', "")
                 new_key = st.text_input("OpenAI Key", value=curr_k, type="password")
-                if new_key != curr_k:
-                    GLOBAL['openai_key'] = new_key
-                    push_global()
-                    st.rerun()
+                if new_key != curr_k: GLOBAL['openai_key'] = new_key; push_global(); st.rerun()
                 
-                # Feeds
-                st.caption("RSS FEEDS")
-                feed_to_add = st.text_input("Add Feed")
-                if st.button("Save Feed") and feed_to_add:
-                    current_feeds = GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
-                    current_feeds.append(feed_to_add)
-                    GLOBAL['rss_feeds'] = current_feeds
-                    push_global()
-                    st.rerun()
-
         st.checkbox("Always On Display", key="keep_on")
-        if st.button("Logout"):
-            logout_session(st.query_params.get("token"))
-            st.query_params.clear()
-            st.session_state['logged_in'] = False
-            st.rerun()
+        if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state['logged_in'] = False; st.rerun()
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
@@ -428,18 +367,14 @@ else:
         d = get_pro_data(t)
         if not d: return
         f = get_fundamentals(t)
-        b_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
-        arrow = "▲" if d['d'] >= 0 else "▼"
+        b_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"; arrow = "▲" if d['d'] >= 0 else "▼"
         r_up = f['rating'].upper()
         r_col = "#4caf50" if "BUY" in r_up or "OUT" in r_up else "#ff4b4b" if "SELL" in r_up or "UNDER" in r_up else "#f1c40f"
-        ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
-        tr_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
-
+        ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"; tr_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
         header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div>"""
         pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
         if f['rating'] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
         if f['earn'] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
-
         with st.container():
             st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             st.markdown(header_html, unsafe_allow_html=True)
@@ -456,67 +391,45 @@ else:
             st.divider()
 
     with t1:
-        # SHOW USER WATCHLIST
         tickers = [x.strip().upper() for x in USER.get('w_input', "").split(",") if x.strip()]
         cols = st.columns(3)
         for i, t in enumerate(tickers):
             with cols[i%3]: draw(t)
 
     with t2:
-        # SHOW GLOBAL PORTFOLIO (READ ONLY FOR USERS)
         port = GLOBAL.get('portfolio', {})
-        if not port: st.info("No Picks Published Yet.")
+        if not port: st.info("No Picks Published.")
         else:
             total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
             for k, v in port.items():
                 d = get_pro_data(k)
                 if d:
-                    total_val += d['p'] * v['q']
-                    total_cost += v['e'] * v['q']
+                    total_val += d['p'] * v['q']; total_cost += v['e'] * v['q']
                     if d['d'] != 0: day_pl_sum += (d['p'] - (d['p'] / (1 + (d['d']/100)))) * v['q']
-            
             day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"
-            total_pl = total_val - total_cost
-            tot_col = "#4caf50" if total_pl >= 0 else "#ff4b4b"
+            total_pl = total_val - total_cost; tot_col = "#4caf50" if total_pl >= 0 else "#ff4b4b"
             day_pl_pct = (day_pl_sum / (total_val - day_pl_sum) * 100) if (total_val - day_pl_sum) > 0 else 0
             tot_pl_pct = (total_pl / total_cost * 100) if total_cost > 0 else 0
-
             st.markdown(f"""<div style="background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;"><div style="display:flex; justify-content:space-between; margin-bottom:10px;"><div><div style="font-size:11px; color:#888; font-weight:bold;">NET ASSETS</div><div style="font-size:24px; font-weight:900; color:#333;">${total_val:,.2f}</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">INVESTED</div><div style="font-size:24px; font-weight:900; color:#555;">${total_cost:,.2f}</div></div></div><div style="height:1px; background:#eee; margin:10px 0;"></div><div style="display:flex; justify-content:space-between;"><div><div style="font-size:11px; color:#888; font-weight:bold;">DAY P/L</div><div style="font-size:16px; font-weight:bold; color:{day_col};">${day_pl_sum:+,.2f} ({day_pl_pct:+.2f}%)</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">TOTAL P/L</div><div style="font-size:16px; font-weight:bold; color:{tot_col};">${total_pl:+,.2f} ({tot_pl_pct:+.2f}%)</div></div></div></div>""", unsafe_allow_html=True)
-            
             cols = st.columns(3)
             for i, (k, v) in enumerate(port.items()):
                 with cols[i%3]: draw(k, v)
 
     with t3:
-        if not NEWS_LIB_READY:
-            st.error("Missing Libraries.")
+        if not NEWS_LIB_READY: st.error("Missing Libraries.")
         else:
-            api_key = ACTIVE_KEY
-            # USE USER WATCHLIST + GLOBAL PORTFOLIO FOR NEWS SCAN
-            user_list = [x.strip().upper() for x in USER.get('w_input', "").split(",") if x.strip()]
+            watchlist = [x.strip().upper() for x in USER.get('w_input', "").split(",") if x.strip()]
             port_list = list(GLOBAL.get('portfolio', {}).keys())
-            combined_list = list(set(user_list + port_list))
-            
-            feeds = GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
-            news_items = fetch_news(feeds, combined_list, api_key)
-            
-            if not news_items: st.info("No news found right now.")
+            combined = list(set(watchlist + port_list))
+            news_items = fetch_news(GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"]), combined, ACTIVE_KEY)
+            if not news_items: st.info("No news found.")
             else:
                 for n in news_items:
                     border_col = "#999"
                     if n['sentiment'] == "BULLISH": border_col = "#4caf50"
                     elif n['sentiment'] == "BEARISH": border_col = "#ff4b4b"
                     ticker_html = f"<span class='ticker-badge'>{n['ticker']}</span>" if n['ticker'] else ""
-
-                    st.markdown(f"""
-                        <div class="news-card" style="border-left-color: {border_col};">
-                            <div style="display:flex; align-items:center;">
-                                {ticker_html}
-                                <a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a>
-                            </div>
-                            <div class="news-meta">{n['published']}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div class='news-card' style='border-left-color: {border_col};'><div style='display:flex; align-items:center;'>{ticker_html}<a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']}</div></div>", unsafe_allow_html=True)
 
     time.sleep(30)
     st.rerun()
