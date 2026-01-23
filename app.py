@@ -173,12 +173,11 @@ def relative_time(date_str):
         return f"{int(seconds // 86400)}d ago"
     except: return "Recent"
 
-@st.cache_data(ttl=600) # Reduced cache to 10 mins for fresher news
+@st.cache_data(ttl=600) 
 def fetch_news(feeds, tickers, api_key):
     if not NEWS_LIB_READY: return []
     all_feeds = feeds.copy()
     
-    # If specific tickers are provided, generate custom feeds
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
     
@@ -187,7 +186,6 @@ def fetch_news(feeds, tickers, api_key):
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            # INCREASED LIMIT TO 10 FOR DISCOVERY
             limit = 3 if tickers else 10 
             
             for entry in f.entries[:limit]: 
@@ -198,7 +196,6 @@ def fetch_news(feeds, tickers, api_key):
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            # AGGRESSIVE PROMPT
                             prompt = f"Analyze headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. If a specific company is mentioned, use its ticker. If general market news, return MARKET|SENTIMENT. Sentiment must be BULLISH, BEARISH, or NEUTRAL."
                             response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
@@ -209,7 +206,6 @@ def fetch_news(feeds, tickers, api_key):
                                 sentiment = parts[1].strip()
                         except: pass
                     
-                    # Fallback Search
                     if not found_ticker and tickers:
                         for t in tickers:
                             if t in entry.title.upper():
@@ -341,6 +337,19 @@ else:
             USER['w_input'] = new_w; push_user(); st.rerun()
         st.divider()
 
+        with st.expander("🔔 Alert Settings"):
+            # This is where users connect to Telegram
+            st.caption("TELEGRAM NOTIFICATIONS")
+            curr_tg = USER.get('telegram_id', "")
+            new_tg = st.text_input("Telegram Chat ID", value=curr_tg)
+            if new_tg != curr_tg:
+                USER['telegram_id'] = new_tg.strip()
+                push_user()
+                st.success("Connected!")
+                time.sleep(1)
+                st.rerun()
+            st.markdown("[Get my ID](https://t.me/userinfobot)", unsafe_allow_html=True)
+
         with st.expander("🔐 Admin Controls"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 st.divider()
@@ -447,10 +456,7 @@ else:
         color_code = "#333"
         if n['sentiment'] == "BULLISH": color_code = "#4caf50"
         elif n['sentiment'] == "BEARISH": color_code = "#ff4b4b"
-        
-        # Display Ticker OR "MARKET" if general news
         disp_txt = n['ticker'] if n['ticker'] else "MARKET"
-        
         ticker_html = f"<span class='ticker-badge' style='background-color:{color_code}'>{disp_txt}</span>"
         st.markdown(f"""<div class="news-card" style="border-left-color: {color_code};"><div style="display:flex; align-items:center;">{ticker_html}<a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
 
