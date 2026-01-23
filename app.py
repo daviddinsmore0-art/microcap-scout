@@ -232,8 +232,8 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* Reduced padding to bring cards up closer to header */
-        .block-container { padding-top: 8rem !important; padding-bottom: 2rem; }
+        /* PADDING FIX: Pushes content down so it shows below the header */
+        .block-container { padding-top: 7rem !important; padding-bottom: 2rem; }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
@@ -299,6 +299,7 @@ else:
                     st.session_state['user_data']['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
                     push()
                     st.rerun()
+                
                 st.divider()
                 st.caption("REMOVE HOLDING")
                 port_keys = list(st.session_state['user_data'].get('portfolio', {}).keys())
@@ -317,11 +318,15 @@ else:
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
-    # --- HEADER FIXED (Tighter & Seamless Scroll) ---
+    # --- HEADER COMPONENT (Cleaned Up) ---
     img_b64 = get_base64_image(LOGO_PATH)
     logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
     tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
 
+    # Iframe logic adjusted:
+    # 1. Penny Pulse TEXT REMOVED (Logo Only)
+    # 2. Ticker Speed 15s (Faster)
+    # 3. Seamless Loop (-50%)
     header_component = f"""
     <!DOCTYPE html>
     <html>
@@ -336,21 +341,19 @@ else:
         }}
         .header-top {{
             background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
-            /* TIGHTER PADDING */
-            padding: 10px 20px 10px 20px; 
+            padding: 10px 20px; 
             padding-top: max(10px, env(safe-area-inset-top)); 
             color: white; display: flex; justify-content: space-between; align-items: center;
         }}
-        .brand {{ display: flex; align-items: center; font-size: 22px; font-weight: 900; letter-spacing: -1px; }}
-        .brand img {{ height: 32px; margin-right: 12px; }}
-        .clock {{ font-family: 'Courier New', monospace; font-size: 14px; background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 5px; }}
+        .brand {{ display: flex; align-items: center; }}
+        .brand img {{ height: 40px; }}
+        .clock {{ font-family: 'Courier New', monospace; font-size: 14px; background: rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; font-weight: bold; }}
         
         .ticker-wrap {{
             width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333;
-            white-space: nowrap; padding: 10px 0; color: white; font-size: 16px;
+            white-space: nowrap; padding: 12px 0; color: white; font-size: 16px;
         }}
-        /* INFINITE LOOP FIX: Scroll to -50% (halfway) then reset seamlessly */
-        .ticker {{ display: inline-block; animation: ticker 40s linear infinite; }}
+        .ticker {{ display: inline-block; animation: ticker 15s linear infinite; }}
         @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-50%, 0, 0); }} }}
     </style>
     </head>
@@ -358,7 +361,7 @@ else:
         <div class="header-container">
             <div class="header-top">
                 <div class="brand">
-                    <img src="{logo_src}"> Penny Pulse
+                    <img src="{logo_src}">
                 </div>
                 <div class="clock" id="clock">--:--:--</div>
             </div>
@@ -378,7 +381,7 @@ else:
     </body>
     </html>
     """
-    components.html(header_component, height=115)
+    components.html(header_component, height=130)
 
     t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
