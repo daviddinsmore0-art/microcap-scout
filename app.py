@@ -58,7 +58,7 @@ def load_user(username):
         if res: return json.loads(res[0])
         else: return {
             "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY, NKE",
-            "tape_input": "^DJI, ^IXIC, ^GSPC, GC=F, SI=F, BTC-USD", # Default Indices/Commodities
+            "tape_input": "^DJI, ^IXIC, ^GSPC, GC=F, SI=F, BTC-USD",
             "portfolio": {},
             "settings": {"active": False}
         }
@@ -118,7 +118,7 @@ def get_pro_data(s):
         return {"p": p_live, "d": d_pct, "tr": trend, "chart": chart, "name": name}
     except: return None
 
-@st.cache_data(ttl=300) # Cache ticker tape for 5 mins to keep app fast
+@st.cache_data(ttl=300)
 def get_tape_data(symbol_string):
     items = []
     symbols = [x.strip() for x in symbol_string.split(",") if x.strip()]
@@ -130,10 +130,7 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                
-                # Shorten names for the tape
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
-                
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
                 items.append(f"<span style='color:#ccc; font-weight:bold; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
@@ -146,12 +143,13 @@ st.markdown("""
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
         
+        /* PUSH CONTENT DOWN SO IT DOESN'T HIDE BEHIND HEADER */
         .block-container {
             padding-top: 1rem !important; 
             padding-bottom: 2rem;
         }
         
-        /* Card Styling */
+        /* CARD STYLING */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 10px;
@@ -159,34 +157,42 @@ st.markdown("""
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         
-        /* Metric Styling */
+        /* METRIC STYLING */
         [data-testid="stMetricValue"] {
             font-size: 1.8rem !important;
             font-weight: 700 !important;
         }
         
-        /* HEADER STYLING */
-        .main-header {
+        /* --- UNIFIED HEADER STYLING --- */
+        .header-container {
             position: sticky;
             top: 0;
             z-index: 999;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2)); /* Shadow for the whole shape */
+        }
+        
+        /* Top Gradient Part (Safe Zone for Notch) */
+        .header-top {
             background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
             padding: 10px 15px;
-            border-radius: 0 0 15px 15px;
+            padding-top: 3.5rem; /* <--- PUSHES TEXT DOWN BELOW NOTCH */
             color: white;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            border-radius: 0; /* Flat bottom to connect to ticker */
         }
 
-        /* TICKER TAPE ANIMATION */
+        /* Ticker Part (Attached to Bottom of Header) */
         .ticker-wrap {
             width: 100%;
             overflow: hidden;
-            background-color: #0e1117;
-            border-bottom: 1px solid #333;
+            background-color: #111; /* Slightly lighter than pure black */
+            border-top: 1px solid #333;
             white-space: nowrap;
             box-sizing: border-box;
-            padding: 5px 0;
+            padding: 8px 0;
+            color: white;
+            border-radius: 0 0 15px 15px; /* <--- ROUNDED BOTTOM EDGES HERE */
         }
+        
         .ticker {
             display: inline-block;
             padding-left: 100%;
@@ -261,8 +267,6 @@ else:
         st.divider()
         with st.expander("💼 Portfolio & Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
-                
-                # --- NEW: TICKER TAPE ADMIN ---
                 st.caption("SCROLLING TICKER TAPE")
                 curr_tape = st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F")
                 new_tape = st.text_input("Tape Symbols", value=curr_tape)
@@ -271,7 +275,6 @@ else:
                     push()
                     st.rerun()
                 st.divider()
-                # -----------------------------
 
                 new_t = st.text_input("Ticker Symbol").upper()
                 c1, c2 = st.columns(2)
@@ -294,7 +297,7 @@ else:
     
     inject_wake_lock(st.session_state['keep_on'])
 
-    # -- TOP HEADER WITH LOGO --
+    # -- UNIFIED HEADER LOGIC --
     t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M %p')
     
     img_b64 = get_base64_image(LOGO_PATH)
@@ -303,28 +306,28 @@ else:
     else:
         logo_html = "⚡ "
 
-    # 1. THE HEADER
+    tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
+
+    # WE COMBINE THEM INTO ONE HTML BLOCK SO THEY STICK TOGETHER
     st.markdown(f"""
-        <div class="main-header">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="display:flex; align-items:center; font-size:22px; font-weight:900; letter-spacing:-1px;">
-                    {logo_html} Penny Pulse
+        <div class="header-container">
+            <div class="header-top">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; font-size:22px; font-weight:900; letter-spacing:-1px;">
+                        {logo_html} Penny Pulse
+                    </div>
+                    <div style="font-family:monospace; font-size:14px; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:5px;">● {t_str} ET</div>
                 </div>
-                <div style="font-family:monospace; font-size:14px; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:5px;">● {t_str} ET</div>
+            </div>
+            <div class="ticker-wrap">
+                <div class="ticker">
+                    {tape_content} {tape_content} {tape_content}
+                </div>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    # 2. THE TICKER TAPE (Fetches data based on Admin Input)
-    tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
-    st.markdown(f"""
-        <div class="ticker-wrap">
-            <div class="ticker">
-                {tape_content} {tape_content} {tape_content} </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True) # Spacer
+    st.markdown("<br>", unsafe_allow_html=True)
 
     t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
@@ -409,5 +412,5 @@ else:
             for i, (k, v) in enumerate(port.items()):
                 with cols[i%3]: draw(k, v)
 
-    time.sleep(30) # As requested: 30 second refresh
+    time.sleep(30)
     st.rerun()
