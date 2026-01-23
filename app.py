@@ -85,7 +85,7 @@ def load_user(username):
         if res: return json.loads(res[0])
         else: return {
             "w_input": "TD.TO, NKE, SPY",
-            "tape_input": "^DJI, ^IXIC, ^GSPC, GC=F",
+            "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F",
             "portfolio": {},
             "settings": {"active": False}
         }
@@ -127,6 +127,7 @@ def get_fundamentals(s):
         rating = inf.get('recommendationKey', 'N/A').replace('_', ' ').upper()
         if rating == "NONE": rating = "N/A"
         
+        # RAW EARNINGS FETCH (Restored to match Nov 05 screenshot)
         earn_str = "N/A"
         try:
             cal = tk.calendar
@@ -151,16 +152,11 @@ def get_pro_data(s):
 
         pre_post_html = ""
         try:
-            # Original Logic: Check Fast Info, Show if Diff > 1 cent
-            rt_price = tk.fast_info.get('last_price', None)
-            if rt_price is None: rt_price = p_live 
-
-            diff = rt_price - p_live
-            if abs(diff) > 0.01:
+            rt_price = tk.fast_info.get('last_price', p_live)
+            if rt_price and abs(rt_price - p_live) > 0.001:
                 pp_pct = ((rt_price - p_live) / p_live) * 100
-                now_utc = datetime.now(timezone.utc)
-                now_et = now_utc - timedelta(hours=5)
-                lbl = "POST" if now_et.hour >= 16 else "PRE" if now_et.hour < 9 else "LIVE"
+                now = datetime.now(timezone.utc) - timedelta(hours=5)
+                lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
                 col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
                 pct_fmt = f"{pp_pct:+.2f}%"
                 pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
@@ -185,6 +181,12 @@ def get_pro_data(s):
         if day_h != day_l:
             range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
 
+        # CHART DATA PREP (Restored Exact Structure)
+        chart = hist['Close'].tail(20).reset_index()
+        chart.columns = ['T', 'Stock']
+        chart['Idx'] = range(len(chart))
+        chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
+
         return {
             "p": p_live, "d": d_pct, "name": tk.info.get('longName', s),
             "rsi": rsi_val,
@@ -193,7 +195,7 @@ def get_pro_data(s):
             "h": day_h, "l": day_l, 
             "ai": "BULLISH" if p_live > sma20 else "BEARISH", 
             "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html,
-            "chart": hist['Close'].tail(20).reset_index()
+            "chart": chart
         }
     except: return None
 
@@ -209,7 +211,10 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
+                
+                # RAW SYMBOLS (Restored)
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
+                
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
                 items.append(f"<span style='color:#ccc; font-weight:bold; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
@@ -229,13 +234,14 @@ if 'init' not in st.session_state:
             st.session_state['user_data'] = load_user(user)
             st.session_state['logged_in'] = True
 
-# --- CUSTOM CSS (This is the critical part for White Cards) ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
         .block-container { padding-top: 0rem !important; padding-bottom: 2rem; }
         
+        /* CARD STYLE RESTORED */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 12px;
@@ -279,7 +285,7 @@ else:
             st.rerun()
         st.divider()
         
-        # --- FULL ADMIN PANEL ---
+        # --- FULL ADMIN PANEL RESTORED ---
         with st.expander("💼 Portfolio & Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 st.caption("SCROLLING TICKER TAPE")
@@ -318,12 +324,12 @@ else:
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
-    # --- UNIFIED HEADER COMPONENT (IFRAME) ---
-    # This is the exact header code from Version 226 that had the JS Clock
+    # --- UNIFIED HEADER COMPONENT (IFRAME - The Exact Header) ---
     img_b64 = get_base64_image(LOGO_PATH)
     logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
-    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPC, GC=F"))
+    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
 
+    # This HTML matches the "Pre-Flash" header exactly
     header_component = f"""
     <!DOCTYPE html>
     <html>
@@ -385,13 +391,12 @@ else:
         b_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
         arrow = "▲" if d['d'] >= 0 else "▼"
         
-        # Rating Color
+        # Color Logic
         r_up = f['rating'].upper()
         if "BUY" in r_up or "OUT" in r_up: r_col = "#4caf50"
         elif "SELL" in r_up or "UNDER" in r_up: r_col = "#ff4b4b"
         else: r_col = "#f1c40f"
 
-        # AI/Trend Colors
         ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         tr_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
 
@@ -408,7 +413,7 @@ else:
             st.markdown(header_html, unsafe_allow_html=True)
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
             
-            # Sparkline
+            # Sparkline Chart
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':b_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
@@ -419,7 +424,7 @@ else:
             ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
             
-            # Metrics
+            # Metric Bars
             st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
             
             rsi = d['rsi']
