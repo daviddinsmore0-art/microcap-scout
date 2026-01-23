@@ -103,11 +103,6 @@ def save_user(username, data):
     except: pass
 
 # --- HELPERS ---
-def get_base64_image(path):
-    if os.path.exists(path):
-        with open(path, "rb") as f: return base64.b64encode(f.read()).decode()
-    return None
-
 def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
 
@@ -207,6 +202,7 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
+                
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
@@ -232,9 +228,40 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* PADDING FIX: Pushes content down so it shows below the header */
-        .block-container { padding-top: 7rem !important; padding-bottom: 2rem; }
+        /* PADDING: Adjusted so content is visible right under the ticker */
+        .block-container { padding-top: 4rem !important; padding-bottom: 2rem; }
         
+        /* TICKER TAPE CSS (Fixed to Top) */
+        .ticker-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 45px;
+            background-color: #111;
+            z-index: 99999;
+            border-bottom: 1px solid #333;
+            border-radius: 0 0 10px 10px; /* ROUNDED BOTTOM */
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+        }
+        .ticker-text {
+            white-space: nowrap;
+            display: inline-block;
+            animation: ticker 25s linear infinite; /* Faster Speed */
+            color: white;
+            font-family: monospace;
+            font-size: 14px;
+            padding-left: 100%; /* Start off screen */
+        }
+        @keyframes ticker {
+            0% { transform: translate3d(0, 0, 0); }
+            100% { transform: translate3d(-100%, 0, 0); }
+        }
+
+        /* CARD STYLE */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 12px;
@@ -268,6 +295,14 @@ if not st.session_state['logged_in']:
 else:
     def push(): save_user(st.session_state['username'], st.session_state['user_data'])
     
+    # --- RENDER STICKY TICKER ---
+    tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
+    st.markdown(f"""
+        <div class="ticker-container">
+            <div class="ticker-text">{tape_content} &nbsp;&nbsp;&nbsp;&nbsp; {tape_content} &nbsp;&nbsp;&nbsp;&nbsp; {tape_content}</div>
+        </div>
+    """, unsafe_allow_html=True)
+
     with st.sidebar:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
         st.subheader("Operator Control")
@@ -317,71 +352,6 @@ else:
             st.rerun()
             
     inject_wake_lock(st.session_state.get('keep_on', False))
-
-    # --- HEADER COMPONENT (Cleaned Up) ---
-    img_b64 = get_base64_image(LOGO_PATH)
-    logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
-    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
-
-    # Iframe logic adjusted:
-    # 1. Penny Pulse TEXT REMOVED (Logo Only)
-    # 2. Ticker Speed 15s (Faster)
-    # 3. Seamless Loop (-50%)
-    header_component = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <style>
-        body {{ margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: transparent; }}
-        .header-container {{
-            position: fixed; top: 0; left: 0; width: 100%; z-index: 999;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            border-radius: 0 0 15px 15px; 
-            overflow: hidden;
-        }}
-        .header-top {{
-            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
-            padding: 10px 20px; 
-            padding-top: max(10px, env(safe-area-inset-top)); 
-            color: white; display: flex; justify-content: space-between; align-items: center;
-        }}
-        .brand {{ display: flex; align-items: center; }}
-        .brand img {{ height: 40px; }}
-        .clock {{ font-family: 'Courier New', monospace; font-size: 14px; background: rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; font-weight: bold; }}
-        
-        .ticker-wrap {{
-            width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333;
-            white-space: nowrap; padding: 12px 0; color: white; font-size: 16px;
-        }}
-        .ticker {{ display: inline-block; animation: ticker 15s linear infinite; }}
-        @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-50%, 0, 0); }} }}
-    </style>
-    </head>
-    <body>
-        <div class="header-container">
-            <div class="header-top">
-                <div class="brand">
-                    <img src="{logo_src}">
-                </div>
-                <div class="clock" id="clock">--:--:--</div>
-            </div>
-            <div class="ticker-wrap">
-                <div class="ticker">{tape_html} &nbsp;&nbsp;&nbsp;&nbsp; {tape_html}</div>
-            </div>
-        </div>
-        <script>
-            function updateClock() {{
-                var now = new Date();
-                var time = now.toLocaleTimeString('en-US', {{ hour12: true, timeZone: 'America/New_York' }});
-                document.getElementById('clock').innerHTML = '● ' + time + ' ET';
-            }}
-            setInterval(updateClock, 1000);
-            updateClock();
-        </script>
-    </body>
-    </html>
-    """
-    components.html(header_component, height=130)
 
     t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
