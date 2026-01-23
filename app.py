@@ -43,6 +43,7 @@ def init_db():
         return True
     except Error: return False
 
+# --- AUTHENTICATION ---
 def create_session(username):
     token = str(uuid.uuid4())
     try:
@@ -125,17 +126,17 @@ def get_fundamentals(s):
         try:
             cal = tk.calendar
             next_earn = None
-            if hasattr(cal, 'iloc') and not cal.empty: 
-                next_earn = cal.iloc[0][0]
+            if hasattr(cal, 'iloc') and not cal.empty: next_earn = cal.iloc[0][0]
             elif isinstance(cal, dict): 
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
-            # FUTURE ONLY CHECK
             if next_earn:
                 if isinstance(next_earn, pd.Timestamp): next_earn = next_earn.to_pydatetime()
                 if next_earn.date() >= datetime.now().date():
                     earn_str = next_earn.strftime('%b %d')
+                else:
+                    earn_str = "N/A" # HIDE PAST EARNINGS
         except: pass
         return {"rating": rating, "earn": earn_str}
     except: return {"rating": "N/A", "earn": "N/A"}
@@ -213,7 +214,7 @@ if 'init' not in st.session_state:
             st.session_state['user_data'] = load_user(user)
             st.session_state['logged_in'] = True
 
-# --- CUSTOM CSS ---
+# --- CSS (THE GOLDEN STATE RESTORED) ---
 st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
