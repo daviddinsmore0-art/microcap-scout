@@ -6,7 +6,7 @@ import time
 import json
 import mysql.connector
 from mysql.connector import Error
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
 import base64
@@ -92,27 +92,24 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- FUNDAMENTAL DATA (LOWERED CACHE TO 10 MINS TO FIX "N/A") ---
+# --- FUNDAMENTAL DATA ---
 @st.cache_data(ttl=600) 
 def get_fundamentals(s):
     try:
         tk = yf.Ticker(s)
-        # 1. Analyst Rating (Aggressive Fetch)
         rating = "N/A"
-        try:
-            # Method A: recommendationKey
-            r = tk.info.get('recommendationKey', None)
-            if r and r != 'none': rating = r.replace('_', ' ').upper()
-        except: pass
+        # Try multiple keys for rating
+        keys = ['recommendationKey', 'targetMeanPrice'] 
+        info = tk.info
+        if 'recommendationKey' in info and info['recommendationKey'] != 'none':
+             rating = info['recommendationKey'].replace('_', ' ').upper()
         
-        # 2. Earnings
         earn_str = "N/A"
         try: 
             cal = tk.calendar
             if cal is not None and not cal.empty:
                 if isinstance(cal, dict): next_earn = cal.get('Earnings Date', [None])[0]
                 else: next_earn = cal.iloc[0][0]
-                
                 if next_earn: earn_str = next_earn.strftime('%b %d')
         except: pass
         
@@ -127,32 +124,40 @@ def get_pro_data(s):
         hist = tk.history(period="1mo", interval="1d")
         if hist.empty: return None 
         
-        # Prices
         p_live = hist['Close'].iloc[-1]
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
-        # --- PRE/POST MARKET LOGIC (FORCE SHOW) ---
+        # --- SMART PRE/POST MARKET LOGIC ---
         pre_post_html = ""
-        try:
-            # We try 'last_price' from fast_info. If that fails, we try 'currentPrice' from info
-            rt_price = tk.fast_info.get('last_price', None)
+        
+        # 1. Check if CAD stock (Force Hide)
+        if not (s.endswith('.TO') or s.endswith('.V') or s.endswith('.CN')):
             
-            if rt_price is None:
-                 rt_price = tk.info.get('currentPrice', None)
-
-            # If we found a price, SHOW IT no matter what the difference is
-            if rt_price is not None:
-                pp_pct = ((rt_price - p_live) / p_live) * 100
-                lbl = "LIVE" # Using LIVE/POST generic label
-                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                
-                # Format logic: 0.00% is grey, otherwise colored
-                pct_fmt = f"{pp_pct:+.2f}%"
-                if abs(pp_pct) < 0.01: col = "#888" # Grey if flat
-                
-                pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
-        except: pass
+            # 2. Check Time (ET)
+            # UTC is 4 or 5 hours ahead of ET. We use a simple offset.
+            now_utc = datetime.now(timezone.utc)
+            now_et = now_utc - timedelta(hours=5) # Approx ET (Standard time)
+            
+            mode = "OFF"
+            # Pre-Market: 4:00 AM - 9:30 AM
+            if (now_et.hour == 4) or (now_et.hour > 4 and now_et.hour < 9) or (now_et.hour == 9 and now_et.minute < 30):
+                mode = "PRE"
+            # Post-Market: 4:00 PM - 8:00 PM
+            elif (now_et.hour >= 16 and now_et.hour < 20):
+                mode = "POST"
+            
+            if mode != "OFF":
+                try:
+                    rt_price = tk.fast_info.get('last_price', None)
+                    if rt_price:
+                        # Calculate change vs CLOSE
+                        pp_pct = ((rt_price - p_live) / p_live) * 100
+                        col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
+                        pct_fmt = f"{pp_pct:+.2f}%"
+                        # INLINE HTML
+                        pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{mode}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
+                except: pass
 
         # Metrics
         rsi_series = calculate_rsi(hist['Close'])
@@ -325,11 +330,24 @@ else:
     
     inject_wake_lock(st.session_state['keep_on'])
 
-    # HEADER (ADDED SECONDS FOR HEARTBEAT)
-    t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M:%S %p')
+    # HEADER WITH JS CLOCK
     img_b64 = get_base64_image(LOGO_PATH)
     logo_html = f'<img src="data:image/png;base64,{img_b64}" style="height:35px; vertical-align:middle; margin-right:10px;">' if img_b64 else "⚡ "
     tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
+
+    # JAVASCRIPT CLOCK INJECTION
+    clock_js = """
+    <script>
+    function updateClock() {
+        var now = new Date();
+        var time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+        document.getElementById('live_clock').innerHTML = '● ' + time + ' ET';
+    }
+    setInterval(updateClock, 1000);
+    </script>
+    """
+    
+    st.components.v1.html(clock_js, height=0)
 
     st.markdown(f"""
         <div class="header-container">
@@ -338,7 +356,7 @@ else:
                     <div style="display:flex; align-items:center; font-size:22px; font-weight:900; letter-spacing:-1px;">
                         {logo_html} Penny Pulse
                     </div>
-                    <div style="font-family:monospace; font-size:14px; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:5px;">● {t_str} ET</div>
+                    <div id="live_clock" style="font-family:monospace; font-size:14px; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:5px;">● --:--:-- ET</div>
                 </div>
             </div>
             <div class="ticker-wrap"><div class="ticker">{tape_content} {tape_content} {tape_content}</div></div>
@@ -364,13 +382,12 @@ else:
         ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         trend_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
         
-        # Rating Color Logic
+        # Rating Color
         r_up = fund['rating'].upper()
         if "BUY" in r_up or "OUTPERFORM" in r_up: rating_col = "#4caf50"
         elif "SELL" in r_up or "UNDERPERFORM" in r_up: rating_col = "#ff4b4b"
         else: rating_col = "#f1c40f"
 
-        # FIXED HTML CONSTRUCTION
         header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{border_col}; margin-top:-4px;">{arrow} {d['d']:.2f}% {d['pp']}</div></div></div>"""
         
         # Intelligence Row
@@ -388,49 +405,33 @@ else:
             st.markdown(header_html, unsafe_allow_html=True)
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
             
-            # SPARKLINE CHART (Tooltips Disabled)
+            # SPARKLINE CHART
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':border_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=border_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
             ).encode(
                 x=alt.X('Idx', axis=None), 
                 y=alt.Y('Stock', scale=alt.Scale(domain=[d['chart']['Stock'].min(), d['chart']['Stock'].max()]), axis=None),
-                tooltip=[] # <--- Kills the popup
+                tooltip=[]
             ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
 
             # METRIC BARS
-            # Range
-            st.markdown(f"""
-            <div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div>
-            <div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
             
-            # RSI
             rsi = d['rsi']
             rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
             rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
             rsi_fill = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#888"
-            st.markdown(f"""
-            <div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div>
-            <div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_fill};"></div></div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_fill};"></div></div>""", unsafe_allow_html=True)
             
-            # Volume
             vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
-            st.markdown(f"""
-            <div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{vol_stat}</span></div>
-            <div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{vol_stat}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>""", unsafe_allow_html=True)
 
             if port:
                 gain = (d['p'] - port['e']) * port['q']
                 gain_col = "#4caf50" if gain >= 0 else "#ff4b4b"
-                st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;">
-                    <span>Qty: <b>{port['q']}</b></span>
-                    <span>Avg: <b>${port['e']}</b></span>
-                    <span style="color:{gain_col}; font-weight:bold;">${gain:+,.0f}</span>
-                </div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port['q']}</b></span><span>Avg: <b>${port['e']}</b></span><span style="color:{gain_col}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
             st.divider()
 
     with t1:
