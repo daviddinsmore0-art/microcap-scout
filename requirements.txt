@@ -1,7 +1,8 @@
 streamlit
 yfinance
+mysql-connector-python
 pandas
 altair
-mysql-connector-python
 feedparser
 openai
+requests
