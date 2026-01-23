@@ -23,9 +23,9 @@ LOGO_PATH = "logo.png"
 DB_CONFIG = {
     "host": "72.55.168.16",    # Your Public IP
     "user": "penny_user",      # Your User
-    "password": "123456",      # <--- We just set this in SQL!
+    "password": "123456",      # <--- Matches the SQL we just ran
     "database": "penny_pulse",
-    "connect_timeout": 10
+    "connect_timeout": 5
 }
 
 # --- DATABASE ENGINE ---
@@ -33,7 +33,6 @@ def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
-    """Checks connection on startup."""
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -58,7 +57,7 @@ def load_user(username):
         conn.close()
         if res: return json.loads(res[0])
         else: return {
-            "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY, NKE, VCIG, AIRE, IMNN, BAER, RERE",
+            "w_input": "TD.TO, CCO.TO, IVN.TO, BN.TO, HIVE, SPY, NKE",
             "portfolio": {},
             "settings": {"active": False}
         }
@@ -149,7 +148,7 @@ if not st.session_state['logged_in']:
                 st.session_state['logged_in'] = True
                 st.rerun()
             else:
-                st.error("Connection Failed. 1. Check WHM Firewall (%) 2. Check Password.")
+                st.error("Connection Failed. Check WHM 'Additional MySQL Access Hosts' is set to %")
 
 # DASHBOARD
 else:
