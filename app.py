@@ -135,12 +135,11 @@ def relative_time(date_str):
         return f"{int(seconds // 86400)}d ago"
     except: return "Recent"
 
-@st.cache_data(ttl=900) # 15 min cache
+@st.cache_data(ttl=900) 
 def fetch_news(feeds, tickers, api_key):
     if not NEWS_LIB_READY: return []
     
     all_feeds = feeds.copy()
-    # Add dynamic feeds for watchlist
     for t in tickers:
         all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
     
@@ -150,19 +149,18 @@ def fetch_news(feeds, tickers, api_key):
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            for entry in f.entries[:3]: # Keep it fast
+            for entry in f.entries[:3]: 
                 if entry.link not in seen:
                     seen.add(entry.link)
                     
-                    # Check mention
                     found_ticker = None
                     for t in tickers:
                         if t in entry.title.upper():
                             found_ticker = t
                             break
                     
-                    # AI Sentiment
                     sentiment = "NONE"
+                    # ONLY CALL AI IF KEY IS PRESENT AND TICKER IS FOUND
                     if api_key and found_ticker:
                         try:
                             client = openai.OpenAI(api_key=api_key)
@@ -206,7 +204,6 @@ def get_fundamentals(s):
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
-            # FUTURE DATE ONLY
             if next_earn:
                 ts = pd.Timestamp(next_earn)
                 if ts.date() >= datetime.now().date():
@@ -342,6 +339,15 @@ if not st.session_state['logged_in']:
 else:
     def push(): save_user(st.session_state['username'], st.session_state['user_data'])
     
+    # --- DETERMINE API KEY (GLOBAL & ROBUST) ---
+    ACTIVE_KEY = None
+    # 1. Try Secrets (both names)
+    try: ACTIVE_KEY = st.secrets.get("OPENAI_KEY") or st.secrets.get("OPENAI_API_KEY")
+    except: pass
+    # 2. Try Database
+    if not ACTIVE_KEY:
+        ACTIVE_KEY = st.session_state['user_data'].get('openai_key')
+
     tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
     
     header_html = f"""<!DOCTYPE html><html><head><style>body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }} .ticker-container {{ width: 100%; height: 45px; background: #111; display: flex; align-items: center; border-bottom: 1px solid #333; border-radius: 0 0 15px 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }} .ticker-wrap {{ width: 100%; overflow: hidden; white-space: nowrap; }} .ticker-move {{ display: inline-block; animation: ticker 15s linear infinite; }} @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-25%, 0, 0); }} }} .ticker-item {{ display: inline-block; color: white; font-weight: 900; font-size: 16px; padding: 0 20px; }}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content}</span></div></div></div></body></html>"""
@@ -370,21 +376,20 @@ else:
                 st.divider()
                 st.caption("AI & NEWS CONFIG")
                 
-                # HYBRID API KEY CHECK
-                secret_key = None
-                try: secret_key = st.secrets["OPENAI_KEY"]
-                except: pass
-                
-                if secret_key:
-                    st.success("✅ Key Found in Secrets")
-                    final_key = secret_key
+                # Visual Confirmation Logic
+                if ACTIVE_KEY and "openai" not in st.session_state['user_data'].get('openai_key', ""):
+                     st.success("✅ AI Engine Online (Secrets)")
+                elif ACTIVE_KEY:
+                     st.success("✅ AI Engine Online (Database)")
                 else:
+                     st.warning("⚠️ AI Offline (Missing Key)")
+
+                if not ACTIVE_KEY or st.session_state['user_data'].get('openai_key'):
                     new_key = st.text_input("OpenAI API Key", value=st.session_state['user_data'].get('openai_key', ""), type="password")
                     if new_key != st.session_state['user_data'].get('openai_key', ""):
                         st.session_state['user_data']['openai_key'] = new_key
                         push()
                         st.rerun()
-                    final_key = st.session_state['user_data'].get('openai_key')
 
                 st.caption("MANAGE RSS FEEDS")
                 feeds = st.session_state['user_data'].get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
@@ -497,9 +502,9 @@ else:
 
     with t3:
         if not NEWS_LIB_READY:
-            st.error("Missing Libraries: Please add 'feedparser' and 'openai' to requirements.txt")
+            st.error("Missing Libraries: Please add 'feedparser' and 'openai' to your requirements.txt")
         else:
-            api_key = final_key # From Logic Above
+            api_key = ACTIVE_KEY # Use GLOBAL Key
             if not api_key: st.warning("⚠️ No OpenAI API Key found. Add it in Sidebar to enable AI Sentiment.")
             
             watchlist = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
