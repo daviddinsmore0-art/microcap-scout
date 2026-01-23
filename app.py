@@ -130,6 +130,7 @@ def get_fundamentals(s):
         earn_str = "N/A"
         try:
             cal = tk.calendar
+            # RAW GRAB (Matches "Nov 05" screenshot)
             if hasattr(cal, 'iloc') and not cal.empty: 
                 earn_str = cal.iloc[0][0].strftime('%b %d')
             elif isinstance(cal, dict): 
@@ -168,18 +169,17 @@ def get_pro_data(s):
             if not rsi_series.empty: rsi_val = rsi_series.iloc[-1]
         except: pass
         
-        # Vol Pct
         vol_pct = 0
         if not hist['Volume'].empty:
              vol_pct = (hist['Volume'].iloc[-1] / hist['Volume'].mean()) * 100
 
-        # Range Pos
         range_pos = 50
         day_h = hist['High'].iloc[-1]
         day_l = hist['Low'].iloc[-1]
         if day_h != day_l:
             range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
 
+        # GRADIENT CHART DATA (Restored)
         chart = hist['Close'].tail(20).reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
@@ -209,6 +209,7 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
+                # RAW (Restored to match ^GSPTSE screenshot)
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
@@ -234,9 +235,9 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        .block-container { padding-top: 0rem !important; padding-bottom: 2rem; }
+        /* PUSH CONTENT DOWN SO HEADER DOESN'T CUT IT OFF */
+        .block-container { padding-top: 10rem !important; padding-bottom: 2rem; }
         
-        /* CARD STYLE */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 12px;
@@ -280,15 +281,16 @@ else:
             st.rerun()
         st.divider()
         
+        with st.expander("Tape Settings"):
+            curr_tape = st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F")
+            new_tape = st.text_input("Symbols", value=curr_tape)
+            if new_tape != curr_tape:
+                st.session_state['user_data']['tape_input'] = new_tape
+                push()
+                st.rerun()
+
         with st.expander("💼 Portfolio & Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
-                st.caption("SCROLLING TICKER TAPE")
-                curr_tape = st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F")
-                new_tape = st.text_input("Symbols", value=curr_tape)
-                if new_tape != curr_tape:
-                    st.session_state['user_data']['tape_input'] = new_tape
-                    push()
-                    st.rerun()
                 st.divider()
                 st.caption("ADD HOLDING")
                 new_t = st.text_input("Ticker Symbol").upper()
@@ -318,10 +320,10 @@ else:
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
-    # --- HEADER COMPONENT (Rounded Bottom Fix) ---
+    # --- HEADER COMPONENT (Increased Padding to fix Cut-Off) ---
     img_b64 = get_base64_image(LOGO_PATH)
     logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
-    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPC, GC=F"))
+    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
 
     header_component = f"""
     <!DOCTYPE html>
@@ -332,12 +334,15 @@ else:
         .header-container {{
             position: fixed; top: 0; left: 0; width: 100%; z-index: 999;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            border-radius: 0 0 15px 15px; /* ROUNDED BOTTOM */
+            border-radius: 0 0 15px 15px; 
             overflow: hidden;
         }}
         .header-top {{
             background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
-            padding: 12px 20px; color: white; display: flex; justify-content: space-between; align-items: center;
+            /* EXTRA PADDING FOR NOTCH */
+            padding: 20px 20px 15px 20px; 
+            padding-top: max(20px, env(safe-area-inset-top)); 
+            color: white; display: flex; justify-content: space-between; align-items: center;
         }}
         .brand {{ display: flex; align-items: center; font-size: 24px; font-weight: 900; letter-spacing: -1px; }}
         .brand img {{ height: 35px; margin-right: 12px; }}
@@ -345,7 +350,7 @@ else:
         
         .ticker-wrap {{
             width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333;
-            white-space: nowrap; padding: 8px 0; color: white; font-size: 14px;
+            white-space: nowrap; padding: 12px 0; color: white; font-size: 16px; /* LARGER FONT */
         }}
         .ticker {{ display: inline-block; animation: ticker 30s linear infinite; }}
         @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-100%, 0, 0); }} }}
@@ -375,7 +380,7 @@ else:
     </body>
     </html>
     """
-    components.html(header_component, height=110)
+    components.html(header_component, height=135)
 
     t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
@@ -406,6 +411,7 @@ else:
             st.markdown(header_html, unsafe_allow_html=True)
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
             
+            # Sparkline
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':b_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
@@ -416,6 +422,7 @@ else:
             ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
             
+            # Metrics
             st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
             
             rsi = d['rsi']
