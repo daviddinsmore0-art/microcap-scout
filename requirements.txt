@@ -2,7 +2,4 @@ streamlit
 yfinance
 pandas
 altair
-openai
-requests
-Pillow
-extra-streamlit-components
+mysql-connector-python
