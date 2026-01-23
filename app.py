@@ -12,6 +12,14 @@ import os
 import base64
 import uuid
 
+# --- IMPORTS FOR NEWS & AI ---
+try:
+    import feedparser
+    import openai
+    NEWS_LIB_READY = True
+except ImportError:
+    NEWS_LIB_READY = False
+
 # --- SETUP & STYLING ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
@@ -88,7 +96,9 @@ def load_user(username):
             "w_input": "TD.TO, NKE, SPY",
             "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F",
             "portfolio": {},
-            "settings": {"active": False}
+            "settings": {"active": False},
+            "rss_feeds": ["https://finance.yahoo.com/news/rssindex"],
+            "openai_key": ""
         }
     except: return None
 
@@ -114,6 +124,70 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
+# --- NEWS & AI ENGINE ---
+def relative_time(date_str):
+    try:
+        dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+        diff = datetime.now(timezone.utc) - dt
+        seconds = diff.total_seconds()
+        if seconds < 3600: return f"{int(seconds // 60)}m ago"
+        if seconds < 86400: return f"{int(seconds // 3600)}h ago"
+        return f"{int(seconds // 86400)}d ago"
+    except: return "Recent"
+
+@st.cache_data(ttl=900) # 15 min cache
+def fetch_news(feeds, tickers, api_key):
+    if not NEWS_LIB_READY: return []
+    
+    all_feeds = feeds.copy()
+    # Add dynamic feeds for watchlist
+    for t in tickers:
+        all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
+    
+    articles = []
+    seen = set()
+    
+    for url in all_feeds:
+        try:
+            f = feedparser.parse(url)
+            for entry in f.entries[:3]: # Keep it fast
+                if entry.link not in seen:
+                    seen.add(entry.link)
+                    
+                    # Check mention
+                    found_ticker = None
+                    for t in tickers:
+                        if t in entry.title.upper():
+                            found_ticker = t
+                            break
+                    
+                    # AI Sentiment
+                    sentiment = "NONE"
+                    if api_key and found_ticker:
+                        try:
+                            client = openai.OpenAI(api_key=api_key)
+                            prompt = f"Is this headline BULLISH, BEARISH, or NEUTRAL for {found_ticker}? Headline: {entry.title}"
+                            response = client.chat.completions.create(
+                                model="gpt-3.5-turbo",
+                                messages=[{"role": "user", "content": prompt}],
+                                max_tokens=5
+                            )
+                            ans = response.choices[0].message.content.strip().upper()
+                            if "BULL" in ans: sentiment = "BULLISH"
+                            elif "BEAR" in ans: sentiment = "BEARISH"
+                            elif "NEUT" in ans: sentiment = "NEUTRAL"
+                        except: pass
+
+                    articles.append({
+                        "title": entry.title,
+                        "link": entry.link,
+                        "published": relative_time(entry.get('published', '')),
+                        "ticker": found_ticker,
+                        "sentiment": sentiment
+                    })
+        except: pass
+    return articles
+
 # --- DATA ENGINE ---
 @st.cache_data(ttl=600) 
 def get_fundamentals(s):
@@ -127,18 +201,17 @@ def get_fundamentals(s):
         try:
             cal = tk.calendar
             next_earn = None
-            if hasattr(cal, 'iloc') and not cal.empty: 
-                next_earn = cal.iloc[0][0]
+            if hasattr(cal, 'iloc') and not cal.empty: next_earn = cal.iloc[0][0]
             elif isinstance(cal, dict): 
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
+            # FUTURE DATE ONLY
             if next_earn:
                 ts = pd.Timestamp(next_earn)
                 if ts.date() >= datetime.now().date():
                     earn_str = ts.strftime('%b %d')
-                else:
-                    earn_str = "N/A"
+                else: earn_str = "N/A"
         except: pass
         return {"rating": rating, "earn": earn_str}
     except: return {"rating": "N/A", "earn": "N/A"}
@@ -173,14 +246,12 @@ def get_pro_data(s):
         except: pass
         
         vol_pct = 0
-        if not hist['Volume'].empty:
-             vol_pct = (hist['Volume'].iloc[-1] / hist['Volume'].mean()) * 100
+        if not hist['Volume'].empty: vol_pct = (hist['Volume'].iloc[-1] / hist['Volume'].mean()) * 100
 
         range_pos = 50
         day_h = hist['High'].iloc[-1]
         day_l = hist['Low'].iloc[-1]
-        if day_h != day_l:
-            range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
+        if day_h != day_l: range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
 
         chart = hist['Close'].tail(20).reset_index()
         chart.columns = ['T', 'Stock']
@@ -189,13 +260,9 @@ def get_pro_data(s):
 
         return {
             "p": p_live, "d": d_pct, "name": tk.info.get('longName', s),
-            "rsi": rsi_val,
-            "vol_pct": vol_pct,
-            "range_pos": range_pos,
-            "h": day_h, "l": day_l, 
-            "ai": "BULLISH" if p_live > sma20 else "BEARISH", 
-            "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html,
-            "chart": chart
+            "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos,
+            "h": day_h, "l": day_l, "ai": "BULLISH" if p_live > sma20 else "BEARISH", 
+            "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html, "chart": chart
         }
     except: return None
 
@@ -251,16 +318,20 @@ st.markdown("""
         .bar-fill { height: 100%; border-radius: 3px; }
         .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; }
         .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; }
+        
+        /* NEWS CARD */
+        .news-card { border-bottom: 1px solid #eee; padding-bottom: 12px; margin-bottom: 12px; }
+        .news-title { font-size: 15px; font-weight: bold; color: #222; text-decoration: none; display: block; margin-bottom: 4px; }
+        .news-meta { font-size: 11px; color: #999; }
+        .sentiment-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: white; margin-right: 6px; text-transform: uppercase; }
     </style>
 """, unsafe_allow_html=True)
 
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        if os.path.exists(LOGO_PATH):
-            st.image(LOGO_PATH, width=150)
-        else:
-            st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
+        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
         user = st.text_input("Identity Access")
         if st.button("Authenticate", type="primary") and user:
             st.query_params["token"] = create_session(user.strip())
@@ -273,43 +344,7 @@ else:
     
     tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
     
-    header_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <style>
-        body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }}
-        .ticker-container {{
-            width: 100%; height: 45px; background: #111;
-            display: flex; align-items: center;
-            border-bottom: 1px solid #333;
-            border-radius: 0 0 15px 15px; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }}
-        .ticker-wrap {{ width: 100%; overflow: hidden; white-space: nowrap; }}
-        .ticker-move {{ display: inline-block; animation: ticker 15s linear infinite; }}
-        @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-25%, 0, 0); }} }}
-        
-        .ticker-item {{ 
-            display: inline-block; 
-            color: white; 
-            font-weight: 900; 
-            font-size: 16px; 
-            padding: 0 20px; 
-        }}
-    </style>
-    </head>
-    <body>
-        <div class="ticker-container">
-            <div class="ticker-wrap">
-                <div class="ticker-move">
-                    <span class="ticker-item">{tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content}</span>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+    header_html = f"""<!DOCTYPE html><html><head><style>body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }} .ticker-container {{ width: 100%; height: 45px; background: #111; display: flex; align-items: center; border-bottom: 1px solid #333; border-radius: 0 0 15px 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }} .ticker-wrap {{ width: 100%; overflow: hidden; white-space: nowrap; }} .ticker-move {{ display: inline-block; animation: ticker 15s linear infinite; }} @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-25%, 0, 0); }} }} .ticker-item {{ display: inline-block; color: white; font-weight: 900; font-size: 16px; padding: 0 20px; }}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content}</span></div></div></div></body></html>"""
     components.html(header_html, height=50)
 
     with st.sidebar:
@@ -332,6 +367,41 @@ else:
 
         with st.expander("💼 Portfolio & Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
+                st.divider()
+                st.caption("AI & NEWS CONFIG")
+                
+                # HYBRID API KEY CHECK
+                secret_key = None
+                try: secret_key = st.secrets["OPENAI_KEY"]
+                except: pass
+                
+                if secret_key:
+                    st.success("✅ Key Found in Secrets")
+                    final_key = secret_key
+                else:
+                    new_key = st.text_input("OpenAI API Key", value=st.session_state['user_data'].get('openai_key', ""), type="password")
+                    if new_key != st.session_state['user_data'].get('openai_key', ""):
+                        st.session_state['user_data']['openai_key'] = new_key
+                        push()
+                        st.rerun()
+                    final_key = st.session_state['user_data'].get('openai_key')
+
+                st.caption("MANAGE RSS FEEDS")
+                feeds = st.session_state['user_data'].get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
+                feed_to_add = st.text_input("Add Feed URL")
+                if st.button("Add Feed") and feed_to_add:
+                    feeds.append(feed_to_add)
+                    st.session_state['user_data']['rss_feeds'] = feeds
+                    push()
+                    st.rerun()
+                
+                feed_to_rem = st.selectbox("Remove Feed", [""] + feeds)
+                if st.button("Remove Selected") and feed_to_rem:
+                    feeds.remove(feed_to_rem)
+                    st.session_state['user_data']['rss_feeds'] = feeds
+                    push()
+                    st.rerun()
+
                 st.divider()
                 st.caption("ADD HOLDING")
                 new_t = st.text_input("Ticker Symbol").upper()
@@ -362,7 +432,7 @@ else:
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
-    t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
+    t1, t2, t3 = st.tabs(["📊 Live Market", "🚀 Portfolio", "📰 News"])
 
     def draw(t, port=None):
         d = get_pro_data(t)
@@ -370,19 +440,13 @@ else:
         f = get_fundamentals(t)
         b_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
         arrow = "▲" if d['d'] >= 0 else "▼"
-        
         r_up = f['rating'].upper()
-        if "BUY" in r_up or "OUT" in r_up: r_col = "#4caf50"
-        elif "SELL" in r_up or "UNDER" in r_up: r_col = "#ff4b4b"
-        else: r_col = "#f1c40f"
-
+        r_col = "#4caf50" if "BUY" in r_up or "OUT" in r_up else "#ff4b4b" if "SELL" in r_up or "UNDER" in r_up else "#f1c40f"
         ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         tr_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
 
         header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div>"""
-        
-        pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span>'
-        pills_html += f'<span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
+        pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
         if f['rating'] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
         if f['earn'] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
 
@@ -390,33 +454,15 @@ else:
             st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             st.markdown(header_html, unsafe_allow_html=True)
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
-            
-            chart = alt.Chart(d['chart']).mark_area(
-                line={'color':b_col},
-                color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
-            ).encode(
-                x=alt.X('Idx', axis=None), 
-                y=alt.Y('Stock', scale=alt.Scale(domain=[d['chart']['Stock'].min(), d['chart']['Stock'].max()]), axis=None),
-                tooltip=[]
-            ).configure_view(strokeWidth=0).properties(height=45)
+            chart = alt.Chart(d['chart']).mark_area(line={'color':b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', scale=alt.Scale(domain=[d['chart']['Stock'].min(), d['chart']['Stock'].max()]), axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
-            
             st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
-            
-            rsi = d['rsi']
-            rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
-            rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
-            rsi_fill = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#888"
-            st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_fill};"></div></div>""", unsafe_allow_html=True)
-            
-            vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
-            st.markdown(f"""<div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{vol_stat}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>""", unsafe_allow_html=True)
-
+            rsi, rsi_bg = d['rsi'], "#ff4b4b" if d['rsi'] > 70 else "#4caf50" if d['rsi'] < 30 else "#999"
+            st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{ "HOT" if rsi>70 else "COLD" if rsi<30 else "NEUTRAL" }</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_bg};"></div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{ "HEAVY" if d['vol_pct']>120 else "LIGHT" if d['vol_pct']<80 else "NORMAL" }</span></div><div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>""", unsafe_allow_html=True)
             if port:
                 gain = (d['p'] - port['e']) * port['q']
-                gain_col = "#4caf50" if gain >= 0 else "#ff4b4b"
-                st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port['q']}</b></span><span>Avg: <b>${port['e']}</b></span><span style="color:{gain_col}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
-
+                st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port['q']}</b></span><span>Avg: <b>${port['e']}</b></span><span style="color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
             st.divider()
 
     with t1:
@@ -429,73 +475,46 @@ else:
         port = st.session_state['user_data'].get('portfolio', {})
         if not port: st.info("Portfolio Empty.")
         else:
-            # --- PORTFOLIO DASHBOARD CALCULATION ---
-            total_val = 0.0
-            total_cost = 0.0
-            day_pl_sum = 0.0
-            
+            total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
             for k, v in port.items():
                 d = get_pro_data(k)
                 if d:
-                    # Current values
-                    current_val = d['p'] * v['q']
-                    cost_val = v['e'] * v['q']
-                    
-                    total_val += current_val
-                    total_cost += cost_val
-                    
-                    # Day P/L Calculation
-                    # Reverse engineer Yesterday's Close: Prev = Price / (1 + pct/100)
-                    if d['d'] != 0:
-                        prev_close = d['p'] / (1 + (d['d']/100))
-                        daily_change = (d['p'] - prev_close) * v['q']
-                        day_pl_sum += daily_change
-
-            # Total P/L
-            total_pl_val = total_val - total_cost
-            total_pl_pct = (total_pl_val / total_cost * 100) if total_cost > 0 else 0
+                    total_val += d['p'] * v['q']
+                    total_cost += v['e'] * v['q']
+                    if d['d'] != 0: day_pl_sum += (d['p'] - (d['p'] / (1 + (d['d']/100)))) * v['q']
             
-            # Day P/L % (relative to total portfolio value yesterday)
-            day_pl_pct = 0.0
-            prev_total_val = total_val - day_pl_sum
-            if prev_total_val > 0:
-                day_pl_pct = (day_pl_sum / prev_total_val) * 100
-
-            # Formatting Colors
             day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"
-            total_col = "#4caf50" if total_pl_val >= 0 else "#ff4b4b"
+            total_pl = total_val - total_cost
+            tot_col = "#4caf50" if total_pl >= 0 else "#ff4b4b"
+            day_pl_pct = (day_pl_sum / (total_val - day_pl_sum) * 100) if (total_val - day_pl_sum) > 0 else 0
+            tot_pl_pct = (total_pl / total_cost * 100) if total_cost > 0 else 0
 
-            # --- DISPLAY DASHBOARD ---
-            st.markdown(f"""
-            <div style="background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;">
-                <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                    <div>
-                        <div style="font-size:11px; color:#888; font-weight:bold;">NET ASSETS</div>
-                        <div style="font-size:24px; font-weight:900; color:#333;">${total_val:,.2f}</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-size:11px; color:#888; font-weight:bold;">INVESTED</div>
-                        <div style="font-size:24px; font-weight:900; color:#555;">${total_cost:,.2f}</div>
-                    </div>
-                </div>
-                <div style="height:1px; background:#eee; margin:10px 0;"></div>
-                <div style="display:flex; justify-content:space-between;">
-                    <div>
-                        <div style="font-size:11px; color:#888; font-weight:bold;">DAY P/L</div>
-                        <div style="font-size:16px; font-weight:bold; color:{day_col};">${day_pl_sum:+,.2f} ({day_pl_pct:+.2f}%)</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-size:11px; color:#888; font-weight:bold;">TOTAL P/L</div>
-                        <div style="font-size:16px; font-weight:bold; color:{total_col};">${total_pl_val:+,.2f} ({total_pl_pct:+.2f}%)</div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Draw Cards
+            st.markdown(f"""<div style="background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;"><div style="display:flex; justify-content:space-between; margin-bottom:10px;"><div><div style="font-size:11px; color:#888; font-weight:bold;">NET ASSETS</div><div style="font-size:24px; font-weight:900; color:#333;">${total_val:,.2f}</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">INVESTED</div><div style="font-size:24px; font-weight:900; color:#555;">${total_cost:,.2f}</div></div></div><div style="height:1px; background:#eee; margin:10px 0;"></div><div style="display:flex; justify-content:space-between;"><div><div style="font-size:11px; color:#888; font-weight:bold;">DAY P/L</div><div style="font-size:16px; font-weight:bold; color:{day_col};">${day_pl_sum:+,.2f} ({day_pl_pct:+.2f}%)</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">TOTAL P/L</div><div style="font-size:16px; font-weight:bold; color:{tot_col};">${total_pl:+,.2f} ({tot_pl_pct:+.2f}%)</div></div></div></div>""", unsafe_allow_html=True)
+            
             cols = st.columns(3)
             for i, (k, v) in enumerate(port.items()):
                 with cols[i%3]: draw(k, v)
+
+    with t3:
+        if not NEWS_LIB_READY:
+            st.error("Missing Libraries: Please add 'feedparser' and 'openai' to requirements.txt")
+        else:
+            api_key = final_key # From Logic Above
+            if not api_key: st.warning("⚠️ No OpenAI API Key found. Add it in Sidebar to enable AI Sentiment.")
+            
+            watchlist = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
+            feeds = st.session_state['user_data'].get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
+            news_items = fetch_news(feeds, watchlist, api_key)
+            
+            if not news_items: st.info("No news found right now.")
+            else:
+                for n in news_items:
+                    sent_html = ""
+                    if n['sentiment'] == "BULLISH": sent_html = "<span class='sentiment-badge' style='background:#4caf50;'>BULLISH</span>"
+                    elif n['sentiment'] == "BEARISH": sent_html = "<span class='sentiment-badge' style='background:#ff4b4b;'>BEARISH</span>"
+                    elif n['sentiment'] == "NEUTRAL": sent_html = "<span class='sentiment-badge' style='background:#999;'>NEUTRAL</span>"
+                    
+                    st.markdown(f"""<div class="news-card"><div style="display:flex; align-items:center; flex-wrap:wrap;">{sent_html}<a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']} • {n['ticker'] if n['ticker'] else 'Market News'}</div></div>""", unsafe_allow_html=True)
 
     time.sleep(30)
     st.rerun()
