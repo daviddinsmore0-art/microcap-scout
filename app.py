@@ -140,7 +140,6 @@ def get_fundamentals(s):
                 else:
                     earn_str = "N/A"
         except: pass
-        
         return {"rating": rating, "earn": earn_str}
     except: return {"rating": "N/A", "earn": "N/A"}
 
@@ -154,22 +153,15 @@ def get_pro_data(s):
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
-        # --- PRE/POST MARKET LOGIC ---
         pre_post_html = ""
         try:
             rt_price = tk.fast_info.get('last_price', p_live)
-            # Only show if there is a real price difference (> 1 cent)
             if rt_price and abs(rt_price - p_live) > 0.01:
                 pp_pct = ((rt_price - p_live) / p_live) * 100
-                
-                # Determine label based on UTC time (approximate)
-                now = datetime.now(timezone.utc) - timedelta(hours=5) # EST
+                now = datetime.now(timezone.utc) - timedelta(hours=5)
                 lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
-                
                 col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
                 pct_fmt = f"{pp_pct:+.2f}%"
-                
-                # New Format: Small separate line
                 pre_post_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${rt_price:,.2f} ({pct_fmt})</span></div>"
         except: pass
 
@@ -387,7 +379,6 @@ else:
         ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         tr_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
 
-        # Pre/Post is now d['pp'], which is a full DIV string that sits below this block
         header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div>"""
         
         pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span>'
@@ -438,11 +429,70 @@ else:
         port = st.session_state['user_data'].get('portfolio', {})
         if not port: st.info("Portfolio Empty.")
         else:
-            total_val = 0
+            # --- PORTFOLIO DASHBOARD CALCULATION ---
+            total_val = 0.0
+            total_cost = 0.0
+            day_pl_sum = 0.0
+            
             for k, v in port.items():
                 d = get_pro_data(k)
-                if d: total_val += d['p'] * v['q']
-            st.markdown(f"""<div style="text-align:center; padding:15px; background:#f0f2f6; border-radius:10px; margin-bottom:15px;"><div style="font-size:12px; color:#555;">NET ASSETS</div><div style="font-size:32px; font-weight:bold;">${total_val:,.2f}</div></div>""", unsafe_allow_html=True)
+                if d:
+                    # Current values
+                    current_val = d['p'] * v['q']
+                    cost_val = v['e'] * v['q']
+                    
+                    total_val += current_val
+                    total_cost += cost_val
+                    
+                    # Day P/L Calculation
+                    # Reverse engineer Yesterday's Close: Prev = Price / (1 + pct/100)
+                    if d['d'] != 0:
+                        prev_close = d['p'] / (1 + (d['d']/100))
+                        daily_change = (d['p'] - prev_close) * v['q']
+                        day_pl_sum += daily_change
+
+            # Total P/L
+            total_pl_val = total_val - total_cost
+            total_pl_pct = (total_pl_val / total_cost * 100) if total_cost > 0 else 0
+            
+            # Day P/L % (relative to total portfolio value yesterday)
+            day_pl_pct = 0.0
+            prev_total_val = total_val - day_pl_sum
+            if prev_total_val > 0:
+                day_pl_pct = (day_pl_sum / prev_total_val) * 100
+
+            # Formatting Colors
+            day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"
+            total_col = "#4caf50" if total_pl_val >= 0 else "#ff4b4b"
+
+            # --- DISPLAY DASHBOARD ---
+            st.markdown(f"""
+            <div style="background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+                    <div>
+                        <div style="font-size:11px; color:#888; font-weight:bold;">NET ASSETS</div>
+                        <div style="font-size:24px; font-weight:900; color:#333;">${total_val:,.2f}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:11px; color:#888; font-weight:bold;">INVESTED</div>
+                        <div style="font-size:24px; font-weight:900; color:#555;">${total_cost:,.2f}</div>
+                    </div>
+                </div>
+                <div style="height:1px; background:#eee; margin:10px 0;"></div>
+                <div style="display:flex; justify-content:space-between;">
+                    <div>
+                        <div style="font-size:11px; color:#888; font-weight:bold;">DAY P/L</div>
+                        <div style="font-size:16px; font-weight:bold; color:{day_col};">${day_pl_sum:+,.2f} ({day_pl_pct:+.2f}%)</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:11px; color:#888; font-weight:bold;">TOTAL P/L</div>
+                        <div style="font-size:16px; font-weight:bold; color:{total_col};">${total_pl_val:+,.2f} ({total_pl_pct:+.2f}%)</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Draw Cards
             cols = st.columns(3)
             for i, (k, v) in enumerate(port.items()):
                 with cols[i%3]: draw(k, v)
