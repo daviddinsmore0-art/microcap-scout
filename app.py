@@ -92,18 +92,21 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- FUNDAMENTAL DATA (Cached 24h) ---
-@st.cache_data(ttl=86400) 
+# --- FUNDAMENTAL DATA (LOWERED CACHE TO 10 MINS TO FIX "N/A") ---
+@st.cache_data(ttl=600) 
 def get_fundamentals(s):
     try:
         tk = yf.Ticker(s)
-        # Rating
-        try: 
-            rating = tk.info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
-            if rating == "NONE": rating = "N/A"
-        except: rating = "N/A"
+        # 1. Analyst Rating (Aggressive Fetch)
+        rating = "N/A"
+        try:
+            # Method A: recommendationKey
+            r = tk.info.get('recommendationKey', None)
+            if r and r != 'none': rating = r.replace('_', ' ').upper()
+        except: pass
         
-        # Earnings
+        # 2. Earnings
+        earn_str = "N/A"
         try: 
             cal = tk.calendar
             if cal is not None and not cal.empty:
@@ -111,9 +114,7 @@ def get_fundamentals(s):
                 else: next_earn = cal.iloc[0][0]
                 
                 if next_earn: earn_str = next_earn.strftime('%b %d')
-                else: earn_str = "N/A"
-            else: earn_str = "N/A"
-        except: earn_str = "N/A"
+        except: pass
         
         return {"rating": rating, "earn": earn_str}
     except:
@@ -131,21 +132,26 @@ def get_pro_data(s):
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
 
-        # --- PRE/POST MARKET LOGIC (ALWAYS ON) ---
-        # We now check for ANY valid price from fast_info that differs from close
+        # --- PRE/POST MARKET LOGIC (FORCE SHOW) ---
         pre_post_html = ""
         try:
+            # We try 'last_price' from fast_info. If that fails, we try 'currentPrice' from info
             rt_price = tk.fast_info.get('last_price', None)
-            # Logic: If rt_price exists and market is effectively closed (or price differs)
+            
+            if rt_price is None:
+                 rt_price = tk.info.get('currentPrice', None)
+
+            # If we found a price, SHOW IT no matter what the difference is
             if rt_price is not None:
-                diff = rt_price - p_live
-                # Show if there is ANY difference (floating point safe)
-                if abs(diff) > 0.0001:
-                    pp_pct = ((rt_price - p_live) / p_live) * 100
-                    lbl = "POST" 
-                    col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                    # INLINE STYLE: Small text with pipe separator
-                    pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f}</span></span>"
+                pp_pct = ((rt_price - p_live) / p_live) * 100
+                lbl = "LIVE" # Using LIVE/POST generic label
+                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
+                
+                # Format logic: 0.00% is grey, otherwise colored
+                pct_fmt = f"{pp_pct:+.2f}%"
+                if abs(pp_pct) < 0.01: col = "#888" # Grey if flat
+                
+                pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
         except: pass
 
         # Metrics
@@ -319,8 +325,8 @@ else:
     
     inject_wake_lock(st.session_state['keep_on'])
 
-    # HEADER
-    t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M %p')
+    # HEADER (ADDED SECONDS FOR HEARTBEAT)
+    t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M:%S %p')
     img_b64 = get_base64_image(LOGO_PATH)
     logo_html = f'<img src="data:image/png;base64,{img_b64}" style="height:35px; vertical-align:middle; margin-right:10px;">' if img_b64 else "⚡ "
     tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
@@ -364,7 +370,7 @@ else:
         elif "SELL" in r_up or "UNDERPERFORM" in r_up: rating_col = "#ff4b4b"
         else: rating_col = "#f1c40f"
 
-        # FIXED HTML CONSTRUCTION (Single line + Pre/Post Inline)
+        # FIXED HTML CONSTRUCTION
         header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{border_col}; margin-top:-4px;">{arrow} {d['d']:.2f}% {d['pp']}</div></div></div>"""
         
         # Intelligence Row
