@@ -202,7 +202,8 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
+                # TSX REPLACEMENT ADDED HERE
+                short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("^GSPTSE", "TSX").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
                 items.append(f"<span style='color:#ccc; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
@@ -227,7 +228,8 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        .block-container { padding-top: 4rem !important; padding-bottom: 2rem; }
+        /* PADDING CUT IN HALF (Was 4rem, Now 2rem) */
+        .block-container { padding-top: 2rem !important; padding-bottom: 2rem; }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
@@ -261,7 +263,7 @@ else:
     
     tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
     
-    # --- IFRAME TICKER (BOLD FONT) ---
+    # --- IFRAME TICKER ---
     header_html = f"""
     <!DOCTYPE html>
     <html>
@@ -279,11 +281,10 @@ else:
         .ticker-move {{ display: inline-block; animation: ticker 15s linear infinite; }}
         @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-25%, 0, 0); }} }}
         
-        /* BOLD FONT STYLE */
         .ticker-item {{ 
             display: inline-block; 
             color: white; 
-            font-weight: 900; /* BOLD */
+            font-weight: 900; 
             font-size: 16px; 
             padding: 0 20px; 
         }}
