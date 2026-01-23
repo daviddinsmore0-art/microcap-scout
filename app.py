@@ -130,7 +130,6 @@ def get_fundamentals(s):
         earn_str = "N/A"
         try:
             cal = tk.calendar
-            # RAW GRAB (Matches "Nov 05" screenshot)
             if hasattr(cal, 'iloc') and not cal.empty: 
                 earn_str = cal.iloc[0][0].strftime('%b %d')
             elif isinstance(cal, dict): 
@@ -179,7 +178,6 @@ def get_pro_data(s):
         if day_h != day_l:
             range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
 
-        # GRADIENT CHART DATA (Restored)
         chart = hist['Close'].tail(20).reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
@@ -209,7 +207,6 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                # RAW (Restored to match ^GSPTSE screenshot)
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
@@ -235,8 +232,8 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* PUSH CONTENT DOWN SO HEADER DOESN'T CUT IT OFF */
-        .block-container { padding-top: 10rem !important; padding-bottom: 2rem; }
+        /* Reduced padding to bring cards up closer to header */
+        .block-container { padding-top: 8rem !important; padding-bottom: 2rem; }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
@@ -320,7 +317,7 @@ else:
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
-    # --- HEADER COMPONENT (Increased Padding to fix Cut-Off) ---
+    # --- HEADER FIXED (Tighter & Seamless Scroll) ---
     img_b64 = get_base64_image(LOGO_PATH)
     logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
     tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
@@ -339,21 +336,22 @@ else:
         }}
         .header-top {{
             background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
-            /* EXTRA PADDING FOR NOTCH */
-            padding: 20px 20px 15px 20px; 
-            padding-top: max(20px, env(safe-area-inset-top)); 
+            /* TIGHTER PADDING */
+            padding: 10px 20px 10px 20px; 
+            padding-top: max(10px, env(safe-area-inset-top)); 
             color: white; display: flex; justify-content: space-between; align-items: center;
         }}
-        .brand {{ display: flex; align-items: center; font-size: 24px; font-weight: 900; letter-spacing: -1px; }}
-        .brand img {{ height: 35px; margin-right: 12px; }}
-        .clock {{ font-family: 'Courier New', monospace; font-size: 16px; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 5px; }}
+        .brand {{ display: flex; align-items: center; font-size: 22px; font-weight: 900; letter-spacing: -1px; }}
+        .brand img {{ height: 32px; margin-right: 12px; }}
+        .clock {{ font-family: 'Courier New', monospace; font-size: 14px; background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 5px; }}
         
         .ticker-wrap {{
             width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333;
-            white-space: nowrap; padding: 12px 0; color: white; font-size: 16px; /* LARGER FONT */
+            white-space: nowrap; padding: 10px 0; color: white; font-size: 16px;
         }}
-        .ticker {{ display: inline-block; animation: ticker 30s linear infinite; }}
-        @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-100%, 0, 0); }} }}
+        /* INFINITE LOOP FIX: Scroll to -50% (halfway) then reset seamlessly */
+        .ticker {{ display: inline-block; animation: ticker 40s linear infinite; }}
+        @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-50%, 0, 0); }} }}
     </style>
     </head>
     <body>
@@ -365,7 +363,7 @@ else:
                 <div class="clock" id="clock">--:--:--</div>
             </div>
             <div class="ticker-wrap">
-                <div class="ticker">{tape_html} {tape_html}</div>
+                <div class="ticker">{tape_html} &nbsp;&nbsp;&nbsp;&nbsp; {tape_html}</div>
             </div>
         </div>
         <script>
@@ -380,7 +378,7 @@ else:
     </body>
     </html>
     """
-    components.html(header_component, height=135)
+    components.html(header_component, height=115)
 
     t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
