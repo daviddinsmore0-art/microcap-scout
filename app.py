@@ -11,15 +11,33 @@ import streamlit.components.v1 as components
 import os
 import base64
 
-# --- SETUP ---
+# --- SETUP & STYLING ---
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
+
+# Custom CSS for "Dressing it up"
+st.markdown("""
+    <style>
+        /* Hide Streamlit Menu/Footer for clean look */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        
+        /* tighten up the top spacing */
+        .block-container {padding-top: 1rem; padding-bottom: 1rem;}
+        
+        /* Make metrics stand out */
+        [data-testid="stMetricValue"] {
+            font-size: 1.5rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # *** CONFIG ***
 ADMIN_PASSWORD = "admin123"
 LOGO_PATH = "logo.png"
 
-# *** DATABASE CONFIG (CONFIRMED WORKING) ***
+# *** DATABASE CONFIG ***
 DB_CONFIG = {
     "host": "72.55.168.16",
     "user": "penny_user",
@@ -84,11 +102,6 @@ def inject_wake_lock(enable):
     if enable: components.html("""<script>navigator.wakeLock.request('screen').catch(console.log);</script>""", height=0) 
 
 # --- DATA ENGINE ---
-@st.cache_data(ttl=300)
-def get_spy():
-    try: return yf.Ticker("SPY").history(period="1d", interval="5m")['Close']
-    except: return None 
-
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
@@ -116,6 +129,7 @@ def get_pro_data(s):
         chart = chart_source['Close'].reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
+        # Normalize chart to start at 0%
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
         
         trend = "BULL" if d_pct >= 0 else "BEAR"
@@ -131,29 +145,33 @@ if 'init' not in st.session_state:
     st.session_state['keep_on'] = False
     init_db() 
 
-# LOGIN
+# LOGIN SCREEN
 if not st.session_state['logged_in']:
-    img = get_base64_image(LOGO_PATH)
-    if img: st.markdown(f'<img src="data:image/png;base64,{img}" style="max-height:100px; display:block; margin:0 auto;">', unsafe_allow_html=True)
-    else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-    
-    st.info("🔒 Secure Enterprise Login")
-    with st.form("login"):
-        user = st.text_input("Username:")
-        if st.form_submit_button("Login") and user:
-            data = load_user(user.strip())
-            if data:
-                st.session_state['username'] = user.strip()
-                st.session_state['user_data'] = data
-                st.session_state['logged_in'] = True
-                st.rerun()
-            else:
-                st.error("Connection Failed. (This should not happen now!)")
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2:
+        img = get_base64_image(LOGO_PATH)
+        if img: st.markdown(f'<img src="data:image/png;base64,{img}" style="max-height:120px; display:block; margin:0 auto;">', unsafe_allow_html=True)
+        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.form("login"):
+            st.markdown("<h3 style='text-align:center;'>Secure Login</h3>", unsafe_allow_html=True)
+            user = st.text_input("Username", placeholder="Enter your ID")
+            if st.form_submit_button("Access Terminal", type="primary") and user:
+                data = load_user(user.strip())
+                if data:
+                    st.session_state['username'] = user.strip()
+                    st.session_state['user_data'] = data
+                    st.session_state['logged_in'] = True
+                    st.rerun()
+                else:
+                    st.error("Connection Failed. Check Database.")
 
-# DASHBOARD
+# MAIN DASHBOARD
 else:
     def push(): save_user(st.session_state['username'], st.session_state['user_data'])
 
+    # -- SIDEBAR --
     with st.sidebar:
         st.header(f"👤 {st.session_state['username']}")
         if st.button("Logout"):
@@ -161,73 +179,124 @@ else:
             st.rerun()
         st.divider()
         
+        st.caption("WATCHLIST")
         curr_w = st.session_state['user_data'].get('w_input', "")
-        new_w = st.text_input("Tickers", value=curr_w)
+        new_w = st.text_area("Tickers (Comma separated)", value=curr_w, height=100)
         if new_w != curr_w:
             st.session_state['user_data']['w_input'] = new_w
             push()
             st.rerun()
 
+        st.divider()
         if st.text_input("Admin", type="password") == ADMIN_PASSWORD:
-            with st.expander("💼 Portfolio", expanded=True):
-                c1, c2, c3 = st.columns([2,2,2])
-                new_t = c1.text_input("Sym").upper(); new_p = c2.number_input("Px"); new_q = c3.number_input("Qty", step=1)
+            with st.expander("💼 Edit Portfolio", expanded=True):
+                new_t = st.text_input("Sym").upper()
+                c1, c2 = st.columns(2)
+                new_p = c1.number_input("Px")
+                new_q = c2.number_input("Qty", step=1)
                 
                 if 'portfolio' not in st.session_state['user_data']: st.session_state['user_data']['portfolio'] = {}
-                if st.button("➕") and new_t: 
+                if st.button("Add / Update") and new_t: 
                     st.session_state['user_data']['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
                     push()
                     st.rerun()
                 
-                rem = st.selectbox("Del", [""] + list(st.session_state['user_data']['portfolio'].keys()))
-                if st.button("🗑️") and rem: 
+                rem = st.selectbox("Delete Asset", [""] + list(st.session_state['user_data']['portfolio'].keys()))
+                if st.button("🗑️ Remove") and rem: 
                     del st.session_state['user_data']['portfolio'][rem]
                     push()
                     st.rerun()
         
-        st.divider()
-        st.checkbox("Screen On", key="keep_on")
+        st.checkbox("Keep Screen On", key="keep_on")
     
     inject_wake_lock(st.session_state['keep_on'])
 
-    t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%H:%M:%S')
-    st.markdown(f"""<div style="background:black;border:1px solid #333;border-radius:10px;padding:15px;text-align:center;margin-bottom:20px;"><h2 style='margin:0;color:white;'>⚡ Penny Pulse</h2><div style="color:#888;font-size:12px;">LIVE: <span style="color:#4caf50; font-weight:bold;">{t_str} ET</span></div></div>""", unsafe_allow_html=True)
+    # -- TOP HEADER --
+    t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M %p')
+    st.markdown(f"""
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#0e1117; padding:10px; border-bottom: 2px solid #262730; margin-bottom:20px;">
+            <div style="font-size:24px; font-weight:bold;">⚡ Penny Pulse</div>
+            <div style="color:#4caf50; font-family:monospace; font-size:18px;">● LIVE {t_str} ET</div>
+        </div>
+    """, unsafe_allow_html=True)
 
-    t1, t2 = st.tabs(["🏠 Dashboard", "🚀 My Picks"])
+    t1, t2 = st.tabs(["📊 Market Dashboard", "🚀 My Portfolio"])
 
+    # -- DRAW FUNCTION (The Visuals) --
     def draw(t, port=None):
-        d = get_pro_data(t)
-        if not d:
-            st.warning(f"⚠️ {t}: Data N/A")
-            return
-        
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            st.markdown(f"### {d['name']}")
-            st.caption(t)
-        with c2:
-            st.metric("", f"${d['p']:,.2f}", f"{d['d']:.2f}%")
-        
-        if port: st.info(f"Qty: {port['q']} | Avg: ${port['e']} | Gain: ${(d['p'] - port['e']) * port['q']:,.2f}")
-        
-        col = "#4caf50" if d['d']>=0 else "#ff4b4b"
-        chart = alt.Chart(d['chart']).mark_line(color=col).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=70)
-        st.altair_chart(chart, use_container_width=True)
-        st.divider()
+        # Create a container with a border for the "Card" look
+        with st.container(border=True):
+            d = get_pro_data(t)
+            if not d:
+                st.warning(f"⚠️ {t}: Loading...")
+                return
+            
+            # Header Row
+            c1, c2 = st.columns([1.8, 1])
+            with c1:
+                st.markdown(f"**{t}**")
+                st.caption(d['name'][:20] + "..." if len(d['name'])>20 else d['name'])
+            with c2:
+                # Color code the metric
+                color = "green" if d['d'] >= 0 else "red"
+                st.markdown(f"<div style='text-align:right; font-size:18px; font-weight:bold;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:right; color:{color}; font-size:14px;'>{d['d']:+.2f}%</div>", unsafe_allow_html=True)
+            
+            # Portfolio Details (if any)
+            if port: 
+                gain = (d['p'] - port['e']) * port['q']
+                gain_col = "green" if gain >= 0 else "red"
+                st.markdown(f"""<div style="background:#262730; padding:5px; border-radius:5px; font-size:12px; margin-top:5px; text-align:center;">
+                    {port['q']} @ ${port['e']} <span style="color:#888">|</span> <span style="color:{gain_col}"><b>${gain:+,.0f}</b></span>
+                    </div>""", unsafe_allow_html=True)
+            
+            # The Chart
+            col_chart = "#4caf50" if d['d']>=0 else "#ff4b4b"
+            chart = alt.Chart(d['chart']).mark_line(
+                color=col_chart, 
+                strokeWidth=2
+            ).encode(
+                x=alt.X('Idx', axis=None), 
+                y=alt.Y('Stock', axis=None)
+            ).configure_view(strokeWidth=0).properties(height=60)
+            
+            st.altair_chart(chart, use_container_width=True)
 
+    # -- TAB 1: WATCHLIST --
     with t1:
+        tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
+        
+        # Responsive Grid (3 columns)
         cols = st.columns(3)
-        for i, t in enumerate([x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]):
+        for i, t in enumerate(tickers):
             with cols[i%3]: draw(t)
 
+    # -- TAB 2: PORTFOLIO --
     with t2:
         port = st.session_state['user_data'].get('portfolio', {})
-        tv = sum(get_pro_data(k)['p']*v['q'] for k,v in port.items() if get_pro_data(k))
-        tc = sum(v['e']*v['q'] for v in port.values())
-        st.markdown(f"<h3 style='text-align:center'>Total Return: <span style='color:{'green' if tv>=tc else 'red'}'>${tv-tc:+,.2f}</span></h3>", unsafe_allow_html=True)
-        cols = st.columns(3)
-        for i, (k, v) in enumerate(port.items()):
-            with cols[i%3]: draw(k, v)
+        if not port:
+            st.info("Your portfolio is empty. Add stocks via the Sidebar (Admin Password required).")
+        else:
+            # Calculate Totals
+            tv = sum(get_pro_data(k)['p']*v['q'] for k,v in port.items() if get_pro_data(k))
+            tc = sum(v['e']*v['q'] for v in port.values())
+            diff = tv - tc
+            diff_col = "#4caf50" if diff >= 0 else "#ff4b4b"
+            
+            # Big Total Banner
+            st.markdown(f"""
+                <div style="text-align:center; padding:20px; background:#1e1e1e; border-radius:10px; margin-bottom:20px; border:1px solid #333;">
+                    <div style="color:#888; font-size:14px;">TOTAL PORTFOLIO VALUE</div>
+                    <div style="font-size:36px; font-weight:bold;">${tv:,.2f}</div>
+                    <div style="color:{diff_col}; font-size:18px; font-weight:bold;">{'+' if diff>=0 else ''}${diff:,.2f} ({((tv-tc)/tc)*100:.2f}%)</div>
+                </div>
+            """, unsafe_allow_html=True)
 
+            # Portfolio Grid
+            cols = st.columns(3)
+            for i, (k, v) in enumerate(port.items()):
+                with cols[i%3]: draw(k, v)
+
+    # Auto Refresh
     time.sleep(60)
     st.rerun()
