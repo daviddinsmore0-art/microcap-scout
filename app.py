@@ -127,7 +127,6 @@ def get_fundamentals(s):
         rating = inf.get('recommendationKey', 'N/A').replace('_', ' ').upper()
         if rating == "NONE": rating = "N/A"
         
-        # RAW EARNINGS FETCH (Restored to match Nov 05 screenshot)
         earn_str = "N/A"
         try:
             cal = tk.calendar
@@ -181,7 +180,6 @@ def get_pro_data(s):
         if day_h != day_l:
             range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
 
-        # CHART DATA PREP (Restored Exact Structure)
         chart = hist['Close'].tail(20).reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
@@ -211,10 +209,7 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                
-                # RAW SYMBOLS (Restored)
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
-                
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
                 items.append(f"<span style='color:#ccc; font-weight:bold; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
@@ -241,7 +236,7 @@ st.markdown("""
         footer {visibility: hidden;}
         .block-container { padding-top: 0rem !important; padding-bottom: 2rem; }
         
-        /* CARD STYLE RESTORED */
+        /* CARD STYLE */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 12px;
@@ -285,7 +280,6 @@ else:
             st.rerun()
         st.divider()
         
-        # --- FULL ADMIN PANEL RESTORED ---
         with st.expander("💼 Portfolio & Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 st.caption("SCROLLING TICKER TAPE")
@@ -324,12 +318,11 @@ else:
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
-    # --- UNIFIED HEADER COMPONENT (IFRAME - The Exact Header) ---
+    # --- HEADER COMPONENT (Rounded Bottom Fix) ---
     img_b64 = get_base64_image(LOGO_PATH)
     logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
-    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
+    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPC, GC=F"))
 
-    # This HTML matches the "Pre-Flash" header exactly
     header_component = f"""
     <!DOCTYPE html>
     <html>
@@ -339,6 +332,8 @@ else:
         .header-container {{
             position: fixed; top: 0; left: 0; width: 100%; z-index: 999;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            border-radius: 0 0 15px 15px; /* ROUNDED BOTTOM */
+            overflow: hidden;
         }}
         .header-top {{
             background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
@@ -391,7 +386,6 @@ else:
         b_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
         arrow = "▲" if d['d'] >= 0 else "▼"
         
-        # Color Logic
         r_up = f['rating'].upper()
         if "BUY" in r_up or "OUT" in r_up: r_col = "#4caf50"
         elif "SELL" in r_up or "UNDER" in r_up: r_col = "#ff4b4b"
@@ -400,7 +394,6 @@ else:
         ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
         tr_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
 
-        # HTML Construction
         header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}% {d['pp']}</div></div></div>"""
         
         pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span>'
@@ -413,7 +406,6 @@ else:
             st.markdown(header_html, unsafe_allow_html=True)
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
             
-            # Sparkline Chart
             chart = alt.Chart(d['chart']).mark_area(
                 line={'color':b_col},
                 color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
@@ -424,7 +416,6 @@ else:
             ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
             
-            # Metric Bars
             st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
             
             rsi = d['rsi']
