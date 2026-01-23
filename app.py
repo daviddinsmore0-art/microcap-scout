@@ -122,9 +122,9 @@ st.markdown("""
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
         
-        /* 1. PUSH CONTENT DOWN SO IT STARTS BELOW THE FIXED HEADER */
+        /* 1. Reset padding to normal since we aren't using fixed positioning anymore */
         .block-container {
-            padding-top: 7rem !important; 
+            padding-top: 3rem !important; 
             padding-bottom: 2rem;
         }
         
@@ -142,26 +142,25 @@ st.markdown("""
             font-weight: 700 !important;
         }
         
-        /* 2. THE STICKY HEADER MAGIC */
+        /* 2. USE STICKY INSTEAD OF FIXED (Much Safer) */
         .main-header {
-            position: fixed;
+            position: sticky;  /* <--- This is the key change */
             top: 0;
-            left: 0;
-            width: 100%;
-            z-index: 99999; /* Sit on top of everything */
+            z-index: 999;
             background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
             padding: 10px 15px;
-            padding-top: env(safe-area-inset-top); /* Respect the notch */
             border-radius: 0 0 15px 15px;
             color: white;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            backdrop-filter: blur(10px); /* Glass effect */
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
         }
         
-        /* 3. Make Sidebar Toggle Visible on Dark Background */
+        /* 3. Ensure Sidebar Icon is visible */
         [data-testid="stSidebarCollapsedControl"] {
-            z-index: 100000 !important;
+            z-index: 1000 !important;
             color: white !important;
+            background-color: rgba(0,0,0,0.2);
+            border-radius: 5px;
         }
     </style>
 """, unsafe_allow_html=True)
