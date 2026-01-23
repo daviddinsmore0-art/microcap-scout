@@ -175,10 +175,16 @@ def relative_time(date_str):
 
 @st.cache_data(ttl=900) 
 def fetch_news(feeds, tickers, api_key):
-    if not NEWS_LIB_READY: return []
-    all_feeds = feeds.copy()
+    """
+    feeds: List of generic RSS URLs (e.g. Yahoo Top News).
+    tickers: List of specific symbols (e.g. AAPL, TSLA).
     
-    # Add dynamic feeds for user tickers
+    If tickers are provided, we GENERATE specific feeds for them.
+    If only feeds are provided (tickers=[]), we scan those general feeds.
+    """
+    if not NEWS_LIB_READY: return []
+    
+    all_feeds = feeds.copy()
     for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
     
     articles = []
@@ -186,16 +192,14 @@ def fetch_news(feeds, tickers, api_key):
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            for entry in f.entries[:3]: # Limit to 3 per feed for speed
+            for entry in f.entries[:3]: 
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
-                    
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            # GLOBAL SCAN PROMPT: Ask AI to identify ANY ticker in the headline
-                            prompt = f"Analyze headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. If a stock is mentioned, extract it. Sentiment options: BULLISH, BEARISH, NEUTRAL. If no specific ticker, return NONE|NEUTRAL."
+                            prompt = f"Analyze headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. Sentiment options: BULLISH, BEARISH, NEUTRAL. If no specific ticker, return NONE|NEUTRAL."
                             response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans:
@@ -205,7 +209,7 @@ def fetch_news(feeds, tickers, api_key):
                                 sentiment = parts[1].strip()
                         except: pass
                     
-                    # Fallback Search if AI didn't run or missed it
+                    # If AI missed it, check specific list
                     if not found_ticker:
                         for t in tickers:
                             if t in entry.title.upper():
@@ -355,36 +359,39 @@ else:
                 if st.button("Delete") and rem: del GLOBAL['portfolio'][rem]; push_global(); st.rerun()
 
                 st.divider()
-                st.caption("APP CONFIG")
-                
-                # --- RSS FEEDS RESTORED HERE ---
-                feed_to_add = st.text_input("Add RSS Feed")
-                if st.button("Save Feed") and feed_to_add:
+                st.caption("APP CONFIG (AI & TAPE)")
+                new_tape = st.text_input("Ticker Tape", value=GLOBAL.get('tape_input', ""))
+                if new_tape != GLOBAL.get('tape_input', ""): GLOBAL['tape_input'] = new_tape; push_global(); st.rerun()
+                curr_k = GLOBAL.get('openai_key', "")
+                new_key = st.text_input("OpenAI Key", value=curr_k, type="password")
+                if new_key != curr_k: GLOBAL['openai_key'] = new_key; push_global(); st.rerun()
+        
+        # --- NEW DEDICATED NEWS MANAGER ---
+        with st.expander("📰 News Feed Manager"):
+            if st.text_input("Auth", type="password") == ADMIN_PASSWORD:
+                st.caption("GLOBAL RSS SOURCES")
+                feed_to_add = st.text_input("Add RSS URL")
+                if st.button("Save Source") and feed_to_add:
                     if 'rss_feeds' not in GLOBAL: GLOBAL['rss_feeds'] = ["https://finance.yahoo.com/news/rssindex"]
                     GLOBAL['rss_feeds'].append(feed_to_add)
                     push_global()
                     st.rerun()
                 
                 current_feeds = GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
-                feed_to_rem = st.selectbox("Remove Feed", [""] + current_feeds)
-                if st.button("Delete Feed") and feed_to_rem:
+                st.write(f"Active Sources: {len(current_feeds)}")
+                feed_to_rem = st.selectbox("Remove Source", [""] + current_feeds)
+                if st.button("Delete Source") and feed_to_rem:
                     GLOBAL['rss_feeds'].remove(feed_to_rem)
                     push_global()
                     st.rerun()
-                # --------------------------------
+        # ----------------------------------
 
-                new_tape = st.text_input("Ticker Tape", value=GLOBAL.get('tape_input', ""))
-                if new_tape != GLOBAL.get('tape_input', ""): GLOBAL['tape_input'] = new_tape; push_global(); st.rerun()
-                curr_k = GLOBAL.get('openai_key', "")
-                new_key = st.text_input("OpenAI Key", value=curr_k, type="password")
-                if new_key != curr_k: GLOBAL['openai_key'] = new_key; push_global(); st.rerun()
-                
         st.checkbox("Always On Display", key="keep_on")
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state['logged_in'] = False; st.rerun()
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
-    t1, t2, t3 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 News"])
+    t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
 
     def draw(t, port=None):
         d = get_pro_data(t)
@@ -438,23 +445,38 @@ else:
             for i, (k, v) in enumerate(port.items()):
                 with cols[i%3]: draw(k, v)
 
+    def render_news(n):
+        color_code = "#333"
+        if n['sentiment'] == "BULLISH": color_code = "#4caf50"
+        elif n['sentiment'] == "BEARISH": color_code = "#ff4b4b"
+        ticker_html = f"<span class='ticker-badge' style='background-color:{color_code}'>{n['ticker']}</span>" if n['ticker'] else ""
+        st.markdown(f"""<div class="news-card" style="border-left-color: {color_code};"><div style="display:flex; align-items:center;">{ticker_html}<a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
+
     with t3:
         if not NEWS_LIB_READY: st.error("Missing Libraries.")
         else:
+            # MY NEWS: Only specific tickers
             watchlist = [x.strip().upper() for x in USER.get('w_input', "").split(",") if x.strip()]
             port_list = list(GLOBAL.get('portfolio', {}).keys())
             combined = list(set(watchlist + port_list))
-            news_items = fetch_news(GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"]), combined, ACTIVE_KEY)
-            if not news_items: st.info("No news found.")
+            
+            # Fetch using ONLY tickers (empty feeds list forces generation)
+            news_items = fetch_news([], combined, ACTIVE_KEY)
+            
+            if not news_items: st.info("No news for your tickers.")
             else:
-                for n in news_items:
-                    # DYNAMIC COLORS FOR BORDER AND BADGE
-                    color_code = "#333" # Neutral Dark Grey
-                    if n['sentiment'] == "BULLISH": color_code = "#4caf50" # Green
-                    elif n['sentiment'] == "BEARISH": color_code = "#ff4b4b" # Red
-                    
-                    ticker_html = f"<span class='ticker-badge' style='background-color:{color_code}'>{n['ticker']}</span>" if n['ticker'] else ""
-                    st.markdown(f"""<div class="news-card" style="border-left-color: {color_code};"><div style="display:flex; align-items:center;">{ticker_html}<a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
+                for n in news_items: render_news(n)
+
+    with t4:
+        if not NEWS_LIB_READY: st.error("Missing Libraries.")
+        else:
+            # DISCOVERY: Only Global Feeds (empty ticker list)
+            feeds = GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
+            news_items = fetch_news(feeds, [], ACTIVE_KEY)
+            
+            if not news_items: st.info("No discovery news found.")
+            else:
+                for n in news_items: render_news(n)
 
     time.sleep(30)
     st.rerun()
