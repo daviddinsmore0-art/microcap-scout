@@ -145,7 +145,6 @@ def get_global_config_data():
     try: api_key = st.secrets.get("OPENAI_KEY") or st.secrets.get("OPENAI_API_KEY")
     except: pass
     
-    # Check DB Global Config
     g = load_global_config()
     if not api_key: api_key = g.get('openai_key')
     if g.get('rss_feeds'): rss_feeds = g.get('rss_feeds')
@@ -184,14 +183,13 @@ def fetch_news(feeds, tickers, api_key):
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            for entry in f.entries[:3]: 
+            for entry in f.entries[:3]: # FETCH LIMIT: 3 PER TICKER
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            # IMPROVED PROMPT
                             prompt = f"Extract the specific stock ticker (e.g. AAPL, TSLA) and sentiment from headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. Sentiment must be BULLISH, BEARISH, or NEUTRAL. If no ticker found, return NONE|NEUTRAL."
                             response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
@@ -296,7 +294,7 @@ if 'init' not in st.session_state:
             st.session_state['logged_in'] = True
 
 # --- CUSTOM CSS ---
-st.markdown("""<style> #MainMenu {visibility: visible;} footer {visibility: hidden;} .block-container { padding-top: 4.5rem !important; padding-bottom: 2rem; } div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; } .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; } .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; } .bar-fill { height: 100%; border-radius: 3px; } .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; } .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; } .news-card { padding: 8px 0 8px 15px; margin-bottom: 15px; border-left: 6px solid #ccc; background-color: #fff; } .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; } .news-meta { font-size: 11px; color: #888; } .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; background: #eee; color: #333; font-weight: bold; margin-right: 6px; display: inline-block; border: 1px solid #ddd; } </style>""", unsafe_allow_html=True)
+st.markdown("""<style> #MainMenu {visibility: visible;} footer {visibility: hidden;} .block-container { padding-top: 4.5rem !important; padding-bottom: 2rem; } div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; } .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; } .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; } .bar-fill { height: 100%; border-radius: 3px; } .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; } .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; } .news-card { padding: 8px 0 8px 15px; margin-bottom: 15px; border-left: 6px solid #ccc; background-color: #fff; } .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; } .news-meta { font-size: 11px; color: #888; } .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-right: 6px; display: inline-block; } </style>""", unsafe_allow_html=True)
 
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
@@ -425,11 +423,13 @@ else:
             if not news_items: st.info("No news found.")
             else:
                 for n in news_items:
-                    border_col = "#999"
-                    if n['sentiment'] == "BULLISH": border_col = "#4caf50"
-                    elif n['sentiment'] == "BEARISH": border_col = "#ff4b4b"
-                    ticker_html = f"<span class='ticker-badge'>{n['ticker']}</span>" if n['ticker'] else ""
-                    st.markdown(f"<div class='news-card' style='border-left-color: {border_col};'><div style='display:flex; align-items:center;'>{ticker_html}<a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']}</div></div>", unsafe_allow_html=True)
+                    # Dynamic Color Logic for Both Border and Badge
+                    color_code = "#333" # Default Dark Grey (Neutral)
+                    if n['sentiment'] == "BULLISH": color_code = "#4caf50" # Green
+                    elif n['sentiment'] == "BEARISH": color_code = "#ff4b4b" # Red
+                    
+                    ticker_html = f"<span class='ticker-badge' style='background-color:{color_code}'>{n['ticker']}</span>" if n['ticker'] else ""
+                    st.markdown(f"""<div class="news-card" style="border-left-color: {color_code};"><div style="display:flex; align-items:center;">{ticker_html}<a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
 
     time.sleep(30)
     st.rerun()
