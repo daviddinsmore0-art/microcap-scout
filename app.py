@@ -85,7 +85,7 @@ def load_user(username):
         if res: return json.loads(res[0])
         else: return {
             "w_input": "TD.TO, NKE, SPY",
-            "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F",
+            "tape_input": "^DJI, ^IXIC, ^GSPC, GC=F",
             "portfolio": {},
             "settings": {"active": False}
         }
@@ -130,17 +130,11 @@ def get_fundamentals(s):
         earn_str = "N/A"
         try:
             cal = tk.calendar
-            next_earn = None
-            if hasattr(cal, 'iloc') and not cal.empty: next_earn = cal.iloc[0][0]
+            if hasattr(cal, 'iloc') and not cal.empty: 
+                earn_str = cal.iloc[0][0].strftime('%b %d')
             elif isinstance(cal, dict): 
                 dates = cal.get('Earnings Date', [])
-                if dates: next_earn = dates[0]
-            
-            # FUTURE ONLY
-            if next_earn:
-                if isinstance(next_earn, pd.Timestamp): next_earn = next_earn.to_pydatetime()
-                if next_earn.date() >= datetime.now().date():
-                    earn_str = next_earn.strftime('%b %d')
+                if dates: earn_str = dates[0].strftime('%b %d')
         except: pass
         return {"rating": rating, "earn": earn_str}
     except: return {"rating": "N/A", "earn": "N/A"}
@@ -157,11 +151,16 @@ def get_pro_data(s):
 
         pre_post_html = ""
         try:
-            rt_price = tk.fast_info.get('last_price', p_live)
-            if rt_price and abs(rt_price - p_live) > 0.001:
+            # Original Logic: Check Fast Info, Show if Diff > 1 cent
+            rt_price = tk.fast_info.get('last_price', None)
+            if rt_price is None: rt_price = p_live 
+
+            diff = rt_price - p_live
+            if abs(diff) > 0.01:
                 pp_pct = ((rt_price - p_live) / p_live) * 100
-                now = datetime.now(timezone.utc) - timedelta(hours=5)
-                lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
+                now_utc = datetime.now(timezone.utc)
+                now_et = now_utc - timedelta(hours=5)
+                lbl = "POST" if now_et.hour >= 16 else "PRE" if now_et.hour < 9 else "LIVE"
                 col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
                 pct_fmt = f"{pp_pct:+.2f}%"
                 pre_post_html = f"<span style='color:#ccc; margin:0 4px;'>|</span> <span style='font-size:11px; color:#888;'>{lbl}: <span style='color:{col};'>${rt_price:,.2f} ({pct_fmt})</span></span>"
@@ -173,13 +172,25 @@ def get_pro_data(s):
             rsi_series = calculate_rsi(hist['Close'])
             if not rsi_series.empty: rsi_val = rsi_series.iloc[-1]
         except: pass
+        
+        # Vol Pct
+        vol_pct = 0
+        if not hist['Volume'].empty:
+             vol_pct = (hist['Volume'].iloc[-1] / hist['Volume'].mean()) * 100
+
+        # Range Pos
+        range_pos = 50
+        day_h = hist['High'].iloc[-1]
+        day_l = hist['Low'].iloc[-1]
+        if day_h != day_l:
+            range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
 
         return {
             "p": p_live, "d": d_pct, "name": tk.info.get('longName', s),
             "rsi": rsi_val,
-            "vol_pct": (hist['Volume'].iloc[-1] / hist['Volume'].mean()) * 100,
-            "range_pos": ((p_live - hist['Low'].iloc[-1]) / (hist['High'].iloc[-1] - hist['Low'].iloc[-1])) * 100 if hist['High'].iloc[-1] != hist['Low'].iloc[-1] else 50,
-            "h": hist['High'].iloc[-1], "l": hist['Low'].iloc[-1], 
+            "vol_pct": vol_pct,
+            "range_pos": range_pos,
+            "h": day_h, "l": day_l, 
             "ai": "BULLISH" if p_live > sma20 else "BEARISH", 
             "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html,
             "chart": hist['Close'].tail(20).reset_index()
@@ -198,10 +209,10 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                short = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("^GSPTSE", "TSX").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
-                col = "#4caf50" if chg >= 0 else "#ff4b4b"
+                short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
+                color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
-                items.append(f"<span style='color:#ccc; font-weight:bold; margin-left:20px;'>{short}</span> <span style='color:{col}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
+                items.append(f"<span style='color:#ccc; font-weight:bold; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
         except: pass
     return "   ".join(items)
 
@@ -218,12 +229,12 @@ if 'init' not in st.session_state:
             st.session_state['user_data'] = load_user(user)
             st.session_state['logged_in'] = True
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (This is the critical part for White Cards) ---
 st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        .block-container { padding-top: 9rem !important; padding-bottom: 2rem; }
+        .block-container { padding-top: 0rem !important; padding-bottom: 2rem; }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
@@ -232,18 +243,12 @@ st.markdown("""
             box-shadow: 0 4px 10px rgba(0,0,0,0.05);
             border: 1px solid #f0f0f0;
         }
-
-        .header-container { position: fixed; top: 0; left: 0; width: 100%; z-index: 99999; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
-        .header-top { background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%); padding: 15px 20px; padding-top: max(15px, env(safe-area-inset-top)); color: white; display: flex; justify-content: space-between; align-items: center; }
-        .ticker-wrap { width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333; white-space: nowrap; padding: 10px 0; color: white; font-size: 14px; }
-        .ticker { display: inline-block; animation: ticker 30s linear infinite; }
-        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
-
-        .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; border: 1px solid #eee; }
+        
+        .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
         .bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; }
         .bar-fill { height: 100%; border-radius: 3px; }
-        .metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
         .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; }
+        .info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -264,32 +269,17 @@ if not st.session_state['logged_in']:
 else:
     def push(): save_user(st.session_state['username'], st.session_state['user_data'])
     
-    t_str = (datetime.utcnow()-timedelta(hours=5)).strftime('%I:%M:%S %p')
-    img_b64 = get_base64_image(LOGO_PATH)
-    logo_src = f'<img src="data:image/png;base64,{img_b64}" style="height:35px; vertical-align:middle; margin-right:10px;">' if img_b64 else "⚡ "
-    tape = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
-    
-    st.markdown(f"""
-        <div class="header-container">
-            <div class="header-top">
-                <div style="display:flex; align-items:center; font-size:22px; font-weight:900; letter-spacing:-1px;">{logo_src} Penny Pulse</div>
-                <div style="font-family:monospace; font-size:14px; background:rgba(255,255,255,0.1); padding:4px 8px; border-radius:5px;">● {t_str} ET</div>
-            </div>
-            <div class="ticker-wrap"><div class="ticker">{tape} {tape}</div></div>
-        </div>
-    """, unsafe_allow_html=True)
-
     with st.sidebar:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
         st.subheader("Operator Control")
-        new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""))
+        new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""), height=150)
         if new_w != st.session_state['user_data']['w_input']:
             st.session_state['user_data']['w_input'] = new_w
             push()
             st.rerun()
         st.divider()
         
-        # --- FULL PORTFOLIO ADMIN (RESTORED) ---
+        # --- FULL ADMIN PANEL ---
         with st.expander("💼 Portfolio & Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 st.caption("SCROLLING TICKER TAPE")
@@ -310,7 +300,6 @@ else:
                     st.session_state['user_data']['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
                     push()
                     st.rerun()
-                
                 st.divider()
                 st.caption("REMOVE HOLDING")
                 port_keys = list(st.session_state['user_data'].get('portfolio', {}).keys())
@@ -329,44 +318,125 @@ else:
             
     inject_wake_lock(st.session_state.get('keep_on', False))
 
+    # --- UNIFIED HEADER COMPONENT (IFRAME) ---
+    # This is the exact header code from Version 226 that had the JS Clock
+    img_b64 = get_base64_image(LOGO_PATH)
+    logo_src = f'data:image/png;base64,{img_b64}' if img_b64 else ""
+    tape_html = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPC, GC=F"))
+
+    header_component = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+        body {{ margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: transparent; }}
+        .header-container {{
+            position: fixed; top: 0; left: 0; width: 100%; z-index: 999;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }}
+        .header-top {{
+            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
+            padding: 12px 20px; color: white; display: flex; justify-content: space-between; align-items: center;
+        }}
+        .brand {{ display: flex; align-items: center; font-size: 24px; font-weight: 900; letter-spacing: -1px; }}
+        .brand img {{ height: 35px; margin-right: 12px; }}
+        .clock {{ font-family: 'Courier New', monospace; font-size: 16px; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 5px; }}
+        
+        .ticker-wrap {{
+            width: 100%; overflow: hidden; background-color: #111; border-top: 1px solid #333;
+            white-space: nowrap; padding: 8px 0; color: white; font-size: 14px;
+        }}
+        .ticker {{ display: inline-block; animation: ticker 30s linear infinite; }}
+        @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-100%, 0, 0); }} }}
+    </style>
+    </head>
+    <body>
+        <div class="header-container">
+            <div class="header-top">
+                <div class="brand">
+                    <img src="{logo_src}"> Penny Pulse
+                </div>
+                <div class="clock" id="clock">--:--:--</div>
+            </div>
+            <div class="ticker-wrap">
+                <div class="ticker">{tape_html} {tape_html}</div>
+            </div>
+        </div>
+        <script>
+            function updateClock() {{
+                var now = new Date();
+                var time = now.toLocaleTimeString('en-US', {{ hour12: true, timeZone: 'America/New_York' }});
+                document.getElementById('clock').innerHTML = '● ' + time + ' ET';
+            }}
+            setInterval(updateClock, 1000);
+            updateClock();
+        </script>
+    </body>
+    </html>
+    """
+    components.html(header_component, height=110)
+
+    t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
+
     def draw(t, port=None):
         d = get_pro_data(t)
         if not d: return
         f = get_fundamentals(t)
         b_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+        arrow = "▲" if d['d'] >= 0 else "▼"
         
+        # Rating Color
+        r_up = f['rating'].upper()
+        if "BUY" in r_up or "OUT" in r_up: r_col = "#4caf50"
+        elif "SELL" in r_up or "UNDER" in r_up: r_col = "#ff4b4b"
+        else: r_col = "#f1c40f"
+
+        # AI/Trend Colors
+        ai_col = "#4caf50" if d['ai'] == "BULLISH" else "#ff4b4b"
+        tr_col = "#4caf50" if d['trend'] == "UPTREND" else "#ff4b4b"
+
+        # HTML Construction
+        header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}% {d['pp']}</div></div></div>"""
+        
+        pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span>'
+        pills_html += f'<span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
+        if f['rating'] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
+        if f['earn'] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
+
         with st.container():
             st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
+            st.markdown(header_html, unsafe_allow_html=True)
+            st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
             
-            st.markdown(f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{d['d']:+.2f}% {d['pp']}</div></div></div>""", unsafe_allow_html=True)
-            
-            p_html = f'<span class="info-pill" style="border-left: 3px solid {b_col}">AI: {d["ai"]}</span>'
-            p_html += f'<span class="info-pill" style="border-left: 3px solid {b_col}">TREND: {d["trend"]}</span>'
-            if f['rating'] != "N/A": p_html += f'<span class="info-pill" style="border-left: 3px solid {b_col}">RAT: {f["rating"]}</span>'
-            if f['earn'] != "N/A": p_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
-            st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{p_html}</div>', unsafe_allow_html=True)
-
-            chart = alt.Chart(d['chart']).mark_area(line={'color':b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('Idx:Q', axis=None), y=alt.Y('Stock:Q', scale=alt.Scale(zero=False), axis=None), tooltip=[]).properties(height=45)
+            # Sparkline
+            chart = alt.Chart(d['chart']).mark_area(
+                line={'color':b_col},
+                color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)
+            ).encode(
+                x=alt.X('Idx', axis=None), 
+                y=alt.Y('Stock', scale=alt.Scale(domain=[d['chart']['Stock'].min(), d['chart']['Stock'].max()]), axis=None),
+                tooltip=[]
+            ).configure_view(strokeWidth=0).properties(height=45)
             st.altair_chart(chart, use_container_width=True)
             
+            # Metrics
             st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
             
             rsi = d['rsi']
-            rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
             rsi_tag = "HOT" if rsi > 70 else "COLD" if rsi < 30 else "NEUTRAL"
-            st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_bg};"></div></div>""", unsafe_allow_html=True)
+            rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
+            rsi_fill = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#888"
+            st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{rsi_tag}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_fill};"></div></div>""", unsafe_allow_html=True)
             
             vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
             st.markdown(f"""<div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{vol_stat}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>""", unsafe_allow_html=True)
-            
+
             if port:
                 gain = (d['p'] - port['e']) * port['q']
                 gain_col = "#4caf50" if gain >= 0 else "#ff4b4b"
                 st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port['q']}</b></span><span>Avg: <b>${port['e']}</b></span><span style="color:{gain_col}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
 
             st.divider()
-
-    t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
     with t1:
         tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
