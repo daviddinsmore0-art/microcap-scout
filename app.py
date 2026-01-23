@@ -126,24 +126,21 @@ def get_fundamentals(s):
             cal = tk.calendar
             next_earn = None
             
-            # Extract date safely
+            # Try to get the date object
             if hasattr(cal, 'iloc') and not cal.empty: 
                 next_earn = cal.iloc[0][0]
             elif isinstance(cal, dict): 
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
-            # --- "FUTURE ONLY" CHECK ---
+            # FILTER: Only show Future Earnings
             if next_earn:
-                # Ensure it's a datetime object
-                if isinstance(next_earn, pd.Timestamp):
-                    next_earn = next_earn.to_pydatetime()
-                
-                # If date is in the past, ignore it (Show N/A -> Hidden)
+                # Convert to plain date for comparison
+                if isinstance(next_earn, pd.Timestamp): next_earn = next_earn.to_pydatetime()
                 if next_earn.date() >= datetime.now().date():
                     earn_str = next_earn.strftime('%b %d')
                 else:
-                    earn_str = "N/A" # Hides past earnings
+                    earn_str = "N/A" # It's in the past, hide it
         except: pass
         
         return {"rating": rating, "earn": earn_str}
@@ -203,7 +200,7 @@ def get_tape_data(symbol_string):
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
                 
-                # --- LABEL REPLACEMENT MAP ---
+                # --- TSX & LABEL FIX ---
                 short_name = s.replace("^DJI", "DOW")\
                               .replace("^IXIC", "NASDAQ")\
                               .replace("^GSPC", "S&P500")\
@@ -261,7 +258,7 @@ st.markdown("""
         .ticker-wrap { 
             width: 100%; overflow: hidden; background-color: #111; 
             border-top: 1px solid #333; white-space: nowrap; 
-            padding: 10px 0; /* Added padding to prevent cut-off */
+            padding: 10px 0; 
             color: white; font-size: 14px; 
         }
         .ticker { display: inline-block; animation: ticker 30s linear infinite; }
@@ -296,7 +293,7 @@ else:
     t_str = (datetime.utcnow()-timedelta(hours=5)).strftime('%I:%M:%S %p')
     img_b64 = get_base64_image(LOGO_PATH)
     logo_src = f'<img src="data:image/png;base64,{img_b64}" style="height:35px; vertical-align:middle; margin-right:10px;">' if img_b64 else "⚡ "
-    tape = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, GC=F"))
+    tape = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
     
     st.markdown(f"""
         <div class="header-container">
@@ -318,6 +315,16 @@ else:
             st.session_state['user_data']['w_input'] = new_w
             push()
             st.rerun()
+        
+        # Tape Admin
+        with st.expander("Tape Settings"):
+            curr_tape = st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F")
+            new_tape = st.text_input("Symbols", value=curr_tape)
+            if new_tape != curr_tape:
+                st.session_state['user_data']['tape_input'] = new_tape
+                push()
+                st.rerun()
+
         if st.button("Logout"):
             logout_session(st.query_params.get("token"))
             st.query_params.clear()
@@ -326,7 +333,7 @@ else:
             
     inject_wake_lock(True)
 
-    def draw(t):
+    def draw(t, port=None):
         d = get_pro_data(t)
         if not d: return
         f = get_fundamentals(t)
@@ -356,12 +363,37 @@ else:
             vol_stat = "HEAVY" if d['vol_pct'] > 120 else "LIGHT" if d['vol_pct'] < 80 else "NORMAL"
             st.markdown(f"""<div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{vol_stat}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>""", unsafe_allow_html=True)
             
+            if port:
+                gain = (d['p'] - port['e']) * port['q']
+                gain_col = "#4caf50" if gain >= 0 else "#ff4b4b"
+                st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port['q']}</b></span><span>Avg: <b>${port['e']}</b></span><span style="color:{gain_col}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
+
             st.divider()
 
-    tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
-    cols = st.columns(3)
-    for i, t in enumerate(tickers):
-        with cols[i%3]: draw(t)
+    # --- TABS (RESTORED) ---
+    t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
+
+    with t1:
+        tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
+        cols = st.columns(3)
+        for i, t in enumerate(tickers):
+            with cols[i%3]: draw(t)
+
+    with t2:
+        port = st.session_state['user_data'].get('portfolio', {})
+        if not port: st.info("Portfolio Empty.")
+        else:
+            # Simple Portfolio Calc
+            total_val = 0
+            for k, v in port.items():
+                d = get_pro_data(k)
+                if d: total_val += d['p'] * v['q']
+            
+            st.markdown(f"""<div style="text-align:center; padding:15px; background:#f0f2f6; border-radius:10px; margin-bottom:15px;"><div style="font-size:12px; color:#555;">NET ASSETS</div><div style="font-size:32px; font-weight:bold;">${total_val:,.2f}</div></div>""", unsafe_allow_html=True)
+            
+            cols = st.columns(3)
+            for i, (k, v) in enumerate(port.items()):
+                with cols[i%3]: draw(k, v)
 
     time.sleep(30)
     st.rerun()
