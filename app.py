@@ -65,10 +65,10 @@ def create_session(username):
     except: return None
 
 def validate_session(token):
-    # RETRY LOGIC TO PREVENT RANDOM LOGOUTS
     for _ in range(3):
         try:
             conn = get_connection()
+            if not conn.is_connected(): conn.reconnect(attempts=3, delay=1)
             cursor = conn.cursor()
             cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
             res = cursor.fetchone()
@@ -128,7 +128,7 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- NEWS & AI ENGINE ---
+# --- NEWS & AI ENGINE (SMART SENTIMENT) ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -144,7 +144,6 @@ def fetch_news(feeds, tickers, api_key):
     if not NEWS_LIB_READY: return []
     
     all_feeds = feeds.copy()
-    # Auto-add ticker specific feeds
     for t in tickers:
         all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
     
@@ -154,32 +153,39 @@ def fetch_news(feeds, tickers, api_key):
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            for entry in f.entries[:3]: # Fast fetch
+            for entry in f.entries[:3]: 
                 if entry.link not in seen:
                     seen.add(entry.link)
                     
-                    found_ticker = None
-                    for t in tickers:
-                        if t in entry.title.upper():
-                            found_ticker = t
-                            break
-                    
                     sentiment = "NONE"
-                    # AI LOGIC
-                    if api_key and found_ticker:
+                    found_ticker = None
+                    
+                    # --- SMART AI CHECK ---
+                    if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Is this headline BULLISH, BEARISH, or NEUTRAL for {found_ticker}? Headline: {entry.title}"
+                            # Ask AI to FIND the ticker and JUDGE it
+                            prompt = f"Analyze headline: '{entry.title}'. 1. Identify main company ticker (if any). 2. Sentiment (BULLISH/BEARISH/NEUTRAL). Reply in format: TICKER|SENTIMENT. If no company, reply NONE."
+                            
                             response = client.chat.completions.create(
                                 model="gpt-3.5-turbo",
                                 messages=[{"role": "user", "content": prompt}],
-                                max_tokens=5
+                                max_tokens=15
                             )
                             ans = response.choices[0].message.content.strip().upper()
-                            if "BULL" in ans: sentiment = "BULLISH"
-                            elif "BEAR" in ans: sentiment = "BEARISH"
-                            elif "NEUT" in ans: sentiment = "NEUTRAL"
+                            
+                            if "|" in ans and "NONE" not in ans:
+                                parts = ans.split("|")
+                                found_ticker = parts[0].strip()
+                                sentiment = parts[1].strip()
                         except: pass
+
+                    # Fallback if no AI or AI failed but we know the ticker
+                    if not found_ticker:
+                        for t in tickers:
+                            if t in entry.title.upper():
+                                found_ticker = t
+                                break
 
                     articles.append({
                         "title": entry.title,
@@ -209,10 +215,8 @@ def get_fundamentals(s):
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
-            # STRICT FUTURE FILTER
             if next_earn:
                 ts = pd.Timestamp(next_earn)
-                # Only show if Today or Later
                 if ts.date() >= datetime.now().date():
                     earn_str = ts.strftime('%b %d')
                 else: earn_str = "N/A"
@@ -307,7 +311,6 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* PADDING INCREASED to 4.5rem to clear header */
         .block-container { padding-top: 4.5rem !important; padding-bottom: 2rem; }
         
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
@@ -501,9 +504,12 @@ else:
         if not NEWS_LIB_READY:
             st.error("Missing Libraries: Please add 'feedparser' and 'openai' to your requirements.txt")
         else:
+            api_key = ACTIVE_KEY # USES GLOBAL KEY
+            if not api_key: st.warning("⚠️ No OpenAI API Key found. Add it in Sidebar to enable AI Sentiment.")
+            
             watchlist = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
             feeds = st.session_state['user_data'].get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
-            news_items = fetch_news(feeds, watchlist, ACTIVE_KEY)
+            news_items = fetch_news(feeds, watchlist, api_key)
             
             if not news_items:
                 st.info("No relevant news found for your watchlist.")
