@@ -15,24 +15,6 @@ import base64
 try: st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass 
 
-# Custom CSS for "Dressing it up"
-st.markdown("""
-    <style>
-        /* Only hide the footer, KEEP the header so mobile users can see the menu */
-        #MainMenu {visibility: visible;}
-        footer {visibility: hidden;}
-        /* header {visibility: hidden;}  <-- I REMOVED THIS LINE SO YOU CAN SEE THE MENU */
-        
-        /* tighten up the top spacing */
-        .block-container {padding-top: 1rem; padding-bottom: 1rem;}
-        
-        /* Make metrics stand out */
-        [data-testid="stMetricValue"] {
-            font-size: 1.5rem;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
 # *** CONFIG ***
 ADMIN_PASSWORD = "admin123"
 LOGO_PATH = "logo.png"
@@ -45,6 +27,39 @@ DB_CONFIG = {
     "database": "penny_pulse",
     "connect_timeout": 10
 }
+
+# --- CUSTOM CSS (The "Dressing Up" Part) ---
+st.markdown("""
+    <style>
+        /* Mobile Menu Visibility Fix */
+        #MainMenu {visibility: visible;}
+        footer {visibility: hidden;}
+        
+        /* Card Styling */
+        div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
+            background-color: #ffffff;
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        /* Metric Styling */
+        [data-testid="stMetricValue"] {
+            font-size: 1.8rem !important;
+            font-weight: 700 !important;
+        }
+        
+        /* Header Gradient */
+        .main-header {
+            background: linear-gradient(90deg, #1e1e1e 0%, #2b2d42 100%);
+            padding: 15px;
+            border-radius: 0 0 15px 15px;
+            color: white;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- DATABASE ENGINE ---
 def get_connection():
@@ -129,7 +144,6 @@ def get_pro_data(s):
         chart = chart_source['Close'].reset_index()
         chart.columns = ['T', 'Stock']
         chart['Idx'] = range(len(chart))
-        # Normalize chart to start at 0%
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
         
         trend = "BULL" if d_pct >= 0 else "BEAR"
@@ -149,15 +163,18 @@ if 'init' not in st.session_state:
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        img = get_base64_image(LOGO_PATH)
-        if img: st.markdown(f'<img src="data:image/png;base64,{img}" style="max-height:120px; display:block; margin:0 auto;">', unsafe_allow_html=True)
-        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="text-align:center; padding:30px; background:#f0f2f6; border-radius:15px;">
+            <h1 style='color:#333;'>⚡ Penny Pulse</h1>
+            <p style='color:#666;'>Professional Market Intelligence</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         with st.form("login"):
-            st.markdown("<h3 style='text-align:center;'>Secure Login</h3>", unsafe_allow_html=True)
-            user = st.text_input("Username", placeholder="Enter your ID")
-            if st.form_submit_button("Access Terminal", type="primary") and user:
+            user = st.text_input("Identity Access", placeholder="Enter Username")
+            if st.form_submit_button("Authenticate", type="primary") and user:
                 data = load_user(user.strip())
                 if data:
                     st.session_state['username'] = user.strip()
@@ -165,7 +182,7 @@ if not st.session_state['logged_in']:
                     st.session_state['logged_in'] = True
                     st.rerun()
                 else:
-                    st.error("Connection Failed. Check Database.")
+                    st.error("Access Denied: Check Database Connection.")
 
 # MAIN DASHBOARD
 else:
@@ -173,101 +190,117 @@ else:
 
     # -- SIDEBAR --
     with st.sidebar:
-        st.header(f"👤 {st.session_state['username']}")
-        if st.button("Logout"):
+        st.title(f"👤 {st.session_state['username']}")
+        if st.button("Logout", type="secondary"):
             st.session_state['logged_in'] = False
             st.rerun()
         st.divider()
         
-        st.caption("WATCHLIST")
+        st.subheader("Watchlist")
         curr_w = st.session_state['user_data'].get('w_input', "")
-        new_w = st.text_area("Tickers (Comma separated)", value=curr_w, height=100)
+        new_w = st.text_area("Edit Tickers", value=curr_w, height=150, help="Comma separated e.g. AAPL, TSLA")
         if new_w != curr_w:
             st.session_state['user_data']['w_input'] = new_w
             push()
             st.rerun()
 
         st.divider()
-        if st.text_input("Admin", type="password") == ADMIN_PASSWORD:
-            with st.expander("💼 Edit Portfolio", expanded=True):
-                new_t = st.text_input("Sym").upper()
+        with st.expander("💼 Portfolio Admin"):
+            if st.text_input("Password", type="password") == ADMIN_PASSWORD:
+                new_t = st.text_input("Ticker Symbol").upper()
                 c1, c2 = st.columns(2)
-                new_p = c1.number_input("Px")
-                new_q = c2.number_input("Qty", step=1)
+                new_p = c1.number_input("Avg Price")
+                new_q = c2.number_input("Quantity", step=1)
                 
                 if 'portfolio' not in st.session_state['user_data']: st.session_state['user_data']['portfolio'] = {}
-                if st.button("Add / Update") and new_t: 
+                if st.button("Save Trade", type="primary") and new_t: 
                     st.session_state['user_data']['portfolio'][new_t] = {"e": new_p, "q": int(new_q)}
                     push()
                     st.rerun()
                 
-                rem = st.selectbox("Delete Asset", [""] + list(st.session_state['user_data']['portfolio'].keys()))
-                if st.button("🗑️ Remove") and rem: 
+                rem = st.selectbox("Remove Asset", [""] + list(st.session_state['user_data']['portfolio'].keys()))
+                if st.button("Delete") and rem: 
                     del st.session_state['user_data']['portfolio'][rem]
                     push()
                     st.rerun()
         
-        st.checkbox("Keep Screen On", key="keep_on")
+        st.caption("v208.0 Pro")
+        st.checkbox("Always On Display", key="keep_on")
     
     inject_wake_lock(st.session_state['keep_on'])
 
     # -- TOP HEADER --
     t_str = (datetime.utcnow()-timedelta(hours=5)+timedelta(minutes=1)).strftime('%I:%M %p')
     st.markdown(f"""
-        <div style="display:flex; justify-content:space-between; align-items:center; background:#0e1117; padding:10px; border-bottom: 2px solid #262730; margin-bottom:20px;">
-            <div style="font-size:24px; font-weight:bold;">⚡ Penny Pulse</div>
-            <div style="color:#4caf50; font-family:monospace; font-size:18px;">● LIVE {t_str} ET</div>
+        <div class="main-header">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:26px; font-weight:900; letter-spacing:-1px;">⚡ Penny Pulse <span style="font-size:12px; font-weight:normal; opacity:0.7;">PRO</span></div>
+                <div style="font-family:monospace; font-size:16px; background:rgba(255,255,255,0.1); padding:5px 10px; border-radius:5px;">● {t_str} ET</div>
+            </div>
         </div>
     """, unsafe_allow_html=True)
 
-    t1, t2 = st.tabs(["📊 Market Dashboard", "🚀 My Portfolio"])
+    t1, t2 = st.tabs(["📊 Live Market", "🚀 Portfolio"])
 
-    # -- DRAW FUNCTION (The Visuals) --
+    # -- DRAW FUNCTION --
     def draw(t, port=None):
-        # Create a container with a border for the "Card" look
-        with st.container(border=True):
-            d = get_pro_data(t)
-            if not d:
-                st.warning(f"⚠️ {t}: Loading...")
-                return
+        d = get_pro_data(t)
+        if not d:
+            st.warning(f"⚠️ {t}: Fetching...")
+            return
+        
+        # Dynamic Border Color
+        border_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"
+        
+        # Render Card
+        with st.container():
+            # Apply a colored border using markdown logic isn't perfect in Streamlit containers, 
+            # so we use a colored divider line at the top of the card
+            st.markdown(f"<div style='height:4px; width:100%; background-color:{border_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             
-            # Header Row
-            c1, c2 = st.columns([1.8, 1])
+            c1, c2 = st.columns([1.5, 1])
             with c1:
-                st.markdown(f"**{t}**")
-                st.caption(d['name'][:20] + "..." if len(d['name'])>20 else d['name'])
+                st.markdown(f"<h3 style='margin:0; padding:0;'>{t}</h3>", unsafe_allow_html=True)
+                st.caption(d['name'][:25] + "..." if len(d['name'])>25 else d['name'])
             with c2:
-                # Color code the metric
-                color = "green" if d['d'] >= 0 else "red"
-                st.markdown(f"<div style='text-align:right; font-size:18px; font-weight:bold;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='text-align:right; color:{color}; font-size:14px;'>{d['d']:+.2f}%</div>", unsafe_allow_html=True)
+                arrow = "▲" if d['d'] >= 0 else "▼"
+                st.markdown(f"<div style='text-align:right; font-size:22px; font-weight:bold;'>${d['p']:,.2f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:right; color:{border_col}; font-weight:bold;'>{arrow} {d['d']:.2f}%</div>", unsafe_allow_html=True)
             
-            # Portfolio Details (if any)
-            if port: 
-                gain = (d['p'] - port['e']) * port['q']
-                gain_col = "green" if gain >= 0 else "red"
-                st.markdown(f"""<div style="background:#262730; padding:5px; border-radius:5px; font-size:12px; margin-top:5px; text-align:center;">
-                    {port['q']} @ ${port['e']} <span style="color:#888">|</span> <span style="color:{gain_col}"><b>${gain:+,.0f}</b></span>
-                    </div>""", unsafe_allow_html=True)
-            
-            # The Chart
-            col_chart = "#4caf50" if d['d']>=0 else "#ff4b4b"
-            chart = alt.Chart(d['chart']).mark_line(
-                color=col_chart, 
-                strokeWidth=2
+            # Chart
+            chart = alt.Chart(d['chart']).mark_area(
+                line={'color':border_col},
+                color=alt.Gradient(
+                    gradient='linear',
+                    stops=[alt.GradientStop(color=border_col, offset=0),
+                           alt.GradientStop(color='white', offset=1)],
+                    x1=1, x2=1, y1=1, y2=0
+                )
             ).encode(
                 x=alt.X('Idx', axis=None), 
-                y=alt.Y('Stock', axis=None)
-            ).configure_view(strokeWidth=0).properties(height=60)
+                y=alt.Y('Stock', scale=alt.Scale(domain=[d['chart']['Stock'].min(), d['chart']['Stock'].max()]), axis=None)
+            ).configure_view(strokeWidth=0).properties(height=50)
             
             st.altair_chart(chart, use_container_width=True)
+            
+            # Portfolio Data
+            if port:
+                gain = (d['p'] - port['e']) * port['q']
+                gain_col = "#4caf50" if gain >= 0 else "#ff4b4b"
+                st.markdown(f"""
+                <div style="background:#f9f9f9; padding:8px; border-radius:5px; display:flex; justify-content:space-between; font-size:13px;">
+                    <span>Qty: <b>{port['q']}</b></span>
+                    <span>Avg: <b>${port['e']}</b></span>
+                    <span style="color:{gain_col}; font-weight:bold;">${gain:+,.0f}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.divider()
 
     # -- TAB 1: WATCHLIST --
     with t1:
         tickers = [x.strip().upper() for x in st.session_state['user_data'].get('w_input', "").split(",") if x.strip()]
-        
-        # Responsive Grid (3 columns)
-        cols = st.columns(3)
+        cols = st.columns(3) # Grid Layout
         for i, t in enumerate(tickers):
             with cols[i%3]: draw(t)
 
@@ -275,28 +308,26 @@ else:
     with t2:
         port = st.session_state['user_data'].get('portfolio', {})
         if not port:
-            st.info("Your portfolio is empty. Add stocks via the Sidebar (Admin Password required).")
+            st.info("Portfolio Empty. Use Sidebar to add assets.")
         else:
-            # Calculate Totals
             tv = sum(get_pro_data(k)['p']*v['q'] for k,v in port.items() if get_pro_data(k))
             tc = sum(v['e']*v['q'] for v in port.values())
             diff = tv - tc
             diff_col = "#4caf50" if diff >= 0 else "#ff4b4b"
             
-            # Big Total Banner
             st.markdown(f"""
-                <div style="text-align:center; padding:20px; background:#1e1e1e; border-radius:10px; margin-bottom:20px; border:1px solid #333;">
-                    <div style="color:#888; font-size:14px;">TOTAL PORTFOLIO VALUE</div>
-                    <div style="font-size:36px; font-weight:bold;">${tv:,.2f}</div>
-                    <div style="color:{diff_col}; font-size:18px; font-weight:bold;">{'+' if diff>=0 else ''}${diff:,.2f} ({((tv-tc)/tc)*100:.2f}%)</div>
+                <div style="text-align:center; padding:20px; background:linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius:10px; margin-bottom:20px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                    <div style="color:#555; font-size:12px; text-transform:uppercase; letter-spacing:1px;">Net Liquidation Value</div>
+                    <div style="font-size:42px; font-weight:900; color:#2c3e50;">${tv:,.2f}</div>
+                    <div style="color:{diff_col}; font-size:18px; font-weight:bold; background:rgba(255,255,255,0.5); display:inline-block; padding:2px 10px; border-radius:10px;">
+                        {'+' if diff>=0 else ''}${diff:,.2f} ({((tv-tc)/tc)*100:.2f}%)
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
 
-            # Portfolio Grid
             cols = st.columns(3)
             for i, (k, v) in enumerate(port.items()):
                 with cols[i%3]: draw(k, v)
 
-    # Auto Refresh
     time.sleep(60)
     st.rerun()
