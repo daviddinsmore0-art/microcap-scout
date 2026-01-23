@@ -26,7 +26,7 @@ DB_CONFIG = {
     "user": "penny_user",
     "password": "123456",
     "database": "penny_pulse",
-    "connect_timeout": 10
+    "connect_timeout": 20
 }
 
 # --- DATABASE ENGINE ---
@@ -122,7 +122,7 @@ def get_fundamentals(s):
         rating = inf.get('recommendationKey', 'N/A').replace('_', ' ').upper()
         if rating == "NONE": rating = "N/A"
         
-        # RAW EARNINGS (No Filter)
+        # RAW EARNINGS (Restored)
         earn_str = "N/A"
         try:
             cal = tk.calendar
@@ -230,10 +230,9 @@ st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
-        /* SMALLER PADDING - Puts Watchlist visibly below the ticker */
-        .block-container { padding-top: 4rem !important; padding-bottom: 2rem; }
+        /* THIS PADDING PREVENTS HEADER OVERLAP */
+        .block-container { padding-top: 3.5rem !important; padding-bottom: 2rem; }
         
-        /* CARD STYLE */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 12px;
@@ -253,10 +252,7 @@ st.markdown("""
 if not st.session_state['logged_in']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        if os.path.exists(LOGO_PATH):
-            lc1, lc2, lc3 = st.columns([1,2,1])
-            with lc2: st.image(LOGO_PATH, use_container_width=True)
-        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
         user = st.text_input("Identity Access")
         if st.button("Authenticate", type="primary") and user:
             st.query_params["token"] = create_session(user.strip())
@@ -267,31 +263,43 @@ if not st.session_state['logged_in']:
 else:
     def push(): save_user(st.session_state['username'], st.session_state['user_data'])
     
-    # --- RENDER STICKY TICKER (HTML ONLY) ---
     tape_content = get_tape_data(st.session_state['user_data'].get('tape_input', "^DJI, ^IXIC, ^GSPTSE, GC=F"))
     
-    # Simple, Fast, Sticky Ticker
-    # Animation duration set to 15s for speed
-    # Content duplicated 4 times to prevent gaps
-    st.markdown(f"""
-        <div style="
-            position: fixed; top: 0; left: 0; width: 100%; height: 45px;
-            background-color: #111; z-index: 99999;
+    # --- IFRAME TICKER (The robust way) ---
+    # Seamless loop: Content repeated 4x, Animation 25% duration
+    header_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+        body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; }}
+        .ticker-container {{
+            width: 100%; height: 45px; background: #111;
+            display: flex; align-items: center;
             border-bottom: 1px solid #333;
-            border-radius: 0 0 10px 10px;
+            border-radius: 0 0 15px 15px; /* Rounded Bottom */
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            overflow: hidden; display: flex; align-items: center;">
-            <div style="
-                white-space: nowrap; display: inline-block;
-                animation: ticker 15s linear infinite;
-                color: white; font-family: monospace; font-size: 14px;">
-                {tape_content} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; {tape_content} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; {tape_content} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; {tape_content}
+        }}
+        .ticker-wrap {{ width: 100%; overflow: hidden; white-space: nowrap; }}
+        .ticker-move {{ display: inline-block; animation: ticker 25s linear infinite; }}
+        @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-25%, 0, 0); }} }}
+        .ticker-item {{ display: inline-block; color: white; font-family: monospace; font-size: 14px; padding: 0 20px; }}
+    </style>
+    </head>
+    <body>
+        <div class="ticker-container">
+            <div class="ticker-wrap">
+                <div class="ticker-move">
+                    <span class="ticker-item">{tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content} &nbsp;|&nbsp; {tape_content}</span>
+                </div>
             </div>
         </div>
-        <style>
-            @keyframes ticker {{ 0% {{ transform: translate3d(0, 0, 0); }} 100% {{ transform: translate3d(-50%, 0, 0); }} }}
-        </style>
-    """, unsafe_allow_html=True)
+    </body>
+    </html>
+    """
+    # Use components.html to render it safely
+    # height=50 ensures no scrollbars, slightly more than the 45px div
+    components.html(header_html, height=50)
 
     with st.sidebar:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
