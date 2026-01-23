@@ -136,6 +136,7 @@ def get_fundamentals(s):
                 dates = cal.get('Earnings Date', [])
                 if dates: next_earn = dates[0]
             
+            # FUTURE ONLY
             if next_earn:
                 if isinstance(next_earn, pd.Timestamp): next_earn = next_earn.to_pydatetime()
                 if next_earn.date() >= datetime.now().date():
@@ -217,14 +218,13 @@ if 'init' not in st.session_state:
             st.session_state['user_data'] = load_user(user)
             st.session_state['logged_in'] = True
 
-# --- CSS ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
         #MainMenu {visibility: visible;}
         footer {visibility: hidden;}
         .block-container { padding-top: 9rem !important; padding-bottom: 2rem; }
         
-        /* CARD STYLE RESTORED */
         div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
             background-color: #ffffff;
             border-radius: 12px;
@@ -279,18 +279,17 @@ else:
         </div>
     """, unsafe_allow_html=True)
 
-    # --- FULL SIDEBAR RESTORED ---
     with st.sidebar:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
         st.subheader("Operator Control")
-        new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""), height=150)
+        new_w = st.text_area("Watchlist", value=st.session_state['user_data'].get('w_input', ""))
         if new_w != st.session_state['user_data']['w_input']:
             st.session_state['user_data']['w_input'] = new_w
             push()
             st.rerun()
         st.divider()
         
-        # PORTFOLIO ADMIN
+        # --- FULL PORTFOLIO ADMIN (RESTORED) ---
         with st.expander("💼 Portfolio & Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 st.caption("SCROLLING TICKER TAPE")
@@ -321,7 +320,6 @@ else:
                     push()
                     st.rerun()
         
-        # ALWAYS ON TOGGLE
         st.checkbox("Always On Display", key="keep_on")
         if st.button("Logout"):
             logout_session(st.query_params.get("token"))
