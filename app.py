@@ -215,7 +215,7 @@ def fetch_news(feeds, tickers, api_key):
         except: pass
     return articles
 
-# --- DATA ENGINE ---
+# --- DATA ENGINE (UPDATED FOR POST-MARKET) ---
 @st.cache_data(ttl=600) 
 def get_fundamentals(s):
     try:
@@ -237,37 +237,60 @@ def get_fundamentals(s):
         return {"rating": rating, "earn": earn_str}
     except: return {"rating": "N/A", "earn": "N/A"}
 
+# *** UPDATED FUNCTION TO FORCE POST-MARKET DATA ***
+@st.cache_data(ttl=60)  # Refresh every 60 seconds (Much faster)
 def get_pro_data(s):
     try:
         tk = yf.Ticker(s)
+        # 1. Get Daily History (For Charts & Regular Close)
         hist = tk.history(period="1mo", interval="1d")
         if hist.empty: return None 
+        
+        # Regular Market Close
         p_live = hist['Close'].iloc[-1]
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
+        
+        # 2. Force Extended Hours Check (The Fix)
+        # We fetch 1-minute data INCLUDING Pre/Post market
         pre_post_html = ""
         try:
-            rt_price = tk.fast_info.get('last_price', p_live)
-            if rt_price and abs(rt_price - p_live) > 0.01:
-                pp_pct = ((rt_price - p_live) / p_live) * 100
-                now = datetime.now(timezone.utc) - timedelta(hours=5)
-                lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
-                col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"; pct_fmt = f"{pp_pct:+.2f}%"
-                pre_post_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${rt_price:,.2f} ({pct_fmt})</span></div>"
+            # Fetch 1 day of 1-minute candles with prepost=True
+            live_data = tk.history(period="1d", interval="1m", prepost=True)
+            if not live_data.empty:
+                real_live_price = live_data['Close'].iloc[-1]
+                
+                # Check if this "Real" price is different from the "Close" price
+                if abs(real_live_price - p_live) > 0.01:
+                    pp_pct = ((real_live_price - p_live) / p_live) * 100
+                    
+                    # Figure out if it is PRE or POST based on Time (EST)
+                    now = datetime.now(timezone.utc) - timedelta(hours=5)
+                    lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
+                    
+                    col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
+                    pct_fmt = f"{pp_pct:+.2f}%"
+                    pre_post_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${real_live_price:,.2f} ({pct_fmt})</span></div>"
         except: pass
+
+        # 3. Technicals (RSI, Volume, etc.)
         sma20 = hist['Close'].tail(20).mean()
         rsi_val = 50 
         try:
             rsi_series = calculate_rsi(hist['Close']); 
             if not rsi_series.empty: rsi_val = rsi_series.iloc[-1]
         except: pass
+        
         vol_pct = 0
         if not hist['Volume'].empty: vol_pct = (hist['Volume'].iloc[-1] / hist['Volume'].mean()) * 100
+        
         range_pos = 50
         day_h = hist['High'].iloc[-1]; day_l = hist['Low'].iloc[-1]
         if day_h != day_l: range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
+        
         chart = hist['Close'].tail(20).reset_index(); chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
+        
         return {"p": p_live, "d": d_pct, "name": tk.info.get('longName', s), "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if p_live > sma20 else "BEARISH", "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html, "chart": chart}
     except: return None
 
