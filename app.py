@@ -16,7 +16,6 @@ import uuid
 try:
     import feedparser
     import openai
-    from bs4 import BeautifulSoup # Helps clean up news summaries
     NEWS_LIB_READY = True
 except ImportError:
     NEWS_LIB_READY = False
@@ -163,7 +162,7 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- NEWS & AI ENGINE (UPDATED: SMARTER & CLEANER) ---
+# --- NEWS & AI ENGINE ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -194,11 +193,9 @@ def fetch_news(feeds, tickers, api_key):
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
                     
-                    # 1. Get Summary for better AI context
+                    # 1. Get Summary (Simplified Clean)
                     summary_text = entry.get('summary', '') or entry.get('description', '')
-                    # Clean HTML tags from summary if possible
-                    try: summary_text = BeautifulSoup(summary_text, "html.parser").get_text()[:300] 
-                    except: summary_text = summary_text[:300]
+                    summary_text = summary_text.replace("<p>", "").replace("</p>", "").replace("<b>", "").replace("</b>", "")[:300]
 
                     # 2. Combine Title + Summary for AI
                     full_text = f"{entry.title} - {summary_text}"
@@ -206,7 +203,6 @@ def fetch_news(feeds, tickers, api_key):
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            # UPDATED PROMPT: Looks at full context
                             prompt = f"Analyze this news: '{full_text}'. Identify the MAIN company ticker mentioned. Return exactly: TICKER|SENTIMENT. Sentiment must be BULLISH, BEARISH, or NEUTRAL. If no specific ticker, return MARKET|SENTIMENT."
                             response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
@@ -217,7 +213,6 @@ def fetch_news(feeds, tickers, api_key):
                                 sentiment = parts[1].strip()
                         except: pass
                     
-                    # Fallback: Simple text search if AI didn't catch it
                     if not found_ticker and tickers:
                         for t in tickers:
                             if t in full_text.upper():
@@ -260,7 +255,9 @@ def get_pro_data(s):
         d_pct = ((p_live - prev_close) / prev_close) * 100
         
         pre_post_html = ""
+        # Try/Except block for Post Market - if this fails, we skip it but don't crash
         try:
+            # Note: We keep this 'try' tight to avoid breaking the whole card
             live_data = tk.history(period="1d", interval="1m", prepost=True)
             if not live_data.empty:
                 real_live_price = live_data['Close'].iloc[-1]
@@ -286,7 +283,10 @@ def get_pro_data(s):
         chart = hist['Close'].tail(20).reset_index(); chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
         return {"p": p_live, "d": d_pct, "name": tk.info.get('longName', s), "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if p_live > sma20 else "BEARISH", "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html, "chart": chart}
-    except: return None
+    except Exception as e:
+        # RETURN ERROR SO WE SEE IT
+        print(f"Error fetching {s}: {e}")
+        return {"error": str(e)}
 
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string):
@@ -368,7 +368,6 @@ else:
             st.divider()
             st.caption("ALERT PREFERENCES")
             
-            # --- CUSTOM TOGGLES ---
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price Moves", value=USER.get('alert_price', True))
             a_trend = c2.checkbox("Trend Flips", value=USER.get('alert_trend', True))
@@ -430,6 +429,10 @@ else:
                     st.rerun()
 
         st.checkbox("Always On Display", key="keep_on")
+        if st.button("🧹 Reset App (Clear Cache)"): 
+            st.cache_data.clear()
+            st.rerun()
+            
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state['logged_in'] = False; st.rerun()
             
     inject_wake_lock(st.session_state.get('keep_on', False))
@@ -438,7 +441,11 @@ else:
 
     def draw(t, port=None):
         d = get_pro_data(t)
-        if not d: return
+        # ERROR HANDLING: If d is None or has error, show a red card
+        if not d or "error" in d: 
+            st.error(f"⚠️ Error loading {t}. Please check ticker or try again later.")
+            return
+
         f = get_fundamentals(t)
         b_col = "#4caf50" if d['d'] >= 0 else "#ff4b4b"; arrow = "▲" if d['d'] >= 0 else "▼"
         r_up = f['rating'].upper()
