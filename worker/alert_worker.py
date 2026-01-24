@@ -2,10 +2,10 @@ import os
 import mysql.connector
 import yfinance as yf
 import pandas as pd
-import requests
-from datetime import datetime, timezone
+import json
 
 # --- CONFIG ---
+# This runs on GitHub, so it uses standard environment variables
 DB_CONFIG = {
     "host": "72.55.168.16",
     "user": "penny_user",
@@ -25,6 +25,7 @@ def calculate_rsi(series, window=14):
     return 100 - (100 / (1 + rs))
 
 def update_stock_cache():
+    print("🚀 Starting Cache Update...")
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     
@@ -33,24 +34,28 @@ def update_stock_cache():
     rows = cursor.fetchall()
     
     all_tickers = set()
-    import json
+    # Always include the Ticker Tape symbols
+    all_tickers.update(["^DJI", "^IXIC", "^GSPTSE", "GC=F"]) 
+
     for r in rows:
         try:
             data = json.loads(r['user_data'])
             # Add Watchlist
             if 'w_input' in data:
-                all_tickers.update([t.strip().upper() for t in data['w_input'].split(",") if t.strip()])
+                clean_list = [t.strip().upper() for t in data['w_input'].split(",") if t.strip()]
+                all_tickers.update(clean_list)
             # Add Portfolio
             if 'portfolio' in data:
                 all_tickers.update(data['portfolio'].keys())
         except: pass
     
-    print(f"📉 Updating Cache for {len(all_tickers)} tickers: {all_tickers}")
+    print(f"📉 Targets identified ({len(all_tickers)}): {all_tickers}")
 
     # 2. Fetch Data & Save to DB
     for t in all_tickers:
         try:
             tk = yf.Ticker(t)
+            # Get 1 month of history for calculations
             hist = tk.history(period="1mo", interval="1d")
             
             if not hist.empty:
@@ -78,7 +83,7 @@ def update_stock_cache():
                 if curr > sma20: trend = "UPTREND"
                 else: trend = "DOWNTREND"
 
-                # SQL Upsert (Insert or Update)
+                # SQL Upsert (Insert or Update if exists)
                 sql = """
                 INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status)
                 VALUES (%s, %s, %s, %s, %s, %s)
@@ -92,12 +97,13 @@ def update_stock_cache():
                 conn.commit()
                 print(f"✅ Saved {t}: ${curr:.2f}")
             else:
-                print(f"⚠️ No data for {t}")
+                print(f"⚠️ No data from Yahoo for {t}")
 
         except Exception as e:
-            print(f"❌ Error {t}: {e}")
+            print(f"❌ Error processing {t}: {e}")
 
     conn.close()
+    print("🏁 Update Complete.")
 
 if __name__ == "__main__":
     update_stock_cache()
