@@ -270,14 +270,28 @@ def fetch_news(feeds, tickers, api_key):
             pass
     return articles
 
-# --- DATA ENGINE (OFFLINE MODE - READS FROM MYSQL) ---
+# --- DATA ENGINE (DB-ONLY MODE) ---
 @st.cache_data(ttl=600)
 def get_fundamentals(s):
-    # Fundamentals are less critical, we can skip or implement a similar cache later
-    # For now, return basic info to prevent crashes
-    return {"rating": "N/A", "earn": "N/A"}
+    # NOW READS FROM DB COLUMNS
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            # Handle possible NULLs
+            r = row['rating'] if row['rating'] else "N/A"
+            e = row['next_earnings'] if row['next_earnings'] else "N/A"
+            return {"rating": r, "earn": e}
+        else:
+            return {"rating": "N/A", "earn": "N/A"}
+    except:
+        return {"rating": "N/A", "earn": "N/A"}
 
-@st.cache_data(ttl=10) # Refresh fast from DB
+@st.cache_data(ttl=10) # Fast Refresh from DB
 def get_pro_data(s):
     try:
         conn = get_connection()
@@ -290,18 +304,16 @@ def get_pro_data(s):
         if not row:
             return None
 
-        # Map Database Columns to App UI logic
+        # Map Database Columns to App UI
         price = float(row['current_price'])
         change = float(row['day_change'])
         rsi_val = float(row['rsi'])
         trend = row['trend_status']
         vol_stat = row['volume_status']
         
-        # Approximate values since we aren't storing history in DB to save space
         vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
         
-        # Create a Flat Chart placeholder (Real charts require historical DB storage)
-        # This keeps the UI from breaking
+        # Simple flat chart for now (requires history table for real chart)
         chart_data = pd.DataFrame({'Idx': range(20), 'Stock': [0]*20})
 
         return {
@@ -310,12 +322,12 @@ def get_pro_data(s):
             "name": s,
             "rsi": rsi_val,
             "vol_pct": vol_pct,
-            "range_pos": 50, # Placeholder
-            "h": price,      # Placeholder
-            "l": price,      # Placeholder
+            "range_pos": 50, 
+            "h": price,      
+            "l": price,      
             "ai": "BULLISH" if trend == "UPTREND" else "BEARISH",
             "trend": trend,
-            "pp": "",        # Post market handled by worker update
+            "pp": "",
             "chart": chart_data,
         }
     except:
@@ -331,13 +343,12 @@ def get_tape_data(symbol_string):
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Fetch all needed symbols in one fast query
+        # Batch Fetch
         format_strings = ','.join(['%s'] * len(symbols))
         cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(symbols))
         rows = cursor.fetchall()
         conn.close()
 
-        # Convert to dictionary for easy lookup
         data_map = {row['ticker']: row for row in rows}
 
         for s in symbols:
