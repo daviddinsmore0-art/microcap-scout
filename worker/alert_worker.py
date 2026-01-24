@@ -3,7 +3,7 @@ import mysql.connector
 import yfinance as yf
 import pandas as pd
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 # --- CONFIG ---
 DB_CONFIG = {
@@ -26,19 +26,17 @@ def calculate_rsi(series, window=14):
 
 def get_earnings_date(tk):
     try:
-        # Try different methods as YF changes often
         cal = tk.calendar
         if hasattr(cal, 'iloc') and not cal.empty:
             return cal.iloc[0][0].strftime('%b %d')
         elif isinstance(cal, dict) and 'Earnings Date' in cal:
             dates = cal['Earnings Date']
-            if dates:
-                return dates[0].strftime('%b %d')
+            if dates: return dates[0].strftime('%b %d')
     except: pass
     return "N/A"
 
 def update_stock_cache():
-    print("🚀 Starting Extended Cache Update...")
+    print("🚀 Starting MEGA Cache Update...")
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     
@@ -61,10 +59,11 @@ def update_stock_cache():
     for t in all_tickers:
         try:
             tk = yf.Ticker(t)
+            # Fetch 1mo for tech analysis
             hist = tk.history(period="1mo", interval="1d")
             
             if not hist.empty:
-                # -- Price & Techs --
+                # -- Standard Data --
                 curr = hist['Close'].iloc[-1]
                 prev = hist['Close'].iloc[-2] if len(hist) > 1 else curr
                 change = ((curr - prev) / prev) * 100
@@ -83,30 +82,43 @@ def update_stock_cache():
 
                 trend = "UPTREND" if curr > hist['Close'].tail(20).mean() else "DOWNTREND"
 
-                # -- Fundamentals (NEW) --
+                # -- Fundamentals --
                 rating = "N/A"
                 try:
-                    inf = tk.info
-                    rating = inf.get('recommendationKey', 'N/A').replace('_', ' ').upper()
+                    rating = tk.info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
                     if rating == "NONE": rating = "N/A"
                 except: pass
-
                 earn_str = get_earnings_date(tk)
 
-                # -- Save to DB --
+                # -- Pre/Post Market --
+                pp_price = 0.0
+                pp_pct = 0.0
+                try:
+                    # Fetch minimal intraday data including pre/post
+                    live = tk.history(period="1d", interval="1m", prepost=True)
+                    if not live.empty:
+                        last_price = live['Close'].iloc[-1]
+                        # Only count it if it differs from close by > 0.01
+                        if abs(last_price - curr) > 0.01:
+                            pp_price = float(last_price)
+                            pp_pct = float(((last_price - curr) / curr) * 100)
+                except: pass
+
+                # -- SQL Upsert --
                 sql = """
                 INSERT INTO stock_cache 
-                (ticker, current_price, day_change, rsi, volume_status, trend_status, rating, next_earnings)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                (ticker, current_price, day_change, rsi, volume_status, trend_status, rating, next_earnings, pre_post_price, pre_post_pct)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
-                current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, rating=%s, next_earnings=%s
+                current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, rating=%s, next_earnings=%s,
+                pre_post_price=%s, pre_post_pct=%s
                 """
-                vals = (t, float(curr), float(change), float(rsi), vol_stat, trend, rating, earn_str,
-                        float(curr), float(change), float(rsi), vol_stat, trend, rating, earn_str)
+                vals = (t, float(curr), float(change), float(rsi), vol_stat, trend, rating, earn_str, pp_price, pp_pct,
+                        float(curr), float(change), float(rsi), vol_stat, trend, rating, earn_str, pp_price, pp_pct)
                 
                 cursor.execute(sql, vals)
                 conn.commit()
-                print(f"✅ Saved {t} | Rating: {rating} | Earn: {earn_str}")
+                print(f"✅ {t}: ${curr} | PP: {pp_price} ({pp_pct}%)")
             else:
                 print(f"⚠️ No data for {t}")
 
