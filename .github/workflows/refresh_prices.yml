@@ -1,6 +1,6 @@
+name: Refresh Prices Cache
+
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
@@ -8,7 +8,6 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -20,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install yfinance mysql-connector-python
+          pip install -r requirements.txt
 
       - name: Run price refresher
         env:
@@ -29,4 +28,4 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
         run: |
-  python -m worker.prices
+          python -m worker.prices
