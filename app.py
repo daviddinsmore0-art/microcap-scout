@@ -222,7 +222,7 @@ def fetch_news(feeds, tickers, api_key):
         except: pass
     return articles
 
-# --- DATA ENGINE ---
+# --- DATA ENGINE (BULLETPROOF VERSION) ---
 @st.cache_data(ttl=600) 
 def get_fundamentals(s):
     try:
@@ -246,47 +246,62 @@ def get_fundamentals(s):
 
 @st.cache_data(ttl=60) 
 def get_pro_data(s):
+    # This function is now designed to NEVER crash the app.
+    # If fetch fails, it returns a Safe Error dictionary.
     try:
         tk = yf.Ticker(s)
+        # 1. Fetch BASIC History (Reliable)
         hist = tk.history(period="1mo", interval="1d")
+        
+        # FAILSAFE: If history is empty (bad ticker or network error), STOP HERE.
         if hist.empty: return None 
+        
+        # Basic Price Logic
         p_live = hist['Close'].iloc[-1]
         prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else p_live
         d_pct = ((p_live - prev_close) / prev_close) * 100
         
+        # 2. OPTIONAL: Try to fetch Extended Hours (Post Market)
+        # We wrap this in its OWN try/except so it doesn't kill the whole card if it fails.
         pre_post_html = ""
-        # Try/Except block for Post Market - if this fails, we skip it but don't crash
         try:
-            # Note: We keep this 'try' tight to avoid breaking the whole card
             live_data = tk.history(period="1d", interval="1m", prepost=True)
             if not live_data.empty:
                 real_live_price = live_data['Close'].iloc[-1]
+                # Only show if there is a real difference
                 if abs(real_live_price - p_live) > 0.01:
                     pp_pct = ((real_live_price - p_live) / p_live) * 100
                     now = datetime.now(timezone.utc) - timedelta(hours=5)
                     lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
                     col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"; pct_fmt = f"{pp_pct:+.2f}%"
                     pre_post_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${real_live_price:,.2f} ({pct_fmt})</span></div>"
-        except: pass
+        except: 
+            pass # If 1m data fails (weekend/holiday), we just ignore it and show regular price.
 
+        # 3. Technicals
         sma20 = hist['Close'].tail(20).mean()
         rsi_val = 50 
         try:
             rsi_series = calculate_rsi(hist['Close']); 
             if not rsi_series.empty: rsi_val = rsi_series.iloc[-1]
         except: pass
+        
         vol_pct = 0
         if not hist['Volume'].empty: vol_pct = (hist['Volume'].iloc[-1] / hist['Volume'].mean()) * 100
+        
         range_pos = 50
         day_h = hist['High'].iloc[-1]; day_l = hist['Low'].iloc[-1]
         if day_h != day_l: range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
+        
         chart = hist['Close'].tail(20).reset_index(); chart.columns = ['T', 'Stock']; chart['Idx'] = range(len(chart))
         chart['Stock'] = ((chart['Stock'] - chart['Stock'].iloc[0])/chart['Stock'].iloc[0])*100
+        
         return {"p": p_live, "d": d_pct, "name": tk.info.get('longName', s), "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if p_live > sma20 else "BEARISH", "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html, "chart": chart}
+    
     except Exception as e:
-        # RETURN ERROR SO WE SEE IT
-        print(f"Error fetching {s}: {e}")
-        return {"error": str(e)}
+        # If something TRULY unexpected happens, we log it and return None
+        print(f"CRITICAL ERROR on {s}: {e}")
+        return None
 
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string):
@@ -368,6 +383,7 @@ else:
             st.divider()
             st.caption("ALERT PREFERENCES")
             
+            # --- CUSTOM TOGGLES ---
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price Moves", value=USER.get('alert_price', True))
             a_trend = c2.checkbox("Trend Flips", value=USER.get('alert_trend', True))
