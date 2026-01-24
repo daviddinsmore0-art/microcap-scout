@@ -25,3 +25,8 @@ jobs:
 
     - name: Run Data Worker
       run: python worker/alert_worker.py
+      env:
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASS: ${{ secrets.DB_PASS }}
+        DB_NAME: ${{ secrets.DB_NAME }}
