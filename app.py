@@ -1,164 +1,186 @@
 import streamlit as st
-import mysql.connector
-import json
-import uuid
+import yfinance as yf
+import pandas as pd
+import altair as alt
 import time
+import json
+import mysql.connector
+from mysql.connector import Error
+from datetime import datetime, timedelta, timezone
+import streamlit.components.v1 as components
+import os
+import base64
+import uuid
 
-# =========================
-# PAGE CONFIG
-# =========================
-st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
+# --- IMPORTS FOR NEWS & AI ---
+try:
+    import feedparser
+    import openai
+    NEWS_LIB_READY = True
+except ImportError:
+    NEWS_LIB_READY = False
 
-# =========================
-# DATABASE CONFIG (SECRETS)
-# =========================
+# --- SETUP & STYLING ---
+try:
+    st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
+except:
+    pass
+
+# *** CONFIG ***
+ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "")
+LOGO_PATH = "logo.png"
+
+# *** DATABASE CONFIG ***
 DB_CONFIG = {
     "host": st.secrets["DB_HOST"],
     "user": st.secrets["DB_USER"],
     "password": st.secrets["DB_PASS"],
     "database": st.secrets["DB_NAME"],
-    "connect_timeout": 10
+    "connect_timeout": 30
 }
 
-# =========================
-# DB HELPERS
-# =========================
+# --- DATABASE ENGINE ---
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_profiles (
-            username VARCHAR(255) PRIMARY KEY,
-            user_data TEXT
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, user_data TEXT)"
         )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_sessions (
-            token VARCHAR(255) PRIMARY KEY,
-            username VARCHAR(255)
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255))"
         )
-    """)
+        conn.close()
+        return True
+    except Error:
+        return False
 
-    conn.commit()
-    conn.close()
-
-# =========================
-# AUTH
-# =========================
+# --- AUTHENTICATION (ORIGINAL SIMPLE VERSION) ---
 def create_session(username):
     token = str(uuid.uuid4())
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("DELETE FROM user_sessions WHERE username=%s", (username,))
-    cur.execute(
-        "INSERT INTO user_sessions (token, username) VALUES (%s, %s)",
-        (token, username)
-    )
-
-    conn.commit()
-    conn.close()
-    return token
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
+        cursor.execute(
+            "INSERT INTO user_sessions (token, username) VALUES (%s, %s)",
+            (token, username),
+        )
+        conn.commit()
+        conn.close()
+        return token
+    except:
+        return None
 
 def validate_session(token):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT username FROM user_sessions WHERE token=%s",
-        (token,)
-    )
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT username FROM user_sessions WHERE token = %s", (token,)
+        )
+        res = cursor.fetchone()
+        conn.close()
+        if res:
+            return res[0]
+    except:
+        pass
+    return None
 
 def logout_session(token):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM user_sessions WHERE token=%s", (token,))
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_sessions WHERE token = %s", (token,))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
-# =========================
-# USER DATA
-# =========================
-def load_user(username):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT user_data FROM user_profiles WHERE username=%s",
-        (username,)
-    )
-    row = cur.fetchone()
-    conn.close()
+# --- DATA LOADERS ---
+def load_user_profile(username):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT user_data FROM user_profiles WHERE username = %s", (username,)
+        )
+        res = cursor.fetchone()
+        conn.close()
+        if res:
+            return json.loads(res[0])
+        else:
+            return {"w_input": "TD.TO, NKE, SPY"}
+    except:
+        return {"w_input": "TD.TO, NKE, SPY"}
 
-    if row:
-        return json.loads(row[0])
-    return {"watchlist": "AAPL, MSFT, TSLA"}
-
-def save_user(username, data):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
+def save_user_profile(username, data):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        j_str = json.dumps(data)
+        sql = """
         INSERT INTO user_profiles (username, user_data)
         VALUES (%s, %s)
-        ON DUPLICATE KEY UPDATE user_data=%s
-    """, (username, json.dumps(data), json.dumps(data)))
-    conn.commit()
-    conn.close()
+        ON DUPLICATE KEY UPDATE user_data = %s
+        """
+        cursor.execute(sql, (username, j_str, j_str))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
-# =========================
-# INIT
-# =========================
+# --- INIT ---
 init_db()
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+    url_token = st.query_params.get("token")
+    if url_token:
+        user = validate_session(url_token)
+        if user:
+            st.session_state.logged_in = True
+            st.session_state.username = user
+            st.session_state.user_data = load_user_profile(user)
 
-token = st.query_params.get("token")
-if token and not st.session_state.logged_in:
-    user = validate_session(token)
-    if user:
-        st.session_state.logged_in = True
-        st.session_state.username = user
-        st.session_state.user_data = load_user(user)
-
-# =========================
-# LOGIN SCREEN
-# =========================
+# --- LOGIN SCREEN ---
 if not st.session_state.logged_in:
-    st.title("⚡ Penny Pulse")
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        if os.path.exists(LOGO_PATH):
+            st.image(LOGO_PATH, width=160)
+        else:
+            st.markdown("<h1>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
 
-    username = st.text_input("Username")
-    if st.button("Login") and username:
-        token = create_session(username.strip())
-        st.query_params["token"] = token
-        st.session_state.logged_in = True
-        st.session_state.username = username.strip()
-        st.session_state.user_data = load_user(username.strip())
-        st.rerun()
+        st.text_input("Username", key="login_user")
 
-# =========================
-# MAIN APP
-# =========================
+        if st.button("Login"):
+            u = st.session_state.login_user.strip()
+            if u:
+                token = create_session(u)
+                st.query_params["token"] = token
+                st.session_state.logged_in = True
+                st.session_state.username = u
+                st.session_state.user_data = load_user_profile(u)
+                st.rerun()
+
+# --- MAIN APP ---
 else:
     USER = st.session_state.user_data
 
     with st.sidebar:
         st.markdown(f"👤 **{st.session_state.username}**")
 
-        wl = st.text_area(
+        new_w = st.text_area(
             "Your Watchlist (comma separated)",
-            USER.get("watchlist", "")
+            USER.get("w_input", ""),
         )
-
-        if wl != USER.get("watchlist"):
-            USER["watchlist"] = wl
-            save_user(st.session_state.username, USER)
+        if new_w != USER.get("w_input"):
+            USER["w_input"] = new_w
+            save_user_profile(st.session_state.username, USER)
 
         if st.button("Logout"):
             logout_session(st.query_params.get("token"))
@@ -166,14 +188,29 @@ else:
             st.session_state.clear()
             st.rerun()
 
-    st.subheader("📊 Live Watchlist")
+    st.markdown("## 📊 Live Watchlist")
 
-    tickers = [x.strip().upper() for x in USER.get("watchlist", "").split(",") if x.strip()]
+    tickers = [
+        x.strip().upper()
+        for x in USER.get("w_input", "").split(",")
+        if x.strip()
+    ]
 
     if not tickers:
         st.info("Add tickers to your watchlist.")
     else:
-        for t in tickers:
-            st.markdown(f"- **{t}**")
+        cols = st.columns(3)
+        for i, t in enumerate(tickers):
+            with cols[i % 3]:
+                try:
+                    tk = yf.Ticker(t)
+                    p = tk.history(period="2d")
+                    if not p.empty:
+                        last = p["Close"].iloc[-1]
+                        prev = p["Close"].iloc[-2]
+                        pct = ((last - prev) / prev) * 100
+                        st.metric(t, f"${last:.2f}", f"{pct:+.2f}%")
+                except:
+                    st.warning(t)
 
-    st.caption("Stable baseline version ✔")
+    st.caption("Restored original Penny Pulse UI ✔")
