@@ -215,7 +215,7 @@ def fetch_news(feeds, tickers, api_key):
         except: pass
     return articles
 
-# --- DATA ENGINE (EXTENDED HOURS FIX) ---
+# --- DATA ENGINE (RESTORED TO STABLE V268) ---
 @st.cache_data(ttl=600) 
 def get_fundamentals(s):
     try:
@@ -276,8 +276,7 @@ def get_pro_data(s):
         return {"p": p_live, "d": d_pct, "name": tk.info.get('longName', s), "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if p_live > sma20 else "BEARISH", "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html, "chart": chart}
     except: return None
 
-# *** TICKER TAPE ENGINE (UPDATED: 60s Refresh, 2 Decimals) ***
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def get_tape_data(symbol_string):
     items = []
     symbols = [x.strip() for x in symbol_string.split(",") if x.strip()]
@@ -286,17 +285,10 @@ def get_tape_data(symbol_string):
             tk = yf.Ticker(s)
             hist = tk.history(period="1d")
             if not hist.empty:
-                px = hist['Close'].iloc[-1]
-                op = hist['Open'].iloc[-1]
-                chg = ((px - op)/op)*100
-                
+                px = hist['Close'].iloc[-1]; op = hist['Open'].iloc[-1]; chg = ((px - op)/op)*100
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("^GSPTSE", "TSX").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
-                
-                color = "#4caf50" if chg >= 0 else "#ff4b4b"
-                arrow = "▲" if chg >= 0 else "▼"
-                
-                # Format: 2 decimal places for price and %
-                items.append(f"<span style='color:#ccc; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
+                color = "#4caf50" if chg >= 0 else "#ff4b4b"; arrow = "▲" if chg >= 0 else "▼"
+                items.append(f"<span style='color:#ccc; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>")
         except: pass
     return "   ".join(items)
 
@@ -322,15 +314,8 @@ if not st.session_state['logged_in']:
     with c2:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
         else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-        
         st.markdown("##### 👋 Welcome")
-        
-        user = st.text_input(
-            "Enter Username", 
-            placeholder="e.g. Dave",
-            help="If you have an account, enter your username to login. If you are new, enter a name to create an account instantly."
-        )
-        
+        user = st.text_input("Enter Username", placeholder="e.g. Dave", help="If you have an account, enter your username to login. If you are new, enter a name to create an account instantly.")
         if st.button("🚀 Login / Start", type="primary") and user:
             st.query_params["token"] = create_session(user.strip())
             st.session_state['username'] = user.strip()
@@ -368,7 +353,6 @@ else:
             st.divider()
             st.caption("ALERT PREFERENCES")
             
-            # --- CUSTOM TOGGLES ---
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price Moves", value=USER.get('alert_price', True))
             a_trend = c2.checkbox("Trend Flips", value=USER.get('alert_trend', True))
