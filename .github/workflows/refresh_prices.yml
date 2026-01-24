@@ -1,1 +1,4 @@
+name: Refresh Prices Cache
 
+on:
+  workflow_dispatch:
