@@ -767,5 +767,5 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                 for n in news_items:
                     render_news(n)
 
-    time.sleep(30)
+    time.sleep(60)
     st.rerun()
