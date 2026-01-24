@@ -16,6 +16,7 @@ import uuid
 try:
     import feedparser
     import openai
+    from bs4 import BeautifulSoup # Helps clean up news summaries
     NEWS_LIB_READY = True
 except ImportError:
     NEWS_LIB_READY = False
@@ -162,7 +163,7 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- NEWS & AI ENGINE ---
+# --- NEWS & AI ENGINE (UPDATED: SMARTER & CLEANER) ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -193,10 +194,20 @@ def fetch_news(feeds, tickers, api_key):
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
                     
+                    # 1. Get Summary for better AI context
+                    summary_text = entry.get('summary', '') or entry.get('description', '')
+                    # Clean HTML tags from summary if possible
+                    try: summary_text = BeautifulSoup(summary_text, "html.parser").get_text()[:300] 
+                    except: summary_text = summary_text[:300]
+
+                    # 2. Combine Title + Summary for AI
+                    full_text = f"{entry.title} - {summary_text}"
+
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. If a specific company is mentioned, use its ticker. If general market news, return MARKET|SENTIMENT. Sentiment must be BULLISH, BEARISH, or NEUTRAL."
+                            # UPDATED PROMPT: Looks at full context
+                            prompt = f"Analyze this news: '{full_text}'. Identify the MAIN company ticker mentioned. Return exactly: TICKER|SENTIMENT. Sentiment must be BULLISH, BEARISH, or NEUTRAL. If no specific ticker, return MARKET|SENTIMENT."
                             response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans:
@@ -206,16 +217,17 @@ def fetch_news(feeds, tickers, api_key):
                                 sentiment = parts[1].strip()
                         except: pass
                     
+                    # Fallback: Simple text search if AI didn't catch it
                     if not found_ticker and tickers:
                         for t in tickers:
-                            if t in entry.title.upper():
+                            if t in full_text.upper():
                                 found_ticker = t; break
                                 
                     articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get('published', '')), "ticker": found_ticker, "sentiment": sentiment})
         except: pass
     return articles
 
-# --- DATA ENGINE (EXTENDED HOURS FIX) ---
+# --- DATA ENGINE ---
 @st.cache_data(ttl=600) 
 def get_fundamentals(s):
     try:
@@ -276,7 +288,6 @@ def get_pro_data(s):
         return {"p": p_live, "d": d_pct, "name": tk.info.get('longName', s), "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if p_live > sma20 else "BEARISH", "trend": "UPTREND" if p_live > sma20 else "DOWNTREND", "pp": pre_post_html, "chart": chart}
     except: return None
 
-# *** TICKER TAPE ENGINE (UPDATED: 60s Refresh, 2 Decimals) ***
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string):
     items = []
@@ -289,13 +300,9 @@ def get_tape_data(symbol_string):
                 px = hist['Close'].iloc[-1]
                 op = hist['Open'].iloc[-1]
                 chg = ((px - op)/op)*100
-                
                 short_name = s.replace("^DJI", "DOW").replace("^IXIC", "NASDAQ").replace("^GSPC", "S&P500").replace("^GSPTSE", "TSX").replace("GC=F", "GOLD").replace("SI=F", "SILVER").replace("BTC-USD", "BTC")
-                
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
-                
-                # Format: 2 decimal places for price and %
                 items.append(f"<span style='color:#ccc; margin-left:20px;'>{short_name}</span> <span style='color:{color}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
         except: pass
     return "   ".join(items)
@@ -322,15 +329,8 @@ if not st.session_state['logged_in']:
     with c2:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
         else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-        
         st.markdown("##### 👋 Welcome")
-        
-        user = st.text_input(
-            "Enter Username", 
-            placeholder="e.g. Dave",
-            help="If you have an account, enter your username to login. If you are new, enter a name to create an account instantly."
-        )
-        
+        user = st.text_input("Enter Username", placeholder="e.g. Dave", help="If you have an account, enter your username to login. If you are new, enter a name to create an account instantly.")
         if st.button("🚀 Login / Start", type="primary") and user:
             st.query_params["token"] = create_session(user.strip())
             st.session_state['username'] = user.strip()
@@ -463,31 +463,6 @@ else:
                 st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port['q']}</b></span><span>Avg: <b>${port['e']}</b></span><span style="color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
             st.divider()
 
-    with t1:
-        tickers = [x.strip().upper() for x in USER.get('w_input', "").split(",") if x.strip()]
-        cols = st.columns(3)
-        for i, t in enumerate(tickers):
-            with cols[i%3]: draw(t)
-
-    with t2:
-        port = GLOBAL.get('portfolio', {})
-        if not port: st.info("No Picks Published.")
-        else:
-            total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
-            for k, v in port.items():
-                d = get_pro_data(k)
-                if d:
-                    total_val += d['p'] * v['q']; total_cost += v['e'] * v['q']
-                    if d['d'] != 0: day_pl_sum += (d['p'] - (d['p'] / (1 + (d['d']/100)))) * v['q']
-            day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"
-            total_pl = total_val - total_cost; tot_col = "#4caf50" if total_pl >= 0 else "#ff4b4b"
-            day_pl_pct = (day_pl_sum / (total_val - day_pl_sum) * 100) if (total_val - day_pl_sum) > 0 else 0
-            tot_pl_pct = (total_pl / total_cost * 100) if total_cost > 0 else 0
-            st.markdown(f"""<div style="background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;"><div style="display:flex; justify-content:space-between; margin-bottom:10px;"><div><div style="font-size:11px; color:#888; font-weight:bold;">NET ASSETS</div><div style="font-size:24px; font-weight:900; color:#333;">${total_val:,.2f}</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">INVESTED</div><div style="font-size:24px; font-weight:900; color:#555;">${total_cost:,.2f}</div></div></div><div style="height:1px; background:#eee; margin:10px 0;"></div><div style="display:flex; justify-content:space-between;"><div><div style="font-size:11px; color:#888; font-weight:bold;">DAY P/L</div><div style="font-size:16px; font-weight:bold; color:{day_col};">${day_pl_sum:+,.2f} ({day_pl_pct:+.2f}%)</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">TOTAL P/L</div><div style="font-size:16px; font-weight:bold; color:{tot_col};">${total_pl:+,.2f} ({tot_pl_pct:+.2f}%)</div></div></div></div>""", unsafe_allow_html=True)
-            cols = st.columns(3)
-            for i, (k, v) in enumerate(port.items()):
-                with cols[i%3]: draw(k, v)
-
     def render_news(n):
         color_code = "#333"
         if n['sentiment'] == "BULLISH": color_code = "#4caf50"
@@ -497,6 +472,10 @@ else:
         st.markdown(f"""<div class="news-card" style="border-left-color: {color_code};"><div style="display:flex; align-items:center;">{ticker_html}<a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
 
     with t3:
+        if st.button("🔄 Refresh News", key="ref_my"):
+            st.cache_data.clear()
+            st.rerun()
+
         if not NEWS_LIB_READY: st.error("Missing Libraries.")
         else:
             watchlist = [x.strip().upper() for x in USER.get('w_input', "").split(",") if x.strip()]
@@ -508,6 +487,10 @@ else:
                 for n in news_items: render_news(n)
 
     with t4:
+        if st.button("🔄 Refresh News", key="ref_disc"):
+            st.cache_data.clear()
+            st.rerun()
+            
         if not NEWS_LIB_READY: st.error("Missing Libraries.")
         else:
             feeds = GLOBAL.get('rss_feeds', ["https://finance.yahoo.com/news/rssindex"])
