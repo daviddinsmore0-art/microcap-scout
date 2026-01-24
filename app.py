@@ -1,5 +1,4 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import altair as alt
 import time
@@ -192,13 +191,6 @@ def inject_wake_lock(enable):
             height=0,
         )
 
-def calculate_rsi(data, window=14):
-    delta = data.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
 # --- NEWS & AI ENGINE ---
 def relative_time(date_str):
     try:
@@ -278,120 +270,82 @@ def fetch_news(feeds, tickers, api_key):
             pass
     return articles
 
-# --- DATA ENGINE ---
+# --- DATA ENGINE (OFFLINE MODE - READS FROM MYSQL) ---
 @st.cache_data(ttl=600)
 def get_fundamentals(s):
-    try:
-        tk = yf.Ticker(s)
-        inf = tk.info
-        rating = inf.get("recommendationKey", "N/A").replace("_", " ").upper()
-        if rating == "NONE":
-            rating = "N/A"
-        earn_str = "N/A"
-        try:
-            cal = tk.calendar
-            next_earn = None
-            if hasattr(cal, "iloc") and not cal.empty:
-                next_earn = cal.iloc[0][0]
-            elif isinstance(cal, dict):
-                dates = cal.get("Earnings Date", [])
-                next_earn = dates[0] if dates else None
-            if next_earn:
-                ts = pd.Timestamp(next_earn)
-                if ts.date() >= datetime.now().date():
-                    earn_str = ts.strftime("%b %d")
-                else:
-                    earn_str = "N/A"
-        except:
-            pass
-        return {"rating": rating, "earn": earn_str}
-    except:
-        return {"rating": "N/A", "earn": "N/A"}
+    # Fundamentals are less critical, we can skip or implement a similar cache later
+    # For now, return basic info to prevent crashes
+    return {"rating": "N/A", "earn": "N/A"}
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10) # Refresh fast from DB
 def get_pro_data(s):
     try:
-        tk = yf.Ticker(s)
-        hist = tk.history(period="1mo", interval="1d")
-        if hist.empty:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        # READ FROM CACHE TABLE
+        cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (s,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
             return None
 
-        p_live = hist["Close"].iloc[-1]
-        prev_close = hist["Close"].iloc[-2] if len(hist) > 1 else p_live
-        d_pct = ((p_live - prev_close) / prev_close) * 100
-
-        pre_post_html = ""
-        try:
-            live_data = tk.history(period="1d", interval="1m", prepost=True)
-            if not live_data.empty:
-                real_live_price = live_data["Close"].iloc[-1]
-                if abs(real_live_price - p_live) > 0.01:
-                    pp_pct = ((real_live_price - p_live) / p_live) * 100
-                    now = datetime.now(timezone.utc) - timedelta(hours=5)
-                    lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
-                    col = "#4caf50" if pp_pct >= 0 else "#ff4b4b"
-                    pct_fmt = f"{pp_pct:+.2f}%"
-                    pre_post_html = (
-                        f"<div style='font-size:11px; color:#888; margin-top:2px;'>"
-                        f"{lbl}: <span style='color:{col}; font-weight:bold;'>"
-                        f"${real_live_price:,.2f} ({pct_fmt})</span></div>"
-                    )
-        except:
-            pass
-
-        sma20 = hist["Close"].tail(20).mean()
-        rsi_val = 50
-        try:
-            rsi_series = calculate_rsi(hist["Close"])
-            if not rsi_series.empty:
-                rsi_val = rsi_series.iloc[-1]
-        except:
-            pass
-
-        vol_pct = 0
-        if not hist["Volume"].empty:
-            vol_pct = (hist["Volume"].iloc[-1] / hist["Volume"].mean()) * 100
-
-        range_pos = 50
-        day_h = hist["High"].iloc[-1]
-        day_l = hist["Low"].iloc[-1]
-        if day_h != day_l:
-            range_pos = ((p_live - day_l) / (day_h - day_l)) * 100
-
-        chart = hist["Close"].tail(20).reset_index()
-        chart.columns = ["T", "Stock"]
-        chart["Idx"] = range(len(chart))
-        chart["Stock"] = ((chart["Stock"] - chart["Stock"].iloc[0]) / chart["Stock"].iloc[0]) * 100
+        # Map Database Columns to App UI logic
+        price = float(row['current_price'])
+        change = float(row['day_change'])
+        rsi_val = float(row['rsi'])
+        trend = row['trend_status']
+        vol_stat = row['volume_status']
+        
+        # Approximate values since we aren't storing history in DB to save space
+        vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
+        
+        # Create a Flat Chart placeholder (Real charts require historical DB storage)
+        # This keeps the UI from breaking
+        chart_data = pd.DataFrame({'Idx': range(20), 'Stock': [0]*20})
 
         return {
-            "p": p_live,
-            "d": d_pct,
-            "name": tk.info.get("longName", s),
+            "p": price,
+            "d": change,
+            "name": s,
             "rsi": rsi_val,
             "vol_pct": vol_pct,
-            "range_pos": range_pos,
-            "h": day_h,
-            "l": day_l,
-            "ai": "BULLISH" if p_live > sma20 else "BEARISH",
-            "trend": "UPTREND" if p_live > sma20 else "DOWNTREND",
-            "pp": pre_post_html,
-            "chart": chart,
+            "range_pos": 50, # Placeholder
+            "h": price,      # Placeholder
+            "l": price,      # Placeholder
+            "ai": "BULLISH" if trend == "UPTREND" else "BEARISH",
+            "trend": trend,
+            "pp": "",        # Post market handled by worker update
+            "chart": chart_data,
         }
     except:
         return None
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def get_tape_data(symbol_string):
     items = []
     symbols = [x.strip() for x in symbol_string.split(",") if x.strip()]
-    for s in symbols:
-        try:
-            tk = yf.Ticker(s)
-            hist = tk.history(period="1d")
-            if not hist.empty:
-                px = hist["Close"].iloc[-1]
-                op = hist["Open"].iloc[-1]
-                chg = ((px - op) / op) * 100
+    if not symbols: return ""
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Fetch all needed symbols in one fast query
+        format_strings = ','.join(['%s'] * len(symbols))
+        cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(symbols))
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Convert to dictionary for easy lookup
+        data_map = {row['ticker']: row for row in rows}
+
+        for s in symbols:
+            if s in data_map:
+                row = data_map[s]
+                px = float(row['current_price'])
+                chg = float(row['day_change'])
+                
                 short_name = (
                     s.replace("^DJI", "DOW")
                     .replace("^IXIC", "NASDAQ")
@@ -405,10 +359,10 @@ def get_tape_data(symbol_string):
                 arrow = "▲" if chg >= 0 else "▼"
                 items.append(
                     f"<span style='color:#ccc; margin-left:20px;'>{short_name}</span> "
-                    f"<span style='color:{color}'>{arrow} {px:,.0f} ({chg:+.1f}%)</span>"
+                    f"<span style='color:{color}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>"
                 )
-        except:
-            pass
+    except:
+        pass
     return "   ".join(items)
 
 # --- UI LOGIC ---
@@ -651,6 +605,7 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             st.markdown(header_html, unsafe_allow_html=True)
             st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
 
+            # Chart is flat for now until we add history to DB
             chart = alt.Chart(d["chart"]).mark_area(
                 line={"color": b_col},
                 color=alt.Gradient(
