@@ -785,5 +785,5 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                     render_news(n)
 
     if st.session_state.get("keep_on", False):
-        time.sleep(60)
+        time.sleep(70)
         st.rerun()
