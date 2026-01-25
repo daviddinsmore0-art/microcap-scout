@@ -82,14 +82,15 @@ def init_db():
             
         conn.close()
         return True
-    except Exception: # Generic catch to prevent NameError crashes
+    except Exception: # Generic Exception to prevent NameError if Error is not imported
         return False
 
-# --- THE FIX: DUAL-BATCH + STRICT FUTURE EARNINGS ---
+# --- THE FIX: DUAL-BATCH + STRICT EARNINGS + PRE/POST ---
 def run_backend_update():
     """
-    1. Fast Batch: Live Prices + Charts (1 call).
-    2. Surgical Strike: Fetches missing Metadata (Rating/Earn) with STRICT future date checking.
+    1. Fast Batch (1m): Live Prices + Pre/Post + BTC.
+    2. Fast Batch (1d): Charts + History.
+    3. Surgical Strike: Missing Metadata (Future Earnings Only).
     """
     try:
         conn = get_connection()
@@ -124,16 +125,16 @@ def run_backend_update():
             if not row or not row['last_updated'] or (now - row['last_updated']).total_seconds() > 120:
                 to_fetch_price.append(t)
             
-            # Metadata Update: Missing, N/A, or empty
+            # Metadata Update: Missing or "N/A"
             if not row or row.get('rating') == 'N/A' or row.get('next_earnings') == 'N/A':
                 to_fetch_meta.append(t)
         
         # 3. BATCH DOWNLOAD (DUAL)
         if to_fetch_price:
             tickers_str = " ".join(to_fetch_price)
-            # Live 1m for Pre/Post
+            # Live 1m for Pre/Post & Crypto
             live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-            # Hist 1d for Charts
+            # Hist 1d for Charts & Close
             hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
             for t in to_fetch_price:
@@ -155,7 +156,7 @@ def run_backend_update():
                     
                     day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
                     chart_json = "[]"
-                    close_price = live_price 
+                    close_price = live_price # Default to live if hist missing
                     day_h = live_price; day_l = live_price
 
                     if not df_hist.empty:
@@ -205,7 +206,7 @@ def run_backend_update():
                         if len(df_hist) > 0:
                             day_change = ((live_price - float(df_hist['Close'].iloc[-1])) / float(df_hist['Close'].iloc[-1])) * 100
                     else:
-                        # Stock Logic: If live differs from close, show Post Market
+                        # STOCK: Compare Live Price vs Hist Close Price
                         if abs(live_price - close_price) > 0.01:
                             pp_p = live_price
                             pp_pct = ((live_price - close_price) / close_price) * 100
@@ -222,11 +223,11 @@ def run_backend_update():
                     conn.commit()
                 except: pass
 
-        # 4. SURGICAL METADATA UPDATE (With STRICT Future Date Logic)
+        # 4. SURGICAL METADATA UPDATE (With FUTURE DATE Filter)
         if to_fetch_meta:
             for t in to_fetch_meta[:3]: 
                 try:
-                    time.sleep(0.5) 
+                    time.sleep(0.5)
                     tk = yf.Ticker(t)
                     info = tk.info
                     
@@ -358,8 +359,8 @@ def fetch_news(feeds, tickers, api_key):
     return articles
 
 # --- DATA HELPERS ---
-@st.cache_data(ttl=5) # New cache to force refresh
-def get_pro_data_v2(s):
+@st.cache_data(ttl=5)
+def get_pro_data(s):
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (s,))
@@ -375,8 +376,8 @@ def get_pro_data_v2(s):
         rating = row.get('rating') or "N/A"
         earn = row.get('next_earnings') or "N/A"
         
+        # PRE/POST LOGIC (Display only if price differs)
         pp_html = ""
-        # Improved Post Market Logic
         if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
             pp_c = float(row['pre_post_pct'])
@@ -410,6 +411,15 @@ def get_pro_data_v2(s):
             "rating": rating, "earn": earn, "vol_stat": vol_stat
         }
     except: return None
+
+@st.cache_data(ttl=600) # Increased TTL for fundamentals to reduce load
+def get_fundamentals(s):
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
+        row = cursor.fetchone(); conn.close()
+        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
+    except: return {"rating": "N/A", "earn": "N/A"}
 
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
@@ -614,7 +624,7 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
     t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
 
     def draw(t, port=None):
-        d = get_pro_data_v2(t) # Changed to v2 to bust cache
+        d = get_pro_data(t)
         if not d: 
             st.markdown(f"<div style='padding:15px; border:1px dashed #ccc; border-radius:10px; color:#888; font-size:12px;'>⚠️ <b>{t}</b>: Processing...</div>", unsafe_allow_html=True)
             return
@@ -659,7 +669,7 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
         else:
             total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
             for k, v in port.items():
-                d = get_pro_data_v2(k) # Changed to v2 to bust cache
+                d = get_pro_data(k)
                 if d:
                     total_val += d["p"] * v["q"]; total_cost += v["e"] * v["q"]
                     if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
