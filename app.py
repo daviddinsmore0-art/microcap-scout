@@ -6,6 +6,7 @@ import json
 import mysql.connector
 import requests
 import yfinance as yf
+# We use generic Exception handling to avoid NameError crashes
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
@@ -82,7 +83,7 @@ def init_db():
             
         conn.close()
         return True
-    except Exception:
+    except Exception: # Fixed: Generic Exception to prevent NameError
         return False
 
 # --- THE FIX: DUAL-BATCH + STRICT EARNINGS + PRE/POST ---
@@ -222,7 +223,7 @@ def run_backend_update():
                     conn.commit()
                 except: pass
 
-        # 4. SURGICAL METADATA UPDATE (With FUTURE DATE Filter)
+        # 4. SURGICAL METADATA UPDATE (With STRICT Future Date Logic)
         if to_fetch_meta:
             for t in to_fetch_meta[:3]: 
                 try:
@@ -342,7 +343,6 @@ def relative_time(date_str):
 
 @st.cache_data(ttl=600)
 def fetch_news(feeds, tickers, api_key):
-    # FIXED: Initialize dictionary structure even if processing fails
     if not NEWS_LIB_READY: return []
     all_feeds = feeds.copy()
     if tickers:
