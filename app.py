@@ -20,7 +20,7 @@ try:
 except ImportError:
     NEWS_LIB_READY = False
 
-# --- SETUP ---
+# --- CONFIG ---
 try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
@@ -39,7 +39,7 @@ def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def check_and_fix_schema():
-    """Auto-heals the database schema to prevent 'Draw Error'."""
+    """Auto-heals the database schema."""
     try:
         conn = get_connection(); cursor = conn.cursor(buffered=True)
         cursor.execute("""
@@ -59,11 +59,18 @@ def check_and_fix_schema():
             )
         """)
         conn.commit()
-        # Ensure columns exist
-        for col, dtype in [('company_name', 'VARCHAR(255)'), ('pre_post_price', 'DECIMAL(20, 4)'), ('pre_post_pct', 'DECIMAL(10, 2)'), ('volume_status', 'DECIMAL(10, 2)')]:
-            cursor.execute(f"SHOW COLUMNS FROM stock_cache LIKE '{col}'")
+        
+        # Force-Add missing columns
+        cols_to_check = [
+            ('company_name', 'VARCHAR(255)'), 
+            ('pre_post_price', 'DECIMAL(20, 4)'), 
+            ('pre_post_pct', 'DECIMAL(10, 2)'),
+            ('volume_status', 'DECIMAL(10, 2)')
+        ]
+        for col_name, col_type in cols_to_check:
+            cursor.execute(f"SHOW COLUMNS FROM stock_cache LIKE '{col_name}'")
             if not cursor.fetchone():
-                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} {dtype}")
+                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col_name} {col_type}")
                 conn.commit()
         conn.close()
     except: pass
@@ -71,6 +78,7 @@ def check_and_fix_schema():
 # --- THE BATCH ENGINE (Fast & Safe) ---
 def run_backend_update(force=False):
     """Downloads ALL stocks in 1 request to prevent bans."""
+    status = st.empty()
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
         
@@ -102,6 +110,7 @@ def run_backend_update(force=False):
         if not to_fetch: conn.close(); return
 
         # 3. BATCH DOWNLOAD
+        if force: status.info(f"⚡ Batching {len(to_fetch)} tickers...")
         tickers_str = " ".join(to_fetch)
         data = yf.download(tickers_str, period="1mo", group_by='ticker', threads=True, progress=False)
         
@@ -141,6 +150,7 @@ def run_backend_update(force=False):
             except: pass
         
         conn.commit(); conn.close()
+        status.empty()
     except: pass
 
 # --- AUTH HELPERS ---
@@ -244,14 +254,14 @@ else:
     USER_DATA = load_user_profile(USER_NAME)
     GLOBAL = load_global_config()
 
-    # --- SIDEBAR (FULL FEATURED) ---
+    # --- SIDEBAR (FULL CONTROLS) ---
     with st.sidebar:
         st.title(f"Hi, {USER_NAME}!")
         if st.button("⚡ Force Update", type="primary"):
             run_backend_update(force=True)
             st.rerun()
-
-        st.subheader("Your Watchlist")
+        
+        st.subheader("Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER_DATA.get("w_input", ""), height=100)
         if new_w != USER_DATA.get("w_input"): 
             USER_DATA["w_input"] = new_w; save_user_profile(USER_NAME, USER_DATA); st.rerun()
@@ -300,7 +310,7 @@ else:
         components.html(f'<marquee style="background:#111; color:white; padding:10px; font-weight:bold;">{tape_str}</marquee>', height=45)
     except: pass
 
-    # --- MAIN TABS (4 Tabs Restored) ---
+    # --- MAIN CONTENT ---
     t1, t2, t3, t4 = st.tabs(["📊 Market", "🚀 Portfolio", "📰 News", "🌎 Discovery"])
 
     def draw_card(t, port=None):
@@ -340,14 +350,14 @@ else:
                 st.markdown(f"<div style='font-size:12px; margin-top:10px; background:#f9f9f9; padding:5px; border-radius:5px;'>Qty: {port['q']} | Avg: ${port['e']} | <span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}'>${gain:+,.2f}</span></div>", unsafe_allow_html=True)
         except: pass
 
-    # TAB 1: MARKET
+    # MARKET TAB
     with t1:
         tickers = [x.strip().upper() for x in USER_DATA.get("w_input", "").split(",") if x.strip()]
         cols = st.columns(3)
         for i, t in enumerate(tickers):
             with cols[i % 3]: draw_card(t)
 
-    # TAB 2: PORTFOLIO
+    # PORTFOLIO TAB
     with t2:
         port = GLOBAL.get("portfolio", {})
         if not port: st.info("No picks published.")
@@ -363,7 +373,7 @@ else:
             for i, (k, v) in enumerate(port.items()):
                 with cols[i % 3]: draw_card(k, port=v)
 
-    # TAB 3: NEWS
+    # NEWS TAB
     with t3:
         if NEWS_LIB_READY:
             rss = GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"])
@@ -373,10 +383,10 @@ else:
                     for e in f.entries[:5]: st.markdown(f"**[{e.title}]({e.link})**")
             except: st.info("News Unavailable")
 
-    # TAB 4: DISCOVERY (Restored)
+    # DISCOVERY TAB
     with t4:
         st.subheader("Market Discovery")
-        st.info("AI curated news and movers will appear here.")
+        st.info("AI curated market movers will appear here.")
 
     time.sleep(60)
     st.rerun()
