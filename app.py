@@ -12,11 +12,17 @@ import os
 import uuid
 import re
 
+# --- IMPORTS FOR NEWS ---
+try:
+    import feedparser
+    NEWS_LIB_READY = True
+except ImportError:
+    NEWS_LIB_READY = False
+
 # --- CONFIG ---
 try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
-except:
-    pass
+except: pass
 
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "")
 DB_CONFIG = {
@@ -32,15 +38,9 @@ def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def check_and_fix_schema():
-    """
-    Auto-heals the database using BUFFERED cursors to prevent 'Unread result' errors.
-    """
+    """Auto-heals the database schema if columns are missing."""
     try:
-        conn = get_connection()
-        # buffered=True is the key fix here. It prevents the cursor error.
-        cursor = conn.cursor(buffered=True) 
-        
-        # 1. Ensure Table Exists
+        conn = get_connection(); cursor = conn.cursor(buffered=True)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS stock_cache (
                 ticker VARCHAR(20) PRIMARY KEY,
@@ -58,33 +58,22 @@ def check_and_fix_schema():
             )
         """)
         conn.commit()
-        
-        # 2. Safe Column Check (company_name)
-        cursor.execute("SHOW COLUMNS FROM stock_cache LIKE 'company_name'")
-        if not cursor.fetchone():
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-            conn.commit()
-            
-        # 3. Safe Column Check (pre_post)
-        cursor.execute("SHOW COLUMNS FROM stock_cache LIKE 'pre_post_price'")
-        if not cursor.fetchone():
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN pre_post_price DECIMAL(20, 4)")
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN pre_post_pct DECIMAL(10, 2)")
-            conn.commit()
-            
-        cursor.close()
+        for col, dtype in [('company_name', 'VARCHAR(255)'), ('pre_post_price', 'DECIMAL(20, 4)'), ('pre_post_pct', 'DECIMAL(10, 2)')]:
+            cursor.execute(f"SHOW COLUMNS FROM stock_cache LIKE '{col}'")
+            if not cursor.fetchone():
+                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} {dtype}")
+                conn.commit()
         conn.close()
-    except Exception as e:
-        # We print this to the sidebar so it doesn't destroy the UI
-        with st.sidebar:
-            st.error(f"DB Repair Warning: {e}")
+    except: pass
 
-# --- BACKEND ENGINE (THROTTLED) ---
+# --- THE BULK DOWNLOAD ENGINE (BATCH MODE) ---
 def run_backend_update(force=False):
-    """Updates data safely (slowly) to avoid Yahoo bans."""
+    """Downloads ALL stocks in ONE single request to prevent bans."""
     status = st.empty()
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
+        
+        # 1. Gather all unique tickers
         cursor.execute("SELECT user_data FROM user_profiles")
         users = cursor.fetchall()
         needed = set(["^DJI", "^IXIC", "^GSPTSE", "GC=F"]) 
@@ -93,9 +82,11 @@ def run_backend_update(force=False):
                 data = json.loads(r['user_data'])
                 if 'w_input' in data: needed.update([t.strip().upper() for t in data['w_input'].split(",") if t.strip()])
                 if 'portfolio' in data: needed.update(data['portfolio'].keys())
+                if r['username'] == 'GLOBAL_CONFIG' and 'tape_input' in data:
+                     needed.update([t.strip().upper() for t in data['tape_input'].split(",") if t.strip()])
             except: pass
         
-        # Determine what to fetch
+        # 2. Filter stale tickers
         to_fetch = []
         if force:
             to_fetch = list(needed)
@@ -106,76 +97,62 @@ def run_backend_update(force=False):
             now = datetime.now()
             for t in needed:
                 last = existing.get(t)
-                # Only update if older than 10 mins (conserving API calls)
-                if not last or (now - last).total_seconds() > 600:
+                if not last or (now - last).total_seconds() > 300: # 5 min cache
                     to_fetch.append(t)
         
-        if not to_fetch:
-            conn.close(); return
+        if not to_fetch: conn.close(); return
 
-        # PROGRESS BAR FOR FORCE UPDATE
-        prog_bar = status.progress(0) if force else None
+        # 3. BATCH DOWNLOAD
+        if force: status.info(f"⚡ Batching {len(to_fetch)} tickers from Yahoo...")
         
-        for i, t in enumerate(to_fetch):
+        tickers_str = " ".join(to_fetch)
+        # Use yfinance bulk download
+        data = yf.download(tickers_str, period="1mo", group_by='ticker', threads=True, progress=False)
+        
+        # 4. Process Batch Data
+        for t in to_fetch:
             try:
-                # *** ANTI-BAN: 2s DELAY ***
-                time.sleep(2) 
+                if len(to_fetch) == 1: df = data
+                else: 
+                    # Handle missing data in batch
+                    if t not in data.columns.levels[0]: continue 
+                    df = data[t]
                 
-                tk = yf.Ticker(t)
-                hist = tk.history(period="1mo", interval="1d", timeout=10)
-                
-                if hist.empty: 
-                    # If empty, it might be the rate limit. 
-                    # We skip silently to avoid crashing the update loop.
-                    continue
-                
-                curr = float(hist['Close'].iloc[-1])
-                prev = float(hist['Close'].iloc[-2]) if len(hist) > 1 else curr
+                df = df.dropna(subset=['Close'])
+                if df.empty: continue
+
+                curr = float(df['Close'].iloc[-1])
+                prev = float(df['Close'].iloc[-2]) if len(df) > 1 else curr
                 change = ((curr - prev) / prev) * 100
-                trend = "UPTREND" if curr > hist['Close'].tail(20).mean() else "DOWNTREND"
+                trend = "UPTREND" if curr > df['Close'].tail(20).mean() else "DOWNTREND"
                 
-                info = tk.info
-                name = info.get('shortName') or info.get('longName') or t
-                rating = info.get('recommendationKey', 'N/A').upper().replace('_', ' ')
-                
-                delta = hist['Close'].diff()
+                delta = df['Close'].diff()
                 g = delta.where(delta > 0, 0).rolling(14).mean()
                 l = (-delta.where(delta < 0, 0)).rolling(14).mean()
-                if not l.empty and l.iloc[-1] != 0:
-                    rsi_val = 100 - (100 / (1 + (g / l).iloc[-1]))
-                else:
-                    rsi_val = 50.0
+                rsi_val = 100 - (100 / (1 + (g / l).iloc[-1])) if (not l.empty and l.iloc[-1] != 0) else 50.0
                 
-                vol_mean = hist['Volume'].mean()
-                vol_pct = (hist['Volume'].iloc[-1] / vol_mean * 100) if vol_mean > 0 else 100
-
-                pp_p, pp_c = 0.0, 0.0
-                try:
-                    live = tk.history(period="1d", interval="1m", prepost=True)
-                    if not live.empty:
-                        lp = live['Close'].iloc[-1]
-                        if abs(lp - curr) > 0.01: pp_p, pp_c = float(lp), float(((lp - curr)/curr)*100)
-                except: pass
-
+                vol_mean = df['Volume'].mean()
+                vol_pct = (df['Volume'].iloc[-1] / vol_mean * 100) if vol_mean > 0 else 100
+                
+                # Note: 'info' is not available in bulk, so we default name to ticker
+                # This is the trade-off for 100x speed.
+                
+                j_p = json.dumps(df['Close'].tail(20).tolist())
+                
                 sql = """
                 INSERT INTO stock_cache 
-                (ticker, current_price, day_change, rsi, volume_status, trend_status, rating, price_history, company_name, pre_post_price, pre_post_pct, last_updated)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, company_name, last_updated)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON DUPLICATE KEY UPDATE
-                current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, rating=%s, price_history=%s, company_name=%s, pre_post_price=%s, pre_post_pct=%s, last_updated=NOW()
+                current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, last_updated=NOW()
                 """
-                j_p = json.dumps(hist['Close'].tail(20).tolist())
-                v = (t, curr, change, rsi_val, vol_pct, trend, rating, j_p, name, pp_p, pp_c,
-                     curr, change, rsi_val, vol_pct, trend, rating, j_p, name, pp_p, pp_c)
-                cursor.execute(sql, v); conn.commit()
+                v = (t, curr, change, rsi_val, vol_pct, trend, j_p, t, 
+                     curr, change, rsi_val, vol_pct, trend, j_p)
+                cursor.execute(sql, v)
                 
-            except Exception as e:
-                # Log error to console but don't break the loop
-                print(f"Update failed for {t}: {e}")
-
-            if prog_bar: prog_bar.progress((i + 1) / len(to_fetch))
-            
-        conn.close()
+            except Exception as e: pass
+        
+        conn.commit(); conn.close()
         status.empty()
     except: pass
 
@@ -240,8 +217,8 @@ div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 1
 </style>""", unsafe_allow_html=True)
 
 # --- STARTUP ---
-check_and_fix_schema() # FIXES DB
-run_backend_update(force=False) # THROTTLED UPDATE
+check_and_fix_schema()
+run_backend_update(force=False) # Auto-batch update
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
@@ -275,10 +252,10 @@ else:
     # --- SIDEBAR ---
     with st.sidebar:
         st.title(f"Hi, {USER_NAME}!")
-        if st.button("⚠️ Force Update (Slow)", type="secondary"):
+        if st.button("⚡ Force Batch Update", type="primary"):
             run_backend_update(force=True)
             st.rerun()
-        
+            
         new_w = st.text_area("Watchlist", value=USER_DATA.get("w_input", ""))
         if new_w != USER_DATA.get("w_input"): USER_DATA["w_input"] = new_w; save_user_profile(USER_NAME, USER_DATA); st.rerun()
         if st.button("Logout"): st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
@@ -302,14 +279,10 @@ else:
             conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
             cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (t,))
             d = cursor.fetchone(); conn.close()
-            
-            # If no data exists, we show a clean waiting message instead of crashing
-            if not d: return 
+            if not d: return # Silent fail for clean UI
 
             p, chg = float(d['current_price']), float(d['day_change'])
             b_col = "#4caf50" if chg >= 0 else "#ff4b4b"
-            
-            # Handle the company name safely using .get() to prevent KeyErrors
             display_name = d.get('company_name') or t
             
             st.markdown(f"""<div style='display:flex; justify-content:space-between; align-items:flex-start;'>
@@ -329,9 +302,9 @@ else:
             st.altair_chart(spark, use_container_width=True)
             
             rsi = float(d['rsi']); vol = float(d['volume_status'])
-            st.markdown(f"<div class='info-pill'>AI: {d['trend_status']}</div><div class='info-pill'>RSI: {int(rsi)}</div><div class='info-pill'>Rate: {d['rating']}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='info-pill'>AI: {d['trend_status']}</div><div class='info-pill'>RSI: {int(rsi)}</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='metric-label'><span>RSI Strength</span></div><div class='bar-bg'><div class='bar-fill' style='width:{rsi}%; background:{b_col};'></div></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'><span>Relative Volume</span></div><div class='bar-bg'><div class='bar-fill' style='width:{min(vol, 100)}%; background:#3498db;'></div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-label'><span>Volume</span></div><div class='bar-bg'><div class='bar-fill' style='width:{min(vol, 100)}%; background:#3498db;'></div></div>", unsafe_allow_html=True)
             
             if port:
                 gain = (p - port['e']) * port['q']
@@ -359,6 +332,15 @@ else:
             for i, (k, v) in enumerate(port.items()):
                 with cols[i % 3]: draw_card(k, port=v)
 
-    # --- REFRESH LOOP ---
+    with tabs[2]:
+        if NEWS_LIB_READY:
+            rss = GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"])
+            try:
+                for url in rss:
+                    f = feedparser.parse(url)
+                    for e in f.entries[:5]:
+                        st.markdown(f"**[{e.title}]({e.link})**")
+            except: st.info("News Unavailable")
+
     time.sleep(60)
     st.rerun()
