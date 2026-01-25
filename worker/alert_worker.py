@@ -57,15 +57,29 @@ def calculate_rsi(series, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
+# --- UPDATED EARNINGS LOGIC ---
 def get_earnings_date(tk):
     try:
+        now = datetime.now().date()
         cal = tk.calendar
-        if hasattr(cal, 'iloc') and not cal.empty: return cal.iloc[0][0].strftime('%b %d')
-        elif isinstance(cal, dict) and 'Earnings Date' in cal:
+        
+        # Handle Dictionary (New yfinance)
+        if isinstance(cal, dict) and 'Earnings Date' in cal:
             dates = cal['Earnings Date']
-            if dates: return dates[0].strftime('%b %d')
+            for d in dates:
+                if d.date() >= now:
+                    return d.strftime('%b %d')
+
+        # Handle DataFrame (Old yfinance)
+        elif hasattr(cal, 'iloc') and not cal.empty:
+            vals = cal.values.flatten()
+            for v in vals:
+                if isinstance(v, (datetime, pd.Timestamp)):
+                    if v.date() >= now:
+                        return v.strftime('%b %d')
     except: pass
     return "N/A"
+# ------------------------------
 
 def update_stock_cache():
     print("🚀 Starting DATA + ALERTS + NAMES + TAPE Worker...")
@@ -85,18 +99,14 @@ def update_stock_cache():
             data = json.loads(r['user_data'])
             user_map.append((r['username'], data))
             
-            # Watchlist
             if 'w_input' in data: 
                 all_tickers.update([t.strip().upper() for t in data['w_input'].split(",") if t.strip()])
             
-            # Portfolio
             if 'portfolio' in data: 
                 all_tickers.update(data['portfolio'].keys())
 
-            # --- FIX: ALSO CHECK GLOBAL CONFIG FOR TAPE SYMBOLS ---
             if r['username'] == 'GLOBAL_CONFIG' and 'tape_input' in data:
                  all_tickers.update([t.strip().upper() for t in data['tape_input'].split(",") if t.strip()])
-                 
         except: pass
     
     # 3. Process Stocks
