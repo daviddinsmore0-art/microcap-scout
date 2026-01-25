@@ -82,15 +82,14 @@ def init_db():
             
         conn.close()
         return True
-    except Exception: # Generic Exception to prevent NameError if Error is not imported
+    except Exception:
         return False
 
 # --- THE FIX: DUAL-BATCH + STRICT EARNINGS + PRE/POST ---
 def run_backend_update():
     """
-    1. Fast Batch (1m): Live Prices + Pre/Post + BTC.
-    2. Fast Batch (1d): Charts + History.
-    3. Surgical Strike: Missing Metadata (Future Earnings Only).
+    1. Fast Batch: Live Prices + Charts.
+    2. Surgical Strike: Missing Metadata (Future Earnings Only).
     """
     try:
         conn = get_connection()
@@ -206,7 +205,7 @@ def run_backend_update():
                         if len(df_hist) > 0:
                             day_change = ((live_price - float(df_hist['Close'].iloc[-1])) / float(df_hist['Close'].iloc[-1])) * 100
                     else:
-                        # STOCK: Compare Live Price vs Hist Close Price
+                        # FIXED: Compare Live Price vs Hist Close Price
                         if abs(live_price - close_price) > 0.01:
                             pp_p = live_price
                             pp_pct = ((live_price - close_price) / close_price) * 100
@@ -227,7 +226,7 @@ def run_backend_update():
         if to_fetch_meta:
             for t in to_fetch_meta[:3]: 
                 try:
-                    time.sleep(0.5)
+                    time.sleep(0.5) 
                     tk = yf.Ticker(t)
                     info = tk.info
                     
@@ -343,6 +342,7 @@ def relative_time(date_str):
 
 @st.cache_data(ttl=600)
 def fetch_news(feeds, tickers, api_key):
+    # FIXED: Initialize dictionary structure even if processing fails
     if not NEWS_LIB_READY: return []
     all_feeds = feeds.copy()
     if tickers:
@@ -354,7 +354,13 @@ def fetch_news(feeds, tickers, api_key):
             for entry in f.entries[:5]:
                 if entry.link not in seen:
                     seen.add(entry.link)
-                    articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published",""))})
+                    # DEFAULT VALUES (Prevents KeyError)
+                    sentiment = "NEUTRAL"; ticker = ""
+                    articles.append({
+                        "title": entry.title, "link": entry.link,
+                        "published": relative_time(entry.get("published", "")),
+                        "ticker": ticker, "sentiment": sentiment
+                    })
         except: pass
     return articles
 
@@ -376,7 +382,7 @@ def get_pro_data(s):
         rating = row.get('rating') or "N/A"
         earn = row.get('next_earnings') or "N/A"
         
-        # PRE/POST LOGIC (Display only if price differs)
+        # PRE/POST LOGIC
         pp_html = ""
         if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
@@ -411,15 +417,6 @@ def get_pro_data(s):
             "rating": rating, "earn": earn, "vol_stat": vol_stat
         }
     except: return None
-
-@st.cache_data(ttl=600) # Increased TTL for fundamentals to reduce load
-def get_fundamentals(s):
-    try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
-        row = cursor.fetchone(); conn.close()
-        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
-    except: return {"rating": "N/A", "earn": "N/A"}
 
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
