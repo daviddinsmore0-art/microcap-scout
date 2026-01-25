@@ -192,7 +192,7 @@ def inject_wake_lock(enable):
             height=0,
         )
 
-# --- NEWS & AI ENGINE ---
+# --- NEWS & AI ENGINE (UPGRADED) ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -235,19 +235,23 @@ def fetch_news(feeds, tickers, api_key):
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
                     title_upper = entry.title.upper()
+                    summary_text = entry.get("summary", "")
 
-                    # 1. AI Analysis
+                    # 1. AI Analysis (GPT-4o-mini + Summary Reading)
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
                             prompt = (
-                                f"Analyze headline: '{entry.title}'. Return exactly: TICKER|SENTIMENT. "
+                                f"Analyze this news item:\n"
+                                f"Headline: '{entry.title}'\n"
+                                f"Summary: '{summary_text}'\n\n"
+                                f"Return exactly: TICKER|SENTIMENT. "
                                 f"If a specific company is mentioned, use its ticker. "
                                 f"If general market news, return MARKET|SENTIMENT. "
                                 f"Sentiment must be BULLISH, BEARISH, or NEUTRAL."
                             )
                             response = client.chat.completions.create(
-                                model="gpt-3.5-turbo",
+                                model="gpt-4o-mini",
                                 messages=[{"role": "user", "content": prompt}],
                                 max_tokens=15,
                             )
@@ -261,8 +265,9 @@ def fetch_news(feeds, tickers, api_key):
                         except:
                             pass
 
-                    # 2. Smart Match
+                    # 2. Smart Match (Fallback - Check Title & Summary)
                     if not found_ticker and tickers:
+                        # Check Title
                         for original_t, root_t in smart_tickers.items():
                             if re.search(r'\b' + re.escape(root_t) + r'\b', title_upper):
                                 found_ticker = original_t
@@ -270,6 +275,14 @@ def fetch_news(feeds, tickers, api_key):
                             elif original_t in title_upper:
                                 found_ticker = original_t
                                 break
+                        
+                        # Check Summary (if title failed)
+                        if not found_ticker:
+                            summary_upper = summary_text.upper()
+                            for original_t, root_t in smart_tickers.items():
+                                if re.search(r'\b' + re.escape(root_t) + r'\b', summary_upper):
+                                    found_ticker = original_t
+                                    break
 
                     articles.append(
                         {
