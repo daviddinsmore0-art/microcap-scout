@@ -57,33 +57,24 @@ def calculate_rsi(series, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- UPDATED EARNINGS LOGIC (FUTURE DATES ONLY) ---
 def get_earnings_date(tk):
     try:
         now = datetime.now().date()
         cal = tk.calendar
-        
-        # Handle Dictionary (New yfinance format)
         if isinstance(cal, dict) and 'Earnings Date' in cal:
             dates = cal['Earnings Date']
             for d in dates:
-                if d.date() >= now:
-                    return d.strftime('%b %d')
-
-        # Handle DataFrame (Old yfinance format)
+                if d.date() >= now: return d.strftime('%b %d')
         elif hasattr(cal, 'iloc') and not cal.empty:
-            # Flatten values to find any valid date object
             vals = cal.values.flatten()
             for v in vals:
                 if isinstance(v, (datetime, pd.Timestamp)):
-                    if v.date() >= now:
-                        return v.strftime('%b %d')
+                    if v.date() >= now: return v.strftime('%b %d')
     except: pass
     return "N/A"
-# --------------------------------------------------
 
 def update_stock_cache():
-    print("🚀 Starting DATA + ALERTS + NAMES + TAPE Worker...")
+    print("🚀 Starting DATA + ALERTS Worker...")
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     
@@ -99,13 +90,8 @@ def update_stock_cache():
         try:
             data = json.loads(r['user_data'])
             user_map.append((r['username'], data))
-            
-            if 'w_input' in data: 
-                all_tickers.update([t.strip().upper() for t in data['w_input'].split(",") if t.strip()])
-            
-            if 'portfolio' in data: 
-                all_tickers.update(data['portfolio'].keys())
-
+            if 'w_input' in data: all_tickers.update([t.strip().upper() for t in data['w_input'].split(",") if t.strip()])
+            if 'portfolio' in data: all_tickers.update(data['portfolio'].keys())
             if r['username'] == 'GLOBAL_CONFIG' and 'tape_input' in data:
                  all_tickers.update([t.strip().upper() for t in data['tape_input'].split(",") if t.strip()])
         except: pass
@@ -113,6 +99,13 @@ def update_stock_cache():
     # 3. Process Stocks
     for t in all_tickers:
         try:
+            # --- FETCH OLD DATA (For Rating Changes) ---
+            old_rating = "N/A"
+            cursor.execute("SELECT rating FROM stock_cache WHERE ticker=%s", (t,))
+            row = cursor.fetchone()
+            if row: old_rating = row['rating']
+
+            # --- FETCH NEW DATA ---
             tk = yf.Ticker(t)
             hist = tk.history(period="1mo", interval="1d") 
             
@@ -135,7 +128,6 @@ def update_stock_cache():
 
                 trend = "UPTREND" if curr > hist['Close'].tail(20).mean() else "DOWNTREND"
                 
-                # Get Company Name
                 rating = "N/A"
                 comp_name = t 
                 try:
@@ -147,7 +139,7 @@ def update_stock_cache():
                 
                 earn_str = get_earnings_date(tk)
 
-                # Pre/Post
+                # Pre/Post Logic
                 pp_price = 0.0
                 pp_pct = 0.0
                 try:
@@ -177,7 +169,7 @@ def update_stock_cache():
                 cursor.execute(sql, vals)
                 conn.commit()
 
-                # Alerting (Standard)
+                # --- ALERT LOGIC ---
                 for username, prefs in user_map:
                     tg_id = prefs.get('telegram_id')
                     user_tickers = []
@@ -187,6 +179,7 @@ def update_stock_cache():
                     if not tg_id or t not in user_tickers: 
                         continue
 
+                    # 1. PRICE ALERT (> 3%)
                     if prefs.get('alert_price', True) and abs(change) >= 3.0:
                         alert_type = "PRICE_SPIKE" if change > 0 else "PRICE_DROP"
                         if check_cooldown(cursor, username, t, alert_type, 6): 
@@ -194,6 +187,23 @@ def update_stock_cache():
                             msg = f"{emoji} <b>{comp_name} ({t})</b> Alert!\nPrice: ${curr:.2f}\nMove: {change:+.2f}%"
                             send_telegram(tg_id, msg)
                             log_alert(conn, cursor, username, t, alert_type)
+
+                    # 2. EXTENDED HOURS ALERT (> 1.5%)
+                    if prefs.get('alert_pm', True) and abs(pp_pct) >= 1.5:
+                         alert_type = "EXTENDED_MOVE"
+                         if check_cooldown(cursor, username, t, alert_type, 4):
+                            msg = f"🌙 <b>{comp_name}</b> Extended Hours!\nPrice: ${pp_price:.2f}\nChange: {pp_pct:+.2f}%"
+                            send_telegram(tg_id, msg)
+                            log_alert(conn, cursor, username, t, alert_type)
+                    
+                    # 3. ANALYST RATING CHANGE
+                    if prefs.get('alert_rating', True):
+                        if old_rating != "N/A" and rating != "N/A" and old_rating != rating:
+                             alert_type = "RATING_CHANGE"
+                             if check_cooldown(cursor, username, t, alert_type, 24):
+                                 msg = f"📢 <b>{comp_name}</b> Analyst Update!\nOld: {old_rating}\nNew: <b>{rating}</b>"
+                                 send_telegram(tg_id, msg)
+                                 log_alert(conn, cursor, username, t, alert_type)
 
         except Exception as e:
             print(f"❌ {t}: {e}")
