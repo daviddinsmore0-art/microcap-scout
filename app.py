@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
 import uuid
-import re  # Added for smart ticker matching
+import re
 
 # --- IMPORTS FOR NEWS & AI ---
 try:
@@ -219,7 +219,6 @@ def fetch_news(feeds, tickers, api_key):
     articles = []
     seen = set()
     
-    # Pre-calc "Root Tickers" (e.g. "TD.TO" -> "TD")
     smart_tickers = {}
     if tickers:
         for t in tickers:
@@ -265,11 +264,9 @@ def fetch_news(feeds, tickers, api_key):
                     # 2. Smart Match
                     if not found_ticker and tickers:
                         for original_t, root_t in smart_tickers.items():
-                            # STRICT: Check for root ticker as whole word (e.g. "TD" in "TD Bank")
                             if re.search(r'\b' + re.escape(root_t) + r'\b', title_upper):
                                 found_ticker = original_t
                                 break
-                            # LOOSE: Fallback
                             elif original_t in title_upper:
                                 found_ticker = original_t
                                 break
@@ -339,7 +336,24 @@ def get_pro_data(s):
                 pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pct_fmt})</span></div>"
 
         vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
-        chart_data = pd.DataFrame({'Idx': range(20), 'Stock': [0]*20})
+        
+        # --- SMART CHART GENERATION ---
+        # We assume yesterday's price based on the % change.
+        # This creates a perfect gradient slope for the day's trend.
+        prev_close = price
+        if change != 0:
+            prev_close = price / (1 + (change / 100))
+        
+        # Create a 20-point synthetic line between PrevClose and CurrentPrice
+        # This restores the visual "Area Chart" with color
+        chart_data = pd.DataFrame({
+            'Idx': [0, 19],
+            'Stock': [prev_close, price]
+        })
+        # Normalize for Altair to make it look like the old chart
+        base = chart_data['Stock'].iloc[0]
+        if base == 0: base = 1
+        chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
 
         return {
             "p": price,
