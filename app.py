@@ -6,7 +6,7 @@ import json
 import mysql.connector
 import requests
 import yfinance as yf
-# We use generic Exception handling to avoid NameError crashes
+from mysql.connector import Error # Restored to fix NameError
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
@@ -83,14 +83,15 @@ def init_db():
             
         conn.close()
         return True
-    except Exception: # Fixed: Generic Exception to prevent NameError
+    except Error:
         return False
 
-# --- THE FIX: DUAL-BATCH + STRICT EARNINGS + PRE/POST ---
+# --- THE FIX: DUAL-BATCH + STRICT FUTURE EARNINGS ---
 def run_backend_update():
     """
-    1. Fast Batch: Live Prices + Charts.
-    2. Surgical Strike: Missing Metadata (Future Earnings Only).
+    1. Fast Batch (1m): Live Prices + Pre/Post + BTC.
+    2. Fast Batch (1d): Charts + History.
+    3. Surgical Strike: Missing Metadata (Future Earnings Only).
     """
     try:
         conn = get_connection()
@@ -206,7 +207,7 @@ def run_backend_update():
                         if len(df_hist) > 0:
                             day_change = ((live_price - float(df_hist['Close'].iloc[-1])) / float(df_hist['Close'].iloc[-1])) * 100
                     else:
-                        # FIXED: Compare Live Price vs Hist Close Price
+                        # STOCK: Compare Live Price vs Hist Close Price
                         if abs(live_price - close_price) > 0.01:
                             pp_p = live_price
                             pp_pct = ((live_price - close_price) / close_price) * 100
@@ -223,7 +224,7 @@ def run_backend_update():
                     conn.commit()
                 except: pass
 
-        # 4. SURGICAL METADATA UPDATE (With STRICT Future Date Logic)
+        # 4. SURGICAL METADATA UPDATE (With FUTURE DATE Filter)
         if to_fetch_meta:
             for t in to_fetch_meta[:3]: 
                 try:
