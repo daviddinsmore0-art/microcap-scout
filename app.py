@@ -5,7 +5,7 @@ import time
 import json
 import mysql.connector
 import requests
-import yfinance as yf # <--- The Engine is now onboard
+import yfinance as yf
 from mysql.connector import Error
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
@@ -77,32 +77,18 @@ def init_db():
     except Error:
         return False
 
-# --- SELF-RELIANT UPDATE ENGINE (RUNS INSIDE APP) ---
+# --- SELF-RELIANT UPDATE ENGINE (BATCH MODE) ---
 def run_backend_update():
-    # This function allows the App to update its own data if GitHub is sleeping
+    """
+    Updates stock data using BATCH downloading to prevent 429 Rate Limits.
+    Instead of 50 requests, it makes 1 request.
+    """
     try:
         conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(dictionary=True, buffered=True)
         
-        # 1. Check if we actually NEED to update (limit to once every 2 minutes per session)
-        # We'll just check one popular ticker to see if data is stale
-        cursor.execute("SELECT last_updated FROM stock_cache LIMIT 1")
-        row = cursor.fetchone()
-        
-        needs_update = True
-        if row and row['last_updated']:
-            # If data is younger than 5 minutes, skip update to save speed
-            if (datetime.now() - row['last_updated']).total_seconds() < 300:
-                needs_update = False
-        
-        if not needs_update:
-            conn.close()
-            return # Data is fresh enough
-
-        # If we are here, DATA IS STALE. Let's update it live.
-        # st.toast("🔄 Refreshing market data...", icon="⚡") 
-        
-        cursor.execute("SELECT username, user_data FROM user_profiles")
+        # 1. Gather all unique tickers from users
+        cursor.execute("SELECT user_data FROM user_profiles")
         users = cursor.fetchall()
         all_tickers = set(["^DJI", "^IXIC", "^GSPTSE", "GC=F"]) 
         for r in users:
@@ -110,74 +96,80 @@ def run_backend_update():
                 data = json.loads(r['user_data'])
                 if 'w_input' in data: all_tickers.update([t.strip().upper() for t in data['w_input'].split(",") if t.strip()])
                 if 'portfolio' in data: all_tickers.update(data['portfolio'].keys())
-                if r['username'] == 'GLOBAL_CONFIG' and 'tape_input' in data:
+                if 'tape_input' in data: # Global config check
                      all_tickers.update([t.strip().upper() for t in data['tape_input'].split(",") if t.strip()])
             except: pass
 
+        # 2. Check for stale data (older than 5 mins)
+        if not all_tickers: conn.close(); return
+
+        format_strings = ','.join(['%s'] * len(all_tickers))
+        cursor.execute(f"SELECT ticker, last_updated FROM stock_cache WHERE ticker IN ({format_strings})", tuple(all_tickers))
+        existing = {row['ticker']: row['last_updated'] for row in cursor.fetchall()}
+        
+        to_fetch = []
+        now = datetime.now()
         for t in all_tickers:
+            last = existing.get(t)
+            # Update if missing OR older than 5 mins (300s)
+            if not last or (now - last).total_seconds() > 300:
+                to_fetch.append(t)
+        
+        if not to_fetch:
+            conn.close(); return 
+
+        # 3. BATCH DOWNLOAD (The Fix)
+        # Download all stale tickers in ONE call
+        tickers_str = " ".join(to_fetch)
+        data = yf.download(tickers_str, period="1mo", group_by='ticker', threads=True, progress=False)
+        
+        # 4. Process Batch Data
+        for t in to_fetch:
             try:
-                tk = yf.Ticker(t)
-                hist = tk.history(period="1mo", interval="1d")
-                if hist.empty: continue
+                # Handle single vs multi-ticker dataframe structure
+                if len(to_fetch) == 1: df = data
+                else: 
+                    if t not in data.columns.levels[0]: continue
+                    df = data[t]
                 
-                curr = float(hist['Close'].iloc[-1])
-                prev = float(hist['Close'].iloc[-2]) if len(hist) > 1 else curr
+                df = df.dropna(subset=['Close'])
+                if df.empty: continue
+
+                curr = float(df['Close'].iloc[-1])
+                prev = float(df['Close'].iloc[-2]) if len(df) > 1 else curr
                 change = ((curr - prev) / prev) * 100
                 
-                # Basic Math
+                # RSI Math
                 rsi = 50.0
                 try:
-                    delta = hist['Close'].diff()
+                    delta = df['Close'].diff()
                     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
                     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                    rs = gain / loss
-                    rsi = 100 - (100 / (1 + rs.iloc[-1]))
+                    if not loss.empty and loss.iloc[-1] != 0:
+                        rs = gain / loss
+                        rsi = 100 - (100 / (1 + rs.iloc[-1]))
                 except: pass
                 
+                # Volume Status
                 vol_stat = "NORMAL"
-                if not hist['Volume'].empty:
-                    v_avg = hist['Volume'].mean()
-                    if hist['Volume'].iloc[-1] > v_avg * 1.5: vol_stat = "HEAVY"
-                    elif hist['Volume'].iloc[-1] < v_avg * 0.5: vol_stat = "LIGHT"
+                if not df['Volume'].empty:
+                    v_avg = df['Volume'].mean()
+                    if v_avg > 0:
+                        v_curr = df['Volume'].iloc[-1]
+                        if v_curr > v_avg * 1.5: vol_stat = "HEAVY"
+                        elif v_curr < v_avg * 0.5: vol_stat = "LIGHT"
                 
-                trend = "UPTREND" if curr > hist['Close'].tail(20).mean() else "DOWNTREND"
+                trend = "UPTREND" if curr > df['Close'].tail(20).mean() else "DOWNTREND"
                 
-                # Name & Ratings
+                # Note: Batch download doesn't provide 'info' (longName/rating)
+                # We use defaults to keep speed high. Detailed info requires separate API calls.
                 rating = "N/A"
-                comp_name = t
-                try:
-                    info = tk.info
-                    rating = info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
-                    if rating == "NONE": rating = "N/A"
-                    comp_name = info.get('shortName') or info.get('longName') or t
-                except: pass
-                
-                # Earnings (Future Only)
+                comp_name = t 
                 earn_str = "N/A"
-                try:
-                    now_date = datetime.now().date()
-                    cal = tk.calendar
-                    if isinstance(cal, dict) and 'Earnings Date' in cal:
-                        for d in cal['Earnings Date']:
-                            if d.date() >= now_date: earn_str = d.strftime('%b %d'); break
-                    elif hasattr(cal, 'iloc') and not cal.empty:
-                        for v in cal.values.flatten():
-                            if isinstance(v, (datetime, pd.Timestamp)) and v.date() >= now_date:
-                                earn_str = v.strftime('%b %d'); break
-                except: pass
-
-                # Pre/Post
                 pp_price, pp_pct = 0.0, 0.0
-                try:
-                    live = tk.history(period="1d", interval="1m", prepost=True)
-                    if not live.empty:
-                        lp = live['Close'].iloc[-1]
-                        if abs(lp - curr) > 0.01: pp_price, pp_pct = float(lp), float(((lp - curr)/curr)*100)
-                except: pass
 
-                chart_json = json.dumps(hist['Close'].tail(20).tolist())
+                chart_json = json.dumps(df['Close'].tail(20).tolist())
                 
-                # Upsert
                 sql = """
                 INSERT INTO stock_cache 
                 (ticker, current_price, day_change, rsi, volume_status, trend_status, rating, next_earnings, pre_post_price, pre_post_pct, price_history, company_name)
@@ -189,10 +181,14 @@ def run_backend_update():
                 vals = (t, curr, change, rsi, vol_stat, trend, rating, earn_str, pp_price, pp_pct, chart_json, comp_name,
                         curr, change, rsi, vol_stat, trend, rating, earn_str, pp_price, pp_pct, chart_json, comp_name)
                 cursor.execute(sql, vals)
-                conn.commit()
-            except: pass
+                
+            except Exception as e:
+                pass 
+
+        conn.commit()
         conn.close()
-    except: pass
+    except Exception as e:
+        pass
 # ----------------------------------------------------
 
 # --- AUTHENTICATION ---
