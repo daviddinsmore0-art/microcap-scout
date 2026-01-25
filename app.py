@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
 import uuid
+import re  # Added for smart ticker matching
 
 # --- IMPORTS FOR NEWS & AI ---
 try:
@@ -217,16 +218,26 @@ def fetch_news(feeds, tickers, api_key):
 
     articles = []
     seen = set()
+    
+    # Pre-calc "Root Tickers" (e.g. "TD.TO" -> "TD")
+    smart_tickers = {}
+    if tickers:
+        for t in tickers:
+            root = t.split('.')[0] 
+            smart_tickers[t] = root
+
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            limit = 3 if tickers else 10
+            limit = 5 if tickers else 10
 
             for entry in f.entries[:limit]:
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
+                    title_upper = entry.title.upper()
 
+                    # 1. AI Analysis
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
@@ -251,10 +262,16 @@ def fetch_news(feeds, tickers, api_key):
                         except:
                             pass
 
+                    # 2. Smart Match
                     if not found_ticker and tickers:
-                        for t in tickers:
-                            if t in entry.title.upper():
-                                found_ticker = t
+                        for original_t, root_t in smart_tickers.items():
+                            # STRICT: Check for root ticker as whole word (e.g. "TD" in "TD Bank")
+                            if re.search(r'\b' + re.escape(root_t) + r'\b', title_upper):
+                                found_ticker = original_t
+                                break
+                            # LOOSE: Fallback
+                            elif original_t in title_upper:
+                                found_ticker = original_t
                                 break
 
                     articles.append(
@@ -294,7 +311,6 @@ def get_pro_data(s):
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
-        # Fetch Everything, including new columns
         cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (s,))
         row = cursor.fetchone()
         conn.close()
@@ -313,10 +329,9 @@ def get_pro_data(s):
         if row['pre_post_price'] and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
             pp_c = float(row['pre_post_pct'])
-            if pp_p != price: # Only show if different
+            if pp_p != price: 
                 now = datetime.now(timezone.utc) - timedelta(hours=5)
                 lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
-                # Override label if it's clearly weekend/closed but data exists
                 if now.weekday() > 4: lbl = "POST" 
                 
                 col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
@@ -337,7 +352,7 @@ def get_pro_data(s):
             "l": price,      
             "ai": "BULLISH" if trend == "UPTREND" else "BEARISH",
             "trend": trend,
-            "pp": pp_html, # Now populated!
+            "pp": pp_html,
             "chart": chart_data,
         }
     except:
@@ -716,12 +731,19 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                     draw(k, v)
 
     with t3:
+        c_head, c_btn = st.columns([4, 1])
+        c_head.subheader("Portfolio News")
+        if c_btn.button("🔄 Refresh", key="btn_n1"):
+            fetch_news.clear()
+            st.rerun()
+
         if not NEWS_LIB_READY:
             st.error("Missing Libraries.")
         else:
             watchlist = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
             port_list = list(GLOBAL.get("portfolio", {}).keys())
             combined = list(set(watchlist + port_list))
+            
             news_items = fetch_news([], combined, ACTIVE_KEY)
             if not news_items:
                 st.info("No news for your tickers.")
@@ -730,6 +752,12 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                     render_news(n)
 
     with t4:
+        c_head, c_btn = st.columns([4, 1])
+        c_head.subheader("Market Discovery")
+        if c_btn.button("🔄 Refresh", key="btn_n2"):
+            fetch_news.clear()
+            st.rerun()
+
         if not NEWS_LIB_READY:
             st.error("Missing Libraries.")
         else:
@@ -741,5 +769,6 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                 for n in news_items:
                     render_news(n)
 
-    time.sleep(60)
-    st.rerun()
+    if st.session_state.get("keep_on", False):
+        time.sleep(60)
+        st.rerun()
