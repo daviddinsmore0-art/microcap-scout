@@ -5,17 +5,16 @@ import time
 import json
 import mysql.connector
 import yfinance as yf
-from mysql.connector import Error
+# We use generic Exception handling to prevent NameError crashes
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
 import uuid
 import re
 
-# --- IMPORTS ---
+# --- IMPORTS FOR NEWS ---
 try:
     import feedparser
-    import openai
     NEWS_LIB_READY = True
 except ImportError:
     NEWS_LIB_READY = False
@@ -34,12 +33,12 @@ DB_CONFIG = {
     "connect_timeout": 30,
 }
 
-# --- DATABASE ---
+# --- DATABASE ENGINE ---
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def check_and_fix_schema():
-    """Auto-heals DB schema and adds missing High/Low columns for Day Range."""
+    """Auto-heals the database schema."""
     try:
         conn = get_connection(); cursor = conn.cursor(buffered=True)
         cursor.execute("""
@@ -56,20 +55,22 @@ def check_and_fix_schema():
                 pre_post_pct DECIMAL(10, 2),
                 price_history JSON,
                 company_name VARCHAR(255),
-                day_high DECIMAL(20, 4), 
+                day_high DECIMAL(20, 4),
                 day_low DECIMAL(20, 4),
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
         conn.commit()
-        # Ensure new columns exist
-        for col in ['day_high', 'day_low', 'company_name', 'pre_post_price']:
+        
+        # Ensure all columns exist (Fixes 'Draw Error' boxes)
+        for col in ['day_high', 'day_low', 'company_name', 'pre_post_price', 'rating', 'next_earnings']:
             cursor.execute(f"SHOW COLUMNS FROM stock_cache LIKE '{col}'")
             if not cursor.fetchone():
-                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} DECIMAL(20, 4)" if 'day' in col else f"ALTER TABLE stock_cache ADD COLUMN {col} VARCHAR(255)" if 'name' in col else f"ALTER TABLE stock_cache ADD COLUMN {col} DECIMAL(20,4)")
+                dtype = "DECIMAL(20, 4)" if "day" in col or "price" in col else "VARCHAR(255)"
+                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} {dtype}")
                 conn.commit()
         conn.close()
-    except: pass
+    except Exception as e: pass
 
 # --- DUAL-BATCH ENGINE (LIVE + HISTORY) ---
 def run_backend_update(force=False):
@@ -179,8 +180,6 @@ def run_backend_update(force=False):
                 # Pre/Post Logic
                 pp_p = 0.0; pp_pct = 0.0
                 if len(df_live) > 0:
-                    # Logic: If live price != daily close, and it's extended hours, show it
-                    # Simplified: We just store current live price as pre_post reference
                     pp_p = curr_price
                     pp_pct = day_change
 
@@ -201,7 +200,7 @@ def run_backend_update(force=False):
             except: pass
         
         conn.commit(); conn.close()
-    except: pass
+    except Exception as e: pass
 
 # --- AUTH & HELPERS ---
 def check_user_exists(username):
@@ -315,7 +314,7 @@ def get_pro_data(s):
         earn = row.get('next_earnings') or "N/A"
         
         pp_html = ""
-        # Improved Pre/Post Logic
+        # Pre/Post Logic
         if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
              pp_p = float(row['pre_post_price']); pp_c = float(row['pre_post_pct'])
              if abs(pp_p - price) > 0.01:
@@ -370,7 +369,6 @@ def get_tape_data(symbol_string, nickname_string=""):
     return "   ".join(items)
 
 # --- UI LOGIC ---
-init_db()
 check_and_fix_schema()
 run_backend_update()
 
@@ -444,22 +442,24 @@ else:
         ai_col = "#4caf50" if d["ai"] == "BULLISH" else "#ff4b4b"
         tr_col = "#4caf50" if d["trend"] == "UPTREND" else "#ff4b4b"
         
-        # --- THE ORIGINAL LAYOUT ---
+        # 1. HEADER
         st.markdown(f"""<div style='display:flex; justify-content:space-between;'><div><div style='font-size:20px; font-weight:bold;'>{t}</div><div style='font-size:12px; color:#888;'>{d['name'][:20]}</div></div><div style='text-align:right;'><div style='font-size:20px; font-weight:bold;'>${d['p']:,.2f}</div><div style='color:{b_col};'>{d['d']:+.2f}%</div></div></div>""", unsafe_allow_html=True)
         if d['pp']: st.markdown(d['pp'], unsafe_allow_html=True)
         
-        # PILLS: AI | TREND | EARN
+        # 2. PILLS (AI | TREND | RATING | EARN)
         pills = f"<span class='info-pill' style='border-left: 3px solid {ai_col}'>AI: {d['ai']}</span> <span class='info-pill' style='border-left: 3px solid {tr_col}'>{d['trend']}</span>"
         if d['rating'] != "N/A": pills += f" <span class='info-pill'>RATE: {d['rating']}</span>"
+        if d['earn'] != "N/A": pills += f" <span class='info-pill'>EARN: {d['earn']}</span>"
         st.markdown(f"<div style='margin:5px 0;'>{pills}</div>", unsafe_allow_html=True)
 
+        # 3. CHART
         chart = alt.Chart(d["chart"]).mark_area(line={'color':b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=50)
         st.altair_chart(chart, use_container_width=True)
         
-        # DAY RANGE BAR
+        # 4. DAY RANGE (Restored)
         st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
         
-        # RSI & VOL BARS
+        # 5. RSI & VOL
         rsi, rsi_bg = d['rsi'], "#ff4b4b" if d['rsi'] > 70 else "#4caf50" if d['rsi'] < 30 else "#999"
         st.markdown(f"""<div class='metric-label'><span>RSI ({int(rsi)})</span><span class='tag' style='background:{rsi_bg}'>{"HOT" if rsi>70 else "COLD" if rsi<30 else "NEUTRAL"}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{rsi}%; background:{rsi_bg};'></div></div>""", unsafe_allow_html=True)
         st.markdown(f"<div class='metric-label'><span>VOL ({int(d['vol_pct'])}%)</span></div><div class='bar-bg'><div class='bar-fill' style='width:{min(d['vol_pct'], 100)}%; background:#3498db;'></div></div>", unsafe_allow_html=True)
@@ -489,7 +489,7 @@ else:
     with t3:
         if st.button("Refresh News"): fetch_news.clear(); st.rerun()
         news = fetch_news([], [x.strip() for x in USER_DATA.get("w_input", "").split(",")], ACTIVE_KEY)
-        for n in news: render_news(n)
+        for n in news: st.markdown(f"**[{n['title']}]({n['link']})** - {n['published']}")
 
     with t4:
         st.info("Market Discovery (AI Curated) Coming Soon")
