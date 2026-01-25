@@ -86,11 +86,11 @@ def init_db():
     except Error:
         return False
 
-# --- THE FIX: DUAL-BATCH + STRICT FUTURE EARNINGS ---
+# --- THE FIX: DUAL-BATCH + STRICT EARNINGS + PRE/POST MATH ---
 def run_backend_update():
     """
-    1. Fast Batch: Live Prices + Charts (1 call).
-    2. Surgical Strike: Fetches missing Metadata (Rating/Earn) with STRICT future date checking.
+    1. Fast Batch: Live Prices + Charts.
+    2. Surgical Strike: Missing Metadata (Future Earnings Only).
     """
     try:
         conn = get_connection()
@@ -125,24 +125,16 @@ def run_backend_update():
             if not row or not row['last_updated'] or (now - row['last_updated']).total_seconds() > 120:
                 to_fetch_price.append(t)
             
-            # Metadata Update: Missing, N/A, or potentially old
-            # We force update if it's N/A just to be safe
+            # Metadata Update: Missing or "N/A"
             if not row or row.get('rating') == 'N/A' or row.get('next_earnings') == 'N/A':
                 to_fetch_meta.append(t)
-            # Optional: Check if stored earnings date is in the past
-            elif row.get('next_earnings'):
-                try:
-                    # Simple heuristic: if we have a date, let's just let the batch cycle eventually catch it
-                    # But if user insists on "No Past Dates", we add it to fetch list if simpler checks fail
-                    pass
-                except: pass
         
         # 3. BATCH DOWNLOAD (DUAL)
         if to_fetch_price:
             tickers_str = " ".join(to_fetch_price)
-            # Live 1m for Pre/Post
+            # Live 1m for Pre/Post & Crypto
             live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-            # Hist 1d for Charts
+            # Hist 1d for Charts & Close
             hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
             for t in to_fetch_price:
@@ -163,8 +155,9 @@ def run_backend_update():
                         else: df_hist = pd.DataFrame()
                     
                     day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
-                    day_h = live_price; day_l = live_price; chart_json = "[]"
-                    close_price = live_price # Default
+                    chart_json = "[]"
+                    close_price = live_price # Default to live if hist missing
+                    day_h = live_price; day_l = live_price
 
                     if not df_hist.empty:
                         df_hist = df_hist.dropna(subset=['Close'])
@@ -210,11 +203,10 @@ def run_backend_update():
                     is_crypto = "-" in t or "=F" in t
                     if is_crypto:
                         final_price = live_price
-                        # Recalc change for live crypto
                         if len(df_hist) > 0:
                             day_change = ((live_price - float(df_hist['Close'].iloc[-1])) / float(df_hist['Close'].iloc[-1])) * 100
                     else:
-                        # Stock Logic: If live differs from close, show Post Market
+                        # FIXED: Compare Live Price vs Hist Close Price (not vs percentage!)
                         if abs(live_price - close_price) > 0.01:
                             pp_p = live_price
                             pp_pct = ((live_price - close_price) / close_price) * 100
@@ -231,38 +223,32 @@ def run_backend_update():
                     conn.commit()
                 except: pass
 
-        # 4. SURGICAL METADATA UPDATE (With STRICT Future Date Logic)
+        # 4. SURGICAL METADATA UPDATE (With FUTURE DATE Filter)
         if to_fetch_meta:
-            for t in to_fetch_meta[:3]: # Limit to 3 to keep app fast
+            for t in to_fetch_meta[:3]: 
                 try:
-                    time.sleep(0.5) 
+                    time.sleep(0.5)
                     tk = yf.Ticker(t)
                     info = tk.info
                     
                     r_val = info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
                     n_val = info.get('shortName') or info.get('longName') or t
                     
-                    # --- EARNINGS LOGIC START ---
+                    # EARNINGS LOGIC
                     e_val = "N/A"
                     try:
                         cal = tk.calendar
-                        # Handle Dict format
+                        dates = []
                         if isinstance(cal, dict) and 'Earnings Date' in cal:
                             dates = cal['Earnings Date']
-                            future_dates = [d for d in dates if d.date() >= datetime.now().date()]
-                            if future_dates:
-                                e_val = min(future_dates).strftime('%b %d')
-                        # Handle DataFrame format (some versions of yfinance)
                         elif hasattr(cal, 'iloc'):
-                             all_dates = []
-                             for val in cal.values.flatten():
-                                 if isinstance(val, (datetime, pd.Timestamp)):
-                                     all_dates.append(val)
-                             future_dates = [d for d in all_dates if d.date() >= datetime.now().date()]
-                             if future_dates:
-                                 e_val = min(future_dates).strftime('%b %d')
+                             dates = [v for v in cal.values.flatten() if isinstance(v, (datetime, pd.Timestamp))]
+                        
+                        # STRICT FILTER: Only Future Dates
+                        future_dates = [d for d in dates if pd.to_datetime(d).date() >= datetime.now().date()]
+                        if future_dates:
+                            e_val = min(future_dates).strftime('%b %d')
                     except: pass
-                    # --- EARNINGS LOGIC END ---
                     
                     sql = "UPDATE stock_cache SET rating=%s, next_earnings=%s, company_name=%s WHERE ticker=%s"
                     cursor.execute(sql, (r_val, e_val, n_val, t))
@@ -390,8 +376,8 @@ def get_pro_data(s):
         rating = row.get('rating') or "N/A"
         earn = row.get('next_earnings') or "N/A"
         
-        # PRE/POST LOGIC
         pp_html = ""
+        # Improved Post Market Logic
         if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
             pp_c = float(row['pre_post_pct'])
@@ -404,7 +390,6 @@ def get_pro_data(s):
 
         vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
         
-        # Day Range
         day_h = float(row.get('day_high') or price)
         day_l = float(row.get('day_low') or price)
         range_pos = 50
