@@ -10,15 +10,17 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import os
 import uuid
+import re
 
-# --- IMPORTS FOR NEWS ---
+# --- IMPORTS FOR NEWS & AI ---
 try:
     import feedparser
+    import openai
     NEWS_LIB_READY = True
 except ImportError:
     NEWS_LIB_READY = False
 
-# --- CONFIG ---
+# --- SETUP ---
 try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except: pass
@@ -37,7 +39,7 @@ def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def check_and_fix_schema():
-    """Auto-heals the database schema. Fixes 'company_name' and 'volume' errors."""
+    """Auto-heals the database schema to prevent 'Draw Error'."""
     try:
         conn = get_connection(); cursor = conn.cursor(buffered=True)
         cursor.execute("""
@@ -46,7 +48,7 @@ def check_and_fix_schema():
                 current_price DECIMAL(20, 4),
                 day_change DECIMAL(10, 2),
                 rsi DECIMAL(10, 2),
-                volume_status VARCHAR(20),
+                volume_status DECIMAL(10, 2),
                 trend_status VARCHAR(20),
                 rating VARCHAR(50),
                 price_history JSON,
@@ -57,32 +59,22 @@ def check_and_fix_schema():
             )
         """)
         conn.commit()
-        
-        # Force-Add missing columns if they don't exist
-        cols_to_check = [
-            ('company_name', 'VARCHAR(255)'), 
-            ('pre_post_price', 'DECIMAL(20, 4)'), 
-            ('pre_post_pct', 'DECIMAL(10, 2)'),
-            ('volume_status', 'VARCHAR(20)')
-        ]
-        
-        for col_name, col_type in cols_to_check:
-            cursor.execute(f"SHOW COLUMNS FROM stock_cache LIKE '{col_name}'")
+        # Ensure columns exist
+        for col, dtype in [('company_name', 'VARCHAR(255)'), ('pre_post_price', 'DECIMAL(20, 4)'), ('pre_post_pct', 'DECIMAL(10, 2)'), ('volume_status', 'DECIMAL(10, 2)')]:
+            cursor.execute(f"SHOW COLUMNS FROM stock_cache LIKE '{col}'")
             if not cursor.fetchone():
-                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col_name} {col_type}")
+                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} {dtype}")
                 conn.commit()
-                
         conn.close()
     except: pass
 
-# --- THE BATCH ENGINE (Fixes Rate Limits) ---
+# --- THE BATCH ENGINE (Fast & Safe) ---
 def run_backend_update(force=False):
-    """Downloads 50+ stocks in 1 request to prevent Yahoo bans."""
-    status = st.empty()
+    """Downloads ALL stocks in 1 request to prevent bans."""
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
         
-        # 1. Gather User Tickers
+        # 1. Gather Tickers
         cursor.execute("SELECT user_data FROM user_profiles")
         users = cursor.fetchall()
         needed = set(["^DJI", "^IXIC", "^GSPTSE", "GC=F"]) 
@@ -110,14 +102,12 @@ def run_backend_update(force=False):
         if not to_fetch: conn.close(); return
 
         # 3. BATCH DOWNLOAD
-        if force: status.info(f"⚡ Refreshing {len(to_fetch)} tickers...")
         tickers_str = " ".join(to_fetch)
         data = yf.download(tickers_str, period="1mo", group_by='ticker', threads=True, progress=False)
         
-        # 4. PROCESS DATA
+        # 4. PROCESS
         for t in to_fetch:
             try:
-                # Handle Single vs Multi-Index DataFrames
                 if len(to_fetch) == 1: df = data
                 else: 
                     if t not in data.columns.levels[0]: continue 
@@ -131,7 +121,6 @@ def run_backend_update(force=False):
                 change = ((curr - prev) / prev) * 100
                 trend = "UPTREND" if curr > df['Close'].tail(20).mean() else "DOWNTREND"
                 
-                # Indicators
                 delta = df['Close'].diff()
                 g = delta.where(delta > 0, 0).rolling(14).mean()
                 l = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -140,25 +129,18 @@ def run_backend_update(force=False):
                 vol_mean = df['Volume'].mean()
                 vol_pct = (df['Volume'].iloc[-1] / vol_mean * 100) if vol_mean > 0 else 100
                 
-                # Pre/Post Market (Requires separate call, we skip for batch speed optimization or add later)
-                # Using name fallback since batch doesn't give 'longName'
-                
                 j_p = json.dumps(df['Close'].tail(20).tolist())
                 
                 sql = """
-                INSERT INTO stock_cache 
-                (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, company_name, last_updated)
+                INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, company_name, last_updated)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                ON DUPLICATE KEY UPDATE
-                current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, last_updated=NOW()
+                ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, last_updated=NOW()
                 """
-                v = (t, curr, change, rsi_val, str(vol_pct), trend, j_p, t, 
-                     curr, change, rsi_val, str(vol_pct), trend, j_p)
+                v = (t, curr, change, rsi_val, vol_pct, trend, j_p, t, curr, change, rsi_val, vol_pct, trend, j_p)
                 cursor.execute(sql, v)
             except: pass
         
         conn.commit(); conn.close()
-        status.empty()
     except: pass
 
 # --- AUTH HELPERS ---
@@ -211,6 +193,13 @@ def load_global_config():
         return json.loads(res[0]) if res else {"portfolio": {}, "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F"}
     except: return {}
 
+def save_global_config(data):
+    try:
+        conn = get_connection(); cursor = conn.cursor(buffered=True); j_str = json.dumps(data)
+        cursor.execute("INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s", (j_str, j_str))
+        conn.commit(); conn.close()
+    except: pass
+
 # --- UI STYLING ---
 st.markdown("""<style>
 .block-container { padding-top: 0rem !important; }
@@ -241,29 +230,63 @@ if not st.session_state["logged_in"]:
             pin = st.text_input("4-Digit PIN", type="password")
             if st.form_submit_button("Login / Sign Up", type="primary"):
                 exists, stored_pin = check_user_exists(user)
-                if exists and str(stored_pin) == str(pin):
-                    st.session_state["username"] = user; st.session_state["logged_in"] = True
-                    st.query_params["token"] = create_session(user); st.rerun()
-                elif not exists:
+                if exists:
+                    if str(stored_pin) == str(pin):
+                        st.session_state["username"] = user; st.session_state["logged_in"] = True
+                        st.query_params["token"] = create_session(user); st.rerun()
+                    else: st.error("Invalid PIN")
+                else:
                     save_user_profile(user, {"w_input": "TD.TO, SPY"}, pin)
                     st.session_state["username"] = user; st.session_state["logged_in"] = True
                     st.query_params["token"] = create_session(user); st.rerun()
-                else: st.error("Invalid PIN")
 else:
     USER_NAME = st.session_state["username"]
     USER_DATA = load_user_profile(USER_NAME)
     GLOBAL = load_global_config()
 
-    # --- SIDEBAR ---
+    # --- SIDEBAR (FULL FEATURED) ---
     with st.sidebar:
         st.title(f"Hi, {USER_NAME}!")
         if st.button("⚡ Force Update", type="primary"):
             run_backend_update(force=True)
             st.rerun()
-            
-        new_w = st.text_area("Watchlist", value=USER_DATA.get("w_input", ""))
+
+        st.subheader("Your Watchlist")
+        new_w = st.text_area("Edit Tickers", value=USER_DATA.get("w_input", ""), height=100)
         if new_w != USER_DATA.get("w_input"): 
             USER_DATA["w_input"] = new_w; save_user_profile(USER_NAME, USER_DATA); st.rerun()
+
+        with st.expander("🔔 Alert Settings"):
+            curr_tg = USER_DATA.get("telegram_id", "")
+            new_tg = st.text_input("Telegram Chat ID", value=curr_tg)
+            if new_tg != curr_tg: USER_DATA["telegram_id"] = new_tg.strip(); save_user_profile(USER_NAME, USER_DATA); st.rerun()
+
+        with st.expander("🔐 Admin Controls"):
+            if st.text_input("Password", type="password") == ADMIN_PASSWORD:
+                st.caption("GLOBAL PORTFOLIO")
+                new_t = st.text_input("Ticker").upper()
+                c1, c2 = st.columns(2)
+                new_p, new_q = c1.number_input("Avg Cost"), c2.number_input("Qty", step=1)
+                if st.button("Add Pick") and new_t:
+                    if "portfolio" not in GLOBAL: GLOBAL["portfolio"] = {}
+                    GLOBAL["portfolio"][new_t] = {"e": new_p, "q": int(new_q)}
+                    save_global_config(GLOBAL); st.rerun()
+                
+                port_keys = list(GLOBAL.get("portfolio", {}).keys())
+                rem = st.selectbox("Remove Pick", [""] + port_keys)
+                if st.button("Delete") and rem: del GLOBAL["portfolio"][rem]; save_global_config(GLOBAL); st.rerun()
+                
+                st.caption("APP CONFIG")
+                new_tape = st.text_input("Tape Symbols", value=GLOBAL.get("tape_input", ""))
+                if new_tape != GLOBAL.get("tape_input", ""): GLOBAL["tape_input"] = new_tape; save_global_config(GLOBAL); st.rerun()
+
+        with st.expander("📰 News Feeds"):
+            if st.text_input("Auth", type="password") == ADMIN_PASSWORD:
+                feed_to_add = st.text_input("Add RSS URL")
+                if st.button("Save Source") and feed_to_add:
+                    if "rss_feeds" not in GLOBAL: GLOBAL["rss_feeds"] = ["https://finance.yahoo.com/news/rssindex"]
+                    GLOBAL["rss_feeds"].append(feed_to_add); save_global_config(GLOBAL); st.rerun()
+
         if st.button("Logout"): st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
 
     # --- TICKER TAPE ---
@@ -277,8 +300,8 @@ else:
         components.html(f'<marquee style="background:#111; color:white; padding:10px; font-weight:bold;">{tape_str}</marquee>', height=45)
     except: pass
 
-    # --- MAIN CONTENT ---
-    tabs = st.tabs(["📊 Market", "🚀 Portfolio", "📰 News"])
+    # --- MAIN TABS (4 Tabs Restored) ---
+    t1, t2, t3, t4 = st.tabs(["📊 Market", "🚀 Portfolio", "📰 News", "🌎 Discovery"])
 
     def draw_card(t, port=None):
         try:
@@ -291,7 +314,6 @@ else:
             b_col = "#4caf50" if chg >= 0 else "#ff4b4b"
             display_name = d.get('company_name') or t
             
-            # Header
             st.markdown(f"""<div style='display:flex; justify-content:space-between; align-items:flex-start;'>
                 <div><div style='font-size:22px; font-weight:bold;'>{t}</div><div style='font-size:12px; color:#888;'>{display_name[:25]}</div></div>
                 <div style='text-align:right;'><div style='font-size:22px; font-weight:bold;'>${p:,.2f}</div><div style='color:{b_col}; font-weight:bold;'>{chg:+.2f}%</div></div>
@@ -303,36 +325,30 @@ else:
                  if abs(pp - p) > 0.01:
                      st.markdown(f"<div style='text-align:right; font-size:11px; color:#888;'>EXT: <span style='color:{'#4caf50' if ppc>=0 else '#ff4b4b'}'>${pp:,.2f}</span></div>", unsafe_allow_html=True)
 
-            # Sparkline Chart
             hist = json.loads(d['price_history'])
             c_df = pd.DataFrame({'x': range(len(hist)), 'y': hist})
             spark = alt.Chart(c_df).mark_area(line={'color': b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('x', axis=None), y=alt.Y('y', axis=None, scale=alt.Scale(zero=False))).properties(height=50)
             st.altair_chart(spark, use_container_width=True)
             
-            # Gauges & Bars
             rsi = float(d['rsi']); vol = float(d.get('volume_status', 100))
-            st.markdown(f"<div class='info-pill'>AI: {d['trend_status']}</div><div class='info-pill'>RSI: {int(rsi)}</div><div class='info-pill'>Rate: {d.get('rating','N/A')}</div>", unsafe_allow_html=True)
-            
-            # RSI Bar
-            rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
-            st.markdown(f"<div class='metric-label'><span>RSI Strength</span></div><div class='bar-bg'><div class='bar-fill' style='width:{rsi}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
-            
-            # Volume Bar
+            st.markdown(f"<div class='info-pill'>AI: {d['trend_status']}</div><div class='info-pill'>RSI: {int(rsi)}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-label'><span>RSI Strength</span></div><div class='bar-bg'><div class='bar-fill' style='width:{rsi}%; background:{b_col};'></div></div>", unsafe_allow_html=True)
             st.markdown(f"<div class='metric-label'><span>Volume</span></div><div class='bar-bg'><div class='bar-fill' style='width:{min(vol, 100)}%; background:#3498db;'></div></div>", unsafe_allow_html=True)
             
-            # Portfolio Logic
             if port:
                 gain = (p - port['e']) * port['q']
                 st.markdown(f"<div style='font-size:12px; margin-top:10px; background:#f9f9f9; padding:5px; border-radius:5px;'>Qty: {port['q']} | Avg: ${port['e']} | <span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}'>${gain:+,.2f}</span></div>", unsafe_allow_html=True)
         except: pass
 
-    with tabs[0]:
+    # TAB 1: MARKET
+    with t1:
         tickers = [x.strip().upper() for x in USER_DATA.get("w_input", "").split(",") if x.strip()]
         cols = st.columns(3)
         for i, t in enumerate(tickers):
             with cols[i % 3]: draw_card(t)
 
-    with tabs[1]:
+    # TAB 2: PORTFOLIO
+    with t2:
         port = GLOBAL.get("portfolio", {})
         if not port: st.info("No picks published.")
         else:
@@ -347,7 +363,8 @@ else:
             for i, (k, v) in enumerate(port.items()):
                 with cols[i % 3]: draw_card(k, port=v)
 
-    with tabs[2]:
+    # TAB 3: NEWS
+    with t3:
         if NEWS_LIB_READY:
             rss = GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"])
             try:
@@ -355,6 +372,11 @@ else:
                     f = feedparser.parse(url)
                     for e in f.entries[:5]: st.markdown(f"**[{e.title}]({e.link})**")
             except: st.info("News Unavailable")
+
+    # TAB 4: DISCOVERY (Restored)
+    with t4:
+        st.subheader("Market Discovery")
+        st.info("AI curated news and movers will appear here.")
 
     time.sleep(60)
     st.rerun()
