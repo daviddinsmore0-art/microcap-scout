@@ -4,7 +4,6 @@ import altair as alt
 import time
 import json
 import mysql.connector
-import requests
 import yfinance as yf
 from mysql.connector import Error
 from datetime import datetime, timedelta, timezone
@@ -86,7 +85,7 @@ def init_db():
     except Error:
         return False
 
-# --- THE FIX: DUAL-BATCH + SURGICAL METADATA ---
+# --- THE ENGINE: DUAL-BATCH + SURGICAL METADATA ---
 def run_backend_update():
     """
     1. Fast Batch: Live Prices + Charts (1 call).
@@ -112,7 +111,7 @@ def run_backend_update():
 
         # 2. Check Stale (Update if older than 2 mins)
         format_strings = ','.join(['%s'] * len(all_tickers))
-        cursor.execute(f"SELECT ticker, last_updated, rating, company_name FROM stock_cache WHERE ticker IN ({format_strings})", tuple(all_tickers))
+        cursor.execute(f"SELECT ticker, last_updated, rating, next_earnings FROM stock_cache WHERE ticker IN ({format_strings})", tuple(all_tickers))
         existing_rows = {row['ticker']: row for row in cursor.fetchall()}
         
         to_fetch_price = []
@@ -121,14 +120,26 @@ def run_backend_update():
         
         for t in all_tickers:
             row = existing_rows.get(t)
-            # Fetch Price?
+            # Price Update: > 2 mins old
             if not row or not row['last_updated'] or (now - row['last_updated']).total_seconds() > 120:
                 to_fetch_price.append(t)
-            # Fetch Metadata? (If missing or rating is N/A)
-            if not row or not row.get('rating') or row.get('rating') == 'N/A' or not row.get('company_name'):
-                to_fetch_meta.append(t)
+            
+            # Metadata Update: Missing, N/A, or Old Earnings
+            needs_meta = False
+            if not row or row.get('rating') == 'N/A' or row.get('next_earnings') == 'N/A':
+                needs_meta = True
+            # Check if existing earnings date is passed
+            elif row.get('next_earnings'):
+                try:
+                    edate = datetime.strptime(row['next_earnings'], "%b %d")
+                    # Crude check: if month is earlier than current month, likely old.
+                    # Better to just let the surgical updater verify it occasionally.
+                    pass 
+                except: pass
+            
+            if needs_meta: to_fetch_meta.append(t)
         
-        # 3. BATCH DOWNLOAD (Prices & Charts)
+        # 3. BATCH DOWNLOAD (DUAL)
         if to_fetch_price:
             tickers_str = " ".join(to_fetch_price)
             # Live 1m for Pre/Post
@@ -154,12 +165,13 @@ def run_backend_update():
                         else: df_hist = pd.DataFrame()
                     
                     day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
-                    day_h = live_price; day_l = live_price; chart_json = "[]"
-                    close_price = live_price # Default
+                    chart_json = "[]"
+                    close_price = live_price
+                    day_h = live_price; day_l = live_price
 
                     if not df_hist.empty:
                         df_hist = df_hist.dropna(subset=['Close'])
-                        close_price = float(df_hist['Close'].iloc[-1]) # Regular Market Close
+                        close_price = float(df_hist['Close'].iloc[-1])
                         
                         # Day Range
                         if len(df_hist) > 0:
@@ -194,16 +206,14 @@ def run_backend_update():
                         
                         chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
 
-                    # LOGIC: STOCK vs CRYPTO
+                    # Logic: Stock vs Crypto
                     final_price = close_price
                     pp_p = 0.0; pp_pct = 0.0
                     
                     is_crypto = "-" in t or "=F" in t
                     if is_crypto:
                         final_price = live_price
-                        # Recalc change for live crypto
-                        if len(df_hist) > 0:
-                            day_change = ((live_price - float(df_hist['Close'].iloc[-1])) / float(df_hist['Close'].iloc[-1])) * 100
+                        if len(df_hist) > 0: day_change = ((live_price - float(df_hist['Close'].iloc[-1])) / float(df_hist['Close'].iloc[-1])) * 100
                     else:
                         # Stock Logic: If live differs from close, show Post Market
                         if abs(live_price - close_price) > 0.01:
@@ -245,7 +255,9 @@ def run_backend_update():
                             # Filter for future dates only
                             future_dates = [d for d in dates if d.date() >= datetime.now().date()]
                             if future_dates:
-                                e_val = min(future_dates).strftime('%b %d')
+                                # Pick the closest future date
+                                closest = min(future_dates)
+                                e_val = closest.strftime('%b %d')
                     except: pass
                     
                     sql = "UPDATE stock_cache SET rating=%s, next_earnings=%s, company_name=%s WHERE ticker=%s"
@@ -256,74 +268,101 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- AUTH & HELPERS ---
+# --- AUTHENTICATION ---
 def check_user_exists(username):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT pin FROM user_profiles WHERE username = %s", (username,))
-        res = cursor.fetchone(); conn.close()
-        return (True, res[0]) if res else (False, None)
+        res = cursor.fetchone()
+        conn.close()
+        if res: return True, res[0]
+        return False, None
     except: return False, None
 
 def create_session(username):
     token = str(uuid.uuid4())
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
         cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
-        conn.commit(); conn.close(); return token
+        conn.commit()
+        conn.close()
+        return token
     except: return None
 
 def validate_session(token):
     for _ in range(3):
         try:
-            conn = get_connection(); cursor = conn.cursor(buffered=True)
+            conn = get_connection()
+            if not conn.is_connected(): conn.reconnect(attempts=3, delay=1)
+            cursor = conn.cursor()
             cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
-            res = cursor.fetchone(); conn.close(); 
+            res = cursor.fetchone()
+            conn.close()
             if res: return res[0]
-        except: time.sleep(0.5)
+        except:
+            time.sleep(0.5); continue
     return None
 
 def logout_session(token):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("DELETE FROM user_sessions WHERE token = %s", (token,))
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
     except: pass
 
+# --- DATA LOADERS ---
 def load_user_profile(username):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT user_data FROM user_profiles WHERE username = %s", (username,))
-        res = cursor.fetchone(); conn.close()
+        res = cursor.fetchone()
+        conn.close()
         return json.loads(res[0]) if res else {"w_input": "TD.TO, NKE, SPY"}
     except: return {"w_input": "TD.TO, NKE, SPY"}
 
 def save_user_profile(username, data, pin=None):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True); j_str = json.dumps(data)
-        if pin: cursor.execute("INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s", (username, j_str, pin, j_str, pin))
-        else: cursor.execute("INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s", (username, j_str, j_str))
+        conn = get_connection()
+        cursor = conn.cursor()
+        j_str = json.dumps(data)
+        if pin:
+            sql = "INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s"
+            cursor.execute(sql, (username, j_str, pin, j_str, pin))
+        else:
+            sql = "INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s"
+            cursor.execute(sql, (username, j_str, j_str))
         conn.commit(); conn.close()
     except: pass
 
 def load_global_config():
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT user_data FROM user_profiles WHERE username = 'GLOBAL_CONFIG'")
-        res = cursor.fetchone(); conn.close()
+        res = cursor.fetchone()
+        conn.close()
         return json.loads(res[0]) if res else {"portfolio": {}, "openai_key": "", "rss_feeds": ["https://finance.yahoo.com/news/rssindex"], "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F"}
     except: return {}
 
 def save_global_config(data):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True); j_str = json.dumps(data)
-        cursor.execute("INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s", (j_str, j_str))
+        conn = get_connection()
+        cursor = conn.cursor()
+        j_str = json.dumps(data)
+        sql = "INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s"
+        cursor.execute(sql, (j_str, j_str))
         conn.commit(); conn.close()
     except: pass
 
 def get_global_config_data():
-    api_key = None; rss_feeds = ["https://finance.yahoo.com/news/rssindex"]
+    api_key = None
+    rss_feeds = ["https://finance.yahoo.com/news/rssindex"]
     try: api_key = st.secrets.get("OPENAI_KEY") or st.secrets.get("OPENAI_API_KEY")
     except: pass
     g = load_global_config()
@@ -331,12 +370,15 @@ def get_global_config_data():
     if g.get("rss_feeds"): rss_feeds = g.get("rss_feeds")
     return api_key, rss_feeds, g
 
-# --- NEWS ENGINE ---
+# --- NEWS & AI ENGINE ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
         diff = datetime.now(timezone.utc) - dt
-        return f"{int(diff.total_seconds()//60)}m ago" if diff.total_seconds()<3600 else f"{int(diff.total_seconds()//3600)}h ago"
+        seconds = diff.total_seconds()
+        if seconds < 3600: return f"{int(seconds // 60)}m ago"
+        if seconds < 86400: return f"{int(seconds // 3600)}h ago"
+        return f"{int(seconds // 86400)}d ago"
     except: return "Recent"
 
 @st.cache_data(ttl=600)
@@ -345,41 +387,99 @@ def fetch_news(feeds, tickers, api_key):
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    articles = []; seen = set()
+
+    articles = []
+    seen = set()
+    smart_tickers = {}
+    if tickers:
+        for t in tickers:
+            root = t.split('.')[0] 
+            smart_tickers[t] = root
+
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            for entry in f.entries[:5]:
+            limit = 5 if tickers else 10
+            for entry in f.entries[:limit]:
                 if entry.link not in seen:
                     seen.add(entry.link)
-                    articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published",""))})
+                    found_ticker, sentiment = "", "NEUTRAL"
+                    title_upper = entry.title.upper()
+                    summary_text = entry.get("summary", "")
+
+                    if api_key:
+                        try:
+                            client = openai.OpenAI(api_key=api_key)
+                            prompt = (
+                                f"Analyze this news item:\nHeadline: '{entry.title}'\nSummary: '{summary_text}'\n\n"
+                                f"Return exactly: TICKER|SENTIMENT. Use company ticker or MARKET|SENTIMENT."
+                            )
+                            response = client.chat.completions.create(
+                                model="gpt-4o-mini",
+                                messages=[{"role": "user", "content": prompt}],
+                                max_tokens=15,
+                            )
+                            ans = response.choices[0].message.content.strip().upper()
+                            if "|" in ans:
+                                parts = ans.split("|")
+                                t_raw = parts[0].strip()
+                                if t_raw not in ["NONE", "NULL"]: found_ticker = t_raw
+                                sentiment = parts[1].strip()
+                        except: pass
+
+                    if not found_ticker and tickers:
+                        for original_t, root_t in smart_tickers.items():
+                            if re.search(r'\b' + re.escape(root_t) + r'\b', title_upper):
+                                found_ticker = original_t; break
+                            elif original_t in title_upper:
+                                found_ticker = original_t; break
+                        if not found_ticker:
+                            for original_t, root_t in smart_tickers.items():
+                                if re.search(r'\b' + re.escape(root_t) + r'\b', summary_text.upper()):
+                                    found_ticker = original_t; break
+
+                    articles.append({
+                        "title": entry.title, "link": entry.link,
+                        "published": relative_time(entry.get("published", "")),
+                        "ticker": found_ticker, "sentiment": sentiment,
+                    })
         except: pass
     return articles
 
-# --- DATA HELPERS ---
-@st.cache_data(ttl=5)
+# --- DATA ENGINE ---
+@st.cache_data(ttl=600)
+def get_fundamentals(s):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
+        row = cursor.fetchone()
+        conn.close()
+        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
+    except: return {"rating": "N/A", "earn": "N/A"}
+
+@st.cache_data(ttl=10)
 def get_pro_data(s):
     try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (s,))
-        row = cursor.fetchone(); conn.close()
+        row = cursor.fetchone()
+        conn.close()
         if not row: return None
-        
+
         price = float(row['current_price'])
         change = float(row['day_change'])
         rsi_val = float(row['rsi'])
         trend = row['trend_status']
         vol_stat = row['volume_status']
         display_name = row.get('company_name') or s
-        rating = row.get('rating') or "N/A"
-        earn = row.get('next_earnings') or "N/A"
-        
+
         pp_html = ""
-        # Improved Post Market Logic
+        # Improved Post Market Logic (Display if diff > 1 cent)
         if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
             pp_c = float(row['pre_post_pct'])
-            # Only show if live price differs from chart close
             if abs(pp_p - price) > 0.01:
                 now = datetime.now(timezone.utc) - timedelta(hours=5)
                 lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
@@ -407,7 +507,6 @@ def get_pro_data(s):
         return {
             "p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l,
             "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data,
-            "rating": rating, "earn": earn, "vol_stat": vol_stat
         }
     except: return None
 
