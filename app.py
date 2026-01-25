@@ -6,7 +6,7 @@ import json
 import mysql.connector
 import requests
 import yfinance as yf
-# Changed to generic Exception to avoid NameError crashes
+# Using generic Exception to strictly prevent NameError/ImportError crashes
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
@@ -83,15 +83,15 @@ def init_db():
             
         conn.close()
         return True
-    except Exception: # Generic catch to prevent NameError crashes
+    except Exception:
         return False
 
 # --- THE FIX: DUAL-BATCH + STRICT FUTURE EARNINGS ---
 def run_backend_update():
     """
-    1. Fast Batch (1m): Live Prices + Pre/Post.
+    1. Fast Batch (1m): Live Prices + Pre/Post + BTC.
     2. Fast Batch (1d): Charts + History.
-    3. Surgical Strike: Future Earnings Only.
+    3. Surgical Strike: Missing Metadata (Future Earnings Only).
     """
     try:
         conn = get_connection()
@@ -126,16 +126,16 @@ def run_backend_update():
             if not row or not row['last_updated'] or (now - row['last_updated']).total_seconds() > 120:
                 to_fetch_price.append(t)
             
-            # Metadata Update: Missing, N/A, or empty
+            # Metadata Update: Missing or "N/A"
             if not row or row.get('rating') == 'N/A' or row.get('next_earnings') == 'N/A':
                 to_fetch_meta.append(t)
         
         # 3. BATCH DOWNLOAD (DUAL)
         if to_fetch_price:
             tickers_str = " ".join(to_fetch_price)
-            # Live 1m for Pre/Post
+            # Live 1m for Pre/Post & Crypto
             live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-            # Hist 1d for Charts
+            # Hist 1d for Charts & Close
             hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
             for t in to_fetch_price:
@@ -157,7 +157,7 @@ def run_backend_update():
                     
                     day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
                     chart_json = "[]"
-                    close_price = live_price 
+                    close_price = live_price # Default to live if hist missing
                     day_h = live_price; day_l = live_price
 
                     if not df_hist.empty:
@@ -262,71 +262,97 @@ def run_backend_update():
 # --- AUTH & HELPERS ---
 def check_user_exists(username):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT pin FROM user_profiles WHERE username = %s", (username,))
-        res = cursor.fetchone(); conn.close()
-        return (True, res[0]) if res else (False, None)
+        res = cursor.fetchone()
+        conn.close()
+        if res: return True, res[0]
+        return False, None
     except: return False, None
 
 def create_session(username):
     token = str(uuid.uuid4())
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
         cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
-        conn.commit(); conn.close(); return token
+        conn.commit()
+        conn.close()
+        return token
     except: return None
 
 def validate_session(token):
     for _ in range(3):
         try:
-            conn = get_connection(); cursor = conn.cursor(buffered=True)
+            conn = get_connection()
+            if not conn.is_connected(): conn.reconnect(attempts=3, delay=1)
+            cursor = conn.cursor()
             cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
-            res = cursor.fetchone(); conn.close(); 
+            res = cursor.fetchone()
+            conn.close()
             if res: return res[0]
-        except: time.sleep(0.5)
+        except:
+            time.sleep(0.5); continue
     return None
 
 def logout_session(token):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("DELETE FROM user_sessions WHERE token = %s", (token,))
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
     except: pass
 
 def load_user_profile(username):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT user_data FROM user_profiles WHERE username = %s", (username,))
-        res = cursor.fetchone(); conn.close()
+        res = cursor.fetchone()
+        conn.close()
         return json.loads(res[0]) if res else {"w_input": "TD.TO, NKE, SPY"}
     except: return {"w_input": "TD.TO, NKE, SPY"}
 
 def save_user_profile(username, data, pin=None):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True); j_str = json.dumps(data)
-        if pin: cursor.execute("INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s", (username, j_str, pin, j_str, pin))
-        else: cursor.execute("INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s", (username, j_str, j_str))
+        conn = get_connection()
+        cursor = conn.cursor()
+        j_str = json.dumps(data)
+        if pin:
+            sql = "INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s"
+            cursor.execute(sql, (username, j_str, pin, j_str, pin))
+        else:
+            sql = "INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s"
+            cursor.execute(sql, (username, j_str, j_str))
         conn.commit(); conn.close()
     except: pass
 
 def load_global_config():
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT user_data FROM user_profiles WHERE username = 'GLOBAL_CONFIG'")
-        res = cursor.fetchone(); conn.close()
+        res = cursor.fetchone()
+        conn.close()
         return json.loads(res[0]) if res else {"portfolio": {}, "openai_key": "", "rss_feeds": ["https://finance.yahoo.com/news/rssindex"], "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F"}
     except: return {}
 
 def save_global_config(data):
     try:
-        conn = get_connection(); cursor = conn.cursor(buffered=True); j_str = json.dumps(data)
-        cursor.execute("INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s", (j_str, j_str))
+        conn = get_connection()
+        cursor = conn.cursor()
+        j_str = json.dumps(data)
+        sql = "INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s"
+        cursor.execute(sql, (j_str, j_str))
         conn.commit(); conn.close()
     except: pass
 
 def get_global_config_data():
-    api_key = None; rss_feeds = ["https://finance.yahoo.com/news/rssindex"]
+    api_key = None
+    rss_feeds = ["https://finance.yahoo.com/news/rssindex"]
     try: api_key = st.secrets.get("OPENAI_KEY") or st.secrets.get("OPENAI_API_KEY")
     except: pass
     g = load_global_config()
@@ -334,57 +360,111 @@ def get_global_config_data():
     if g.get("rss_feeds"): rss_feeds = g.get("rss_feeds")
     return api_key, rss_feeds, g
 
-# --- NEWS ENGINE ---
+# --- NEWS & AI ENGINE ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
         diff = datetime.now(timezone.utc) - dt
-        return f"{int(diff.total_seconds()//60)}m ago" if diff.total_seconds()<3600 else f"{int(diff.total_seconds()//3600)}h ago"
+        seconds = diff.total_seconds()
+        if seconds < 3600: return f"{int(seconds // 60)}m ago"
+        if seconds < 86400: return f"{int(seconds // 3600)}h ago"
+        return f"{int(seconds // 86400)}d ago"
     except: return "Recent"
 
 @st.cache_data(ttl=600)
 def fetch_news(feeds, tickers, api_key):
-    # FIXED: Initialize dictionary structure even if processing fails
     if not NEWS_LIB_READY: return []
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    articles = []; seen = set()
+
+    articles = []
+    seen = set()
+    smart_tickers = {}
+    if tickers:
+        for t in tickers:
+            root = t.split('.')[0] 
+            smart_tickers[t] = root
+
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            for entry in f.entries[:5]:
+            limit = 5 if tickers else 10
+            for entry in f.entries[:limit]:
                 if entry.link not in seen:
                     seen.add(entry.link)
-                    # DEFAULT VALUES (Prevents KeyError)
-                    sentiment = "NEUTRAL"; ticker = ""
+                    found_ticker, sentiment = "", "NEUTRAL"
+                    title_upper = entry.title.upper()
+                    summary_text = entry.get("summary", "")
+
+                    if api_key:
+                        try:
+                            client = openai.OpenAI(api_key=api_key)
+                            prompt = (
+                                f"Analyze this news item:\nHeadline: '{entry.title}'\nSummary: '{summary_text}'\n\n"
+                                f"Return exactly: TICKER|SENTIMENT. Use company ticker or MARKET|SENTIMENT."
+                            )
+                            response = client.chat.completions.create(
+                                model="gpt-4o-mini",
+                                messages=[{"role": "user", "content": prompt}],
+                                max_tokens=15,
+                            )
+                            ans = response.choices[0].message.content.strip().upper()
+                            if "|" in ans:
+                                parts = ans.split("|")
+                                t_raw = parts[0].strip()
+                                if t_raw not in ["NONE", "NULL"]: found_ticker = t_raw
+                                sentiment = parts[1].strip()
+                        except: pass
+
+                    if not found_ticker and tickers:
+                        for original_t, root_t in smart_tickers.items():
+                            if re.search(r'\b' + re.escape(root_t) + r'\b', title_upper):
+                                found_ticker = original_t; break
+                            elif original_t in title_upper:
+                                found_ticker = original_t; break
+                        if not found_ticker:
+                            for original_t, root_t in smart_tickers.items():
+                                if re.search(r'\b' + re.escape(root_t) + r'\b', summary_text.upper()):
+                                    found_ticker = original_t; break
+
                     articles.append({
                         "title": entry.title, "link": entry.link,
                         "published": relative_time(entry.get("published", "")),
-                        "ticker": ticker, "sentiment": sentiment
+                        "ticker": found_ticker, "sentiment": sentiment,
                     })
         except: pass
     return articles
 
-# --- DATA HELPERS ---
-@st.cache_data(ttl=5)
+# --- DATA ENGINE ---
+@st.cache_data(ttl=600)
+def get_fundamentals(s):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
+        row = cursor.fetchone()
+        conn.close()
+        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
+    except: return {"rating": "N/A", "earn": "N/A"}
+
+@st.cache_data(ttl=10)
 def get_pro_data(s):
     try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (s,))
-        row = cursor.fetchone(); conn.close()
+        row = cursor.fetchone()
+        conn.close()
         if not row: return None
-        
+
         price = float(row['current_price'])
         change = float(row['day_change'])
         rsi_val = float(row['rsi'])
         trend = row['trend_status']
         vol_stat = row['volume_status']
         display_name = row.get('company_name') or s
-        rating = row.get('rating') or "N/A"
-        earn = row.get('next_earnings') or "N/A"
-        
-        # PRE/POST LOGIC
+
         pp_html = ""
         if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
@@ -416,7 +496,6 @@ def get_pro_data(s):
         return {
             "p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l,
             "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data,
-            "rating": rating, "earn": earn, "vol_stat": vol_stat
         }
     except: return None
 
@@ -654,7 +733,7 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             st.divider()
 
     def render_news(n):
-        col, disp = ("#4caf50" if n.get("sentiment", "NEUTRAL")=="BULLISH" else "#ff4b4b" if n.get("sentiment", "NEUTRAL")=="BEARISH" else "#333"), n.get("ticker", "MARKET") or "MARKET"
+        col, disp = ("#4caf50" if n["sentiment"]=="BULLISH" else "#ff4b4b" if n["sentiment"]=="BEARISH" else "#333"), n["ticker"] if n["ticker"] else "MARKET"
         st.markdown(f"""<div class="news-card" style="border-left-color: {col};"><div style="display:flex; align-items:center;"><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
 
     with t1:
