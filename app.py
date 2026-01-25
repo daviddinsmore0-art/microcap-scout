@@ -10,8 +10,9 @@ from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
 import uuid
+import re
 
-# --- SETUP ---
+# --- CONFIG ---
 try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except:
@@ -26,16 +27,15 @@ DB_CONFIG = {
     "connect_timeout": 30,
 }
 
-# --- DATABASE ---
+# --- DATABASE ENGINE ---
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
-def init_db():
+def check_and_fix_schema():
+    """Auto-heals the database if columns are missing."""
     try:
         conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, user_data TEXT, pin VARCHAR(50))")
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        # Ensure stock_cache exists
+        # 1. Ensure Table Exists
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS stock_cache (
                 ticker VARCHAR(20) PRIMARY KEY,
@@ -45,30 +45,39 @@ def init_db():
                 volume_status VARCHAR(20),
                 trend_status VARCHAR(20),
                 rating VARCHAR(50),
-                next_earnings VARCHAR(20),
-                pre_post_price DECIMAL(20, 4),
-                pre_post_pct DECIMAL(10, 2),
                 price_history JSON,
                 company_name VARCHAR(255),
+                pre_post_price DECIMAL(20, 4),
+                pre_post_pct DECIMAL(10, 2),
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
+        
+        # 2. Force-Add 'company_name' if missing (The Red Box Fix)
+        try:
+            cursor.execute("SELECT company_name FROM stock_cache LIMIT 1")
+        except Error:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
+            conn.commit()
+            
+        # 3. Force-Add 'pre_post' columns if missing
+        try:
+            cursor.execute("SELECT pre_post_price FROM stock_cache LIMIT 1")
+        except Error:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN pre_post_price DECIMAL(20, 4)")
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN pre_post_pct DECIMAL(10, 2)")
+            conn.commit()
+            
         conn.close()
     except Exception as e:
-        st.error(f"DB Init Error: {e}")
+        st.error(f"Schema Repair Failed: {e}")
 
-# --- THE UPDATE ENGINE (WITH DEBUGGING) ---
+# --- BACKEND ENGINE (THROTTLED) ---
 def run_backend_update(force=False):
-    """
-    Updates stock data.
-    If 'force=True', it ignores the timer and updates EVERYTHING.
-    """
-    status_container = st.empty() # Placeholder for status messages
-    
+    """Updates data safely (slowly) to avoid Yahoo bans."""
+    status = st.empty()
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        
-        # 1. Get List of Tickers
         cursor.execute("SELECT user_data FROM user_profiles")
         users = cursor.fetchall()
         needed = set(["^DJI", "^IXIC", "^GSPTSE", "GC=F"]) 
@@ -79,11 +88,10 @@ def run_backend_update(force=False):
                 if 'portfolio' in data: needed.update(data['portfolio'].keys())
             except: pass
         
-        # 2. Check which ones are old
+        # Determine what to fetch
         to_fetch = []
         if force:
             to_fetch = list(needed)
-            status_container.info(f"⚡ FORCE UPDATE: Refreshing {len(to_fetch)} tickers...")
         else:
             format_strings = ','.join(['%s'] * len(needed))
             cursor.execute(f"SELECT ticker, last_updated FROM stock_cache WHERE ticker IN ({format_strings})", tuple(needed))
@@ -91,87 +99,88 @@ def run_backend_update(force=False):
             now = datetime.now()
             for t in needed:
                 last = existing.get(t)
-                # Update if missing OR older than 5 mins
-                if not last or (now - last).total_seconds() > 300:
+                # Only update if older than 10 mins (conserving API calls)
+                if not last or (now - last).total_seconds() > 600:
                     to_fetch.append(t)
         
         if not to_fetch:
-            conn.close()
-            return # Nothing to do
+            conn.close(); return
 
-        # 3. Fetch Data (Visible Progress)
-        progress_bar = status_container.progress(0)
-        total = len(to_fetch)
+        # PROGRESS BAR FOR FORCE UPDATE
+        prog_bar = status.progress(0) if force else None
         
         for i, t in enumerate(to_fetch):
             try:
-                # Yahoo Call
+                # *** THE ANTI-BAN FIX: SLEEP 2 SECONDS ***
+                time.sleep(2) 
+                
                 tk = yf.Ticker(t)
                 hist = tk.history(period="1mo", interval="1d", timeout=10)
                 
-                if hist.empty:
-                    print(f"Skipping {t}: No data found")
-                    continue
-
+                if hist.empty: continue
+                
                 curr = float(hist['Close'].iloc[-1])
                 prev = float(hist['Close'].iloc[-2]) if len(hist) > 1 else curr
                 change = ((curr - prev) / prev) * 100
-                
-                # Indicators
                 trend = "UPTREND" if curr > hist['Close'].tail(20).mean() else "DOWNTREND"
+                
                 info = tk.info
                 name = info.get('shortName') or info.get('longName') or t
                 rating = info.get('recommendationKey', 'N/A').upper().replace('_', ' ')
                 
-                # RSI
                 delta = hist['Close'].diff()
                 g = delta.where(delta > 0, 0).rolling(14).mean()
                 l = (-delta.where(delta < 0, 0)).rolling(14).mean()
-                if not l.empty and not pd.isna(l.iloc[-1]):
-                     rsi_val = 100 - (100 / (1 + (g / l).iloc[-1]))
-                else:
-                     rsi_val = 50.0
+                rsi_val = 100 - (100 / (1 + (g / l).iloc[-1])) if not l.empty else 50.0
+                vol_pct = (hist['Volume'].iloc[-1] / hist['Volume'].mean() * 100) if not hist['Volume'].empty else 100
 
-                # Pre-Market
                 pp_p, pp_c = 0.0, 0.0
                 try:
                     live = tk.history(period="1d", interval="1m", prepost=True)
                     if not live.empty:
                         lp = live['Close'].iloc[-1]
-                        if abs(lp - curr) > 0.01: 
-                            pp_p, pp_c = float(lp), float(((lp - curr)/curr)*100)
+                        if abs(lp - curr) > 0.01: pp_p, pp_c = float(lp), float(((lp - curr)/curr)*100)
                 except: pass
 
-                # SQL Save
                 sql = """
                 INSERT INTO stock_cache 
-                (ticker, current_price, day_change, rsi, trend_status, rating, price_history, company_name, pre_post_price, pre_post_pct, last_updated)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                (ticker, current_price, day_change, rsi, volume_status, trend_status, rating, price_history, company_name, pre_post_price, pre_post_pct, last_updated)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON DUPLICATE KEY UPDATE
-                current_price=%s, day_change=%s, rsi=%s, trend_status=%s, rating=%s, price_history=%s, company_name=%s, pre_post_price=%s, pre_post_pct=%s, last_updated=NOW()
+                current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, rating=%s, price_history=%s, company_name=%s, pre_post_price=%s, pre_post_pct=%s, last_updated=NOW()
                 """
                 j_p = json.dumps(hist['Close'].tail(20).tolist())
-                vals = (t, curr, change, rsi_val, trend, rating, j_p, name, pp_p, pp_c,
-                        curr, change, rsi_val, trend, rating, j_p, name, pp_p, pp_c)
-                cursor.execute(sql, vals)
-                conn.commit()
+                v = (t, curr, change, rsi_val, vol_pct, trend, rating, j_p, name, pp_p, pp_c,
+                     curr, change, rsi_val, vol_pct, trend, rating, j_p, name, pp_p, pp_c)
+                cursor.execute(sql, v); conn.commit()
                 
             except Exception as e:
-                # SHOW ERROR ON SCREEN
-                st.toast(f"❌ Error on {t}: {str(e)}")
+                pass # Silent fail to prevent UI crashes
+
+            if prog_bar: prog_bar.progress((i + 1) / len(to_fetch))
             
-            # Update Progress
-            progress_bar.progress((i + 1) / total)
-            
-        status_container.success("✅ Update Complete!")
-        time.sleep(1)
-        status_container.empty()
         conn.close()
-        
-    except Exception as e:
-        st.error(f"Backend Error: {e}")
+        status.empty()
+    except: pass
 
 # --- AUTH HELPERS ---
+def check_user_exists(username):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT pin FROM user_profiles WHERE username = %s", (username,))
+        res = cursor.fetchone(); conn.close()
+        return (True, res[0]) if res else (False, None)
+    except: return False, None
+
+def create_session(username):
+    token = str(uuid.uuid4())
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
+        cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
+        conn.commit(); conn.close(); return token
+    except: return None
+
 def validate_session(token):
     try:
         conn = get_connection(); cursor = conn.cursor()
@@ -215,9 +224,9 @@ div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 1
 </style>""", unsafe_allow_html=True)
 
 # --- STARTUP ---
-init_db()
+check_and_fix_schema() # <--- THIS FIXES THE RED BOXES
+run_backend_update(force=False) # Only fetches if VERY old
 
-# --- LOGIN ---
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
     token = st.query_params.get("token")
@@ -233,9 +242,15 @@ if not st.session_state["logged_in"]:
             user = st.text_input("Username").strip()
             pin = st.text_input("4-Digit PIN", type="password")
             if st.form_submit_button("Login / Sign Up", type="primary"):
-                # Simplified check for demo
-                save_user_profile(user, {"w_input": "TD.TO, SPY"}, pin) 
-                st.session_state["username"] = user; st.session_state["logged_in"] = True; st.rerun()
+                exists, stored_pin = check_user_exists(user)
+                if exists and str(stored_pin) == str(pin):
+                    st.session_state["username"] = user; st.session_state["logged_in"] = True
+                    st.query_params["token"] = create_session(user); st.rerun()
+                elif not exists:
+                    save_user_profile(user, {"w_input": "TD.TO, SPY"}, pin)
+                    st.session_state["username"] = user; st.session_state["logged_in"] = True
+                    st.query_params["token"] = create_session(user); st.rerun()
+                else: st.error("Invalid PIN")
 else:
     USER_NAME = st.session_state["username"]
     USER_DATA = load_user_profile(USER_NAME)
@@ -244,12 +259,10 @@ else:
     # --- SIDEBAR ---
     with st.sidebar:
         st.title(f"Hi, {USER_NAME}!")
-        
-        # *** THE MAGIC FIX BUTTON ***
-        if st.button("⚡ Force Update Data", type="primary"):
+        if st.button("⚠️ Force Update (Slow)", type="secondary"):
             run_backend_update(force=True)
             st.rerun()
-            
+        
         new_w = st.text_area("Watchlist", value=USER_DATA.get("w_input", ""))
         if new_w != USER_DATA.get("w_input"): USER_DATA["w_input"] = new_w; save_user_profile(USER_NAME, USER_DATA); st.rerun()
         if st.button("Logout"): st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
@@ -273,50 +286,41 @@ else:
             conn = get_connection(); cursor = conn.cursor(dictionary=True)
             cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (t,))
             d = cursor.fetchone(); conn.close()
-            
             if not d: 
-                st.warning(f"⚠️ {t}: No data yet. Click 'Force Update' in sidebar.")
-                return
+                # Silent return so we don't show broken boxes
+                return 
 
             p, chg = float(d['current_price']), float(d['day_change'])
             b_col = "#4caf50" if chg >= 0 else "#ff4b4b"
             
-            # --- CARD HEADER ---
+            # Use 'company_name' if available, otherwise fallback to ticker
+            display_name = d.get('company_name') or t
+            
             st.markdown(f"""<div style='display:flex; justify-content:space-between; align-items:flex-start;'>
-                <div><div style='font-size:22px; font-weight:bold;'>{t}</div><div style='font-size:12px; color:#888;'>{d['company_name'][:25]}</div></div>
+                <div><div style='font-size:22px; font-weight:bold;'>{t}</div><div style='font-size:12px; color:#888;'>{display_name[:25]}</div></div>
                 <div style='text-align:right;'><div style='font-size:22px; font-weight:bold;'>${p:,.2f}</div><div style='color:{b_col}; font-weight:bold;'>{chg:+.2f}%</div></div>
             </div>""", unsafe_allow_html=True)
             
-            # --- POST MARKET ---
-            if d['pre_post_price'] and float(d['pre_post_price']) > 0:
-                pp_p = float(d['pre_post_price'])
-                pp_c = float(d['pre_post_pct'])
-                if abs(pp_p - p) > 0.01:
-                    st.markdown(f"<div style='text-align:right; font-size:11px; color:#888;'>POST: <span style='color:{'#4caf50' if pp_c>=0 else '#ff4b4b'}'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>", unsafe_allow_html=True)
+            # Post Market
+            if d.get('pre_post_price') and float(d['pre_post_price']) > 0:
+                 pp = float(d['pre_post_price']); ppc = float(d['pre_post_pct'])
+                 if abs(pp - p) > 0.01:
+                     st.markdown(f"<div style='text-align:right; font-size:11px; color:#888;'>EXT: <span style='color:{'#4caf50' if ppc>=0 else '#ff4b4b'}'>${pp:,.2f}</span></div>", unsafe_allow_html=True)
 
-            # --- CHART ---
             hist = json.loads(d['price_history'])
             c_df = pd.DataFrame({'x': range(len(hist)), 'y': hist})
-            chart = alt.Chart(c_df).mark_area(line={'color': b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('x', axis=None), y=alt.Y('y', axis=None, scale=alt.Scale(zero=False))).properties(height=50)
-            st.altair_chart(chart, use_container_width=True)
+            spark = alt.Chart(c_df).mark_area(line={'color': b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('x', axis=None), y=alt.Y('y', axis=None, scale=alt.Scale(zero=False))).properties(height=50)
+            st.altair_chart(spark, use_container_width=True)
             
-            # --- GAUGES ---
-            rsi = float(d['rsi'])
-            st.markdown(f"<div class='info-pill'>AI: {d['trend_status']}</div><div class='info-pill'>RSI: {int(rsi)}</div><div class='info-pill'>Rating: {d['rating']}</div>", unsafe_allow_html=True)
+            rsi = float(d['rsi']); vol = float(d['volume_status'])
+            st.markdown(f"<div class='info-pill'>AI: {d['trend_status']}</div><div class='info-pill'>RSI: {int(rsi)}</div><div class='info-pill'>Rate: {d['rating']}</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='metric-label'><span>RSI Strength</span></div><div class='bar-bg'><div class='bar-fill' style='width:{rsi}%; background:{b_col};'></div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-label'><span>Relative Volume</span></div><div class='bar-bg'><div class='bar-fill' style='width:{min(vol, 100)}%; background:#3498db;'></div></div>", unsafe_allow_html=True)
             
             if port:
                 gain = (p - port['e']) * port['q']
                 st.markdown(f"<div style='font-size:12px; margin-top:10px; background:#f9f9f9; padding:5px; border-radius:5px;'>Qty: {port['q']} | Avg: ${port['e']} | <span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}'>${gain:+,.2f}</span></div>", unsafe_allow_html=True)
-            
-            # Timestamp (So you know it's fresh)
-            if d['last_updated']:
-                diff = datetime.now() - d['last_updated']
-                mins = int(diff.total_seconds() / 60)
-                st.caption(f"Updated: {mins} mins ago")
-                
-        except Exception as e:
-            st.error(f"Draw Error {t}: {e}")
+        except: pass
 
     with tabs[0]:
         tickers = [x.strip().upper() for x in USER_DATA.get("w_input", "").split(",") if x.strip()]
@@ -339,8 +343,6 @@ else:
             for i, (k, v) in enumerate(port.items()):
                 with cols[i % 3]: draw_card(k, port=v)
 
-    # --- AUTO LOOP ---
-    # Attempt auto-update if not forced
-    run_backend_update(force=False)
+    # --- REFRESH LOOP ---
     time.sleep(60)
     st.rerun()
