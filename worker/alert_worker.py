@@ -57,21 +57,22 @@ def calculate_rsi(series, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- UPDATED EARNINGS LOGIC ---
+# --- UPDATED EARNINGS LOGIC (FUTURE DATES ONLY) ---
 def get_earnings_date(tk):
     try:
         now = datetime.now().date()
         cal = tk.calendar
         
-        # Handle Dictionary (New yfinance)
+        # Handle Dictionary (New yfinance format)
         if isinstance(cal, dict) and 'Earnings Date' in cal:
             dates = cal['Earnings Date']
             for d in dates:
                 if d.date() >= now:
                     return d.strftime('%b %d')
 
-        # Handle DataFrame (Old yfinance)
+        # Handle DataFrame (Old yfinance format)
         elif hasattr(cal, 'iloc') and not cal.empty:
+            # Flatten values to find any valid date object
             vals = cal.values.flatten()
             for v in vals:
                 if isinstance(v, (datetime, pd.Timestamp)):
@@ -79,7 +80,7 @@ def get_earnings_date(tk):
                         return v.strftime('%b %d')
     except: pass
     return "N/A"
-# ------------------------------
+# --------------------------------------------------
 
 def update_stock_cache():
     print("🚀 Starting DATA + ALERTS + NAMES + TAPE Worker...")
