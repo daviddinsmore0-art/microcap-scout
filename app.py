@@ -37,7 +37,7 @@ def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def check_and_fix_schema():
-    """Auto-heals the database schema if columns are missing."""
+    """Auto-heals the database schema. Fixes 'company_name' and 'volume' errors."""
     try:
         conn = get_connection(); cursor = conn.cursor(buffered=True)
         cursor.execute("""
@@ -46,7 +46,7 @@ def check_and_fix_schema():
                 current_price DECIMAL(20, 4),
                 day_change DECIMAL(10, 2),
                 rsi DECIMAL(10, 2),
-                volume_status DECIMAL(10, 2),
+                volume_status VARCHAR(20),
                 trend_status VARCHAR(20),
                 rating VARCHAR(50),
                 price_history JSON,
@@ -57,23 +57,32 @@ def check_and_fix_schema():
             )
         """)
         conn.commit()
-        # Ensure all columns exist
-        for col, dtype in [('company_name', 'VARCHAR(255)'), ('pre_post_price', 'DECIMAL(20, 4)'), ('pre_post_pct', 'DECIMAL(10, 2)'), ('volume_status', 'DECIMAL(10, 2)')]:
-            cursor.execute(f"SHOW COLUMNS FROM stock_cache LIKE '{col}'")
+        
+        # Force-Add missing columns if they don't exist
+        cols_to_check = [
+            ('company_name', 'VARCHAR(255)'), 
+            ('pre_post_price', 'DECIMAL(20, 4)'), 
+            ('pre_post_pct', 'DECIMAL(10, 2)'),
+            ('volume_status', 'VARCHAR(20)')
+        ]
+        
+        for col_name, col_type in cols_to_check:
+            cursor.execute(f"SHOW COLUMNS FROM stock_cache LIKE '{col_name}'")
             if not cursor.fetchone():
-                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} {dtype}")
+                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col_name} {col_type}")
                 conn.commit()
+                
         conn.close()
     except: pass
 
-# --- THE BATCH ENGINE (FAST & SAFE) ---
+# --- THE BATCH ENGINE (Fixes Rate Limits) ---
 def run_backend_update(force=False):
-    """Downloads ALL stocks in ONE request."""
+    """Downloads 50+ stocks in 1 request to prevent Yahoo bans."""
     status = st.empty()
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
         
-        # 1. Gather tickers
+        # 1. Gather User Tickers
         cursor.execute("SELECT user_data FROM user_profiles")
         users = cursor.fetchall()
         needed = set(["^DJI", "^IXIC", "^GSPTSE", "GC=F"]) 
@@ -86,7 +95,7 @@ def run_backend_update(force=False):
                      needed.update([t.strip().upper() for t in data['tape_input'].split(",") if t.strip()])
             except: pass
         
-        # 2. Filter stale
+        # 2. Filter Stale
         to_fetch = []
         if force: to_fetch = list(needed)
         else:
@@ -101,13 +110,14 @@ def run_backend_update(force=False):
         if not to_fetch: conn.close(); return
 
         # 3. BATCH DOWNLOAD
-        if force: status.info(f"⚡ Batching {len(to_fetch)} tickers...")
+        if force: status.info(f"⚡ Refreshing {len(to_fetch)} tickers...")
         tickers_str = " ".join(to_fetch)
         data = yf.download(tickers_str, period="1mo", group_by='ticker', threads=True, progress=False)
         
-        # 4. PROCESS
+        # 4. PROCESS DATA
         for t in to_fetch:
             try:
+                # Handle Single vs Multi-Index DataFrames
                 if len(to_fetch) == 1: df = data
                 else: 
                     if t not in data.columns.levels[0]: continue 
@@ -121,6 +131,7 @@ def run_backend_update(force=False):
                 change = ((curr - prev) / prev) * 100
                 trend = "UPTREND" if curr > df['Close'].tail(20).mean() else "DOWNTREND"
                 
+                # Indicators
                 delta = df['Close'].diff()
                 g = delta.where(delta > 0, 0).rolling(14).mean()
                 l = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -129,14 +140,20 @@ def run_backend_update(force=False):
                 vol_mean = df['Volume'].mean()
                 vol_pct = (df['Volume'].iloc[-1] / vol_mean * 100) if vol_mean > 0 else 100
                 
+                # Pre/Post Market (Requires separate call, we skip for batch speed optimization or add later)
+                # Using name fallback since batch doesn't give 'longName'
+                
                 j_p = json.dumps(df['Close'].tail(20).tolist())
                 
                 sql = """
-                INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, company_name, last_updated)
+                INSERT INTO stock_cache 
+                (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, company_name, last_updated)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, last_updated=NOW()
+                ON DUPLICATE KEY UPDATE
+                current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, last_updated=NOW()
                 """
-                v = (t, curr, change, rsi_val, vol_pct, trend, j_p, t, curr, change, rsi_val, vol_pct, trend, j_p)
+                v = (t, curr, change, rsi_val, str(vol_pct), trend, j_p, t, 
+                     curr, change, rsi_val, str(vol_pct), trend, j_p)
                 cursor.execute(sql, v)
             except: pass
         
@@ -145,6 +162,31 @@ def run_backend_update(force=False):
     except: pass
 
 # --- AUTH HELPERS ---
+def check_user_exists(username):
+    try:
+        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        cursor.execute("SELECT pin FROM user_profiles WHERE username = %s", (username,))
+        res = cursor.fetchone(); conn.close()
+        return (True, res[0]) if res else (False, None)
+    except: return False, None
+
+def create_session(username):
+    token = str(uuid.uuid4())
+    try:
+        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
+        cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
+        conn.commit(); conn.close(); return token
+    except: return None
+
+def validate_session(token):
+    try:
+        conn = get_connection(); cursor = conn.cursor(buffered=True)
+        cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
+        res = cursor.fetchone(); conn.close()
+        return res[0] if res else None
+    except: return None
+
 def load_user_profile(username):
     try:
         conn = get_connection(); cursor = conn.cursor(buffered=True)
@@ -153,10 +195,11 @@ def load_user_profile(username):
         return json.loads(res[0]) if res else {"w_input": "TD.TO, SPY"}
     except: return {"w_input": "TD.TO, SPY"}
 
-def save_user_profile(username, data):
+def save_user_profile(username, data, pin=None):
     try:
         conn = get_connection(); cursor = conn.cursor(buffered=True); j_str = json.dumps(data)
-        cursor.execute("UPDATE user_profiles SET user_data = %s WHERE username = %s", (j_str, username))
+        if pin: cursor.execute("INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s", (username, j_str, pin, j_str, pin))
+        else: cursor.execute("INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s", (username, j_str, j_str))
         conn.commit(); conn.close()
     except: pass
 
@@ -182,99 +225,136 @@ div[data-testid="stVerticalBlock"] { background-color: #ffffff; border-radius: 1
 check_and_fix_schema()
 run_backend_update(force=False) 
 
-if "username" not in st.session_state: st.session_state["username"] = "Guest"
-USER_NAME = st.session_state["username"]
-USER_DATA = load_user_profile(USER_NAME)
-GLOBAL = load_global_config()
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+    token = st.query_params.get("token")
+    if token:
+        u = validate_session(token)
+        if u: st.session_state["username"] = u; st.session_state["logged_in"] = True
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title(f"Hi, {USER_NAME}!")
-    if st.button("⚡ Force Update", type="primary"):
-        run_backend_update(force=True)
-        st.rerun()
-    new_w = st.text_area("Watchlist", value=USER_DATA.get("w_input", ""))
-    if new_w != USER_DATA.get("w_input"): 
-        USER_DATA["w_input"] = new_w; save_user_profile(USER_NAME, USER_DATA); st.rerun()
+if not st.session_state["logged_in"]:
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        with st.form("login"):
+            user = st.text_input("Username").strip()
+            pin = st.text_input("4-Digit PIN", type="password")
+            if st.form_submit_button("Login / Sign Up", type="primary"):
+                exists, stored_pin = check_user_exists(user)
+                if exists and str(stored_pin) == str(pin):
+                    st.session_state["username"] = user; st.session_state["logged_in"] = True
+                    st.query_params["token"] = create_session(user); st.rerun()
+                elif not exists:
+                    save_user_profile(user, {"w_input": "TD.TO, SPY"}, pin)
+                    st.session_state["username"] = user; st.session_state["logged_in"] = True
+                    st.query_params["token"] = create_session(user); st.rerun()
+                else: st.error("Invalid PIN")
+else:
+    USER_NAME = st.session_state["username"]
+    USER_DATA = load_user_profile(USER_NAME)
+    GLOBAL = load_global_config()
 
-# --- TICKER TAPE ---
-try:
-    conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
-    t_symbols = [x.strip().upper() for x in GLOBAL.get("tape_input", "^DJI,^IXIC,^GSPTSE,GC=F").split(",")]
-    format_strings = ','.join(['%s'] * len(t_symbols))
-    cursor.execute(f"SELECT ticker, current_price, day_change FROM stock_cache WHERE ticker IN ({format_strings})", tuple(t_symbols))
-    tape_rows = cursor.fetchall(); conn.close()
-    tape_str = "  |  ".join([f"{r['ticker']} ${float(r['current_price']):,.2f} ({float(r['day_change']):+.2f}%)" for r in tape_rows])
-    components.html(f'<marquee style="background:#111; color:white; padding:10px; font-weight:bold;">{tape_str}</marquee>', height=45)
-except: pass
+    # --- SIDEBAR ---
+    with st.sidebar:
+        st.title(f"Hi, {USER_NAME}!")
+        if st.button("⚡ Force Update", type="primary"):
+            run_backend_update(force=True)
+            st.rerun()
+            
+        new_w = st.text_area("Watchlist", value=USER_DATA.get("w_input", ""))
+        if new_w != USER_DATA.get("w_input"): 
+            USER_DATA["w_input"] = new_w; save_user_profile(USER_NAME, USER_DATA); st.rerun()
+        if st.button("Logout"): st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
 
-# --- MAIN CONTENT ---
-tabs = st.tabs(["📊 Market", "🚀 Portfolio", "📰 News"])
-
-def draw_card(t, port=None):
+    # --- TICKER TAPE ---
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
-        cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (t,))
-        d = cursor.fetchone(); conn.close()
-        if not d: return
-
-        p, chg = float(d['current_price']), float(d['day_change'])
-        b_col = "#4caf50" if chg >= 0 else "#ff4b4b"
-        display_name = d.get('company_name') or t
-        
-        # 1. Header
-        st.markdown(f"""<div style='display:flex; justify-content:space-between; align-items:flex-start;'>
-            <div><div style='font-size:22px; font-weight:bold;'>{t}</div><div style='font-size:12px; color:#888;'>{display_name[:25]}</div></div>
-            <div style='text-align:right;'><div style='font-size:22px; font-weight:bold;'>${p:,.2f}</div><div style='color:{b_col}; font-weight:bold;'>{chg:+.2f}%</div></div>
-        </div>""", unsafe_allow_html=True)
-        
-        # 2. Sparkline
-        hist = json.loads(d['price_history'])
-        c_df = pd.DataFrame({'x': range(len(hist)), 'y': hist})
-        spark = alt.Chart(c_df).mark_area(line={'color': b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('x', axis=None), y=alt.Y('y', axis=None, scale=alt.Scale(zero=False))).properties(height=50)
-        st.altair_chart(spark, use_container_width=True)
-        
-        # 3. Pills & Bars
-        rsi = float(d['rsi']); vol = float(d.get('volume_status', 100))
-        st.markdown(f"<div class='info-pill'>AI: {d['trend_status']}</div><div class='info-pill'>RSI: {int(rsi)}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-label'><span>RSI Strength</span></div><div class='bar-bg'><div class='bar-fill' style='width:{rsi}%; background:{b_col};'></div></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='metric-label'><span>Volume</span></div><div class='bar-bg'><div class='bar-fill' style='width:{min(vol, 100)}%; background:#3498db;'></div></div>", unsafe_allow_html=True)
-        
-        # 4. Portfolio Data
-        if port:
-            gain = (p - port['e']) * port['q']
-            st.markdown(f"<div style='font-size:12px; margin-top:10px; background:#f9f9f9; padding:5px; border-radius:5px;'>Qty: {port['q']} | Avg: ${port['e']} | <span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}'>${gain:+,.2f}</span></div>", unsafe_allow_html=True)
+        t_symbols = [x.strip().upper() for x in GLOBAL.get("tape_input", "^DJI,^IXIC,^GSPTSE,GC=F").split(",")]
+        format_strings = ','.join(['%s'] * len(t_symbols))
+        cursor.execute(f"SELECT ticker, current_price, day_change FROM stock_cache WHERE ticker IN ({format_strings})", tuple(t_symbols))
+        tape_rows = cursor.fetchall(); conn.close()
+        tape_str = "  |  ".join([f"{r['ticker']} ${float(r['current_price']):,.2f} ({float(r['day_change']):+.2f}%)" for r in tape_rows])
+        components.html(f'<marquee style="background:#111; color:white; padding:10px; font-weight:bold;">{tape_str}</marquee>', height=45)
     except: pass
 
-with tabs[0]:
-    tickers = [x.strip().upper() for x in USER_DATA.get("w_input", "").split(",") if x.strip()]
-    cols = st.columns(3)
-    for i, t in enumerate(tickers):
-        with cols[i % 3]: draw_card(t)
+    # --- MAIN CONTENT ---
+    tabs = st.tabs(["📊 Market", "🚀 Portfolio", "📰 News"])
 
-with tabs[1]:
-    port = GLOBAL.get("portfolio", {})
-    if not port: st.info("No picks published.")
-    else:
-        total_val, total_cost = 0.0, 0.0
-        for k, v in port.items():
-            conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
-            cursor.execute("SELECT current_price FROM stock_cache WHERE ticker=%s", (k,))
-            row = cursor.fetchone(); conn.close()
-            if row: total_val += float(row['current_price']) * v['q']; total_cost += v['e'] * v['q']
-        st.metric("Total Value", f"${total_val:,.2f}", f"{(total_val-total_cost):+,.2f}")
-        cols = st.columns(3)
-        for i, (k, v) in enumerate(port.items()):
-            with cols[i % 3]: draw_card(k, port=v)
-
-with tabs[2]:
-    if NEWS_LIB_READY:
-        rss = GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"])
+    def draw_card(t, port=None):
         try:
-            for url in rss:
-                f = feedparser.parse(url)
-                for e in f.entries[:5]: st.markdown(f"**[{e.title}]({e.link})**")
-        except: st.info("News Unavailable")
+            conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
+            cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (t,))
+            d = cursor.fetchone(); conn.close()
+            if not d: return
 
-time.sleep(60)
-st.rerun()
+            p, chg = float(d['current_price']), float(d['day_change'])
+            b_col = "#4caf50" if chg >= 0 else "#ff4b4b"
+            display_name = d.get('company_name') or t
+            
+            # Header
+            st.markdown(f"""<div style='display:flex; justify-content:space-between; align-items:flex-start;'>
+                <div><div style='font-size:22px; font-weight:bold;'>{t}</div><div style='font-size:12px; color:#888;'>{display_name[:25]}</div></div>
+                <div style='text-align:right;'><div style='font-size:22px; font-weight:bold;'>${p:,.2f}</div><div style='color:{b_col}; font-weight:bold;'>{chg:+.2f}%</div></div>
+            </div>""", unsafe_allow_html=True)
+            
+            # Post Market
+            if d.get('pre_post_price') and float(d['pre_post_price']) > 0:
+                 pp = float(d['pre_post_price']); ppc = float(d['pre_post_pct'])
+                 if abs(pp - p) > 0.01:
+                     st.markdown(f"<div style='text-align:right; font-size:11px; color:#888;'>EXT: <span style='color:{'#4caf50' if ppc>=0 else '#ff4b4b'}'>${pp:,.2f}</span></div>", unsafe_allow_html=True)
+
+            # Sparkline Chart
+            hist = json.loads(d['price_history'])
+            c_df = pd.DataFrame({'x': range(len(hist)), 'y': hist})
+            spark = alt.Chart(c_df).mark_area(line={'color': b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('x', axis=None), y=alt.Y('y', axis=None, scale=alt.Scale(zero=False))).properties(height=50)
+            st.altair_chart(spark, use_container_width=True)
+            
+            # Gauges & Bars
+            rsi = float(d['rsi']); vol = float(d.get('volume_status', 100))
+            st.markdown(f"<div class='info-pill'>AI: {d['trend_status']}</div><div class='info-pill'>RSI: {int(rsi)}</div><div class='info-pill'>Rate: {d.get('rating','N/A')}</div>", unsafe_allow_html=True)
+            
+            # RSI Bar
+            rsi_bg = "#ff4b4b" if rsi > 70 else "#4caf50" if rsi < 30 else "#999"
+            st.markdown(f"<div class='metric-label'><span>RSI Strength</span></div><div class='bar-bg'><div class='bar-fill' style='width:{rsi}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
+            
+            # Volume Bar
+            st.markdown(f"<div class='metric-label'><span>Volume</span></div><div class='bar-bg'><div class='bar-fill' style='width:{min(vol, 100)}%; background:#3498db;'></div></div>", unsafe_allow_html=True)
+            
+            # Portfolio Logic
+            if port:
+                gain = (p - port['e']) * port['q']
+                st.markdown(f"<div style='font-size:12px; margin-top:10px; background:#f9f9f9; padding:5px; border-radius:5px;'>Qty: {port['q']} | Avg: ${port['e']} | <span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}'>${gain:+,.2f}</span></div>", unsafe_allow_html=True)
+        except: pass
+
+    with tabs[0]:
+        tickers = [x.strip().upper() for x in USER_DATA.get("w_input", "").split(",") if x.strip()]
+        cols = st.columns(3)
+        for i, t in enumerate(tickers):
+            with cols[i % 3]: draw_card(t)
+
+    with tabs[1]:
+        port = GLOBAL.get("portfolio", {})
+        if not port: st.info("No picks published.")
+        else:
+            total_val, total_cost = 0.0, 0.0
+            for k, v in port.items():
+                conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
+                cursor.execute("SELECT current_price FROM stock_cache WHERE ticker=%s", (k,))
+                row = cursor.fetchone(); conn.close()
+                if row: total_val += float(row['current_price']) * v['q']; total_cost += v['e'] * v['q']
+            st.metric("Total Value", f"${total_val:,.2f}", f"{(total_val-total_cost):+,.2f}")
+            cols = st.columns(3)
+            for i, (k, v) in enumerate(port.items()):
+                with cols[i % 3]: draw_card(k, port=v)
+
+    with tabs[2]:
+        if NEWS_LIB_READY:
+            rss = GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"])
+            try:
+                for url in rss:
+                    f = feedparser.parse(url)
+                    for e in f.entries[:5]: st.markdown(f"**[{e.title}]({e.link})**")
+            except: st.info("News Unavailable")
+
+    time.sleep(60)
+    st.rerun()
