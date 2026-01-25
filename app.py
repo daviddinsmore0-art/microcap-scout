@@ -6,7 +6,7 @@ import json
 import mysql.connector
 import requests
 import yfinance as yf
-from mysql.connector import Error
+# Changed to generic Exception to prevent 'NameError' crashes if driver fails
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
@@ -83,14 +83,15 @@ def init_db():
             
         conn.close()
         return True
-    except Error:
+    except Exception: # Changed to generic Exception to avoid NameError
         return False
 
-# --- THE FIX: DUAL-BATCH + STRICT EARNINGS + PRE/POST MATH ---
+# --- THE FIX: DUAL-BATCH + STRICT EARNINGS + PRE/POST ---
 def run_backend_update():
     """
-    1. Fast Batch: Live Prices + Charts.
-    2. Surgical Strike: Missing Metadata (Future Earnings Only).
+    1. Fast Batch (1m): Gets LIVE prices (BTC/Pre/Post).
+    2. Fast Batch (1d): Gets History (Charts/RSI).
+    3. Surgical Strike: Gets Metadata (Earnings/Ratings).
     """
     try:
         conn = get_connection()
@@ -173,6 +174,7 @@ def run_backend_update():
                         # Change Calc
                         if len(df_hist) > 1:
                             prev_close = float(df_hist['Close'].iloc[-2])
+                            # If live date is strictly newer than history date, calculate vs close
                             if df_live.index[-1].date() > df_hist.index[-1].date():
                                 prev_close = float(df_hist['Close'].iloc[-1])
                             day_change = ((close_price - prev_close) / prev_close) * 100
@@ -206,7 +208,7 @@ def run_backend_update():
                         if len(df_hist) > 0:
                             day_change = ((live_price - float(df_hist['Close'].iloc[-1])) / float(df_hist['Close'].iloc[-1])) * 100
                     else:
-                        # FIXED: Compare Live Price vs Hist Close Price (not vs percentage!)
+                        # STOCK: Compare Live Price vs Hist Close Price
                         if abs(live_price - close_price) > 0.01:
                             pp_p = live_price
                             pp_pct = ((live_price - close_price) / close_price) * 100
@@ -376,11 +378,12 @@ def get_pro_data(s):
         rating = row.get('rating') or "N/A"
         earn = row.get('next_earnings') or "N/A"
         
+        # PRE/POST LOGIC
         pp_html = ""
-        # Improved Post Market Logic
         if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
             pp_c = float(row['pre_post_pct'])
+            # Only show if live price differs from chart close
             if abs(pp_p - price) > 0.01:
                 now = datetime.now(timezone.utc) - timedelta(hours=5)
                 lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
@@ -390,6 +393,7 @@ def get_pro_data(s):
 
         vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
         
+        # Day Range
         day_h = float(row.get('day_high') or price)
         day_l = float(row.get('day_low') or price)
         range_pos = 50
