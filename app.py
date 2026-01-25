@@ -65,11 +65,9 @@ def check_user_exists(username):
         cursor.execute("SELECT pin FROM user_profiles WHERE username = %s", (username,))
         res = cursor.fetchone()
         conn.close()
-        if res:
-            return True, res[0]
+        if res: return True, res[0]
         return False, None
-    except:
-        return False, None
+    except: return False, None
 
 def create_session(username):
     token = str(uuid.uuid4())
@@ -77,31 +75,24 @@ def create_session(username):
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
-        cursor.execute(
-            "INSERT INTO user_sessions (token, username) VALUES (%s, %s)",
-            (token, username),
-        )
+        cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
         conn.commit()
         conn.close()
         return token
-    except:
-        return None
+    except: return None
 
 def validate_session(token):
     for _ in range(3):
         try:
             conn = get_connection()
-            if not conn.is_connected():
-                conn.reconnect(attempts=3, delay=1)
+            if not conn.is_connected(): conn.reconnect(attempts=3, delay=1)
             cursor = conn.cursor()
             cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
             res = cursor.fetchone()
             conn.close()
-            if res:
-                return res[0]
+            if res: return res[0]
         except:
-            time.sleep(0.5)
-            continue
+            time.sleep(0.5); continue
     return None
 
 def logout_session(token):
@@ -111,8 +102,7 @@ def logout_session(token):
         cursor.execute("DELETE FROM user_sessions WHERE token = %s", (token,))
         conn.commit()
         conn.close()
-    except:
-        pass
+    except: pass
 
 # --- DATA LOADERS ---
 def load_user_profile(username):
@@ -122,38 +112,22 @@ def load_user_profile(username):
         cursor.execute("SELECT user_data FROM user_profiles WHERE username = %s", (username,))
         res = cursor.fetchone()
         conn.close()
-        if res:
-            return json.loads(res[0])
-        else:
-            return {"w_input": "TD.TO, NKE, SPY"}
-    except:
-        return {"w_input": "TD.TO, NKE, SPY"}
+        return json.loads(res[0]) if res else {"w_input": "TD.TO, NKE, SPY"}
+    except: return {"w_input": "TD.TO, NKE, SPY"}
 
 def save_user_profile(username, data, pin=None):
     try:
         conn = get_connection()
         cursor = conn.cursor()
         j_str = json.dumps(data)
-        
         if pin:
-            sql = """
-            INSERT INTO user_profiles (username, user_data, pin)
-            VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE user_data = %s, pin = %s
-            """
+            sql = "INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s"
             cursor.execute(sql, (username, j_str, pin, j_str, pin))
         else:
-            sql = """
-            INSERT INTO user_profiles (username, user_data)
-            VALUES (%s, %s)
-            ON DUPLICATE KEY UPDATE user_data = %s
-            """
+            sql = "INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s"
             cursor.execute(sql, (username, j_str, j_str))
-            
-        conn.commit()
-        conn.close()
-    except:
-        pass
+        conn.commit(); conn.close()
+    except: pass
 
 def load_global_config():
     try:
@@ -162,58 +136,28 @@ def load_global_config():
         cursor.execute("SELECT user_data FROM user_profiles WHERE username = 'GLOBAL_CONFIG'")
         res = cursor.fetchone()
         conn.close()
-        if res:
-            return json.loads(res[0])
-        else:
-            return {
-                "portfolio": {},
-                "openai_key": "",
-                "rss_feeds": ["https://finance.yahoo.com/news/rssindex"],
-                "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F",
-            }
-    except:
-        return {}
+        return json.loads(res[0]) if res else {"portfolio": {}, "openai_key": "", "rss_feeds": ["https://finance.yahoo.com/news/rssindex"], "tape_input": "^DJI, ^IXIC, ^GSPTSE, GC=F"}
+    except: return {}
 
 def save_global_config(data):
     try:
         conn = get_connection()
         cursor = conn.cursor()
         j_str = json.dumps(data)
-        sql = """
-        INSERT INTO user_profiles (username, user_data)
-        VALUES ('GLOBAL_CONFIG', %s)
-        ON DUPLICATE KEY UPDATE user_data = %s
-        """
+        sql = "INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s"
         cursor.execute(sql, (j_str, j_str))
-        conn.commit()
-        conn.close()
-    except:
-        pass
+        conn.commit(); conn.close()
+    except: pass
 
-# --- GLOBAL KEY FINDER ---
 def get_global_config_data():
     api_key = None
     rss_feeds = ["https://finance.yahoo.com/news/rssindex"]
-    try:
-        api_key = st.secrets.get("OPENAI_KEY") or st.secrets.get("OPENAI_API_KEY")
-    except:
-        pass
-
+    try: api_key = st.secrets.get("OPENAI_KEY") or st.secrets.get("OPENAI_API_KEY")
+    except: pass
     g = load_global_config()
-    if not api_key:
-        api_key = g.get("openai_key")
-    if g.get("rss_feeds"):
-        rss_feeds = g.get("rss_feeds")
-
+    if not api_key: api_key = g.get("openai_key")
+    if g.get("rss_feeds"): rss_feeds = g.get("rss_feeds")
     return api_key, rss_feeds, g
-
-# --- HELPERS ---
-def inject_wake_lock(enable):
-    if enable:
-        components.html(
-            """<script>navigator.wakeLock.request('screen').catch(console.log);</script>""",
-            height=0,
-        )
 
 # --- NEWS & AI ENGINE ---
 def relative_time(date_str):
@@ -221,13 +165,10 @@ def relative_time(date_str):
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
         diff = datetime.now(timezone.utc) - dt
         seconds = diff.total_seconds()
-        if seconds < 3600:
-            return f"{int(seconds // 60)}m ago"
-        if seconds < 86400:
-            return f"{int(seconds // 3600)}h ago"
+        if seconds < 3600: return f"{int(seconds // 60)}m ago"
+        if seconds < 86400: return f"{int(seconds // 3600)}h ago"
         return f"{int(seconds // 86400)}d ago"
-    except:
-        return "Recent"
+    except: return "Recent"
 
 @st.cache_data(ttl=600)
 def fetch_news(feeds, tickers, api_key):
@@ -271,8 +212,7 @@ def fetch_news(feeds, tickers, api_key):
                             if "|" in ans:
                                 parts = ans.split("|")
                                 t_raw = parts[0].strip()
-                                if t_raw not in ["NONE", "NULL"]:
-                                    found_ticker = t_raw
+                                if t_raw not in ["NONE", "NULL"]: found_ticker = t_raw
                                 sentiment = parts[1].strip()
                         except: pass
 
@@ -322,8 +262,6 @@ def get_pro_data(s):
         rsi_val = float(row['rsi'])
         trend = row['trend_status']
         vol_stat = row['volume_status']
-        
-        # USE COMPANY NAME IF AVAILABLE
         display_name = row.get('company_name') or s
 
         pp_html = ""
@@ -356,19 +294,14 @@ def get_pro_data(s):
 def get_tape_data(symbol_string, nickname_string=""):
     items = []
     symbols = [x.strip().upper() for x in symbol_string.split(",") if x.strip()]
-    
-    # PARSE NICKNAMES (Admin Setting)
     nick_map = {}
     if nickname_string:
         try:
             pairs = nickname_string.split(",")
             for p in pairs:
-                if ":" in p:
-                    k, v = p.split(":")
-                    nick_map[k.strip().upper()] = v.strip().upper()
+                if ":" in p: k, v = p.split(":"); nick_map[k.strip().upper()] = v.strip().upper()
         except: pass
 
-    # DEFAULT FALLBACKS
     defaults = {
         "^DJI": "DOW", "^IXIC": "NASDAQ", "^GSPC": "S&P500", 
         "^GSPTSE": "TSX", "GC=F": "GOLD", "SI=F": "SILVER", 
@@ -390,21 +323,12 @@ def get_tape_data(symbol_string, nickname_string=""):
             if s in data_map:
                 row = data_map[s]
                 px, chg = float(row['current_price']), float(row['day_change'])
-                
-                # NICKNAME LOGIC
-                if s in final_map:
-                    disp_name = final_map[s]
+                if s in final_map: disp_name = final_map[s]
                 else:
                     raw_name = row.get('company_name') or s
-                    disp_name = (raw_name
-                                 .replace(", Inc.", "").replace(" Inc.", "")
-                                 .replace(" Corporation", "").replace(" Corp.", "")
-                                 .replace(" Limited", "").replace(" Ltd.", "")
-                                 .strip())
+                    disp_name = (raw_name.replace(", Inc.", "").replace(" Inc.", "").replace(" Corporation", "").replace(" Corp.", "").replace(" Limited", "").replace(" Ltd.", "").strip())
                     if len(disp_name) > 15: disp_name = disp_name[:15].strip() + ".."
-
-                color = "#4caf50" if chg >= 0 else "#ff4b4b"
-                arrow = "▲" if chg >= 0 else "▼"
+                color, arrow = ("#4caf50", "▲") if chg >= 0 else ("#ff4b4b", "▼")
                 items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp_name}</span> <span style='color:{color}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
     except: pass
     return "   ".join(items)
@@ -422,8 +346,6 @@ if "init" not in st.session_state:
             st.session_state["user_data"] = load_user_profile(user)
             st.session_state["global_data"] = load_global_config()
             st.session_state["logged_in"] = True
-
-# --- BOOMERANG CATCHER ---
 if "fcm_token" in st.query_params: st.query_params.clear()
 
 st.markdown("""<style>
@@ -447,12 +369,10 @@ if not st.session_state["logged_in"]:
         if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
         else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
         st.markdown("##### 👋 Welcome")
-        
         with st.form("login_form"):
             user = st.text_input("Username", placeholder="e.g. Dave")
             pin = st.text_input("4-Digit PIN", type="password", max_chars=4, help="Create a PIN if you are new. Enter your PIN if you are returning.")
             submit = st.form_submit_button("🚀 Login / Start", type="primary")
-
             if submit and user and pin:
                 exists, stored_pin = check_user_exists(user.strip())
                 if exists:
@@ -464,12 +384,10 @@ if not st.session_state["logged_in"]:
                         st.session_state["global_data"] = load_global_config()
                         st.session_state["logged_in"] = True
                         st.rerun()
-                    elif stored_pin and stored_pin != pin:
-                        st.error("❌ Incorrect PIN for this user.")
+                    elif stored_pin and stored_pin != pin: st.error("❌ Incorrect PIN for this user.")
                     else:
                         st.warning("⚠️ Account has no PIN. We will set it now.")
-                        save_user_profile(user.strip(), load_user_profile(user.strip()), pin)
-                        st.rerun()
+                        save_user_profile(user.strip(), load_user_profile(user.strip()), pin); st.rerun()
                 else:
                     st.success("Creating new account...")
                     save_user_profile(user.strip(), {"w_input": "TD.TO, SPY"}, pin)
@@ -479,23 +397,14 @@ if not st.session_state["logged_in"]:
                     st.session_state["global_data"] = load_global_config()
                     st.session_state["logged_in"] = True
                     st.rerun()
-
 else:
-    def push_user():
-        save_user_profile(st.session_state["username"], st.session_state["user_data"])
-    def push_global():
-        save_global_config(st.session_state["global_data"])
-
+    def push_user(): save_user_profile(st.session_state["username"], st.session_state["user_data"])
+    def push_global(): save_global_config(st.session_state["global_data"])
     GLOBAL = st.session_state["global_data"]
     USER = st.session_state["user_data"]
     ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 
-    # --- UPDATED TAPE CALL (With Nicknames) ---
-    tape_content = get_tape_data(
-        GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F"), 
-        GLOBAL.get("tape_nicknames", "")
-    )
-    
+    tape_content = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F"), GLOBAL.get("tape_nicknames", ""))
     header_html = f"""<!DOCTYPE html><html><head><style>
 body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }}
 .ticker-container {{ width: 100%; height: 45px; background: #111; display: flex; align-items: center; border-bottom: 1px solid #333; border-radius: 0 0 15px 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }}
@@ -510,19 +419,16 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
         st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
-        if new_w != USER.get("w_input"):
-            USER["w_input"] = new_w; push_user(); st.rerun()
+        if new_w != USER.get("w_input"): USER["w_input"] = new_w; push_user(); st.rerun()
         st.divider()
 
         with st.expander("🔔 Alert Settings"):
             st.caption("TELEGRAM CONNECTION")
             curr_tg = USER.get("telegram_id", "")
             new_tg = st.text_input("Telegram Chat ID", value=curr_tg)
-            if new_tg != curr_tg:
-                USER["telegram_id"] = new_tg.strip(); push_user(); st.success("Saved!"); time.sleep(1); st.rerun()
+            if new_tg != curr_tg: USER["telegram_id"] = new_tg.strip(); push_user(); st.success("Saved!"); time.sleep(1); st.rerun()
             st.markdown("[Get my ID](https://t.me/userinfobot)", unsafe_allow_html=True)
-            st.divider()
-            st.caption("ALERT PREFERENCES")
+            st.divider(); st.caption("ALERT PREFERENCES")
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price Moves", value=USER.get("alert_price", True))
             a_trend = c2.checkbox("Trend Flips", value=USER.get("alert_trend", True))
@@ -535,32 +441,23 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 st.divider(); st.caption("GLOBAL PORTFOLIO")
                 if "portfolio" in USER and USER["portfolio"] and not GLOBAL.get("portfolio"):
-                    if st.button("⚠️ IMPORT MY OLD PICKS TO GLOBAL"):
-                        GLOBAL["portfolio"] = USER["portfolio"]; push_global(); st.success("Picks Restored!"); time.sleep(1); st.rerun()
-
+                    if st.button("⚠️ IMPORT MY OLD PICKS TO GLOBAL"): GLOBAL["portfolio"] = USER["portfolio"]; push_global(); st.success("Picks Restored!"); time.sleep(1); st.rerun()
                 new_t = st.text_input("Ticker").upper()
                 c1, c2 = st.columns(2)
                 new_p, new_q = c1.number_input("Avg Cost"), c2.number_input("Qty", step=1)
                 if st.button("Add Pick") and new_t:
                     if "portfolio" not in GLOBAL: GLOBAL["portfolio"] = {}
                     GLOBAL["portfolio"][new_t] = {"e": new_p, "q": int(new_q)}; push_global(); st.rerun()
-                
                 port_keys = list(GLOBAL.get("portfolio", {}).keys())
                 rem = st.selectbox("Remove Pick", [""] + port_keys)
                 if st.button("Delete") and rem: del GLOBAL["portfolio"][rem]; push_global(); st.rerun()
-
                 st.divider(); st.caption("APP CONFIG (AI & TAPE)")
-                
-                # --- NEW ADMIN FEATURES ---
                 new_tape = st.text_input("Ticker Tape Symbols", value=GLOBAL.get("tape_input", ""))
                 if new_tape != GLOBAL.get("tape_input", ""): GLOBAL["tape_input"] = new_tape; push_global(); st.rerun()
-
                 def_nicks = "^DJI:DOW, ^IXIC:NASDAQ, ^GSPTSE:TSX, GC=F:GOLD, SI=F:SILVER"
                 cur_nicks = GLOBAL.get("tape_nicknames", def_nicks)
                 new_nicks = st.text_area("Tape Nicknames (Symbol:Name)", value=cur_nicks, height=70, help="Format: TICKER:NAME, TICKER2:NAME2")
                 if new_nicks != cur_nicks: GLOBAL["tape_nicknames"] = new_nicks; push_global(); st.rerun()
-                # --------------------------
-
                 curr_k = GLOBAL.get("openai_key", "")
                 new_key = st.text_input("OpenAI Key", value=curr_k, type="password")
                 if new_key != curr_k: GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
@@ -577,14 +474,10 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                 feed_to_rem = st.selectbox("Remove Source", [""] + current_feeds)
                 if st.button("Delete Source") and feed_to_rem: GLOBAL["rss_feeds"].remove(feed_to_rem); push_global(); st.rerun()
 
-        st.checkbox("Always On Display", key="keep_on")
         if st.button("Logout"):
             logout_session(st.query_params.get("token"))
-            st.query_params.clear()
-            st.session_state["logged_in"] = False
-            st.rerun()
+            st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
     
-    inject_wake_lock(st.session_state.get("keep_on", False))
     t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
 
     def draw(t, port=None):
@@ -593,19 +486,16 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
         d = get_pro_data(t)
         if not d: loading.markdown(f"<div style='padding:10px; border-radius:12px; border:1px solid #eee;'>⚠️ {t} unavailable right now</div>", unsafe_allow_html=True); return
         loading.empty()
-
         f = get_fundamentals(t)
         b_col, arrow = ("#4caf50", "▲") if d["d"] >= 0 else ("#ff4b4b", "▼")
         r_up = f["rating"].upper()
         r_col = "#4caf50" if "BUY" in r_up or "OUT" in r_up else "#ff4b4b" if "SELL" in r_up or "UNDER" in r_up else "#f1c40f"
         ai_col = "#4caf50" if d["ai"] == "BULLISH" else "#ff4b4b"
         tr_col = "#4caf50" if d["trend"] == "UPTREND" else "#ff4b4b"
-
         header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div>"""
         pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
         if f["rating"] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
         if f["earn"] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
-
         with st.container():
             st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
             st.markdown(header_html, unsafe_allow_html=True)
@@ -630,7 +520,6 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
         cols = st.columns(3)
         for i, t in enumerate(tickers):
             with cols[i % 3]: draw(t)
-
     with t2:
         port = GLOBAL.get("portfolio", {})
         if not port: st.info("No Picks Published.")
@@ -648,10 +537,10 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             cols = st.columns(3)
             for i, (k, v) in enumerate(port.items()):
                 with cols[i % 3]: draw(k, v)
-
     with t3:
         c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
-        if c_btn.button("🔄 Refresh", key="btn_n1"): fetch_news.clear(); st.rerun()
+        if c_btn.button("🔄 Refresh", key="btn_n1"):
+            with st.spinner("Analyzing market news..."): fetch_news.clear(); fetch_news([], list(set([x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()] + list(GLOBAL.get("portfolio", {}).keys()))), ACTIVE_KEY); st.rerun()
         if not NEWS_LIB_READY: st.error("Missing Libraries.")
         else:
             combined = list(set([x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()] + list(GLOBAL.get("portfolio", {}).keys())))
@@ -659,16 +548,13 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             if not news_items: st.info("No news for your tickers.")
             else:
                 for n in news_items: render_news(n)
-
     with t4:
         c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
-        if c_btn.button("🔄 Refresh", key="btn_n2"): fetch_news.clear(); st.rerun()
+        if c_btn.button("🔄 Refresh", key="btn_n2"):
+            with st.spinner("Analyzing market news..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
         if not NEWS_LIB_READY: st.error("Missing Libraries.")
         else:
             news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
             if not news_items: st.info("No discovery news found.")
             else:
                 for n in news_items: render_news(n)
-
-    if st.session_state.get("keep_on", False):
-        time.sleep(60); st.rerun()
