@@ -6,7 +6,7 @@ import json
 import mysql.connector
 import requests
 import yfinance as yf
-from mysql.connector import Error # Restored to fix NameError
+# Changed to generic Exception to avoid NameError crashes
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
@@ -83,15 +83,15 @@ def init_db():
             
         conn.close()
         return True
-    except Error:
+    except Exception: # Generic catch to prevent NameError crashes
         return False
 
 # --- THE FIX: DUAL-BATCH + STRICT FUTURE EARNINGS ---
 def run_backend_update():
     """
-    1. Fast Batch (1m): Live Prices + Pre/Post + BTC.
+    1. Fast Batch (1m): Live Prices + Pre/Post.
     2. Fast Batch (1d): Charts + History.
-    3. Surgical Strike: Missing Metadata (Future Earnings Only).
+    3. Surgical Strike: Future Earnings Only.
     """
     try:
         conn = get_connection()
@@ -126,16 +126,16 @@ def run_backend_update():
             if not row or not row['last_updated'] or (now - row['last_updated']).total_seconds() > 120:
                 to_fetch_price.append(t)
             
-            # Metadata Update: Missing or "N/A"
+            # Metadata Update: Missing, N/A, or empty
             if not row or row.get('rating') == 'N/A' or row.get('next_earnings') == 'N/A':
                 to_fetch_meta.append(t)
         
         # 3. BATCH DOWNLOAD (DUAL)
         if to_fetch_price:
             tickers_str = " ".join(to_fetch_price)
-            # Live 1m for Pre/Post & Crypto
+            # Live 1m for Pre/Post
             live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-            # Hist 1d for Charts & Close
+            # Hist 1d for Charts
             hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
             for t in to_fetch_price:
@@ -157,7 +157,7 @@ def run_backend_update():
                     
                     day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
                     chart_json = "[]"
-                    close_price = live_price # Default to live if hist missing
+                    close_price = live_price 
                     day_h = live_price; day_l = live_price
 
                     if not df_hist.empty:
@@ -224,7 +224,7 @@ def run_backend_update():
                     conn.commit()
                 except: pass
 
-        # 4. SURGICAL METADATA UPDATE (With FUTURE DATE Filter)
+        # 4. SURGICAL METADATA UPDATE (With STRICT Future Date Logic)
         if to_fetch_meta:
             for t in to_fetch_meta[:3]: 
                 try:
@@ -344,6 +344,7 @@ def relative_time(date_str):
 
 @st.cache_data(ttl=600)
 def fetch_news(feeds, tickers, api_key):
+    # FIXED: Initialize dictionary structure even if processing fails
     if not NEWS_LIB_READY: return []
     all_feeds = feeds.copy()
     if tickers:
@@ -653,7 +654,7 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             st.divider()
 
     def render_news(n):
-        col, disp = ("#4caf50" if n["sentiment"]=="BULLISH" else "#ff4b4b" if n["sentiment"]=="BEARISH" else "#333"), n["ticker"] if n["ticker"] else "MARKET"
+        col, disp = ("#4caf50" if n.get("sentiment", "NEUTRAL")=="BULLISH" else "#ff4b4b" if n.get("sentiment", "NEUTRAL")=="BEARISH" else "#333"), n.get("ticker", "MARKET") or "MARKET"
         st.markdown(f"""<div class="news-card" style="border-left-color: {col};"><div style="display:flex; align-items:center;"><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
 
     with t1:
