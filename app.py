@@ -74,10 +74,11 @@ def init_db():
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
-        # Auto-patch missing columns if they don't exist
-        for col in ['day_high', 'day_low', 'company_name', 'pre_post_price']:
+        # Auto-patch missing columns
+        for col in ['day_high', 'day_low', 'company_name', 'pre_post_price', 'rating', 'next_earnings']:
             try:
-                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} DECIMAL(20,4)" if 'day' in col or 'price' in col else f"ALTER TABLE stock_cache ADD COLUMN {col} VARCHAR(255)")
+                dtype = "DECIMAL(20,4)" if "day" in col or "price" in col else "VARCHAR(255)"
+                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} {dtype}")
             except: pass
             
         conn.close()
@@ -85,11 +86,11 @@ def init_db():
     except Error:
         return False
 
-# --- THE FIX: DUAL-BATCH BACKEND (Live + History) ---
+# --- THE FIX: DUAL-BATCH + SURGICAL METADATA ---
 def run_backend_update():
     """
-    1. Fetches LIVE 1m data (Price, BTC, Pre-Market).
-    2. Fetches HISTORY 1d data (Sparklines, RSI, High/Low).
+    1. Fast Batch: Live Prices + Charts (1 call).
+    2. Surgical Strike: Fetches missing Metadata (Rating/Earn) one-by-one safely.
     """
     try:
         conn = get_connection()
@@ -111,98 +112,120 @@ def run_backend_update():
 
         # 2. Check Stale (Update if older than 2 mins)
         format_strings = ','.join(['%s'] * len(all_tickers))
-        cursor.execute(f"SELECT ticker, last_updated FROM stock_cache WHERE ticker IN ({format_strings})", tuple(all_tickers))
-        existing = {row['ticker']: row['last_updated'] for row in cursor.fetchall()}
+        cursor.execute(f"SELECT ticker, last_updated, rating, company_name FROM stock_cache WHERE ticker IN ({format_strings})", tuple(all_tickers))
+        existing_rows = {row['ticker']: row for row in cursor.fetchall()}
         
-        to_fetch = []
+        to_fetch_price = []
+        to_fetch_meta = []
         now = datetime.now()
+        
         for t in all_tickers:
-            last = existing.get(t)
-            if not last or (now - last).total_seconds() > 120:
-                to_fetch.append(t)
+            row = existing_rows.get(t)
+            # Fetch Price?
+            if not row or not row['last_updated'] or (now - row['last_updated']).total_seconds() > 120:
+                to_fetch_price.append(t)
+            # Fetch Metadata? (If missing or rating is N/A)
+            if not row or not row.get('rating') or row.get('rating') == 'N/A' or not row.get('company_name'):
+                to_fetch_meta.append(t)
         
-        if not to_fetch: conn.close(); return
+        # 3. BATCH DOWNLOAD (Prices & Charts)
+        if to_fetch_price:
+            tickers_str = " ".join(to_fetch_price)
+            # Live 1m for Pre/Post
+            live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
+            # Hist 1d for Charts
+            hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
-        tickers_str = " ".join(to_fetch)
-        
-        # 3. DUAL DOWNLOAD (The Magic Fix)
-        # Batch A: LIVE 1m (for BTC & Pre/Post)
-        live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-        # Batch B: HISTORY 1d (for Charts & RSI)
-        hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
+            for t in to_fetch_price:
+                try:
+                    # LIVE
+                    if len(to_fetch_price) == 1: df_live = live_data
+                    else: 
+                        if t not in live_data.columns.levels[0]: continue
+                        df_live = live_data[t]
+                    df_live = df_live.dropna(subset=['Close'])
+                    if df_live.empty: continue
+                    curr_price = float(df_live['Close'].iloc[-1])
 
-        # 4. PROCESS
-        for t in to_fetch:
-            try:
-                # LIVE
-                if len(to_fetch) == 1: df_live = live_data
-                else: 
-                    if t not in live_data.columns.levels[0]: continue
-                    df_live = live_data[t]
-                
-                df_live = df_live.dropna(subset=['Close'])
-                if df_live.empty: continue
-                curr_price = float(df_live['Close'].iloc[-1])
-
-                # HISTORY
-                if len(to_fetch) == 1: df_hist = hist_data
-                else:
-                    if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
-                    else: df_hist = pd.DataFrame()
-                
-                day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
-                day_h = curr_price; day_l = curr_price; chart_json = "[]"
-
-                if not df_hist.empty:
-                    df_hist = df_hist.dropna(subset=['Close'])
-                    # Day Range
-                    if len(df_hist) > 0:
-                        day_h = float(df_hist['High'].iloc[-1])
-                        day_l = float(df_hist['Low'].iloc[-1])
-                        day_h = max(day_h, curr_price)
-                        day_l = min(day_l, curr_price)
-
-                    # Change Calc
-                    if len(df_hist) > 1:
-                        prev_close = float(df_hist['Close'].iloc[-2])
-                        if df_live.index[-1].date() > df_hist.index[-1].date():
-                            prev_close = float(df_hist['Close'].iloc[-1])
-                        day_change = ((curr_price - prev_close) / prev_close) * 100
+                    # HISTORY
+                    if len(to_fetch_price) == 1: df_hist = hist_data
+                    else:
+                        if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
+                        else: df_hist = pd.DataFrame()
                     
-                    # Trend/RSI/Vol
-                    trend = "UPTREND" if curr_price > df_hist['Close'].tail(20).mean() else "DOWNTREND"
+                    day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
+                    day_h = curr_price; day_l = curr_price; chart_json = "[]"
+
+                    if not df_hist.empty:
+                        df_hist = df_hist.dropna(subset=['Close'])
+                        # Day Range
+                        if len(df_hist) > 0:
+                            day_h = float(df_hist['High'].iloc[-1])
+                            day_l = float(df_hist['Low'].iloc[-1])
+                            day_h = max(day_h, curr_price)
+                            day_l = min(day_l, curr_price)
+
+                        # Change Calc
+                        if len(df_hist) > 1:
+                            prev_close = float(df_hist['Close'].iloc[-2])
+                            if df_live.index[-1].date() > df_hist.index[-1].date():
+                                prev_close = float(df_hist['Close'].iloc[-1])
+                            day_change = ((curr_price - prev_close) / prev_close) * 100
+                        
+                        # Trend/RSI/Vol
+                        trend = "UPTREND" if curr_price > df_hist['Close'].tail(20).mean() else "DOWNTREND"
+                        try:
+                            delta = df_hist['Close'].diff()
+                            g = delta.where(delta > 0, 0).rolling(14).mean(); l = (-delta.where(delta < 0, 0)).rolling(14).mean()
+                            if not l.empty and l.iloc[-1] != 0: rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1])))
+                        except: pass
+                        if not df_hist['Volume'].empty:
+                            v_avg = df_hist['Volume'].mean()
+                            if v_avg > 0:
+                                v_curr = df_hist['Volume'].iloc[-1]
+                                if v_curr > v_avg * 1.5: vol_stat = "HEAVY"
+                                elif v_curr < v_avg * 0.5: vol_stat = "LIGHT"
+                        
+                        chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
+
+                    # Pre/Post Logic (If Live Price != Chart Price)
+                    pp_p = 0.0; pp_pct = 0.0
+                    if abs(curr_price - day_change) > 0.01: # Basic check
+                         pp_p = curr_price; pp_pct = day_change
+
+                    sql = """
+                    INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, pre_post_price, pre_post_pct, day_high, day_low, last_updated)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON DUPLICATE KEY UPDATE
+                    current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, pre_post_price=%s, pre_post_pct=%s, day_high=%s, day_low=%s, last_updated=NOW()
+                    """
+                    v = (t, curr_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l,
+                         curr_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l)
+                    cursor.execute(sql, v)
+                    conn.commit()
+                except: pass
+
+        # 4. SURGICAL METADATA (Ratings/Earnings) - Limit 3 per run to be safe
+        if to_fetch_meta:
+            for t in to_fetch_meta[:3]: 
+                try:
+                    tk = yf.Ticker(t)
+                    info = tk.info
+                    rating = info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
+                    name = info.get('shortName') or info.get('longName') or t
+                    earn = "N/A"
                     try:
-                        delta = df_hist['Close'].diff()
-                        g = delta.where(delta > 0, 0).rolling(14).mean(); l = (-delta.where(delta < 0, 0)).rolling(14).mean()
-                        if not l.empty and l.iloc[-1] != 0: rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1])))
+                        cal = tk.calendar
+                        if isinstance(cal, dict) and 'Earnings Date' in cal:
+                            earn = cal['Earnings Date'][0].strftime('%b %d')
                     except: pass
-                    if not df_hist['Volume'].empty:
-                        v_avg = df_hist['Volume'].mean()
-                        if v_avg > 0:
-                            v_curr = df_hist['Volume'].iloc[-1]
-                            if v_curr > v_avg * 1.5: vol_stat = "HEAVY"
-                            elif v_curr < v_avg * 0.5: vol_stat = "LIGHT"
                     
-                    chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
+                    sql = "UPDATE stock_cache SET rating=%s, next_earnings=%s, company_name=%s WHERE ticker=%s"
+                    cursor.execute(sql, (rating, earn, name, t))
+                    conn.commit()
+                    time.sleep(0.5) # Be gentle
+                except: pass
 
-                # Pre/Post
-                pp_p = 0.0; pp_pct = 0.0
-                if len(df_live) > 0: pp_p = curr_price; pp_pct = day_change
-
-                # Default Metadata (Lazy)
-                rating = "N/A"; earn = "N/A"; comp_name = t
-
-                sql = """
-                INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, rating, next_earnings, pre_post_price, pre_post_pct, price_history, company_name, day_high, day_low, last_updated)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                ON DUPLICATE KEY UPDATE
-                current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, pre_post_price=%s, pre_post_pct=%s, day_high=%s, day_low=%s, last_updated=NOW()
-                """
-                v = (t, curr_price, day_change, rsi, vol_stat, trend, rating, earn, pp_p, pp_pct, chart_json, comp_name, day_h, day_l,
-                     curr_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l)
-                cursor.execute(sql, v)
-                conn.commit()
-            except: pass
         conn.close()
     except: pass
 # ----------------------------------------------------
@@ -394,7 +417,7 @@ def get_fundamentals(s):
         cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
         row = cursor.fetchone()
         conn.close()
-        return {"rating": row['rating'], "earn": row['next_earnings']} if row else {"rating": "N/A", "earn": "N/A"}
+        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
     except: return {"rating": "N/A", "earn": "N/A"}
 
 @st.cache_data(ttl=10)
@@ -415,13 +438,12 @@ def get_pro_data(s):
         display_name = row.get('company_name') or s
 
         pp_html = ""
+        # Improved Post Market Logic
         if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
             pp_c = float(row['pre_post_pct'])
-            # Logic: If price in DB (Live) differs from Price in Chart (History)
-            if abs(pp_p - price) < 0.01:
-                pass # Same
-            else:
+            # Only show if live price differs from chart close
+            if abs(pp_p - price) > 0.01:
                 now = datetime.now(timezone.utc) - timedelta(hours=5)
                 lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
                 if now.weekday() > 4: lbl = "POST" 
