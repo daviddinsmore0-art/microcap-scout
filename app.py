@@ -59,7 +59,6 @@ def init_db():
 
 # --- AUTHENTICATION ---
 def check_user_exists(username):
-    # Returns True if user exists, and their PIN (if they have one)
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -67,7 +66,7 @@ def check_user_exists(username):
         res = cursor.fetchone()
         conn.close()
         if res:
-            return True, res[0] # Exists, PIN
+            return True, res[0]
         return False, None
     except:
         return False, None
@@ -324,6 +323,9 @@ def get_pro_data(s):
         trend = row['trend_status']
         vol_stat = row['volume_status']
         
+        # USE COMPANY NAME IF AVAILABLE
+        display_name = row.get('company_name') or s
+
         pp_html = ""
         if row['pre_post_price'] and float(row['pre_post_price']) > 0:
             pp_p = float(row['pre_post_price'])
@@ -345,15 +347,36 @@ def get_pro_data(s):
         chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
 
         return {
-            "p": price, "d": change, "name": s, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": 50, "h": price, "l": price,
+            "p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": 50, "h": price, "l": price,
             "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data,
         }
     except: return None
 
 @st.cache_data(ttl=60)
-def get_tape_data(symbol_string):
+def get_tape_data(symbol_string, nickname_string=""):
     items = []
-    symbols = [x.strip() for x in symbol_string.split(",") if x.strip()]
+    symbols = [x.strip().upper() for x in symbol_string.split(",") if x.strip()]
+    
+    # PARSE NICKNAMES (Admin Setting)
+    nick_map = {}
+    if nickname_string:
+        try:
+            pairs = nickname_string.split(",")
+            for p in pairs:
+                if ":" in p:
+                    k, v = p.split(":")
+                    nick_map[k.strip().upper()] = v.strip().upper()
+        except: pass
+
+    # DEFAULT FALLBACKS
+    defaults = {
+        "^DJI": "DOW", "^IXIC": "NASDAQ", "^GSPC": "S&P500", 
+        "^GSPTSE": "TSX", "GC=F": "GOLD", "SI=F": "SILVER", 
+        "BTC-USD": "BTC", "CL=F": "OIL", "EURUSD=X": "USD/EUR"
+    }
+    final_map = defaults.copy()
+    final_map.update(nick_map)
+
     if not symbols: return ""
     try:
         conn = get_connection()
@@ -367,9 +390,22 @@ def get_tape_data(symbol_string):
             if s in data_map:
                 row = data_map[s]
                 px, chg = float(row['current_price']), float(row['day_change'])
+                
+                # NICKNAME LOGIC
+                if s in final_map:
+                    disp_name = final_map[s]
+                else:
+                    raw_name = row.get('company_name') or s
+                    disp_name = (raw_name
+                                 .replace(", Inc.", "").replace(" Inc.", "")
+                                 .replace(" Corporation", "").replace(" Corp.", "")
+                                 .replace(" Limited", "").replace(" Ltd.", "")
+                                 .strip())
+                    if len(disp_name) > 15: disp_name = disp_name[:15].strip() + ".."
+
                 color = "#4caf50" if chg >= 0 else "#ff4b4b"
                 arrow = "▲" if chg >= 0 else "▼"
-                items.append(f"<span style='color:#ccc; margin-left:20px;'>{s}</span> <span style='color:{color}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
+                items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp_name}</span> <span style='color:{color}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
     except: pass
     return "   ".join(items)
 
@@ -387,9 +423,8 @@ if "init" not in st.session_state:
             st.session_state["global_data"] = load_global_config()
             st.session_state["logged_in"] = True
 
-# --- BOOMERANG CATCHER (FIREBASE/GENERAL) ---
-if "fcm_token" in st.query_params: # Leftover support if you switch back
-    st.query_params.clear()
+# --- BOOMERANG CATCHER ---
+if "fcm_token" in st.query_params: st.query_params.clear()
 
 st.markdown("""<style>
 #MainMenu {visibility: visible;} footer {visibility: hidden;}
@@ -413,7 +448,6 @@ if not st.session_state["logged_in"]:
         else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
         st.markdown("##### 👋 Welcome")
         
-        # --- LOGIN FORM ---
         with st.form("login_form"):
             user = st.text_input("Username", placeholder="e.g. Dave")
             pin = st.text_input("4-Digit PIN", type="password", max_chars=4, help="Create a PIN if you are new. Enter your PIN if you are returning.")
@@ -421,8 +455,6 @@ if not st.session_state["logged_in"]:
 
             if submit and user and pin:
                 exists, stored_pin = check_user_exists(user.strip())
-                
-                # CASE 1: RETURNING USER
                 if exists:
                     if stored_pin and stored_pin == pin:
                         st.success("Welcome back!")
@@ -435,12 +467,9 @@ if not st.session_state["logged_in"]:
                     elif stored_pin and stored_pin != pin:
                         st.error("❌ Incorrect PIN for this user.")
                     else:
-                        # Legacy user with no PIN - Let them in, but save PIN next time
                         st.warning("⚠️ Account has no PIN. We will set it now.")
                         save_user_profile(user.strip(), load_user_profile(user.strip()), pin)
                         st.rerun()
-                
-                # CASE 2: NEW USER
                 else:
                     st.success("Creating new account...")
                     save_user_profile(user.strip(), {"w_input": "TD.TO, SPY"}, pin)
@@ -453,7 +482,7 @@ if not st.session_state["logged_in"]:
 
 else:
     def push_user():
-        save_user_profile(st.session_state["username"], st.session_state["user_data"]) # Preserves PIN logic
+        save_user_profile(st.session_state["username"], st.session_state["user_data"])
     def push_global():
         save_global_config(st.session_state["global_data"])
 
@@ -461,7 +490,12 @@ else:
     USER = st.session_state["user_data"]
     ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 
-    tape_content = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F"))
+    # --- UPDATED TAPE CALL (With Nicknames) ---
+    tape_content = get_tape_data(
+        GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F"), 
+        GLOBAL.get("tape_nicknames", "")
+    )
+    
     header_html = f"""<!DOCTYPE html><html><head><style>
 body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }}
 .ticker-container {{ width: 100%; height: 45px; background: #111; display: flex; align-items: center; border-bottom: 1px solid #333; border-radius: 0 0 15px 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }}
@@ -516,8 +550,17 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                 if st.button("Delete") and rem: del GLOBAL["portfolio"][rem]; push_global(); st.rerun()
 
                 st.divider(); st.caption("APP CONFIG (AI & TAPE)")
-                new_tape = st.text_input("Ticker Tape", value=GLOBAL.get("tape_input", ""))
+                
+                # --- NEW ADMIN FEATURES ---
+                new_tape = st.text_input("Ticker Tape Symbols", value=GLOBAL.get("tape_input", ""))
                 if new_tape != GLOBAL.get("tape_input", ""): GLOBAL["tape_input"] = new_tape; push_global(); st.rerun()
+
+                def_nicks = "^DJI:DOW, ^IXIC:NASDAQ, ^GSPTSE:TSX, GC=F:GOLD, SI=F:SILVER"
+                cur_nicks = GLOBAL.get("tape_nicknames", def_nicks)
+                new_nicks = st.text_area("Tape Nicknames (Symbol:Name)", value=cur_nicks, height=70, help="Format: TICKER:NAME, TICKER2:NAME2")
+                if new_nicks != cur_nicks: GLOBAL["tape_nicknames"] = new_nicks; push_global(); st.rerun()
+                # --------------------------
+
                 curr_k = GLOBAL.get("openai_key", "")
                 new_key = st.text_input("OpenAI Key", value=curr_k, type="password")
                 if new_key != curr_k: GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
