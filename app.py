@@ -418,8 +418,17 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
         st.subheader("Your Watchlist")
+        
+        # --- NEW WARNING LOGIC ---
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
-        if new_w != USER.get("w_input"): USER["w_input"] = new_w; push_user(); st.rerun()
+        if new_w != USER.get("w_input"):
+            USER["w_input"] = new_w
+            push_user()
+            st.info("ℹ️ Watchlist updated. New tickers may take up to 5 minutes to appear.")
+            time.sleep(2)
+            st.rerun()
+        # -------------------------
+
         st.divider()
 
         with st.expander("🔔 Alert Settings"):
@@ -558,3 +567,7 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             if not news_items: st.info("No discovery news found.")
             else:
                 for n in news_items: render_news(n)
+
+    # --- AUTO-REFRESH RESTORED ---
+    time.sleep(60)
+    st.rerun()
