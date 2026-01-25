@@ -5,12 +5,18 @@ import pandas as pd
 import json
 from datetime import datetime, timezone, timedelta
 
-# --- CONFIG ---
+# --- CONFIG (THE FIX IS HERE) ---
+# We use 'or' to ignore empty strings from GitHub
+DB_HOST = os.environ.get("DB_HOST") or "72.55.168.16"
+DB_USER = os.environ.get("DB_USER") or "penny_user"
+DB_PASS = os.environ.get("DB_PASS") or "123456"
+DB_NAME = os.environ.get("DB_NAME") or "penny_pulse"
+
 DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "72.55.168.16"),
-    "user": os.environ.get("DB_USER", "penny_user"),
-    "password": os.environ.get("DB_PASS", "123456"),
-    "database": os.environ.get("DB_NAME", "penny_pulse"),
+    "host": DB_HOST,
+    "user": DB_USER,
+    "password": DB_PASS,
+    "database": DB_NAME,
     "connect_timeout": 30
 }
 
@@ -59,15 +65,15 @@ def update_stock_cache():
     for t in all_tickers:
         try:
             tk = yf.Ticker(t)
-            # Fetch 1mo for tech analysis
             hist = tk.history(period="1mo", interval="1d")
             
             if not hist.empty:
-                # -- Standard Data --
+                # -- Price --
                 curr = hist['Close'].iloc[-1]
                 prev = hist['Close'].iloc[-2] if len(hist) > 1 else curr
                 change = ((curr - prev) / prev) * 100
                 
+                # -- Techs --
                 rsi = 50.0
                 try:
                     rsi_series = calculate_rsi(hist['Close'])
@@ -94,17 +100,15 @@ def update_stock_cache():
                 pp_price = 0.0
                 pp_pct = 0.0
                 try:
-                    # Fetch minimal intraday data including pre/post
                     live = tk.history(period="1d", interval="1m", prepost=True)
                     if not live.empty:
                         last_price = live['Close'].iloc[-1]
-                        # Only count it if it differs from close by > 0.01
                         if abs(last_price - curr) > 0.01:
                             pp_price = float(last_price)
                             pp_pct = float(((last_price - curr) / curr) * 100)
                 except: pass
 
-                # -- SQL Upsert --
+                # -- SQL --
                 sql = """
                 INSERT INTO stock_cache 
                 (ticker, current_price, day_change, rsi, volume_status, trend_status, rating, next_earnings, pre_post_price, pre_post_pct)
