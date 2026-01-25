@@ -419,7 +419,7 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
         st.subheader("Your Watchlist")
         
-        # --- NEW WARNING LOGIC ---
+        # --- WATCHLIST LOGIC ---
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
         if new_w != USER.get("w_input"):
             USER["w_input"] = new_w
@@ -427,14 +427,21 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             st.info("ℹ️ Watchlist updated. New tickers may take up to 5 minutes to appear.")
             time.sleep(2)
             st.rerun()
-        # -------------------------
 
         st.divider()
 
         with st.expander("🔔 Alert Settings"):
             st.caption("TELEGRAM CONNECTION")
             curr_tg = USER.get("telegram_id", "")
-            new_tg = st.text_input("Telegram Chat ID", value=curr_tg)
+            
+            # --- TOOLTIP ADDED HERE ---
+            new_tg = st.text_input(
+                "Telegram Chat ID", 
+                value=curr_tg, 
+                help="1. Download Telegram App.\n2. Search for @userinfobot.\n3. Click Start to get your ID.\n4. Paste it here."
+            )
+            # --------------------------
+
             if new_tg != curr_tg: USER["telegram_id"] = new_tg.strip(); push_user(); st.success("Saved!"); time.sleep(1); st.rerun()
             st.markdown("[Get my ID](https://t.me/userinfobot)", unsafe_allow_html=True)
             st.divider(); st.caption("ALERT PREFERENCES")
@@ -568,6 +575,6 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             else:
                 for n in news_items: render_news(n)
 
-    # --- AUTO-REFRESH RESTORED ---
+    # --- AUTO-REFRESH (Keep Screen Alive) ---
     time.sleep(60)
     st.rerun()
