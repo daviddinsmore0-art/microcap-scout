@@ -35,7 +35,7 @@ LOGO_PATH = "logo.png"
 # We are connecting directly to your new working database.
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com",
-    "user": "atlantic",                   # Master User
+    "user": "atlantic",                 # Master User
     "password": "1q2w3e4R!!",   # <--- PASTE YOUR PASSWORD HERE
     "database": "atlantic_pennypulse",    # New Database Name
     "connect_timeout": 30,
@@ -449,56 +449,63 @@ def get_fundamentals(s):
         return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
     except: return {"rating": "N/A", "earn": "N/A"}
 
-@st.cache_data(ttl=10)
-def get_pro_data(s):
+def get_batch_data(tickers_list):
+    """Grabs data for ALL tickers in 1 split second."""
+    if not tickers_list: return {}
+    results = {}
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM stock_cache WHERE ticker = %s", (s,))
-        row = cursor.fetchone()
+        # Magic: One query for everyone
+        format_strings = ','.join(['%s'] * len(tickers_list))
+        cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers_list))
+        rows = cursor.fetchall()
         conn.close()
-        if not row: return None
-
-        price = float(row['current_price'])
-        change = float(row['day_change'])
-        rsi_val = float(row['rsi'])
-        trend = row['trend_status']
-        vol_stat = row['volume_status']
-        display_name = row.get('company_name') or s
-
-        pp_html = ""
-        if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
-            pp_p = float(row['pre_post_price'])
-            pp_c = float(row['pre_post_pct'])
-            if abs(pp_p - price) > 0.01:
-                now = datetime.now(timezone.utc) - timedelta(hours=5)
-                lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
-                if now.weekday() > 4: lbl = "POST" 
-                col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
-                pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
-
-        vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
         
-        # Day Range
-        day_h = float(row.get('day_high') or price)
-        day_l = float(row.get('day_low') or price)
-        range_pos = 50
-        if day_h > day_l:
-            range_pos = ((price - day_l) / (day_h - day_l)) * 100
-            range_pos = max(0, min(100, range_pos))
+        # Process them just like before, but locally
+        for row in rows:
+            s = row['ticker']
+            price = float(row['current_price'])
+            change = float(row['day_change'])
+            rsi_val = float(row['rsi'])
+            trend = row['trend_status']
+            vol_stat = row['volume_status']
+            display_name = row.get('company_name') or s
+            
+            # Formatting Pre/Post
+            pp_html = ""
+            if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
+                pp_p = float(row['pre_post_price'])
+                pp_c = float(row['pre_post_pct'])
+                if abs(pp_p - price) > 0.01:
+                    now = datetime.now(timezone.utc) - timedelta(hours=5)
+                    lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
+                    if now.weekday() > 4: lbl = "POST" 
+                    col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
+                    pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
 
-        raw_hist = row.get('price_history')
-        points = json.loads(raw_hist) if raw_hist else [price] * 20
-        chart_data = pd.DataFrame({'Idx': range(len(points)), 'Stock': points})
-        base = chart_data['Stock'].iloc[0]
-        if base == 0: base = 1
-        chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
+            vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
+            
+            day_h = float(row.get('day_high') or price)
+            day_l = float(row.get('day_low') or price)
+            range_pos = 50
+            if day_h > day_l:
+                range_pos = ((price - day_l) / (day_h - day_l)) * 100
+                range_pos = max(0, min(100, range_pos))
 
-        return {
-            "p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l,
-            "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data,
-        }
-    except: return None
+            raw_hist = row.get('price_history')
+            points = json.loads(raw_hist) if raw_hist else [price] * 20
+            chart_data = pd.DataFrame({'Idx': range(len(points)), 'Stock': points})
+            base = chart_data['Stock'].iloc[0]
+            if base == 0: base = 1
+            chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
+
+            results[s] = {
+                "p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l,
+                "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data,
+            }
+    except: pass
+    return results
 
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
@@ -700,65 +707,100 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             logout_session(st.query_params.get("token"))
             st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
     
+    # --- MAIN UI TABS ---
     t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
 
-    def draw(t, port=None):
-        d = get_pro_data(t)
-        if not d: 
-            st.markdown(f"<div style='padding:15px; border:1px dashed #ccc; border-radius:10px; color:#888; font-size:12px;'>⚠️ <b>{t}</b>: Processing...</div>", unsafe_allow_html=True)
-            return
+    # --- 1. THE FRAGMENT (Silent Update Engine) ---
+    # This runs every 60 seconds automatically. 
+    # It ONLY refreshes the Stock Cards, not the sidebar or tabs.
+    @st.fragment(run_every=60)
+    def render_live_dashboard():
+        # A. PREPARE DATA LISTS
+        # 1. User Watchlist
+        w_tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
+        
+        # 2. Portfolio Tickers
+        port = GLOBAL.get("portfolio", {})
+        p_tickers = list(port.keys())
+        
+        # 3. Combine unique for ONE fast DB call
+        all_needed = list(set(w_tickers + p_tickers))
+        
+        # B. FAST FETCH (0.2 Seconds)
+        batch_data = get_batch_data(all_needed)
 
-        f = get_fundamentals(t)
-        b_col, arrow = ("#4caf50", "▲") if d["d"] >= 0 else ("#ff4b4b", "▼")
-        r_up = f["rating"].upper()
-        r_col = "#4caf50" if "BUY" in r_up or "OUT" in r_up else "#ff4b4b" if "SELL" in r_up or "UNDER" in r_up else "#f1c40f"
-        ai_col = "#4caf50" if d["ai"] == "BULLISH" else "#ff4b4b"
-        tr_col = "#4caf50" if d["trend"] == "UPTREND" else "#ff4b4b"
-        header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div>"""
-        pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
-        if f["rating"] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
-        if f["earn"] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
-        with st.container():
-            st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
-            st.markdown(header_html, unsafe_allow_html=True)
-            st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
-            chart = alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45)
-            st.altair_chart(chart, use_container_width=True)
-            st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
-            rsi, rsi_bg = d["rsi"], "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
-            st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{ "HOT" if rsi>70 else "COLD" if rsi<30 else "NEUTRAL" }</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_bg};"></div></div>""", unsafe_allow_html=True)
-            st.markdown(f"""<div class="metric-label"><span>Volume ({d['vol_pct']:.0f}%)</span><span style="color:#3498db; font-weight:bold;">{ "HEAVY" if d['vol_pct']>120 else "LIGHT" if d['vol_pct']<80 else "NORMAL" }</span></div><div class="bar-bg"><div class="bar-fill" style="width:{min(d['vol_pct'], 100)}%; background:#3498db;"></div></div>""", unsafe_allow_html=True)
-            if port:
-                gain = (d["p"] - port["e"]) * port["q"]
-                st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port['q']}</b></span><span>Avg: <b>${port['e']}</b></span><span style="color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
-            st.divider()
+        # C. HELPER TO DRAW CARD (Uses pre-fetched data)
+        def draw_card(t, port_item=None):
+            d = batch_data.get(t)
+            if not d: 
+                st.markdown(f"<div style='padding:15px; border:1px dashed #ccc; border-radius:10px; color:#888; font-size:12px;'>⚠️ <b>{t}</b>: Processing...</div>", unsafe_allow_html=True)
+                return
 
+            f = get_fundamentals(t) # Keeps fundamental cache
+            b_col, arrow = ("#4caf50", "▲") if d["d"] >= 0 else ("#ff4b4b", "▼")
+            r_up = f["rating"].upper()
+            r_col = "#4caf50" if "BUY" in r_up or "OUT" in r_up else "#ff4b4b" if "SELL" in r_up or "UNDER" in r_up else "#f1c40f"
+            ai_col = "#4caf50" if d["ai"] == "BULLISH" else "#ff4b4b"
+            tr_col = "#4caf50" if d["trend"] == "UPTREND" else "#ff4b4b"
+            
+            header_html = f"""<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;"><div><div style="font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;">{t}</div><div style="font-size:12px; color:#888; margin-top:-2px;">{d['name'][:25]}...</div></div><div style="text-align:right;"><div style="font-size:22px; font-weight:bold; color:#2c3e50;">${d['p']:,.2f}</div><div style="font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;">{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div>"""
+            
+            pills_html = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
+            if f["rating"] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
+            if f["earn"] != "N/A": pills_html += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
+            
+            with st.container():
+                st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div>", unsafe_allow_html=True)
+                st.markdown(header_html, unsafe_allow_html=True)
+                st.markdown(f'<div style="margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;">{pills_html}</div>', unsafe_allow_html=True)
+                
+                chart = alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45)
+                st.altair_chart(chart, use_container_width=True)
+                
+                st.markdown(f"""<div class="metric-label"><span>Day Range</span><span style="color:#555">${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class="bar-bg"><div class="bar-fill" style="width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);"></div></div>""", unsafe_allow_html=True)
+                
+                rsi, rsi_bg = d["rsi"], "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
+                st.markdown(f"""<div class="metric-label"><span>RSI ({int(rsi)})</span><span class="tag" style="background:{rsi_bg}">{ "HOT" if rsi>70 else "COLD" if rsi<30 else "NEUTRAL" }</span></div><div class="bar-bg"><div class="bar-fill" style="width:{rsi}%; background:{rsi_bg};"></div></div>""", unsafe_allow_html=True)
+                
+                if port_item:
+                    gain = (d["p"] - port_item["e"]) * port_item["q"]
+                    st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style="color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
+                st.divider()
+
+        # D. RENDER TABS 1 & 2 INSIDE THE FRAGMENT
+        with t1:
+            cols = st.columns(3)
+            for i, t in enumerate(w_tickers):
+                with cols[i % 3]: draw_card(t)
+
+        with t2:
+            if not port: st.info("No Picks Published.")
+            else:
+                total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
+                for k, v in port.items():
+                    d = batch_data.get(k) # Use fast batch data
+                    if d:
+                        total_val += d["p"] * v["q"]; total_cost += v["e"] * v["q"]
+                        if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
+                
+                day_col, tot_col = ("#4caf50" if day_pl_sum >= 0 else "#ff4b4b"), ("#4caf50" if (total_val - total_cost) >= 0 else "#ff4b4b")
+                day_pct = (day_pl_sum / (total_val - day_pl_sum) * 100) if (total_val - day_pl_sum) > 0 else 0
+                tot_pct = ((total_val - total_cost) / total_cost * 100) if total_cost > 0 else 0
+                
+                st.markdown(f"""<div style="background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;"><div style="display:flex; justify-content:space-between; margin-bottom:10px;"><div><div style="font-size:11px; color:#888; font-weight:bold;">NET ASSETS</div><div style="font-size:24px; font-weight:900; color:#333;">${total_val:,.2f}</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">INVESTED</div><div style="font-size:24px; font-weight:900; color:#555;">${total_cost:,.2f}</div></div></div><div style="height:1px; background:#eee; margin:10px 0;"></div><div style="display:flex; justify-content:space-between;"><div><div style="font-size:11px; color:#888; font-weight:bold;">DAY P/L</div><div style="font-size:16px; font-weight:bold; color:{day_col};">${day_pl_sum:+,.2f} ({day_pct:+.2f}%)</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">TOTAL P/L</div><div style="font-size:16px; font-weight:bold; color:{tot_col};">${total_val - total_cost:+,.2f} ({tot_pct:+.2f}%)</div></div></div></div>""", unsafe_allow_html=True)
+                
+                cols = st.columns(3)
+                for i, (k, v) in enumerate(port.items()):
+                    with cols[i % 3]: draw_card(k, v)
+
+    # --- EXECUTE THE DASHBOARD ---
+    render_live_dashboard()
+
+    # --- NEWS TABS (Static, manual refresh) ---
     def render_news(n):
         col, disp = ("#4caf50" if n["sentiment"]=="BULLISH" else "#ff4b4b" if n["sentiment"]=="BEARISH" else "#333"), n["ticker"] if n["ticker"] else "MARKET"
         st.markdown(f"""<div class="news-card" style="border-left-color: {col};"><div style="display:flex; align-items:center;"><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
 
-    with t1:
-        tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
-        cols = st.columns(3)
-        for i, t in enumerate(tickers):
-            with cols[i % 3]: draw(t)
-    with t2:
-        port = GLOBAL.get("portfolio", {})
-        if not port: st.info("No Picks Published.")
-        else:
-            total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
-            for k, v in port.items():
-                d = get_pro_data(k)
-                if d:
-                    total_val += d["p"] * v["q"]; total_cost += v["e"] * v["q"]
-                    if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
-            day_col, tot_col = ("#4caf50" if day_pl_sum >= 0 else "#ff4b4b"), ("#4caf50" if (total_val - total_cost) >= 0 else "#ff4b4b")
-            day_pct = (day_pl_sum / (total_val - day_pl_sum) * 100) if (total_val - day_pl_sum) > 0 else 0
-            tot_pct = ((total_val - total_cost) / total_cost * 100) if total_cost > 0 else 0
-            st.markdown(f"""<div style="background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;"><div style="display:flex; justify-content:space-between; margin-bottom:10px;"><div><div style="font-size:11px; color:#888; font-weight:bold;">NET ASSETS</div><div style="font-size:24px; font-weight:900; color:#333;">${total_val:,.2f}</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">INVESTED</div><div style="font-size:24px; font-weight:900; color:#555;">${total_cost:,.2f}</div></div></div><div style="height:1px; background:#eee; margin:10px 0;"></div><div style="display:flex; justify-content:space-between;"><div><div style="font-size:11px; color:#888; font-weight:bold;">DAY P/L</div><div style="font-size:16px; font-weight:bold; color:{day_col};">${day_pl_sum:+,.2f} ({day_pct:+.2f}%)</div></div><div style="text-align:right;"><div style="font-size:11px; color:#888; font-weight:bold;">TOTAL P/L</div><div style="font-size:16px; font-weight:bold; color:{tot_col};">${total_val - total_cost:+,.2f} ({tot_pct:+.2f}%)</div></div></div></div>""", unsafe_allow_html=True)
-            cols = st.columns(3)
-            for i, (k, v) in enumerate(port.items()):
-                with cols[i % 3]: draw(k, v)
     with t3:
         c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
         if c_btn.button("🔄 Refresh", key="btn_n1"):
@@ -780,7 +822,3 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             if not news_items: st.info("No discovery news found.")
             else:
                 for n in news_items: render_news(n)
-
-    # --- SILENT REFRESH (Keep Data Fresh) ---
-    time.sleep(60)
-    st.rerun()
