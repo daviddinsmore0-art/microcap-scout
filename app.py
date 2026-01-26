@@ -34,7 +34,7 @@ LOGO_PATH = "logo.png"
 # *** DATABASE CONFIG (MASTER KEY) ***
 # We are connecting directly to your new working database.
 DB_CONFIG = {
-    "host": "localhost",
+    "host": "atlanticcanadaschoice.com",
     "user": "atlantic",                   # Master User
     "password": "1q2w3e4R!!",   # <--- PASTE YOUR PASSWORD HERE
     "database": "atlantic_pennypulse",    # New Database Name
