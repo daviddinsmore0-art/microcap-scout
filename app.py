@@ -707,36 +707,30 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
             logout_session(st.query_params.get("token"))
             st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
     
-    # --- MAIN UI TABS ---
-    t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
-
-    # --- 1. THE FRAGMENT (Silent Update Engine) ---
-    # This runs every 60 seconds automatically. 
-    # It ONLY refreshes the Stock Cards, not the sidebar or tabs.
+    # --- MAIN DASHBOARD (FRAGMENT) ---
+    # We wrap the TABS inside this fragment so they clear and redraw correctly every 60s.
     @st.fragment(run_every=60)
-    def render_live_dashboard():
-        # A. PREPARE DATA LISTS
-        # 1. User Watchlist
+    def render_dashboard():
+        # 1. Create Tabs INSIDE the fragment (Fixes duplication bug)
+        t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
+
+        # 2. Prepare Data
         w_tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
-        
-        # 2. Portfolio Tickers
         port = GLOBAL.get("portfolio", {})
         p_tickers = list(port.keys())
-        
-        # 3. Combine unique for ONE fast DB call
         all_needed = list(set(w_tickers + p_tickers))
         
-        # B. FAST FETCH (0.2 Seconds)
+        # 3. Fast Fetch
         batch_data = get_batch_data(all_needed)
 
-        # C. HELPER TO DRAW CARD (Uses pre-fetched data)
+        # 4. Helper to Draw Cards
         def draw_card(t, port_item=None):
             d = batch_data.get(t)
             if not d: 
                 st.markdown(f"<div style='padding:15px; border:1px dashed #ccc; border-radius:10px; color:#888; font-size:12px;'>⚠️ <b>{t}</b>: Processing...</div>", unsafe_allow_html=True)
                 return
 
-            f = get_fundamentals(t) # Keeps fundamental cache
+            f = get_fundamentals(t)
             b_col, arrow = ("#4caf50", "▲") if d["d"] >= 0 else ("#ff4b4b", "▼")
             r_up = f["rating"].upper()
             r_col = "#4caf50" if "BUY" in r_up or "OUT" in r_up else "#ff4b4b" if "SELL" in r_up or "UNDER" in r_up else "#f1c40f"
@@ -767,18 +761,19 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                     st.markdown(f"""<div style="background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;"><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style="color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;">${gain:+,.0f}</span></div>""", unsafe_allow_html=True)
                 st.divider()
 
-        # D. RENDER TABS 1 & 2 INSIDE THE FRAGMENT
+        # 5. Render Tab 1 (Watchlist)
         with t1:
             cols = st.columns(3)
             for i, t in enumerate(w_tickers):
                 with cols[i % 3]: draw_card(t)
 
+        # 6. Render Tab 2 (Portfolio)
         with t2:
             if not port: st.info("No Picks Published.")
             else:
                 total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
                 for k, v in port.items():
-                    d = batch_data.get(k) # Use fast batch data
+                    d = batch_data.get(k)
                     if d:
                         total_val += d["p"] * v["q"]; total_cost += v["e"] * v["q"]
                         if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
@@ -793,32 +788,36 @@ body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; font-f
                 for i, (k, v) in enumerate(port.items()):
                     with cols[i % 3]: draw_card(k, v)
 
-    # --- EXECUTE THE DASHBOARD ---
-    render_live_dashboard()
+        # 7. Render Tab 3 (News)
+        # Note: We keep News inside the fragment so the tabs stay together.
+        def render_news(n):
+            col, disp = ("#4caf50" if n["sentiment"]=="BULLISH" else "#ff4b4b" if n["sentiment"]=="BEARISH" else "#333"), n["ticker"] if n["ticker"] else "MARKET"
+            st.markdown(f"""<div class="news-card" style="border-left-color: {col};"><div style="display:flex; align-items:center;"><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
 
-    # --- NEWS TABS (Static, manual refresh) ---
-    def render_news(n):
-        col, disp = ("#4caf50" if n["sentiment"]=="BULLISH" else "#ff4b4b" if n["sentiment"]=="BEARISH" else "#333"), n["ticker"] if n["ticker"] else "MARKET"
-        st.markdown(f"""<div class="news-card" style="border-left-color: {col};"><div style="display:flex; align-items:center;"><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href="{n['link']}" target="_blank" class="news-title">{n['title']}</a></div><div class="news-meta">{n['published']}</div></div>""", unsafe_allow_html=True)
+        with t3:
+            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
+            # We use a key based on time to ensure button works inside fragment
+            if c_btn.button("🔄 Refresh", key=f"btn_n1_{int(time.time()/60)}"):
+                with st.spinner("Analyzing market news..."): fetch_news.clear(); fetch_news([], list(set([x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()] + list(GLOBAL.get("portfolio", {}).keys()))), ACTIVE_KEY); st.rerun()
+            if not NEWS_LIB_READY: st.error("Missing Libraries.")
+            else:
+                combined = list(set([x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()] + list(GLOBAL.get("portfolio", {}).keys())))
+                news_items = fetch_news([], combined, ACTIVE_KEY)
+                if not news_items: st.info("No news for your tickers.")
+                else:
+                    for n in news_items: render_news(n)
+        
+        # 8. Render Tab 4 (Discovery)
+        with t4:
+            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
+            if c_btn.button("🔄 Refresh", key=f"btn_n2_{int(time.time()/60)}"):
+                with st.spinner("Analyzing market news..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
+            if not NEWS_LIB_READY: st.error("Missing Libraries.")
+            else:
+                news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
+                if not news_items: st.info("No discovery news found.")
+                else:
+                    for n in news_items: render_news(n)
 
-    with t3:
-        c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
-        if c_btn.button("🔄 Refresh", key="btn_n1"):
-            with st.spinner("Analyzing market news..."): fetch_news.clear(); fetch_news([], list(set([x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()] + list(GLOBAL.get("portfolio", {}).keys()))), ACTIVE_KEY); st.rerun()
-        if not NEWS_LIB_READY: st.error("Missing Libraries.")
-        else:
-            combined = list(set([x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()] + list(GLOBAL.get("portfolio", {}).keys())))
-            news_items = fetch_news([], combined, ACTIVE_KEY)
-            if not news_items: st.info("No news for your tickers.")
-            else:
-                for n in news_items: render_news(n)
-    with t4:
-        c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
-        if c_btn.button("🔄 Refresh", key="btn_n2"):
-            with st.spinner("Analyzing market news..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
-        if not NEWS_LIB_READY: st.error("Missing Libraries.")
-        else:
-            news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
-            if not news_items: st.info("No discovery news found.")
-            else:
-                for n in news_items: render_news(n)
+    # --- EXECUTE EVERYTHING ---
+    render_dashboard()
