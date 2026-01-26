@@ -36,7 +36,7 @@ LOGO_PATH = "logo.png"
 DB_CONFIG = {
     "host": "localhost",
     "user": "atlantic",                   # Master User
-    "password": "YOUR_CPANEL_PASSWORD_HERE",   # <--- PASTE YOUR PASSWORD HERE
+    "password": "1q2w3e4R!!",   # <--- PASTE YOUR PASSWORD HERE
     "database": "atlantic_pennypulse",    # New Database Name
     "connect_timeout": 30,
 }
