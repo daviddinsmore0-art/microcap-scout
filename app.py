@@ -31,12 +31,13 @@ except:
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "")
 LOGO_PATH = "logo.png"
 
-# *** DATABASE CONFIG (SECRETS) ***
+# *** DATABASE CONFIG (MASTER KEY) ***
+# We are connecting directly to your new working database.
 DB_CONFIG = {
-    "host": st.secrets["DB_HOST"],
-    "user": st.secrets["DB_USER"],
-    "password": st.secrets["DB_PASS"],
-    "database": st.secrets["DB_NAME"],
+    "host": "localhost",
+    "user": "atlantic",                   # Master User
+    "password": "YOUR_CPANEL_PASSWORD_HERE",   # <--- PASTE YOUR PASSWORD HERE
+    "database": "atlantic_pennypulse",    # New Database Name
     "connect_timeout": 30,
 }
 
@@ -540,7 +541,7 @@ def get_tape_data(symbol_string, nickname_string=""):
                 color, arrow = ("#4caf50", "▲") if chg >= 0 else ("#ff4b4b", "▼")
                 items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp_name}</span> <span style='color:{color}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
     except: pass
-    return "   ".join(items)
+    return "    ".join(items)
 
 # --- UI LOGIC ---
 init_db()
