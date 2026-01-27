@@ -73,7 +73,7 @@ def init_db():
         # Ensure daily_briefing table exists with 'sent' column
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, sent TINYINT DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
         
-        # Auto-patch: Add 'sent' column if it's missing (Fixes your 1054 Error)
+        # Auto-patch: Add 'sent' column if it's missing
         try:
             cursor.execute("ALTER TABLE daily_briefing ADD COLUMN sent TINYINT DEFAULT 0")
         except: pass
@@ -223,14 +223,14 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (BATCH + HYBRID + HEADERS) ---
+# --- SCANNER ENGINE (ROBUST BATCH + 0.5% GAP) ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     discovery_tickers = set()
     
-    # 1. DISCOVERY: RSS Feeds (WITH HEADERS TO FIX BLOCKING)
+    # 1. DISCOVERY: RSS Feeds (WITH HEADERS)
     try:
         feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
@@ -249,13 +249,12 @@ def run_gap_scanner(api_key):
             except: continue
     except: pass
     
-    # 2. FALLBACK
-    if len(discovery_tickers) < 3:
-        discovery_tickers.update(["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "GME"])
+    # 2. FORCE FALLBACK (Ensures scanner never fails)
+    staples = ["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "GME", "HOLO", "MSTR", "DJT", "RIVN", "HOOD", "DKNG"]
+    discovery_tickers.update(staples)
     
     scan_list = list(discovery_tickers)
-    if not scan_list: return []
-
+    
     # 3. BATCH DOWNLOAD & FILTER
     try:
         data = yf.download(" ".join(scan_list), period="5d", interval="1d", group_by='ticker', threads=True, progress=False)
@@ -272,6 +271,7 @@ def run_gap_scanner(api_key):
                 prev_close = float(df['Close'].iloc[-2])
                 curr_price = float(df['Close'].iloc[-1]) 
                 
+                # Check Finnhub for real-time price
                 try:
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=1).json()
                     if 'c' in r and r['c'] != 0: curr_price = float(r['c'])
@@ -281,8 +281,8 @@ def run_gap_scanner(api_key):
                 avg_vol = df['Volume'].mean()
                 atr = (df['High'] - df['Low']).mean()
 
-                # STRICT CRITERIA: Gap > 1% AND Vol > 100k AND ATR > 0.50
-                if abs(gap_pct) >= 1.0 and avg_vol > 100000 and atr >= 0.50:
+                # RELAXED CRITERIA: Gap > 0.5% | Vol > 50k
+                if abs(gap_pct) >= 0.5 and avg_vol > 50000:
                     candidates.append({
                         "ticker": t,
                         "gap": gap_pct,
@@ -298,14 +298,15 @@ def run_gap_scanner(api_key):
             top_10 = candidates[:10]
             
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Pick Top 3 for morning momentum. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\nData: {str(top_10)}"
+            prompt = f"Pick Top 3 for day trading. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\nData: {str(top_10)}"
             resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
-            # Return just tickers, sorted by AI
             return picks if picks else [c['ticker'] for c in top_10[:3]]
         except: 
             return [c['ticker'] for c in candidates[:3]]
             
+    # Fallback if no AI
+    candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
     return [c['ticker'] for c in candidates[:3]]
 
 # --- MORNING BRIEFING ENGINE ---
