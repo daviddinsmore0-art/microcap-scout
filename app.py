@@ -70,8 +70,15 @@ def init_db():
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
-        cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-        # Auto-patch missing columns
+        # Ensure daily_briefing table exists with 'sent' column
+        cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, sent TINYINT DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        
+        # Auto-patch: Add 'sent' column if it's missing (Fixes your 1054 Error)
+        try:
+            cursor.execute("ALTER TABLE daily_briefing ADD COLUMN sent TINYINT DEFAULT 0")
+        except: pass
+
+        # Auto-patch missing stock columns
         for col in ['day_high', 'day_low', 'company_name', 'pre_post_price', 'rating', 'next_earnings']:
             try:
                 dtype = "DECIMAL(20,4)" if "day" in col or "price" in col else "VARCHAR(255)"
@@ -242,6 +249,7 @@ def run_gap_scanner(api_key):
             except: continue
     except: pass
     
+    # 2. FALLBACK
     if len(discovery_tickers) < 3:
         discovery_tickers.update(["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "GME"])
     
@@ -273,6 +281,7 @@ def run_gap_scanner(api_key):
                 avg_vol = df['Volume'].mean()
                 atr = (df['High'] - df['Low']).mean()
 
+                # STRICT CRITERIA: Gap > 1% AND Vol > 100k AND ATR > 0.50
                 if abs(gap_pct) >= 1.0 and avg_vol > 100000 and atr >= 0.50:
                     candidates.append({
                         "ticker": t,
@@ -292,6 +301,7 @@ def run_gap_scanner(api_key):
             prompt = f"Pick Top 3 for morning momentum. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\nData: {str(top_10)}"
             resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
+            # Return just tickers, sorted by AI
             return picks if picks else [c['ticker'] for c in top_10[:3]]
         except: 
             return [c['ticker'] for c in candidates[:3]]
@@ -309,7 +319,7 @@ def run_morning_briefing(api_key):
         if not cursor.fetchone() and 9 <= now.hour <= 10 and 45 <= now.minute <= 59:
             final_picks = run_gap_scanner(api_key)
             if final_picks:
-                cursor.execute("INSERT INTO daily_briefing (date, picks) VALUES (%s, %s)", (today_str, json.dumps(final_picks)))
+                cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(final_picks)))
                 conn.commit()
         conn.close()
     except: pass
@@ -521,7 +531,6 @@ def get_tape_data(symbol_string, nickname_string=""):
 init_db()
 run_backend_update()
 ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
-# Trigger Morning Briefing Logic
 run_morning_briefing(ACTIVE_KEY)
 
 if "init" not in st.session_state:
@@ -637,7 +646,7 @@ else:
                 new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
                 if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
                 
-                # --- NEW FORCE TEST BUTTON ---
+                # --- FORCE TEST BUTTON ---
                 st.divider()
                 st.markdown("### 🛠️ Testing")
                 if st.button("🔴 Force Morning Briefing (Test)"):
