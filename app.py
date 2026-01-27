@@ -552,23 +552,6 @@ else:
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
         
-        # --- SCANNER (COLLAPSED) ---
-        with st.expander("⚡ AI Daily Picks", expanded=False):
-            if st.button("🔎 Scan Market"):
-                with st.spinner("Hunting for setups..."):
-                    picks = run_gap_scanner(ACTIVE_KEY)
-                    if not picks: st.warning("No matches today.")
-                    else:
-                        try:
-                            conn = get_connection(); cursor = conn.cursor()
-                            today_str = datetime.now().strftime('%Y-%m-%d')
-                            cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
-                            cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
-                            conn.commit(); conn.close()
-                            for p in picks: st.markdown(f"**{p.get('ticker', p) if isinstance(p, dict) else p}**")
-                            st.divider()
-                        except: st.error("Database Error")
-
         st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
         if new_w != USER.get("w_input"):
@@ -589,7 +572,27 @@ else:
 
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
+                
+                # --- SCANNER (MOVED HERE) ---
+                st.markdown("### ⚡ AI Scanner")
+                if st.button("🔎 Scan Market"):
+                    with st.spinner("Hunting for setups..."):
+                        picks = run_gap_scanner(ACTIVE_KEY)
+                        if not picks: st.warning("No matches today.")
+                        else:
+                            try:
+                                conn = get_connection(); cursor = conn.cursor()
+                                today_str = datetime.now().strftime('%Y-%m-%d')
+                                cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
+                                cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
+                                conn.commit(); conn.close()
+                                for p in picks: st.markdown(f"**{p.get('ticker', p) if isinstance(p, dict) else p}**")
+                                st.divider()
+                            except: st.error("Database Error")
+                
                 # --- PORTFOLIO ---
+                st.divider()
+                st.markdown("### 💼 Portfolio")
                 if "portfolio" in USER and USER["portfolio"] and not GLOBAL.get("portfolio"):
                      if st.button("Import Old Picks"): GLOBAL["portfolio"] = USER["portfolio"]; push_global(); st.rerun()
                 new_t = st.text_input("Ticker").upper()
@@ -600,7 +603,7 @@ else:
                 rem = st.selectbox("Remove Pick", [""] + list(GLOBAL.get("portfolio", {}).keys()))
                 if st.button("Delete") and rem: del GLOBAL["portfolio"][rem]; push_global(); st.rerun()
                 
-                # --- GLOBAL SETTINGS (RESTORED) ---
+                # --- GLOBAL SETTINGS ---
                 st.divider()
                 st.markdown("### ⚙️ Global Settings")
                 
@@ -624,7 +627,6 @@ else:
                 # --- REMOTE CONTROL BUTTON ---
                 st.divider()
                 st.markdown("### 📡 Remote Trigger")
-                # UPDATED DEFAULT URL
                 trigger_url = st.text_input("Target URL", value="https://atlanticcanadaschoice.com/pennypulse/up.php")
                 if st.button("🚀 Dispatch Telegram Alerts"):
                     with st.spinner("Contacting Backend..."):
