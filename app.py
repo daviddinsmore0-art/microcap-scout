@@ -674,4 +674,12 @@ else:
         with t4:
             c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
             if c_btn.button("🔄 Refresh", key=f"btn_n2_{int(time.time()/60)}"):
-                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/
+                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
+            if not NEWS_LIB_READY: st.error("Missing Libraries.")
+            else:
+                news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
+                if not news_items: st.info("No news.")
+                else:
+                    for n in news_items: render_news(n)
+
+    render_dashboard()
