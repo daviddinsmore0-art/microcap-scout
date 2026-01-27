@@ -611,14 +611,14 @@ else:
                 new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
                 if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
 
-                # RESTORED: RSS FEEDS
+                # RSS FEEDS
                 curr_feeds = "\n".join(GLOBAL.get("rss_feeds", []))
                 new_feeds = st.text_area("RSS Feeds (One per line)", value=curr_feeds, height=80)
                 if new_feeds != curr_feeds:
                     GLOBAL["rss_feeds"] = [f.strip() for f in new_feeds.split("\n") if f.strip()]
                     push_global(); st.success("Feeds Updated!"); time.sleep(1); st.rerun()
                 
-                # RESTORED: TAPE SCROLLER
+                # TAPE SCROLLER
                 curr_tape = GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F")
                 new_tape = st.text_input("Ticker Tape (Comma Separated)", value=curr_tape)
                 if new_tape != curr_tape:
@@ -700,7 +700,18 @@ else:
                 st.divider()
 
         with t1:
-            # Banner Removed
+            # RESTORED: THE GREEN BANNER
+            try:
+                conn = get_connection(); cursor = conn.cursor(dictionary=True)
+                today = datetime.now().strftime('%Y-%m-%d')
+                cursor.execute("SELECT picks FROM daily_briefing WHERE date = %s", (today,))
+                row = cursor.fetchone(); conn.close()
+                if row:
+                    picks_list = json.loads(row['picks'])
+                    display_tickers = [p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list]
+                    st.success(f"📌 **Daily Picks:** {', '.join(display_tickers)}")
+            except: pass
+            
             cols = st.columns(3)
             for i, t in enumerate(w_tickers):
                 with cols[i % 3]: draw_card(t)
@@ -724,7 +735,6 @@ else:
                     with cols[i % 3]: draw_card(k, v)
 
         def render_news(n):
-            # SURGICAL CSS UPDATE: Fuzzy matching for Green/Red
             s_val = n["sentiment"].upper()
             if "BULL" in s_val or "POS" in s_val: col = "#4caf50"
             elif "BEAR" in s_val or "NEG" in s_val: col = "#ff4b4b"
