@@ -215,24 +215,54 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (MODIFIED: FINNHUB INTEGRATED) ---
+# --- SCANNER ENGINE (THE CYBORG) ---
 @st.cache_data(ttl=3600) # Runs once per hour to save API
 def run_gap_scanner(user_tickers, api_key):
-    # 1. EXPAND TARGET LIST
+    # 1. EXPAND TARGET LIST (User's + High Volatility)
     high_vol_tickers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "SPY", "QQQ", "IWM", "MSTR", "HOOD", "DKNG", "ROKU"]
     scan_list = list(set(high_vol_tickers + user_tickers))
-    candidates = []
-    fh_key = st.secrets.get("FINNHUB_API_KEY")
     
-    # 2. FINNHUB DOWNLOAD
+    candidates = []
+    
+    # 2. BATCH DOWNLOAD (Fast)
     try:
+        data = yf.download(" ".join(scan_list), period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
+        
         for t in scan_list:
-            r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=5).json()
-            if 'c' in r and r['c'] != 0:
-                gap = ((float(r['c']) - float(r['pc'])) / float(r['pc'])) * 100
-                if abs(gap) >= 1.0:
-                    candidates.append({"ticker": t, "gap": gap, "price": r['c'], "atr": 0.0})
-            time.sleep(0.1)
+            try:
+                if t in data.columns.levels[0]: df = data[t]
+                else: continue
+                
+                if len(df) < 14: continue # Need enough data for ATR
+                
+                # METRICS
+                curr_close = float(df['Close'].iloc[-1])
+                prev_close = float(df['Close'].iloc[-2])
+                open_price = float(df['Open'].iloc[-1])
+                
+                # A. GAP %
+                gap_pct = ((open_price - prev_close) / prev_close) * 100
+                
+                # B. VOLUME CHECK (> 500k avg)
+                avg_vol = df['Volume'].mean()
+                if avg_vol < 500000: continue
+                
+                # C. ATR CALC (> 0.50)
+                high_low = df['High'] - df['Low']
+                high_close = (df['High'] - df['Close'].shift()).abs()
+                low_close = (df['Low'] - df['Close'].shift()).abs()
+                ranges = pd.concat([high_low, high_close, low_close], axis=1)
+                true_range = ranges.max(axis=1)
+                atr = true_range.rolling(14).mean().iloc[-1]
+                
+                if atr < 0.50: continue
+
+                # D. GAP CRITERIA (> 1% or < -1%)
+                if abs(gap_pct) >= 1.0:
+                    candidates.append({
+                        "ticker": t, "gap": gap_pct, "atr": atr, "price": curr_close
+                    })
+            except: pass
     except: return []
 
     # 3. SORT & FILTER TOP 5
@@ -240,11 +270,11 @@ def run_gap_scanner(user_tickers, api_key):
     top_5 = candidates[:5]
     
     # 4. OPENAI JUDGMENT
-    final_picks = top_5 
+    final_picks = top_5 # Default if no AI
     if api_key and NEWS_LIB_READY and top_5:
         try:
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Analyze: {str(top_5)}. Return JSON: {{'picks': ['TICKER', 'TICKER']}}."
+            prompt = f"Analyze these stocks for a day trade. Pick the Top 3 based on momentum catalysts. Ignore buyout rumors. Return JSON: {{'picks': ['TICKER', 'TICKER']}}.\nData: {str(top_5)}"
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
@@ -342,7 +372,7 @@ def get_global_config_data():
     if g.get("rss_feeds"): rss_feeds = g.get("rss_feeds")
     return api_key, rss_feeds, g
 
-# --- NEWS ENGINE (MODIFIED: SENTIMENT MATCHING FIXED) ---
+# --- NEWS ENGINE ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -359,7 +389,9 @@ def fetch_news(feeds, tickers, api_key):
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    articles = []; seen = set(); smart_tickers = {t: t.split('.')[0] for t in tickers} if tickers else {}
+    articles = []; seen = set(); smart_tickers = {}
+    if tickers:
+        for t in tickers: smart_tickers[t] = t.split('.')[0]
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
@@ -368,18 +400,20 @@ def fetch_news(feeds, tickers, api_key):
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
-                    title_upper = entry.title.upper()
+                    title_upper = entry.title.upper(); summary_text = entry.get("summary", "")
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze: '{entry.title}'. Return: TICKER|SENTIMENT."
+                            prompt = f"Analyze this news: '{entry.title}'. Return: TICKER|SENTIMENT."
                             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans: 
                                 parts = ans.split("|"); found_ticker = parts[0].strip()
-                                # Fix: Explicit mapping to match CSS keys
+                                # SURGICAL FIX: ENSURE SENTIMENT MATCHES CSS KEYS (BULLISH/BEARISH)
                                 raw_sent = parts[1].strip()
-                                sentiment = "BULLISH" if "BULL" in raw_sent else "BEARISH" if "BEAR" in raw_sent else "NEUTRAL"
+                                if "BULL" in raw_sent: sentiment = "BULLISH"
+                                elif "BEAR" in raw_sent: sentiment = "BEARISH"
+                                else: sentiment = "NEUTRAL"
                         except: pass
                     if not found_ticker and tickers:
                         for original_t, root_t in smart_tickers.items():
@@ -561,8 +595,10 @@ else:
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
             a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
-            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True)):
-                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; push_user(); st.rerun()
+            # SURGICAL ADD: PREMARKET ALERT CHECKBOX
+            a_pre = st.checkbox("Premarket", value=USER.get("alert_pre", True))
+            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
+                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
 
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
@@ -604,7 +640,7 @@ else:
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 
-                # --- MODIFIED: VOLUME BAR ADDED ---
+                # --- SURGICAL ADD: VOLUME BAR VISUAL ---
                 st.markdown(f"""
                     <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
                     <div class='bar-bg'>
@@ -641,8 +677,11 @@ else:
                     with cols[i % 3]: draw_card(k, v)
 
         def render_news(n):
-            col, disp = ("#4caf50" if n["sentiment"]=="BULLISH" else "#ff4b4b" if n["sentiment"]=="BEARISH" else "#333"), n["ticker"] if n["ticker"] else "MARKET"
-            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']}</div></div>", unsafe_allow_html=True)
+            # SURGICAL CSS UPDATE: Ensures sentiment maps to colors (Green/Red) instead of Black
+            col_map = {"BULLISH": "#4caf50", "BEARISH": "#ff4b4b", "NEUTRAL": "#9e9e9e"}
+            col = col_map.get(n["sentiment"], "#333")
+            disp = n["ticker"] if n["ticker"] else "MARKET"
+            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
         with t3:
             c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
