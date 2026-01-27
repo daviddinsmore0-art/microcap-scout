@@ -407,7 +407,13 @@ def fetch_news(feeds, tickers, api_key):
                             prompt = f"Analyze this news: '{entry.title}'. Return: TICKER|SENTIMENT."
                             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
-                            if "|" in ans: parts = ans.split("|"); found_ticker = parts[0].strip(); sentiment = parts[1].strip()
+                            if "|" in ans: 
+                                parts = ans.split("|"); found_ticker = parts[0].strip()
+                                # NEW FIX: Fuzzy Match to force Green/Red colors
+                                raw_sent = parts[1].strip()
+                                if "POS" in raw_sent or "BULL" in raw_sent: sentiment = "BULLISH"
+                                elif "NEG" in raw_sent or "BEAR" in raw_sent: sentiment = "BEARISH"
+                                else: sentiment = "NEUTRAL"
                         except: pass
                     if not found_ticker and tickers:
                         for original_t, root_t in smart_tickers.items():
@@ -629,7 +635,7 @@ else:
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 
-                # --- SURGICAL ADDITION: VOLUME BAR RESTORED HERE ---
+                # --- NEW: RESTORED VOLUME BAR ---
                 st.markdown(f"""
                     <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
                     <div class='bar-bg'>
@@ -666,10 +672,13 @@ else:
                     with cols[i % 3]: draw_card(k, v)
 
         def render_news(n):
-            # SURGICAL EDIT: FUZZY SENTIMENT MATCHING FOR GREEN/RED
+            # --- NEW: Fuzzy Match Logic for Sentiment Colors ---
+            # If "POS" or "BULL" in text -> Green
+            # If "NEG" or "BEAR" in text -> Red
+            # Else -> Dark Grey/Black
             s_val = n["sentiment"].upper()
-            if "BULL" in s_val: col = "#4caf50"
-            elif "BEAR" in s_val: col = "#ff4b4b"
+            if "POS" in s_val or "BULL" in s_val: col = "#4caf50"
+            elif "NEG" in s_val or "BEAR" in s_val: col = "#ff4b4b"
             else: col = "#333"
             
             disp = n["ticker"] if n["ticker"] else "MARKET"
