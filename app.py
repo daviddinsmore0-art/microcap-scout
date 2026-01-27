@@ -214,10 +214,9 @@ def run_backend_update():
     except Exception: pass
 
 # --- SCANNER ENGINE (STRICT FINNHUB + OPENAI) ---
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600) # Runs once per hour to save API
 def run_gap_scanner(user_tickers, api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
-    # THE MOVERS LIST (Removed Watchlist fallback)
     movers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "MSTR", "MULN", "HOOD", "DKNG"]
     candidates = []
     
@@ -227,10 +226,7 @@ def run_gap_scanner(user_tickers, api_key):
             if 'c' in r and r['c'] != 0:
                 gap = ((float(r['c']) - float(r['pc'])) / float(r['pc'])) * 100
                 if abs(gap) >= 0.5:
-                    # FETCH ATR HISTORICALLY (Fixes NaN)
-                    hist = yf.download(t, period="5d", interval="1d", progress=False)
-                    atr = float((hist['High'] - hist['Low']).mean()) if not hist.empty else 0.0
-                    candidates.append({"ticker": t, "gap": gap, "price": r['c'], "atr": atr})
+                    candidates.append({"ticker": t, "gap": gap})
             time.sleep(0.1)
         except: continue
     
@@ -243,9 +239,10 @@ def run_gap_scanner(user_tickers, api_key):
             prompt = f"Analyze: {str(top_5)}. Return JSON with top 3 picks for day trade momentum: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}"
             resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
-            return [c for c in top_5 if c['ticker'] in picks] or top_5[:3]
+            # Simplified return
+            return picks if picks else [c['ticker'] for c in top_5[:3]]
         except: pass
-    return top_5[:3]
+    return [c['ticker'] for c in top_5[:3]]
 
 # --- AUTH & HELPERS ---
 def check_user_exists(username):
@@ -300,8 +297,8 @@ def save_user_profile(username, data, pin=None):
             sql = "INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s"
             cursor.execute(sql, (username, j_str, pin, j_str, pin))
         else:
-            sql = "INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s"
-            cursor.execute(sql, (j_str, j_str))
+            sql = "INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s"
+            cursor.execute(sql, (username, j_str, j_str))
         conn.commit(); conn.close()
     except: pass
 
@@ -348,31 +345,23 @@ def fetch_news(feeds, tickers, api_key):
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    articles = []; seen = set(); smart_tickers = {}
-    if tickers:
-        for t in tickers: smart_tickers[t] = t.split('.')[0]
+    articles = []; seen = set(); smart_tickers = {t: t.split('.')[0] for t in tickers} if tickers else {}
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            limit = 5 if tickers else 10
-            for entry in f.entries[:limit]:
+            for entry in f.entries[:5]:
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
-                    title_upper = entry.title.upper(); summary_text = entry.get("summary", "")
+                    title_upper = entry.title.upper()
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze this news: '{entry.title}'. Return: TICKER|SENTIMENT."
-                            response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=15)
+                            prompt = f"Analyze news: '{entry.title}'. Return BULLISH or BEARISH."
+                            response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=10)
                             ans = response.choices[0].message.content.strip().upper()
-                            if "|" in ans: 
-                                parts = ans.split("|"); found_ticker = parts[0].strip()
-                                # FUZZY SENTIMENT MAPPING FOR NEWS COLORS
-                                raw_sent = parts[1].strip()
-                                if "BULL" in raw_sent: sentiment = "BULLISH"
-                                elif "BEAR" in raw_sent: sentiment = "BEARISH"
-                                else: sentiment = "NEUTRAL"
+                            # FUZZY NEWS FIX: Look for keywords inside AI response
+                            sentiment = "BULLISH" if "BULL" in ans else "BEARISH" if "BEAR" in ans else "NEUTRAL"
                         except: pass
                     if not found_ticker and tickers:
                         for original_t, root_t in smart_tickers.items():
@@ -514,8 +503,7 @@ if not st.session_state["logged_in"]:
 else:
     def push_user(): save_user_profile(st.session_state["username"], st.session_state["user_data"])
     def push_global(): save_global_config(st.session_state["global_data"])
-    GLOBAL = st.session_state["global_data"]
-    USER = st.session_state["user_data"]
+    GLOBAL = st.session_state["global_data"]; USER = st.session_state["user_data"]
     ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 
     tape_content = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F"), GLOBAL.get("tape_nicknames", ""))
@@ -527,18 +515,13 @@ else:
         # --- API STATUS LIGHT ---
         st.sidebar.caption(f"📡 Connection: Finnhub {'🟢' if st.secrets.get('FINNHUB_API_KEY') else '🔴'}")
 
-        # --- NEW SCANNER ---
+        # --- AI SCANNER BUTTON ---
         with st.expander("⚡ AI Daily Picks", expanded=True):
             if st.button("🔎 Scan Market"):
-                with st.spinner("Hunting for setups..."):
-                    # Changed: No longer passes USER watchlist, strictly scans market list
+                with st.spinner("Finding Gaps..."):
                     picks = run_gap_scanner([], ACTIVE_KEY)
-                    if not picks: st.warning("No matches today.")
-                    else:
-                        for p in picks:
-                            st.markdown(f"**{p['ticker']}** (+{p['gap']:.1f}%)")
-                            st.caption(f"Price: ${p['price']:.2f} | ATR: {p['atr']:.2f}")
-                            st.divider()
+                    for p in picks: 
+                        st.markdown(f"**{p}**")
 
         st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
@@ -553,15 +536,13 @@ else:
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
             a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
-            # SURGICAL ADD: PREMARKET ALERT CHECKBOX
+            # PREMARKET CHECKBOX
             a_pre = st.checkbox("Premarket", value=USER.get("alert_pre", True))
             if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
                 USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
 
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
-                if "portfolio" in USER and USER["portfolio"] and not GLOBAL.get("portfolio"):
-                     if st.button("Import Old Picks"): GLOBAL["portfolio"] = USER["portfolio"]; push_global(); st.rerun()
                 new_t = st.text_input("Ticker").upper()
                 c1, c2 = st.columns(2); new_p = c1.number_input("Cost"); new_q = c2.number_input("Qty", step=1)
                 if st.button("Add Pick") and new_t:
@@ -576,21 +557,19 @@ else:
     
     @st.fragment(run_every=60)
     def render_dashboard():
-        t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
+        t1, t2, t3, t4 = st.tabs(["📊 Market", "🚀 My Picks", "📰 News", "🌎 Discovery"])
         w_tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
         port = GLOBAL.get("portfolio", {}); p_tickers = list(port.keys())
         batch_data = get_batch_data(list(set(w_tickers + p_tickers)))
 
         def draw_card(t, port_item=None):
             d = batch_data.get(t)
-            if not d: st.markdown(f"<div style='padding:15px; border:1px dashed #ccc; border-radius:10px; color:#888; font-size:12px;'>⚠️ <b>{t}</b>: Processing...</div>", unsafe_allow_html=True); return
+            if not d: return
             f = get_fundamentals(t)
             b_col, arrow = ("#4caf50", "▲") if d["d"] >= 0 else ("#ff4b4b", "▼")
-            r_up = f["rating"].upper()
-            r_col = "#4caf50" if "BUY" in r_up or "OUT" in r_up else "#ff4b4b" if "SELL" in r_up or "UNDER" in r_up else "#f1c40f"
             ai_col = "#4caf50" if d["ai"] == "BULLISH" else "#ff4b4b"; tr_col = "#4caf50" if d["trend"] == "UPTREND" else "#ff4b4b"
             pills = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
-            if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
+            if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #f1c40f">RATING: {f["rating"]}</span>'
             if f["earn"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
             with st.container():
                 st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
@@ -598,59 +577,40 @@ else:
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 
-                # --- SURGICAL ADD: VOLUME BAR VISUAL ---
-                st.markdown(f"""
-                    <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
-                    <div class='bar-bg'>
-                        <div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div>
-                    </div>
-                """, unsafe_allow_html=True)
+                # VOLUME BAR
+                st.markdown(f"<div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div></div>", unsafe_allow_html=True)
 
                 if port_item:
                     gain = (d["p"] - port_item["e"]) * port_item["q"]
-                    st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
                 st.divider()
 
         with t1:
-            cols = st.columns(3)
+            cols = st.columns(3); 
             for i, t in enumerate(w_tickers):
                 with cols[i % 3]: draw_card(t)
 
         with t2:
-            if not port: st.info("No Picks Published.")
-            else:
+            if port:
                 total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
                 for k, v in port.items():
                     d = batch_data.get(k)
                     if d:
                         total_val += d["p"] * v["q"]; total_cost += v["e"] * v["q"]
                         if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
-                day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"
-                tot_col = "#4caf50" if (total_val - total_cost) >= 0 else "#ff4b4b"
-                day_pct = (day_pl_sum / (total_val - day_pl_sum) * 100) if (total_val - day_pl_sum) > 0 else 0
-                tot_pct = ((total_val - total_cost) / total_cost * 100) if total_cost > 0 else 0
-                st.markdown(f"<div style='background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;'><div style='display:flex; justify-content:space-between; margin-bottom:10px;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>NET ASSETS</div><div style='font-size:24px; font-weight:900; color:#333;'>${total_val:,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>INVESTED</div><div style='font-size:24px; font-weight:900; color:#555;'>${total_cost:,.2f}</div></div></div><div style='height:1px; background:#eee; margin:10px 0;'></div><div style='display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>DAY P/L</div><div style='font-size:16px; font-weight:bold; color:{day_col};'>${day_pl_sum:+,.2f} ({day_pct:+.2f}%)</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>TOTAL P/L</div><div style='font-size:16px; font-weight:bold; color:{tot_col};'>${total_val - total_cost:+,.2f} ({tot_pct:+.2f}%)</div></div></div></div>", unsafe_allow_html=True)
-                cols = st.columns(3)
+                st.markdown(f"<div style='background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;'><div style='display:flex; justify-content:space-between; margin-bottom:10px;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>NET ASSETS</div><div style='font-size:24px; font-weight:900; color:#333;'>${total_val:,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>INVESTED</div><div style='font-size:24px; font-weight:900; color:#555;'>${total_cost:,.2f}</div></div></div><div style='height:1px; background:#eee; margin:10px 0;'></div><div style='display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>DAY P/L</div><div style='font-size:16px; font-weight:bold; color:{'#4caf50' if day_pl_sum >= 0 else '#ff4b4b'};'>${day_pl_sum:+,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>TOTAL P/L</div><div style='font-size:16px; font-weight:bold; color:{'#4caf50' if (total_val - total_cost) >= 0 else '#ff4b4b'};'>${total_val - total_cost:+,.2f}</div></div></div></div>", unsafe_allow_html=True)
+                cols = st.columns(3); 
                 for i, (k, v) in enumerate(port.items()):
                     with cols[i % 3]: draw_card(k, v)
 
         def render_news_item(n):
-            # SURGICAL CSS UPDATE: Ensures sentiment maps to colors (Green/Red) instead of Black
-            # FUZZY MATCHING: If "BULL" or "BEAR" is anywhere in the string, use that color.
+            # SURGICAL NEWS FIX: Fuzzy matching to match Green/Red keys
             s_val = n["sentiment"].upper()
-            if "BULL" in s_val: col = "#4caf50"
-            elif "BEAR" in s_val: col = "#ff4b4b"
-            else: col = "#9e9e9e"
-            
-            disp = n["ticker"] if n["ticker"] else "MARKET"
-            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
+            col = "#4caf50" if "BULL" in s_val else "#ff4b4b" if "BEAR" in s_val else "#9e9e9e"
+            st.markdown(f"<div class='news-card' style='border-left-color:{col}'><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a><div style='font-size:11px; color:#888;'>Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
         with t3:
-            news = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
-            for n in news: render_news_item(n)
-        
-        with t4:
-            news = fetch_news(GLOBAL.get("rss_feeds", []), [], ACTIVE_KEY)
+            news = fetch_news([], w_tickers, ACTIVE_KEY)
             for n in news: render_news_item(n)
 
     render_dashboard()
