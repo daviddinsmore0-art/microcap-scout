@@ -646,7 +646,7 @@ else:
                 new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
                 if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
                 
-                # --- FORCE TEST BUTTON ---
+                # --- NEW FORCE TEST BUTTON ---
                 st.divider()
                 st.markdown("### 🛠️ Testing")
                 if st.button("🔴 Force Morning Briefing (Test)"):
