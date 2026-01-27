@@ -121,7 +121,6 @@ def run_backend_update():
 
             for t in to_fetch_price:
                 try:
-                    # LIVE
                     if len(to_fetch_price) == 1: df_live = live_data
                     else: 
                         if t not in live_data.columns.levels[0]: continue
@@ -130,7 +129,6 @@ def run_backend_update():
                     if df_live.empty: continue
                     live_price = float(df_live['Close'].iloc[-1])
 
-                    # HISTORY
                     if len(to_fetch_price) == 1: df_hist = hist_data
                     else:
                         if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
@@ -215,78 +213,39 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (THE CYBORG) ---
-@st.cache_data(ttl=3600) # Runs once per hour to save API
+# --- SCANNER ENGINE (STRICT FINNHUB + OPENAI) ---
+@st.cache_data(ttl=3600)
 def run_gap_scanner(user_tickers, api_key):
-    # 1. EXPAND TARGET LIST (User's + High Volatility)
-    high_vol_tickers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "SPY", "QQQ", "IWM", "MSTR", "HOOD", "DKNG", "ROKU"]
-    scan_list = list(set(high_vol_tickers + user_tickers))
-    
+    fh_key = st.secrets.get("FINNHUB_API_KEY")
+    # THE MOVERS LIST (Removed Watchlist fallback)
+    movers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "MSTR", "MULN", "HOOD", "DKNG"]
     candidates = []
     
-    # 2. BATCH DOWNLOAD (Fast)
-    try:
-        data = yf.download(" ".join(scan_list), period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
-        
-        for t in scan_list:
-            try:
-                if t in data.columns.levels[0]: df = data[t]
-                else: continue
-                
-                if len(df) < 14: continue # Need enough data for ATR
-                
-                # METRICS
-                curr_close = float(df['Close'].iloc[-1])
-                prev_close = float(df['Close'].iloc[-2])
-                open_price = float(df['Open'].iloc[-1])
-                
-                # A. GAP %
-                gap_pct = ((open_price - prev_close) / prev_close) * 100
-                
-                # B. VOLUME CHECK (> 500k avg)
-                avg_vol = df['Volume'].mean()
-                if avg_vol < 500000: continue
-                
-                # C. ATR CALC (> 0.50)
-                high_low = df['High'] - df['Low']
-                high_close = (df['High'] - df['Close'].shift()).abs()
-                low_close = (df['Low'] - df['Close'].shift()).abs()
-                ranges = pd.concat([high_low, high_close, low_close], axis=1)
-                true_range = ranges.max(axis=1)
-                atr = true_range.rolling(14).mean().iloc[-1]
-                
-                if atr < 0.50: continue
-
-                # D. GAP CRITERIA (> 1% or < -1%)
-                if abs(gap_pct) >= 1.0:
-                    candidates.append({
-                        "ticker": t, "gap": gap_pct, "atr": atr, "price": curr_close
-                    })
-            except: pass
-    except: return []
-
-    # 3. SORT & FILTER TOP 5
+    for t in movers:
+        try:
+            r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=5).json()
+            if 'c' in r and r['c'] != 0:
+                gap = ((float(r['c']) - float(r['pc'])) / float(r['pc'])) * 100
+                if abs(gap) >= 0.5:
+                    # FETCH ATR HISTORICALLY (Fixes NaN)
+                    hist = yf.download(t, period="5d", interval="1d", progress=False)
+                    atr = float((hist['High'] - hist['Low']).mean()) if not hist.empty else 0.0
+                    candidates.append({"ticker": t, "gap": gap, "price": r['c'], "atr": atr})
+            time.sleep(0.1)
+        except: continue
+    
     candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
     top_5 = candidates[:5]
     
-    # 4. OPENAI JUDGMENT
-    final_picks = top_5 # Default if no AI
-    if api_key and NEWS_LIB_READY and top_5:
+    if api_key and top_5:
         try:
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Analyze these stocks for a day trade. Pick the Top 3 based on momentum catalysts. Ignore buyout rumors. Return JSON: {{'picks': ['TICKER', 'TICKER']}}.\nData: {str(top_5)}"
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
-            picks_json = json.loads(response.choices[0].message.content)
-            picked_tickers = picks_json.get("picks", [])
-            final_picks = [c for c in top_5 if c['ticker'] in picked_tickers]
-            if not final_picks: final_picks = top_5[:3]
+            prompt = f"Analyze: {str(top_5)}. Return JSON with top 3 picks for day trade momentum: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}"
+            resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+            picks = json.loads(resp.choices[0].message.content).get("picks", [])
+            return [c for c in top_5 if c['ticker'] in picks] or top_5[:3]
         except: pass
-        
-    return final_picks
+    return top_5[:3]
 
 # --- AUTH & HELPERS ---
 def check_user_exists(username):
@@ -341,8 +300,8 @@ def save_user_profile(username, data, pin=None):
             sql = "INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s"
             cursor.execute(sql, (username, j_str, pin, j_str, pin))
         else:
-            sql = "INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s"
-            cursor.execute(sql, (username, j_str, j_str))
+            sql = "INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s"
+            cursor.execute(sql, (j_str, j_str))
         conn.commit(); conn.close()
     except: pass
 
@@ -572,8 +531,8 @@ else:
         with st.expander("⚡ AI Daily Picks", expanded=True):
             if st.button("🔎 Scan Market"):
                 with st.spinner("Hunting for setups..."):
-                    w_list = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
-                    picks = run_gap_scanner(w_list, ACTIVE_KEY)
+                    # Changed: No longer passes USER watchlist, strictly scans market list
+                    picks = run_gap_scanner([], ACTIVE_KEY)
                     if not picks: st.warning("No matches today.")
                     else:
                         for p in picks:
@@ -584,17 +543,17 @@ else:
         st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
         if new_w != USER.get("w_input"):
-            USER["w_input"] = new_w; push_user(); st.info("Updated!"); time.sleep(1); st.rerun()
+            USER["w_input"] = new_w; push_user(); st.rerun()
 
         st.divider()
         with st.expander("🔔 Alert Settings"):
             curr_tg = USER.get("telegram_id", "")
             new_tg = st.text_input("Telegram Chat ID", value=curr_tg)
-            if new_tg != curr_tg: USER["telegram_id"] = new_tg.strip(); push_user(); st.success("Saved!"); time.sleep(1); st.rerun()
-            st.markdown("[Get my ID](https://t.me/userinfobot)", unsafe_allow_html=True)
+            if new_tg != curr_tg: USER["telegram_id"] = new_tg.strip(); push_user(); st.rerun()
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
             a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
+            # SURGICAL ADD: PREMARKET ALERT CHECKBOX
             a_pre = st.checkbox("Premarket", value=USER.get("alert_pre", True))
             if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
                 USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
@@ -675,33 +634,23 @@ else:
                 for i, (k, v) in enumerate(port.items()):
                     with cols[i % 3]: draw_card(k, v)
 
-        def render_news(n):
-            # SURGICAL CSS UPDATE: Ensures BULLISH/BEARISH match exactly for Green/Red
-            s_map = {"BULLISH": "#4caf50", "BEARISH": "#ff4b4b", "NEUTRAL": "#9e9e9e"}
-            col = s_map.get(n["sentiment"], "#333")
+        def render_news_item(n):
+            # SURGICAL CSS UPDATE: Ensures sentiment maps to colors (Green/Red) instead of Black
+            # FUZZY MATCHING: If "BULL" or "BEAR" is anywhere in the string, use that color.
+            s_val = n["sentiment"].upper()
+            if "BULL" in s_val: col = "#4caf50"
+            elif "BEAR" in s_val: col = "#ff4b4b"
+            else: col = "#9e9e9e"
+            
             disp = n["ticker"] if n["ticker"] else "MARKET"
             st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
         with t3:
-            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
-            if c_btn.button("🔄 Refresh", key=f"btn_n1_{int(time.time()/60)}"):
-                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY); st.rerun()
-            if not NEWS_LIB_READY: st.error("Missing Libraries.")
-            else:
-                news_items = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
-                if not news_items: st.info("No news.")
-                else:
-                    for n in news_items: render_news(n)
+            news = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
+            for n in news: render_news_item(n)
         
         with t4:
-            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
-            if c_btn.button("🔄 Refresh", key=f"btn_n2_{int(time.time()/60)}"):
-                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
-            if not NEWS_LIB_READY: st.error("Missing Libraries.")
-            else:
-                news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
-                if not news_items: st.info("No news.")
-                else:
-                    for n in news_items: render_news(n)
+            news = fetch_news(GLOBAL.get("rss_feeds", []), [], ACTIVE_KEY)
+            for n in news: render_news_item(n)
 
     render_dashboard()
