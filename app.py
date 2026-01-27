@@ -216,7 +216,7 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (FIXED: BROWSER HEADERS + CLEAN OUTPUT) ---
+# --- SCANNER ENGINE (BATCH + HYBRID + HEADERS) ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
@@ -226,7 +226,6 @@ def run_gap_scanner(api_key):
     # 1. DISCOVERY: RSS Feeds (WITH HEADERS TO FIX BLOCKING)
     try:
         feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
-        # Use requests with browser header to avoid Yahoo blocking the script
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         
         for url in feeds:
@@ -235,25 +234,22 @@ def run_gap_scanner(api_key):
                 if resp.status_code == 200:
                     f = feedparser.parse(resp.content)
                     for entry in f.entries[:25]:
-                        # Regex to find Tickers like (AMD) or just AMD in title
                         match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
                         if match: 
                             t = match.group(0)
-                            if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO"]: # Basic noise filter
+                            if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO"]: 
                                 discovery_tickers.add(t)
             except: continue
     except: pass
     
-    # 2. FALLBACK (Only used if RSS fails completely)
     if len(discovery_tickers) < 3:
-        discovery_tickers.update(["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI"])
+        discovery_tickers.update(["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "GME"])
     
     scan_list = list(discovery_tickers)
     if not scan_list: return []
 
     # 3. BATCH DOWNLOAD & FILTER
     try:
-        # Batch fetch for speed
         data = yf.download(" ".join(scan_list), period="5d", interval="1d", group_by='ticker', threads=True, progress=False)
         
         for t in scan_list:
@@ -268,22 +264,19 @@ def run_gap_scanner(api_key):
                 prev_close = float(df['Close'].iloc[-2])
                 curr_price = float(df['Close'].iloc[-1]) 
                 
-                # Check Finnhub for real-time price (overrides Yahoo)
                 try:
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=1).json()
                     if 'c' in r and r['c'] != 0: curr_price = float(r['c'])
                 except: pass
 
-                # CALCS
                 gap_pct = ((curr_price - prev_close) / prev_close) * 100
                 avg_vol = df['Volume'].mean()
                 atr = (df['High'] - df['Low']).mean()
 
-                # STRICT CRITERIA: Gap > 1% AND Vol > 100k AND ATR > 0.50
                 if abs(gap_pct) >= 1.0 and avg_vol > 100000 and atr >= 0.50:
                     candidates.append({
                         "ticker": t,
-                        "gap": gap_pct, # Kept for sorting/AI, hidden from user
+                        "gap": gap_pct,
                         "atr": atr
                     })
             except: continue
@@ -292,28 +285,17 @@ def run_gap_scanner(api_key):
     # 4. AI SELECTION
     if api_key and candidates:
         try:
-            # Sort by biggest gap first
             candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
             top_10 = candidates[:10]
             
             client = openai.OpenAI(api_key=api_key)
-            prompt = (
-                f"Pick Top 3 for morning momentum. Prioritize small caps. "
-                f"Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\n"
-                f"Data: {str(top_10)}"
-            )
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
+            prompt = f"Pick Top 3 for morning momentum. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\nData: {str(top_10)}"
+            resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
-            # Return just the tickers as requested
             return picks if picks else [c['ticker'] for c in top_10[:3]]
         except: 
             return [c['ticker'] for c in candidates[:3]]
             
-    # Fallback if no AI
     return [c['ticker'] for c in candidates[:3]]
 
 # --- MORNING BRIEFING ENGINE ---
@@ -615,12 +597,10 @@ else:
         with st.expander("⚡ AI Daily Picks", expanded=True):
             if st.button("🔎 Scan Market"):
                 with st.spinner("Hunting for setups..."):
-                    # CHANGED: Call the dynamic RSS scanner
                     picks = run_gap_scanner(ACTIVE_KEY)
                     if not picks: st.warning("No matches today.")
                     else:
                         for p in picks:
-                            # Clean output: just the ticker string
                             ticker = p.get('ticker', p) if isinstance(p, dict) else p
                             st.markdown(f"**{ticker}**")
                             st.divider()
@@ -656,6 +636,23 @@ else:
                 if st.button("Delete") and rem: del GLOBAL["portfolio"][rem]; push_global(); st.rerun()
                 new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
                 if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
+                
+                # --- NEW FORCE TEST BUTTON ---
+                st.divider()
+                st.markdown("### 🛠️ Testing")
+                if st.button("🔴 Force Morning Briefing (Test)"):
+                    with st.spinner("Generating Picks & Resetting DB..."):
+                        test_picks = run_gap_scanner(ACTIVE_KEY)
+                        try:
+                            conn = get_connection(); cursor = conn.cursor()
+                            today_str = datetime.now().strftime('%Y-%m-%d')
+                            cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
+                            cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(test_picks)))
+                            conn.commit(); conn.close()
+                            st.success(f"Generated! Picks: {[p.get('ticker', p) if isinstance(p,dict) else p for p in test_picks]}")
+                            st.info("👉 Now run your 'up.php' script to send the Telegram.")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
     
@@ -705,7 +702,7 @@ else:
                 row = cursor.fetchone(); conn.close()
                 if row:
                     picks_list = json.loads(row['picks'])
-                    display_tickers = [p['ticker'] if isinstance(p, dict) else p for p in picks_list]
+                    display_tickers = [p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list]
                     st.success(f"📌 **Daily Picks:** {', '.join(display_tickers)}")
             except: pass
             
