@@ -87,7 +87,7 @@ def get_fundamentals(s):
         return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
     except: return {"rating": "N/A", "earn": "N/A"}
 
-# --- MORNING BRIEFING ENGINE (AST OPTIMIZED + ATR FIX) ---
+# --- MORNING BRIEFING ENGINE ---
 def run_morning_briefing(api_key):
     try:
         now = datetime.now() # Server time is AST
@@ -107,13 +107,11 @@ def run_morning_briefing(api_key):
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=5).json()
                     if 'c' in r and r['c'] != 0:
                         gap = ((float(r['c']) - float(r['pc'])) / float(r['pc'])) * 100
-                        if abs(gap) >= 1.0:
-                            # ATR FIX: Fetch history to calculate volatility
-                            hist = yf.download(t, period="14d", interval="1d", progress=False)
+                        if abs(gap) >= 0.5: # Lowered threshold to catch more pre-market action
+                            hist = yf.download(t, period="5d", interval="1d", progress=False)
                             atr = 0.0
                             if not hist.empty:
-                                high_low = hist['High'] - hist['Low']
-                                atr = float(high_low.mean())
+                                atr = float((hist['High'] - hist['Low']).mean())
                             candidates.append({"ticker": t, "gap": gap, "price": r['c'], "atr": atr})
                 except: continue
             
@@ -121,7 +119,7 @@ def run_morning_briefing(api_key):
             top_5 = candidates[:5]
             if api_key and top_5:
                 client = openai.OpenAI(api_key=api_key)
-                prompt = f"Analyze for momentum trade: {str(top_5)}. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}."
+                prompt = f"Analyze: {str(top_5)}. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}."
                 resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
                 picks_json = json.loads(resp.choices[0].message.content)
                 picked_tickers = picks_json.get("picks", [])
@@ -275,8 +273,8 @@ def run_gap_scanner(user_tickers, api_key):
             r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}").json()
             if 'c' in r:
                 gap = ((r['c'] - r['pc']) / r['pc']) * 100
-                if abs(gap) >= 1.0:
-                    hist = yf.download(t, period="14d", interval="1d", progress=False)
+                if abs(gap) >= 0.5: # Tighter threshold for testing
+                    hist = yf.download(t, period="5d", interval="1d", progress=False)
                     atr = 0.0
                     if not hist.empty:
                         atr = float((hist['High'] - hist['Low']).mean())
@@ -368,17 +366,7 @@ def get_global_config_data():
     if g.get("rss_feeds"): rss_feeds = g.get("rss_feeds")
     return api_key, rss_feeds, g
 
-# --- NEWS ENGINE (FIXED SENTIMENT MAPPING) ---
-def relative_time(date_str):
-    try:
-        dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
-        diff = datetime.now(timezone.utc) - dt
-        seconds = diff.total_seconds()
-        if seconds < 3600: return f"{int(seconds // 60)}m ago"
-        if seconds < 86400: return f"{int(seconds // 3600)}h ago"
-        return f"{int(seconds // 86400)}d ago"
-    except: return "Recent"
-
+# --- NEWS ENGINE ---
 @st.cache_data(ttl=600)
 def fetch_news(feeds, tickers, api_key):
     if not NEWS_LIB_READY: return []
@@ -473,8 +461,8 @@ def get_tape_data(symbol_string, nickname_string=""):
 
 # --- UI LOGIC ---
 init_db()
-ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 run_backend_update()
+ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 run_morning_briefing(ACTIVE_KEY)
 
 if "init" not in st.session_state:
@@ -663,8 +651,12 @@ else:
                     with cols[i % 3]: draw_card(k, v)
 
         def render_news_item(n):
-            s_map = {"BULLISH": "#4caf50", "BEARISH": "#ff4b4b", "NEUTRAL": "#9e9e9e"}
-            col = s_map.get(n["sentiment"], "#9e9e9e")
+            # SURGICAL FIX: "Fuzzy" matching for sentiment colors
+            s_val = n["sentiment"].upper()
+            if "BULL" in s_val: col = "#4caf50"
+            elif "BEAR" in s_val: col = "#ff4b4b"
+            else: col = "#9e9e9e"
+            
             st.markdown(f"<div class='news-card' style='border-left-color:{col}'><span class='ticker-badge' style='background:{col}'>{n['ticker'] or 'MARKET'}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a><div style='font-size:11px; color:#888;'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
         with t3:
