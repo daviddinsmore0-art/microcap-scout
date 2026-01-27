@@ -216,37 +216,48 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (BATCH OPTIMIZED + HYBRID) ---
+# --- SCANNER ENGINE (FIXED: BROWSER HEADERS + CLEAN OUTPUT) ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     discovery_tickers = set()
     
-    # 1. DISCOVERY: RSS Feeds
+    # 1. DISCOVERY: RSS Feeds (WITH HEADERS TO FIX BLOCKING)
     try:
         feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
+        # Use requests with browser header to avoid Yahoo blocking the script
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        
         for url in feeds:
-            f = feedparser.parse(url)
-            for entry in f.entries[:20]:
-                match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
-                if match: discovery_tickers.add(match.group(0))
+            try:
+                resp = requests.get(url, headers=headers, timeout=5)
+                if resp.status_code == 200:
+                    f = feedparser.parse(resp.content)
+                    for entry in f.entries[:25]:
+                        # Regex to find Tickers like (AMD) or just AMD in title
+                        match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
+                        if match: 
+                            t = match.group(0)
+                            if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO"]: # Basic noise filter
+                                discovery_tickers.add(t)
+            except: continue
     except: pass
     
-    # 2. FALLBACK: High-Volatility Names (Ensures we always have data)
-    discovery_tickers.update(["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "MULN", "GME", "AMC", "DKNG", "ROKU", "AI"])
+    # 2. FALLBACK (Only used if RSS fails completely)
+    if len(discovery_tickers) < 3:
+        discovery_tickers.update(["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI"])
     
     scan_list = list(discovery_tickers)
     if not scan_list: return []
 
-    # 3. BATCH DOWNLOAD (The Speed Fix)
+    # 3. BATCH DOWNLOAD & FILTER
     try:
-        # Fetch 5 days history for ALL tickers at once
+        # Batch fetch for speed
         data = yf.download(" ".join(scan_list), period="5d", interval="1d", group_by='ticker', threads=True, progress=False)
         
         for t in scan_list:
             try:
-                # Handle Multi-Index Dataframe vs Single
                 if len(scan_list) > 1:
                     if t not in data.columns.levels[0]: continue
                     df = data[t]
@@ -254,47 +265,40 @@ def run_gap_scanner(api_key):
 
                 if df.empty or len(df) < 2: continue
 
-                # DATA POINTS
                 prev_close = float(df['Close'].iloc[-2])
-                curr_price = float(df['Close'].iloc[-1]) # Default if pre-market unavailable
+                curr_price = float(df['Close'].iloc[-1]) 
                 
-                # PRE-MARKET PATCH: Check Finnhub for real-time price
+                # Check Finnhub for real-time price (overrides Yahoo)
                 try:
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=1).json()
                     if 'c' in r and r['c'] != 0: curr_price = float(r['c'])
                 except: pass
 
-                # CALCULATIONS
+                # CALCS
                 gap_pct = ((curr_price - prev_close) / prev_close) * 100
                 avg_vol = df['Volume'].mean()
-                
-                # ATR CALC
-                high_low = df['High'] - df['Low']
-                atr = high_low.mean()
+                atr = (df['High'] - df['Low']).mean()
 
-                # 4. STRICT FILTERING
-                # Gap > 1% (or < -1%) | Vol > 100k | ATR > 0.50
+                # STRICT CRITERIA: Gap > 1% AND Vol > 100k AND ATR > 0.50
                 if abs(gap_pct) >= 1.0 and avg_vol > 100000 and atr >= 0.50:
                     candidates.append({
                         "ticker": t,
-                        "gap": f"{gap_pct:.1f}%",
-                        "price": curr_price,
-                        "atr": f"{atr:.2f}"
+                        "gap": gap_pct, # Kept for sorting/AI, hidden from user
+                        "atr": atr
                     })
             except: continue
     except: return []
 
-    # 5. AI SELECTION
+    # 4. AI SELECTION
     if api_key and candidates:
         try:
-            # Sort by Gap magnitude first
-            candidates.sort(key=lambda x: abs(float(x['gap'].strip('%'))), reverse=True)
+            # Sort by biggest gap first
+            candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
             top_10 = candidates[:10]
             
             client = openai.OpenAI(api_key=api_key)
             prompt = (
-                f"Pick top 3 stocks for momentum trading from this JSON. "
-                f"Criteria: High Volatility, Clean Technicals. "
+                f"Pick Top 3 for morning momentum. Prioritize small caps. "
                 f"Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\n"
                 f"Data: {str(top_10)}"
             )
@@ -304,12 +308,13 @@ def run_gap_scanner(api_key):
                 response_format={"type": "json_object"}
             )
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
-            # Return full objects if found
-            return [c for c in top_10 if c['ticker'] in picks] or top_10[:3]
+            # Return just the tickers as requested
+            return picks if picks else [c['ticker'] for c in top_10[:3]]
         except: 
-            return candidates[:3]
+            return [c['ticker'] for c in candidates[:3]]
             
-    return candidates[:3]
+    # Fallback if no AI
+    return [c['ticker'] for c in candidates[:3]]
 
 # --- MORNING BRIEFING ENGINE ---
 def run_morning_briefing(api_key):
@@ -615,10 +620,9 @@ else:
                     if not picks: st.warning("No matches today.")
                     else:
                         for p in picks:
+                            # Clean output: just the ticker string
                             ticker = p.get('ticker', p) if isinstance(p, dict) else p
                             st.markdown(f"**{ticker}**")
-                            if isinstance(p, dict):
-                                st.caption(f"Gap: {p.get('gap')} | ATR: {p.get('atr')}")
                             st.divider()
 
         st.subheader("Your Watchlist")
