@@ -235,7 +235,7 @@ def run_gap_scanner(api_key):
                             if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO"]: discovery_tickers.add(t)
             except: continue
     except: pass
-    staples = ["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "GME", "HOLO", "MSTR", "DJT", "RIVN", "HOOD", "DKNG"]
+    staples = []
     discovery_tickers.update(staples)
     scan_list = list(discovery_tickers)
     
