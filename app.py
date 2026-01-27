@@ -70,6 +70,9 @@ def init_db():
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
+        # Persistent storage for Morning Picks
+        cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        
         # Auto-patch missing columns
         for col in ['day_high', 'day_low', 'company_name', 'pre_post_price', 'rating', 'next_earnings']:
             try:
@@ -80,6 +83,57 @@ def init_db():
         return True
     except Exception:
         return False
+
+# --- MORNING BRIEFING ENGINE (AST OPTIMIZED) ---
+def run_morning_briefing(api_key):
+    try:
+        # Get Current Time in AST (Server Time)
+        now = datetime.now()
+        
+        # Weekend Shield: Don't run on Sat (5) or Sun (6)
+        if now.weekday() > 4:
+            return
+
+        today_str = now.strftime('%Y-%m-%d')
+        
+        # 1. Check if picks already exist for today
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT picks FROM daily_briefing WHERE date = %s", (today_str,))
+        result = cursor.fetchone()
+        
+        # 2. Trigger Window: 9:45 AM - 10:15 AM AST (Covers 8:45 AM EST)
+        if not result and 9 <= now.hour <= 10 and 45 <= now.minute <= 59:
+            movers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "MSTR", "MULN"]
+            candidates = []
+            fh_key = st.secrets.get("FINNHUB_API_KEY")
+            
+            for t in movers:
+                try:
+                    # Connection to Finnhub
+                    r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=5)
+                    d = r.json()
+                    if 'c' in d and d['c'] != 0:
+                        gap = ((float(d['c']) - float(d['pc'])) / float(d['pc'])) * 100
+                        if abs(gap) >= 1.0:
+                            candidates.append({"ticker": t, "gap": gap, "price": d['c']})
+                    time.sleep(0.1)
+                except: continue
+            
+            candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
+            top_5 = candidates[:5]
+            
+            # OpenAI Analysis Step
+            if api_key and top_5:
+                client = openai.OpenAI(api_key=api_key)
+                prompt = f"Analyze: {str(top_5)}. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}."
+                resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+                picks = json.loads(resp.choices[0].message.content).get("picks", [])
+                
+                # Save to DB so it persists for all users logging in later
+                cursor.execute("INSERT INTO daily_briefing (date, picks) VALUES (%s, %s)", (today_str, json.dumps(picks)))
+                conn.commit()
+        conn.close()
+    except: pass
 
 # --- BACKEND UPDATE ENGINE ---
 def run_backend_update():
@@ -121,7 +175,6 @@ def run_backend_update():
 
             for t in to_fetch_price:
                 try:
-                    # LIVE
                     if len(to_fetch_price) == 1: df_live = live_data
                     else: 
                         if t not in live_data.columns.levels[0]: continue
@@ -130,7 +183,6 @@ def run_backend_update():
                     if df_live.empty: continue
                     live_price = float(df_live['Close'].iloc[-1])
 
-                    # HISTORY
                     if len(to_fetch_price) == 1: df_hist = hist_data
                     else:
                         if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
@@ -215,7 +267,7 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (FINNHUB + OPENAI) ---
+# --- SCANNER ENGINE (FINNHUB + OPENAI MANUAL SCAN) ---
 @st.cache_data(ttl=3600)
 def run_gap_scanner(user_tickers, api_key):
     high_vol_tickers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "MSTR", "MULN"]
@@ -243,8 +295,7 @@ def run_gap_scanner(user_tickers, api_key):
             client = openai.OpenAI(api_key=api_key)
             prompt = f"Analyze: {str(top_5)}. Return JSON: {{'picks': ['TICKER', 'TICKER']}}."
             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
-            picks_json = json.loads(response.choices[0].message.content)
-            picked_tickers = picks_json.get("picks", [])
+            picked_tickers = json.loads(response.choices[0].message.content).get("picks", [])
             final_picks = [c for c in top_5 if c['ticker'] in picked_tickers]
             return final_picks if final_picks else top_5[:3]
         except: pass
@@ -303,8 +354,8 @@ def save_user_profile(username, data, pin=None):
             sql = "INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s"
             cursor.execute(sql, (username, j_str, pin, j_str, pin))
         else:
-            sql = "INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s"
-            cursor.execute(sql, (username, j_str, j_str))
+            sql = "INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s"
+            cursor.execute(sql, (j_str, j_str))
         conn.commit(); conn.close()
     except: pass
 
@@ -351,7 +402,7 @@ def fetch_news(feeds, tickers, api_key):
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    articles = []; seen = set(); smart_tickers = {t: t.split('.')[0] for t in tickers} if tickers else {}
+    articles = []; seen = set()
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
@@ -448,7 +499,9 @@ def get_tape_data(symbol_string, nickname_string=""):
 
 # --- UI LOGIC ---
 init_db()
+ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 run_backend_update()
+run_morning_briefing(ACTIVE_KEY) # AST Trigger Logic inside
 
 if "init" not in st.session_state:
     st.session_state["init"] = True; st.session_state["logged_in"] = False
@@ -497,7 +550,6 @@ else:
     def push_user(): save_user_profile(st.session_state["username"], st.session_state["user_data"])
     def push_global(): save_global_config(st.session_state["global_data"])
     GLOBAL = st.session_state["global_data"]; USER = st.session_state["user_data"]
-    ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 
     tape_content = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F"), GLOBAL.get("tape_nicknames", ""))
     components.html(f"""<!DOCTYPE html><html><head><style>body{{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}.ticker-container{{width:100%;height:45px;background:#111;display:flex;align-items:center;border-bottom:1px solid #333;border-radius:0 0 15px 15px;box-shadow:0 4px 10px rgba(0,0,0,0.3)}}.ticker-wrap{{width:100%;overflow:hidden;white-space:nowrap}}.ticker-move{{display:inline-block;animation:ticker 15s linear infinite}}@keyframes ticker{{0%{{transform:translate3d(0,0,0)}}100%{{transform:translate3d(-25%,0,0)}}}}.ticker-item{{display:inline-block;color:white;font-weight:900;font-size:16px;padding:0 20px}}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{tape_content}&nbsp;|&nbsp;{tape_content}&nbsp;|&nbsp;{tape_content}&nbsp;|&nbsp;{tape_content}</span></div></div></div></body></html>""", height=50)
@@ -505,7 +557,6 @@ else:
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
         
-        # STATUS LIGHT (NEW)
         fh_c = "🟢" if st.secrets.get("FINNHUB_API_KEY") else "🔴"
         st.markdown(f"<div style='font-size:10px; color:#888;'>📡 Connection: Finnhub {fh_c}</div>", unsafe_allow_html=True)
 
@@ -516,6 +567,7 @@ else:
                     picks = run_gap_scanner(w_list, ACTIVE_KEY)
                     for p in picks: st.markdown(f"**{p['ticker']}** (+{p['gap']:.1f}%)"); st.caption(f"${p['price']:.2f}")
 
+        st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
         if new_w != USER.get("w_input"):
             USER["w_input"] = new_w; push_user(); st.rerun()
@@ -554,6 +606,15 @@ else:
         port = GLOBAL.get("portfolio", {}); p_tickers = list(port.keys())
         batch_data = get_batch_data(list(set(w_tickers + p_tickers)))
 
+        def get_morning_picks():
+            try:
+                conn = get_connection(); cursor = conn.cursor(dictionary=True)
+                today = datetime.now().strftime('%Y-%m-%d')
+                cursor.execute("SELECT picks FROM daily_briefing WHERE date = %s", (today,))
+                row = cursor.fetchone(); conn.close()
+                return json.loads(row['picks']) if row else []
+            except: return []
+
         def draw_card(t, port_item=None):
             d = batch_data.get(t)
             if not d: return
@@ -571,7 +632,7 @@ else:
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 
-                # VOLUME BAR (FIXED)
+                # VOLUME Logic Fixed
                 st.markdown(f"<div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div></div>", unsafe_allow_html=True)
                 
                 if port_item:
@@ -580,6 +641,9 @@ else:
                 st.divider()
 
         with t1:
+            morning_picks = get_morning_picks()
+            if morning_picks:
+                st.success(f"📌 **Morning Briefing:** Watch these tickers today: {', '.join(morning_picks)}")
             cols = st.columns(3); 
             for i, t in enumerate(w_tickers):
                 with cols[i % 3]: draw_card(t)
