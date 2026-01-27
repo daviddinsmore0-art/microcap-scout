@@ -70,6 +70,7 @@ def init_db():
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
         # Auto-patch missing columns
         for col in ['day_high', 'day_low', 'company_name', 'pre_post_price', 'rating', 'next_earnings']:
             try:
@@ -215,78 +216,87 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (THE CYBORG) ---
-@st.cache_data(ttl=3600) # Runs once per hour to save API
-def run_gap_scanner(user_tickers, api_key):
-    # 1. EXPAND TARGET LIST (User's + High Volatility)
-    high_vol_tickers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "SPY", "QQQ", "IWM", "MSTR", "HOOD", "DKNG", "ROKU"]
-    scan_list = list(set(high_vol_tickers + user_tickers))
-    
+# --- SCANNER ENGINE (DYNAMIC RSS + TECH FILTER) ---
+@st.cache_data(ttl=3600)
+def run_gap_scanner(api_key):
+    fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     
-    # 2. BATCH DOWNLOAD (Fast)
+    # 1. DISCOVERY: Get tickers from Yahoo Finance Trending
+    discovery_tickers = set()
     try:
-        data = yf.download(" ".join(scan_list), period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
-        
-        for t in scan_list:
-            try:
-                if t in data.columns.levels[0]: df = data[t]
-                else: continue
-                
-                if len(df) < 14: continue # Need enough data for ATR
-                
-                # METRICS
-                curr_close = float(df['Close'].iloc[-1])
-                prev_close = float(df['Close'].iloc[-2])
-                open_price = float(df['Open'].iloc[-1])
-                
-                # A. GAP %
-                gap_pct = ((open_price - prev_close) / prev_close) * 100
-                
-                # B. VOLUME CHECK (> 500k avg)
-                avg_vol = df['Volume'].mean()
-                if avg_vol < 500000: continue
-                
-                # C. ATR CALC (> 0.50)
-                high_low = df['High'] - df['Low']
-                high_close = (df['High'] - df['Close'].shift()).abs()
-                low_close = (df['Low'] - df['Close'].shift()).abs()
-                ranges = pd.concat([high_low, high_close, low_close], axis=1)
-                true_range = ranges.max(axis=1)
-                atr = true_range.rolling(14).mean().iloc[-1]
-                
-                if atr < 0.50: continue
-
-                # D. GAP CRITERIA (> 1% or < -1%)
-                if abs(gap_pct) >= 1.0:
-                    candidates.append({
-                        "ticker": t, "gap": gap_pct, "atr": atr, "price": curr_close
-                    })
-            except: pass
-    except: return []
-
-    # 3. SORT & FILTER TOP 5
-    candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
-    top_5 = candidates[:5]
+        feeds = ["https://finance.yahoo.com/rss/most-active"] 
+        for url in feeds:
+            f = feedparser.parse(url)
+            for entry in f.entries[:20]:
+                match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
+                if match: discovery_tickers.add(match.group(0))
+    except: pass
     
-    # 4. OPENAI JUDGMENT
-    final_picks = top_5 # Default if no AI
-    if api_key and NEWS_LIB_READY and top_5:
+    if len(discovery_tickers) < 5:
+        discovery_tickers.update(["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "MULN", "GME"])
+    
+    scan_list = list(discovery_tickers)
+
+    # 2. FILTERING
+    for t in scan_list:
+        try:
+            r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=2).json()
+            if 'c' not in r or r['c'] == 0: continue
+            
+            gap_pct = ((float(r['c']) - float(r['pc'])) / float(r['pc'])) * 100
+            
+            if abs(gap_pct) >= 1.0: # Gap > 1%
+                hist = yf.download(t, period="5d", interval="1d", progress=False)
+                if hist.empty: continue
+                
+                avg_vol = hist['Volume'].mean()
+                if avg_vol < 100000: continue # Vol > 100k
+                
+                hist['TR'] = hist['High'] - hist['Low']
+                atr = hist['TR'].mean()
+                if atr < 0.50: continue # ATR > 0.50
+
+                try: 
+                    info = yf.Ticker(t).info
+                    cap = info.get('marketCap', 0)
+                    is_small_cap = "YES" if 0 < cap < 2000000000 else "NO"
+                except: is_small_cap = "UNKNOWN"
+
+                candidates.append({"ticker": t, "gap": f"{gap_pct:.1f}%", "price": r['c'], "atr": f"{atr:.2f}", "small_cap": is_small_cap})
+            time.sleep(0.1)
+        except: continue
+    
+    # 3. AI SELECTION
+    if api_key and candidates:
         try:
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Analyze these stocks for a day trade. Pick the Top 3 based on momentum catalysts. Ignore buyout rumors. Return JSON: {{'picks': ['TICKER', 'TICKER']}}.\nData: {str(top_5)}"
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
-            picks_json = json.loads(response.choices[0].message.content)
-            picked_tickers = picks_json.get("picks", [])
-            final_picks = [c for c in top_5 if c['ticker'] in picked_tickers]
-            if not final_picks: final_picks = top_5[:3]
-        except: pass
-        
-    return final_picks
+            prompt = f"Pick top 3 for day trade from list. Prioritize 'YES' small_cap. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\nData: {str(candidates)}"
+            resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+            picks = json.loads(resp.choices[0].message.content).get("picks", [])
+            # Convert simple list back to full objects if needed, or just return tickers
+            return [c for c in candidates if c['ticker'] in picks] or candidates[:3]
+        except: 
+            candidates.sort(key=lambda x: abs(float(x['gap'].strip('%'))), reverse=True)
+            return candidates[:3]
+            
+    return candidates[:3]
+
+# --- MORNING BRIEFING ENGINE ---
+def run_morning_briefing(api_key):
+    try:
+        now = datetime.now()
+        if now.weekday() > 4: return 
+        today_str = now.strftime('%Y-%m-%d')
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT picks FROM daily_briefing WHERE date = %s", (today_str,))
+        if not cursor.fetchone() and 9 <= now.hour <= 10 and 45 <= now.minute <= 59:
+            final_picks = run_gap_scanner(api_key)
+            if final_picks:
+                cursor.execute("INSERT INTO daily_briefing (date, picks) VALUES (%s, %s)", (today_str, json.dumps(final_picks)))
+                conn.commit()
+        conn.close()
+    except: pass
 
 # --- AUTH & HELPERS ---
 def check_user_exists(username):
@@ -409,7 +419,7 @@ def fetch_news(feeds, tickers, api_key):
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans: 
                                 parts = ans.split("|"); found_ticker = parts[0].strip()
-                                # NEW FIX: Fuzzy Match to force Green/Red colors
+                                # FUZZY MATCH LOGIC
                                 raw_sent = parts[1].strip()
                                 if "POS" in raw_sent or "BULL" in raw_sent: sentiment = "BULLISH"
                                 elif "NEG" in raw_sent or "BEAR" in raw_sent: sentiment = "BEARISH"
@@ -495,6 +505,9 @@ def get_tape_data(symbol_string, nickname_string=""):
 # --- UI LOGIC ---
 init_db()
 run_backend_update()
+ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
+# Trigger Morning Briefing Logic
+run_morning_briefing(ACTIVE_KEY)
 
 if "init" not in st.session_state:
     st.session_state["init"] = True
@@ -569,13 +582,15 @@ else:
         with st.expander("⚡ AI Daily Picks", expanded=True):
             if st.button("🔎 Scan Market"):
                 with st.spinner("Hunting for setups..."):
-                    w_list = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
-                    picks = run_gap_scanner(w_list, ACTIVE_KEY)
+                    # CHANGED: Call the dynamic RSS scanner
+                    picks = run_gap_scanner(ACTIVE_KEY)
                     if not picks: st.warning("No matches today.")
                     else:
                         for p in picks:
-                            st.markdown(f"**{p['ticker']}** (+{p['gap']:.1f}%)")
-                            st.caption(f"Price: ${p['price']:.2f} | ATR: {p['atr']:.2f}")
+                            ticker = p.get('ticker', p) if isinstance(p, dict) else p
+                            st.markdown(f"**{ticker}**")
+                            if isinstance(p, dict):
+                                st.caption(f"Gap: {p.get('gap')} | ATR: {p.get('atr')}")
                             st.divider()
 
         st.subheader("Your Watchlist")
@@ -592,8 +607,9 @@ else:
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
             a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
-            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True)):
-                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; push_user(); st.rerun()
+            a_pre = st.checkbox("Premarket", value=USER.get("alert_pre", True))
+            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
+                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
 
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
@@ -635,7 +651,7 @@ else:
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 
-                # --- NEW: RESTORED VOLUME BAR ---
+                # --- SURGICAL ADD: VOLUME BAR VISUAL ---
                 st.markdown(f"""
                     <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
                     <div class='bar-bg'>
@@ -649,6 +665,18 @@ else:
                 st.divider()
 
         with t1:
+            # MORNING BANNER
+            try:
+                conn = get_connection(); cursor = conn.cursor(dictionary=True)
+                today = datetime.now().strftime('%Y-%m-%d')
+                cursor.execute("SELECT picks FROM daily_briefing WHERE date = %s", (today,))
+                row = cursor.fetchone(); conn.close()
+                if row:
+                    picks_list = json.loads(row['picks'])
+                    display_tickers = [p['ticker'] if isinstance(p, dict) else p for p in picks_list]
+                    st.success(f"📌 **Daily Picks:** {', '.join(display_tickers)}")
+            except: pass
+            
             cols = st.columns(3)
             for i, t in enumerate(w_tickers):
                 with cols[i % 3]: draw_card(t)
@@ -672,13 +700,10 @@ else:
                     with cols[i % 3]: draw_card(k, v)
 
         def render_news(n):
-            # --- NEW: Fuzzy Match Logic for Sentiment Colors ---
-            # If "POS" or "BULL" in text -> Green
-            # If "NEG" or "BEAR" in text -> Red
-            # Else -> Dark Grey/Black
+            # SURGICAL CSS UPDATE: Fuzzy matching for Green/Red
             s_val = n["sentiment"].upper()
-            if "POS" in s_val or "BULL" in s_val: col = "#4caf50"
-            elif "NEG" in s_val or "BEAR" in s_val: col = "#ff4b4b"
+            if "BULL" in s_val or "POS" in s_val: col = "#4caf50"
+            elif "BEAR" in s_val or "NEG" in s_val: col = "#ff4b4b"
             else: col = "#333"
             
             disp = n["ticker"] if n["ticker"] else "MARKET"
