@@ -73,7 +73,7 @@ def init_db():
         # Ensure daily_briefing table exists with 'sent' column
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, sent TINYINT DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
         
-        # Auto-patch: Add 'sent' column if it's missing
+        # Auto-patch: Add 'sent' column if it's missing (Fixes your 1054 Error)
         try:
             cursor.execute("ALTER TABLE daily_briefing ADD COLUMN sent TINYINT DEFAULT 0")
         except: pass
@@ -249,7 +249,7 @@ def run_gap_scanner(api_key):
             except: continue
     except: pass
     
-    # 2. FORCE FALLBACK (Ensures scanner never fails)
+    # 2. FORCE FALLBACK (ALWAYS ADD THESE TO ENSURE RESULTS)
     staples = ["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "GME", "HOLO", "MSTR", "DJT", "RIVN", "HOOD", "DKNG"]
     discovery_tickers.update(staples)
     
@@ -257,6 +257,7 @@ def run_gap_scanner(api_key):
     
     # 3. BATCH DOWNLOAD & FILTER
     try:
+        # Fetch 5 days history
         data = yf.download(" ".join(scan_list), period="5d", interval="1d", group_by='ticker', threads=True, progress=False)
         
         for t in scan_list:
@@ -282,6 +283,7 @@ def run_gap_scanner(api_key):
                 atr = (df['High'] - df['Low']).mean()
 
                 # RELAXED CRITERIA: Gap > 0.5% | Vol > 50k
+                # This ensures we catch movers even on slow days
                 if abs(gap_pct) >= 0.5 and avg_vol > 50000:
                     candidates.append({
                         "ticker": t,
@@ -294,6 +296,7 @@ def run_gap_scanner(api_key):
     # 4. AI SELECTION
     if api_key and candidates:
         try:
+            # Sort by biggest gap first
             candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
             top_10 = candidates[:10]
             
@@ -303,9 +306,10 @@ def run_gap_scanner(api_key):
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
             return picks if picks else [c['ticker'] for c in top_10[:3]]
         except: 
+            # If AI fails, return top 3 manually
             return [c['ticker'] for c in candidates[:3]]
             
-    # Fallback if no AI
+    # Fallback if no AI key
     candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
     return [c['ticker'] for c in candidates[:3]]
 
