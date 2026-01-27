@@ -215,54 +215,24 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (THE CYBORG) ---
+# --- SCANNER ENGINE (MODIFIED: FINNHUB INTEGRATED) ---
 @st.cache_data(ttl=3600) # Runs once per hour to save API
 def run_gap_scanner(user_tickers, api_key):
-    # 1. EXPAND TARGET LIST (User's + High Volatility)
+    # 1. EXPAND TARGET LIST
     high_vol_tickers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "SPY", "QQQ", "IWM", "MSTR", "HOOD", "DKNG", "ROKU"]
     scan_list = list(set(high_vol_tickers + user_tickers))
-    
     candidates = []
+    fh_key = st.secrets.get("FINNHUB_API_KEY")
     
-    # 2. BATCH DOWNLOAD (Fast)
+    # 2. FINNHUB DOWNLOAD
     try:
-        data = yf.download(" ".join(scan_list), period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
-        
         for t in scan_list:
-            try:
-                if t in data.columns.levels[0]: df = data[t]
-                else: continue
-                
-                if len(df) < 14: continue # Need enough data for ATR
-                
-                # METRICS
-                curr_close = float(df['Close'].iloc[-1])
-                prev_close = float(df['Close'].iloc[-2])
-                open_price = float(df['Open'].iloc[-1])
-                
-                # A. GAP %
-                gap_pct = ((open_price - prev_close) / prev_close) * 100
-                
-                # B. VOLUME CHECK (> 500k avg)
-                avg_vol = df['Volume'].mean()
-                if avg_vol < 500000: continue
-                
-                # C. ATR CALC (> 0.50)
-                high_low = df['High'] - df['Low']
-                high_close = (df['High'] - df['Close'].shift()).abs()
-                low_close = (df['Low'] - df['Close'].shift()).abs()
-                ranges = pd.concat([high_low, high_close, low_close], axis=1)
-                true_range = ranges.max(axis=1)
-                atr = true_range.rolling(14).mean().iloc[-1]
-                
-                if atr < 0.50: continue
-
-                # D. GAP CRITERIA (> 1% or < -1%)
-                if abs(gap_pct) >= 1.0:
-                    candidates.append({
-                        "ticker": t, "gap": gap_pct, "atr": atr, "price": curr_close
-                    })
-            except: pass
+            r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=5).json()
+            if 'c' in r and r['c'] != 0:
+                gap = ((float(r['c']) - float(r['pc'])) / float(r['pc'])) * 100
+                if abs(gap) >= 1.0:
+                    candidates.append({"ticker": t, "gap": gap, "price": r['c'], "atr": 0.0})
+            time.sleep(0.1)
     except: return []
 
     # 3. SORT & FILTER TOP 5
@@ -270,11 +240,11 @@ def run_gap_scanner(user_tickers, api_key):
     top_5 = candidates[:5]
     
     # 4. OPENAI JUDGMENT
-    final_picks = top_5 # Default if no AI
+    final_picks = top_5 
     if api_key and NEWS_LIB_READY and top_5:
         try:
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Analyze these stocks for a day trade. Pick the Top 3 based on momentum catalysts. Ignore buyout rumors. Return JSON: {{'picks': ['TICKER', 'TICKER']}}.\nData: {str(top_5)}"
+            prompt = f"Analyze: {str(top_5)}. Return JSON: {{'picks': ['TICKER', 'TICKER']}}."
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
@@ -372,7 +342,7 @@ def get_global_config_data():
     if g.get("rss_feeds"): rss_feeds = g.get("rss_feeds")
     return api_key, rss_feeds, g
 
-# --- NEWS ENGINE ---
+# --- NEWS ENGINE (MODIFIED: SENTIMENT MATCHING FIXED) ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -389,9 +359,7 @@ def fetch_news(feeds, tickers, api_key):
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    articles = []; seen = set(); smart_tickers = {}
-    if tickers:
-        for t in tickers: smart_tickers[t] = t.split('.')[0]
+    articles = []; seen = set(); smart_tickers = {t: t.split('.')[0] for t in tickers} if tickers else {}
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
@@ -400,14 +368,18 @@ def fetch_news(feeds, tickers, api_key):
                 if entry.link not in seen:
                     seen.add(entry.link)
                     found_ticker, sentiment = "", "NEUTRAL"
-                    title_upper = entry.title.upper(); summary_text = entry.get("summary", "")
+                    title_upper = entry.title.upper()
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze this news: '{entry.title}'. Return: TICKER|SENTIMENT."
+                            prompt = f"Analyze: '{entry.title}'. Return: TICKER|SENTIMENT."
                             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
-                            if "|" in ans: parts = ans.split("|"); found_ticker = parts[0].strip(); sentiment = parts[1].strip()
+                            if "|" in ans: 
+                                parts = ans.split("|"); found_ticker = parts[0].strip()
+                                # Fix: Explicit mapping to match CSS keys
+                                raw_sent = parts[1].strip()
+                                sentiment = "BULLISH" if "BULL" in raw_sent else "BEARISH" if "BEAR" in raw_sent else "NEUTRAL"
                         except: pass
                     if not found_ticker and tickers:
                         for original_t, root_t in smart_tickers.items():
@@ -457,7 +429,7 @@ def get_batch_data(tickers_list):
             chart_data = pd.DataFrame({'Idx': range(len(points)), 'Stock': points})
             base = chart_data['Stock'].iloc[0] if chart_data['Stock'].iloc[0] != 0 else 1
             chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
-            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data}
+            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "vol_label": vol_stat, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data}
     except: pass
     return results
 
@@ -559,6 +531,9 @@ else:
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
         
+        # --- API STATUS LIGHT ---
+        st.sidebar.caption(f"📡 Connection: Finnhub {'🟢' if st.secrets.get('FINNHUB_API_KEY') else '🔴'}")
+
         # --- NEW SCANNER ---
         with st.expander("⚡ AI Daily Picks", expanded=True):
             if st.button("🔎 Scan Market"):
@@ -628,6 +603,15 @@ else:
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
+                
+                # --- MODIFIED: VOLUME BAR ADDED ---
+                st.markdown(f"""
+                    <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
+                    <div class='bar-bg'>
+                        <div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div>
+                    </div>
+                """, unsafe_allow_html=True)
+
                 if port_item:
                     gain = (d["p"] - port_item["e"]) * port_item["q"]
                     st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
