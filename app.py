@@ -216,12 +216,11 @@ def run_backend_update():
     except Exception: pass
 
 # --- SCANNER ENGINE (THE CYBORG) ---
-@st.cache_data(ttl=3600) 
+@st.cache_data(ttl=3600)
 def run_gap_scanner(user_tickers, api_key):
     high_vol_tickers = ['NVDA', 'GOOGL', 'AAPL', 'MSFT', 'AMZN', 'META', 'AVGO', 'TSLA', 'JPM', 'V', 'JNJ', 'ORCL', 'MU', 'COST', 'HD', 'BAC', 'NFLX', 'PG', 'CVX', 'UNH', 'KO', 'GE', 'CSCO', 'CAT', 'GS', 'TM', 'HSBC', 'AZN', 'MS', 'NVS', 'NVO', 'LRCX', 'IBM', 'SAP', 'PM', 'WFC', 'MRK', 'RTX', 'AMAT', 'AXP', 'RY', 'TMO', 'INTC', 'MCD', 'CRM', 'LIN', 'TMUS', 'SHEL', 'PEP', 'KLAC', 'C', 'DIS', 'BA', 'ABT', 'ISRG', 'AMGN', 'SCHW', 'SYK', 'TXN', 'BLK', 'CRDO', 'BE', 'IONQ', 'KTOS', 'HL', 'CDE', 'FN', 'NXT', 'AVAV', 'BBIO', 'GH', 'SMCI', 'APG', 'CRUS', 'ONC', 'WTS', 'AEIS', 'AXSM', 'PGEN', 'BMY', 'SNDX', 'RDW', 'LAC', 'WOLF', 'AXTI', 'BW', 'MGNI', 'AMPL', 'CWCO', 'SG', 'SHAK', 'SQSP', 'PRCH', 'IRTC', 'UPWK', 'SKYW', 'RIVN', 'GOSS', 'ADTX', 'MULN']
     scan_list = list(set(high_vol_tickers + user_tickers))
     candidates = []
-    
     try:
         data = yf.download(" ".join(scan_list), period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
         for t in scan_list:
@@ -251,15 +250,14 @@ def run_gap_scanner(user_tickers, api_key):
     if api_key and NEWS_LIB_READY and top_5:
         try:
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Analyze these stocks for a day trade. Return JSON: {{'picks': ['TICKER', 'TICKER']}}.\nData: {str(top_5)}"
+            prompt = f"Analyze these stocks for a day trade. Pick the Top 3 based on momentum catalysts. Ignore buyout rumors. Return JSON: {{'picks': ['TICKER', 'TICKER']}}.\nData: {str(top_5)}"
             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks_json = json.loads(response.choices[0].message.content)
             picked_tickers = picks_json.get("picks", [])
             final_picks = [c for c in top_5 if c['ticker'] in picked_tickers]
             if not final_picks: final_picks = top_5[:3]
-            return final_picks
         except: pass
-    return top_5[:3]
+    return final_picks if 'final_picks' in locals() else top_5[:3]
 
 # --- AUTH & HELPERS ---
 def check_user_exists(username):
@@ -379,10 +377,10 @@ def fetch_news(feeds, tickers, api_key):
                             if "|" in ans:
                                 parts = ans.split("|")
                                 found_ticker = parts[0].strip()
-                                raw_s = parts[1].strip()
-                                # INTERNAL FIX: Ensure string matches your CSS keys exactly
-                                if "BULL" in raw_s: sentiment = "BULLISH"
-                                elif "BEAR" in raw_s: sentiment = "BEARISH"
+                                raw_sent = parts[1].strip()
+                                # Internal fix for CSS key matching
+                                if "BULL" in raw_sent: sentiment = "BULLISH"
+                                elif "BEAR" in raw_sent: sentiment = "BEARISH"
                                 else: sentiment = "NEUTRAL"
                         except: pass
                     articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published", "")), "ticker": found_ticker, "sentiment": sentiment})
@@ -393,177 +391,4 @@ def fetch_news(feeds, tickers, api_key):
 @st.cache_data(ttl=600)
 def get_fundamentals(s):
     try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
-        row = cursor.fetchone(); conn.close()
-        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
-    except: return {"rating": "N/A", "earn": "N/A"}
-
-def get_batch_data(tickers_list):
-    if not tickers_list: return {}
-    results = {}
-    try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        format_strings = ','.join(['%s'] * len(tickers_list))
-        cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers_list))
-        rows = cursor.fetchall(); conn.close()
-        for row in rows:
-            s = row['ticker']
-            price = float(row['current_price']); change = float(row['day_change'])
-            rsi_val = float(row['rsi']); trend = row['trend_status']
-            vol_stat = row['volume_status']; display_name = row.get('company_name') or s
-            pp_html = ""
-            if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
-                pp_p = float(row['pre_post_price']); pp_c = float(row['pre_post_pct'])
-                if abs(pp_p - price) > 0.01:
-                    now = datetime.now(timezone.utc) - timedelta(hours=5)
-                    lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
-                    col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
-                    pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
-            vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
-            day_h = float(row.get('day_high') or price); day_l = float(row.get('day_low') or price)
-            range_pos = 50
-            if day_h > day_l: range_pos = max(0, min(100, ((price - day_l) / (day_h - day_l)) * 100))
-            raw_hist = row.get('price_history')
-            points = json.loads(raw_hist) if raw_hist else [price] * 20
-            chart_data = pd.DataFrame({'Idx': range(len(points)), 'Stock': points})
-            base = chart_data['Stock'].iloc[0] if chart_data['Stock'].iloc[0] != 0 else 1
-            chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
-            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data}
-    except: pass
-    return results
-
-@st.cache_data(ttl=60)
-def get_tape_data(symbol_string):
-    items = []; symbols = [x.strip().upper() for x in symbol_string.split(",") if x.strip()]
-    if not symbols: return ""
-    try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute(f"SELECT ticker, current_price, day_change FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
-        rows = cursor.fetchall(); conn.close()
-        for row in rows:
-            px = float(row['current_price']); chg = float(row['day_change'])
-            col, arrow = ("#4caf50", "▲") if chg >= 0 else ("#ff4b4b", "▼")
-            items.append(f"<span style='color:#ccc; margin-left:20px;'>{row['ticker']}</span> <span style='color:{col}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
-    except: pass
-    return "    ".join(items)
-
-# --- UI LOGIC ---
-init_db()
-run_backend_update()
-
-st.markdown("""<style>
-.block-container { padding-top: 4.5rem !important; }
-.news-card { padding: 12px; margin-bottom: 12px; border-radius: 6px; border-left: 6px solid #999; }
-.news-title { font-size: 15px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; }
-.ticker-badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; color: white; font-weight: bold; margin-right: 10px; display: inline-block; vertical-align: middle; }
-.metric-label { font-size: 10px; color: #888; font-weight: 600; display: flex; justify-content: space-between; margin-top: 8px; text-transform: uppercase; }
-.bar-bg { background: #eee; height: 5px; border-radius: 3px; width: 100%; margin-top: 3px; overflow: hidden; }
-.bar-fill { height: 100%; border-radius: 3px; }
-.tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; color: white; }
-.info-pill { font-size: 10px; color: #333; background: #f8f9fa; padding: 3px 8px; border-radius: 4px; font-weight: 600; margin-right: 6px; display: inline-block; border: 1px solid #eee; }
-</style>""", unsafe_allow_html=True)
-
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-
-if not st.session_state["logged_in"]:
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
-        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-        with st.form("login"):
-            u = st.text_input("Username")
-            p = st.text_input("PIN", type="password")
-            if st.form_submit_button("Login"):
-                exists, stored_pin = check_user_exists(u.strip())
-                if exists and stored_pin == p:
-                    st.session_state["username"] = u.strip()
-                    st.session_state["user_data"] = load_user_profile(u.strip())
-                    st.session_state["global_data"] = load_global_config()
-                    st.session_state["logged_in"] = True
-                    st.rerun()
-                elif not exists:
-                    save_user_profile(u.strip(), {"w_input": "TD.TO, SPY"}, p)
-                    st.session_state["username"] = u.strip()
-                    st.session_state["user_data"] = load_user_profile(u.strip())
-                    st.session_state["global_data"] = load_global_config()
-                    st.session_state["logged_in"] = True
-                    st.rerun()
-else:
-    GLOBAL = st.session_state["global_data"]; USER = st.session_state["user_data"]
-    ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
-
-    tape_content = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F"))
-    components.html(f"""<div style="background:#111; padding:10px; white-space:nowrap; overflow:hidden;"><marquee scrollamount="5" style="color:white; font-family:sans-serif; font-weight:bold;">{tape_content}</marquee></div>""", height=45)
-
-    with st.sidebar:
-        st.subheader(f"👤 {st.session_state['username']}")
-        with st.expander("⚡ AI Daily Picks", expanded=True):
-            if st.button("🔎 Scan Market"):
-                with st.spinner("Finding Gaps..."):
-                    picks = run_gap_scanner([x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()], ACTIVE_KEY)
-                    for p in picks: st.markdown(f"**{p['ticker']}** ({p['gap']:+.1f}%) - ${p['price']:.2f}")
-
-        new_w = st.text_area("Watchlist", value=USER.get("w_input", ""), height=100)
-        if st.button("Save Watchlist"):
-            USER["w_input"] = new_w; save_user_profile(st.session_state["username"], USER); st.rerun()
-
-        if st.button("Logout"): st.session_state["logged_in"] = False; st.rerun()
-
-    @st.fragment(run_every=120)
-    def render_dashboard():
-        t1, t2, t3, t4 = st.tabs(["📊 Market", "🚀 My Picks", "📰 News", "🌎 Discovery"])
-        w_tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
-        port = GLOBAL.get("portfolio", {}); p_tickers = list(port.keys())
-        batch_data = get_batch_data(list(set(w_tickers + p_tickers)))
-
-        def draw_card(t, port_item=None):
-            d = batch_data.get(t)
-            if not d: return
-            f = get_fundamentals(t)
-            b_col, arrow = ("#4caf50", "▲") if d["d"] >= 0 else ("#ff4b4b", "▼")
-            ai_col = "#4caf50" if d["ai"] == "BULLISH" else "#ff4b4b"
-            tr_col = "#4caf50" if d["trend"] == "UPTREND" else "#ff4b4b"
-            rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
-            pills = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
-            
-            with st.container(border=True):
-                st.markdown(f"<div style='display:flex; justify-content:space-between;'><div><div style='font-size:18px; font-weight:bold;'>{t}</div><div style='font-size:11px; color:#888;'>{d['name'][:20]}</div></div><div style='text-align:right;'><div style='font-size:18px; font-weight:bold;'>${d['p']:,.2f}</div><div style='font-size:12px; color:{b_col};'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-top:8px;'>{pills}</div>", unsafe_allow_html=True)
-                st.altair_chart(alt.Chart(d["chart"]).mark_area(line={'color': b_col}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color='white', offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('Idx', axis=None), y=alt.Y('Stock', axis=None)).properties(height=45), use_container_width=True)
-                st.markdown(f"<div class='metric-label'><span>Day Range</span><span>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
-                if port_item:
-                    gain = (d["p"] - port_item["e"]) * port_item["q"]
-                    st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:11px;'><span>Qty: {port_item['q']}</span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
-
-        with t1:
-            cols = st.columns(3)
-            for i, t in enumerate(w_tickers):
-                with cols[i % 3]: draw_card(t)
-        
-        with t2:
-            if port:
-                total_val = sum(batch_data[k]['p'] * v['q'] for k,v in port.items() if k in batch_data)
-                total_cost = sum(v['e'] * v['q'] for k,v in port.items())
-                tot_col = "#4caf50" if (total_val - total_cost) >= 0 else "#ff4b4b"
-                st.markdown(f"<div style='background:#fff; border:1px solid #eee; padding:15px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888;'>NET ASSETS</div><div style='font-size:24px; font-weight:bold;'>${total_val:,.2f}</div></div><div><div style='font-size:11px; color:#888;'>TOTAL P/L</div><div style='font-size:24px; font-weight:bold; color:{tot_col};'>${total_val - total_cost:+,.2f}</div></div></div>", unsafe_allow_html=True)
-            cols = st.columns(3)
-            for i, (k, v) in enumerate(port.items()):
-                with cols[i % 3]: draw_card(k, v)
-
-        def render_news_item(n):
-            s_map = {"BULLISH": {"c": "#4caf50", "bg": "#e8f5e9"}, "BEARISH": {"c": "#ff4b4b", "bg": "#ffebee"}, "NEUTRAL": {"c": "#9e9e9e", "bg": "#f5f5f5"}}
-            s = s_map.get(n["sentiment"], s_map["NEUTRAL"])
-            st.markdown(f"<div class='news-card' style='border-left-color:{s['c']}; background-color:{s['bg']};'><span class='ticker-badge' style='background-color:{s['c']}'>{n['ticker'] if n['ticker'] else 'MARKET'}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a><div style='font-size:11px; color:#888;'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
-
-        with t3:
-            if st.button("🔄 Refresh News", key="refresh_n"): fetch_news.clear(); st.rerun()
-            news = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
-            for n in news: render_news_item(n)
-        
-        with t4:
-            if st.button("🔄 Refresh Discovery", key="refresh_d"): fetch_news.clear(); st.rerun()
-            news = fetch_news(GLOBAL.get("rss_feeds", []), [], ACTIVE_KEY)
-            for n in news: render_news_item(n)
-
-    render_dashboard()
+        conn = get_connection(); cursor = conn.
