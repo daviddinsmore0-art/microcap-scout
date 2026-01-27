@@ -215,7 +215,7 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (FINNHUB + OPENAI LOGIC) ---
+# --- SCANNER ENGINE (FINNHUB + OPENAI) ---
 @st.cache_data(ttl=3600)
 def run_gap_scanner(user_tickers, api_key):
     high_vol_tickers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "MSTR", "MULN"]
@@ -243,7 +243,8 @@ def run_gap_scanner(user_tickers, api_key):
             client = openai.OpenAI(api_key=api_key)
             prompt = f"Analyze: {str(top_5)}. Return JSON: {{'picks': ['TICKER', 'TICKER']}}."
             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
-            picked_tickers = json.loads(response.choices[0].message.content).get("picks", [])
+            picks_json = json.loads(response.choices[0].message.content)
+            picked_tickers = picks_json.get("picks", [])
             final_picks = [c for c in top_5 if c['ticker'] in picked_tickers]
             return final_picks if final_picks else top_5[:3]
         except: pass
@@ -333,7 +334,7 @@ def get_global_config_data():
     if g.get("rss_feeds"): rss_feeds = g.get("rss_feeds")
     return api_key, rss_feeds, g
 
-# --- NEWS ENGINE (FIXED SENTIMENT) ---
+# --- NEWS ENGINE ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -350,7 +351,7 @@ def fetch_news(feeds, tickers, api_key):
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    articles = []; seen = set()
+    articles = []; seen = set(); smart_tickers = {t: t.split('.')[0] for t in tickers} if tickers else {}
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
@@ -361,14 +362,14 @@ def fetch_news(feeds, tickers, api_key):
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze: '{entry.title}'. Return: TICKER|SENTIMENT (BULLISH/BEARISH/NEUTRAL)."
+                            prompt = f"Analyze news: '{entry.title}'. Return: TICKER|SENTIMENT (BULLISH/BEARISH/NEUTRAL)."
                             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans:
                                 parts = ans.split("|"); found_ticker = parts[0].strip()
-                                raw_s = parts[1].strip()
-                                if "BULL" in raw_s: sentiment = "BULLISH"
-                                elif "BEAR" in raw_s: sentiment = "BEARISH"
+                                raw_sent = parts[1].strip()
+                                if "BULL" in raw_sent: sentiment = "BULLISH"
+                                elif "BEAR" in raw_sent: sentiment = "BEARISH"
                                 else: sentiment = "NEUTRAL"
                         except: pass
                     articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published", "")), "ticker": found_ticker, "sentiment": sentiment})
@@ -376,6 +377,15 @@ def fetch_news(feeds, tickers, api_key):
     return articles
 
 # --- DATA ENGINE ---
+@st.cache_data(ttl=600)
+def get_fundamentals(s):
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
+        row = cursor.fetchone(); conn.close()
+        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
+    except: return {"rating": "N/A", "earn": "N/A"}
+
 def get_batch_data(tickers_list):
     if not tickers_list: return {}
     results = {}
@@ -397,6 +407,7 @@ def get_batch_data(tickers_list):
                     lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
                     col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
                     pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
+            
             vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
             day_h = float(row.get('day_high') or price); day_l = float(row.get('day_low') or price)
             range_pos = 50
@@ -423,7 +434,7 @@ def get_tape_data(symbol_string, nickname_string=""):
     if not symbols: return ""
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
+        cursor.execute(f"SELECT ticker, current_price, day_change FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
         rows = cursor.fetchall(); conn.close()
         data_map = {row['ticker']: row for row in rows}
         for s in symbols:
@@ -505,7 +516,6 @@ else:
                     picks = run_gap_scanner(w_list, ACTIVE_KEY)
                     for p in picks: st.markdown(f"**{p['ticker']}** (+{p['gap']:.1f}%)"); st.caption(f"${p['price']:.2f}")
 
-        st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
         if new_w != USER.get("w_input"):
             USER["w_input"] = new_w; push_user(); st.rerun()
@@ -537,7 +547,7 @@ else:
 
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
     
-    @st.fragment(run_every=60)
+    @st.fragment(run_every=120)
     def render_dashboard():
         t1, t2, t3, t4 = st.tabs(["📊 Market", "🚀 My Picks", "📰 News", "🌎 Discovery"])
         w_tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
@@ -554,6 +564,7 @@ else:
             pills = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
             if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
             if f["earn"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
+            
             with st.container():
                 st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
@@ -561,7 +572,7 @@ else:
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 
                 # VOLUME BAR (FIXED)
-                st.markdown(f"<div class='metric-label'><span>Volume ({d['vol_label']})</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div></div>", unsafe_allow_html=True)
                 
                 if port_item:
                     gain = (d["p"] - port_item["e"]) * port_item["q"]
