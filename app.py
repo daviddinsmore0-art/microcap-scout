@@ -36,7 +36,7 @@ LOGO_PATH = "logo.png"
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com",
     "user": "atlantic",                 
-    "password": "1q2w3e4R!!",   # <--- PASTE PASSWORD HERE
+    "password": "1q2w3e4R!!",   
     "database": "atlantic_pennypulse",    
     "connect_timeout": 30,
 }
@@ -216,70 +216,95 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (DYNAMIC RSS + TECH FILTER) ---
+# --- SCANNER ENGINE (DYNAMIC HYBRID: RSS -> FINNHUB -> YFINANCE -> AI) ---
 @st.cache_data(ttl=3600)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     
-    # 1. DISCOVERY: Get tickers from Yahoo Finance Trending
+    # 1. DISCOVERY: Get tickers from Yahoo Finance Trending/Active RSS
     discovery_tickers = set()
     try:
-        feeds = ["https://finance.yahoo.com/rss/most-active"] 
+        # We grab 'Most Active' to find stocks with actual movement/volume
+        feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
         for url in feeds:
             f = feedparser.parse(url)
-            for entry in f.entries[:20]:
+            for entry in f.entries[:20]: # Check top 20 headlines
+                # Regex to extract ticker (e.g., "Nvidia (NVDA)...")
                 match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
                 if match: discovery_tickers.add(match.group(0))
     except: pass
     
+    # Fallback to high-volatility staples if RSS fails to yield enough
     if len(discovery_tickers) < 5:
         discovery_tickers.update(["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "MULN", "GME"])
     
     scan_list = list(discovery_tickers)
 
-    # 2. FILTERING
+    # 2. FILTERING (Finnhub + YFinance)
     for t in scan_list:
         try:
+            # A. REAL-TIME GAP (Finnhub is fastest for this)
             r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=2).json()
             if 'c' not in r or r['c'] == 0: continue
             
             gap_pct = ((float(r['c']) - float(r['pc'])) / float(r['pc'])) * 100
             
-            if abs(gap_pct) >= 1.0: # Gap > 1%
+            # CRITERIA 1: GAP > 1% (Absolute value to catch gap down too, or remove abs() for gap up only)
+            if abs(gap_pct) >= 1.0:
+                
+                # B. VOLUME & ATR & CAP (YFinance for history)
+                # Fetch 5 days history to calc ATR and get volume
                 hist = yf.download(t, period="5d", interval="1d", progress=False)
                 if hist.empty: continue
                 
+                # CRITERIA 2: VOLUME > 100k
                 avg_vol = hist['Volume'].mean()
-                if avg_vol < 100000: continue # Vol > 100k
+                if avg_vol < 100000: continue 
                 
+                # CRITERIA 3: ATR > 0.50
                 hist['TR'] = hist['High'] - hist['Low']
                 atr = hist['TR'].mean()
-                if atr < 0.50: continue # ATR > 0.50
+                if atr < 0.50: continue
 
+                # Get Market Cap (for AI preference)
                 try: 
                     info = yf.Ticker(t).info
                     cap = info.get('marketCap', 0)
-                    is_small_cap = "YES" if 0 < cap < 2000000000 else "NO"
+                    is_small_cap = "YES" if 0 < cap < 2000000000 else "NO" # < $2B
                 except: is_small_cap = "UNKNOWN"
 
-                candidates.append({"ticker": t, "gap": f"{gap_pct:.1f}%", "price": r['c'], "atr": f"{atr:.2f}", "small_cap": is_small_cap})
-            time.sleep(0.1)
+                candidates.append({
+                    "ticker": t, 
+                    "gap": f"{gap_pct:.1f}%", 
+                    "price": r['c'], 
+                    "atr": f"{atr:.2f}",
+                    "small_cap": is_small_cap
+                })
+                
+            time.sleep(0.1) # Respect API limits
         except: continue
     
     # 3. AI SELECTION
     if api_key and candidates:
         try:
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Pick top 3 for day trade from list. Prioritize 'YES' small_cap. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\nData: {str(candidates)}"
+            prompt = (
+                f"Pick top 3 stocks for a morning day trade. "
+                f"Prioritize 'YES' for small_cap and high gaps. "
+                f"Ignore buyout rumors. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\n"
+                f"Data: {str(candidates)}"
+            )
             resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
-            # Convert simple list back to full objects if needed, or just return tickers
+            # Return full objects if found, otherwise filtered candidates
             return [c for c in candidates if c['ticker'] in picks] or candidates[:3]
         except: 
+            # Fallback sort by gap
             candidates.sort(key=lambda x: abs(float(x['gap'].strip('%'))), reverse=True)
             return candidates[:3]
             
+    # Default Fallback
     return candidates[:3]
 
 # --- MORNING BRIEFING ENGINE ---
@@ -419,7 +444,7 @@ def fetch_news(feeds, tickers, api_key):
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans: 
                                 parts = ans.split("|"); found_ticker = parts[0].strip()
-                                # FUZZY MATCH LOGIC
+                                # FUZZY MATCH
                                 raw_sent = parts[1].strip()
                                 if "POS" in raw_sent or "BULL" in raw_sent: sentiment = "BULLISH"
                                 elif "NEG" in raw_sent or "BEAR" in raw_sent: sentiment = "BEARISH"
