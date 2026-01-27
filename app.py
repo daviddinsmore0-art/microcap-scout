@@ -87,7 +87,7 @@ def get_fundamentals(s):
         return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
     except: return {"rating": "N/A", "earn": "N/A"}
 
-# --- MORNING BRIEFING ENGINE (ATR FIX) ---
+# --- MORNING BRIEFING ENGINE (AST OPTIMIZED + ATR FIX) ---
 def run_morning_briefing(api_key):
     try:
         now = datetime.now() # Server time is AST
@@ -108,11 +108,12 @@ def run_morning_briefing(api_key):
                     if 'c' in r and r['c'] != 0:
                         gap = ((float(r['c']) - float(r['pc'])) / float(r['pc'])) * 100
                         if abs(gap) >= 1.0:
-                            # ATR Calculation Patch (Finnhub doesn't provide history for free)
+                            # ATR FIX: Fetch history to calculate volatility
                             hist = yf.download(t, period="14d", interval="1d", progress=False)
                             atr = 0.0
                             if not hist.empty:
-                                atr = float((hist['High'] - hist['Low']).mean())
+                                high_low = hist['High'] - hist['Low']
+                                atr = float(high_low.mean())
                             candidates.append({"ticker": t, "gap": gap, "price": r['c'], "atr": atr})
                 except: continue
             
@@ -368,6 +369,16 @@ def get_global_config_data():
     return api_key, rss_feeds, g
 
 # --- NEWS ENGINE (FIXED SENTIMENT MAPPING) ---
+def relative_time(date_str):
+    try:
+        dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+        diff = datetime.now(timezone.utc) - dt
+        seconds = diff.total_seconds()
+        if seconds < 3600: return f"{int(seconds // 60)}m ago"
+        if seconds < 86400: return f"{int(seconds // 3600)}h ago"
+        return f"{int(seconds // 86400)}d ago"
+    except: return "Recent"
+
 @st.cache_data(ttl=600)
 def fetch_news(feeds, tickers, api_key):
     if not NEWS_LIB_READY: return []
@@ -391,8 +402,10 @@ def fetch_news(feeds, tickers, api_key):
                             if "|" in ans:
                                 parts = ans.split("|"); found_ticker = parts[0].strip()
                                 raw = parts[1].strip()
-                                # Forced mapping to match CSS
-                                sentiment = "BULLISH" if "BULL" in raw else "BEARISH" if "BEAR" in raw else "NEUTRAL"
+                                # NEWS FIX: Map sentiments to CSS keys
+                                if "BULL" in raw: sentiment = "BULLISH"
+                                elif "BEAR" in raw: sentiment = "BEARISH"
+                                else: sentiment = "NEUTRAL"
                         except: pass
                     articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published", "")), "ticker": found_ticker, "sentiment": sentiment})
         except: pass
@@ -446,13 +459,13 @@ def get_tape_data(symbol_string, nickname_string=""):
     if not symbols: return ""
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
+        cursor.execute(f"SELECT ticker, current_price, day_change FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
         rows = cursor.fetchall(); conn.close()
         data_map = {row['ticker']: row for row in rows}
         for s in symbols:
             if s in data_map:
                 row = data_map[s]; px = float(row['current_price']); chg = float(row['day_change'])
-                disp = final_map.get(s, row.get('company_name', s).split(",")[0][:15])
+                disp = final_map.get(s, s)
                 col, arrow = ("#4caf50", "▲") if chg >= 0 else ("#ff4b4b", "▼")
                 items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp}</span> <span style='color:{col}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
     except: pass
@@ -460,8 +473,8 @@ def get_tape_data(symbol_string, nickname_string=""):
 
 # --- UI LOGIC ---
 init_db()
-run_backend_update()
 ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
+run_backend_update()
 run_morning_briefing(ACTIVE_KEY)
 
 if "init" not in st.session_state:
@@ -649,32 +662,17 @@ else:
                 for i, (k, v) in enumerate(port.items()):
                     with cols[i % 3]: draw_card(k, v)
 
-        def render_news(n):
+        def render_news_item(n):
             s_map = {"BULLISH": "#4caf50", "BEARISH": "#ff4b4b", "NEUTRAL": "#9e9e9e"}
-            col = s_map.get(n["sentiment"], "#333")
-            disp = n["ticker"] if n["ticker"] else "MARKET"
-            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
+            col = s_map.get(n["sentiment"], "#9e9e9e")
+            st.markdown(f"<div class='news-card' style='border-left-color:{col}'><span class='ticker-badge' style='background:{col}'>{n['ticker'] or 'MARKET'}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a><div style='font-size:11px; color:#888;'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
         with t3:
-            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
-            if c_btn.button("🔄 Refresh", key=f"btn_n1_{int(time.time()/60)}"):
-                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY); st.rerun()
-            if not NEWS_LIB_READY: st.error("Missing Libraries.")
-            else:
-                news_items = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
-                if not news_items: st.info("No news.")
-                else:
-                    for n in news_items: render_news(n)
+            news = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
+            for n in news: render_news_item(n)
         
         with t4:
-            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
-            if c_btn.button("🔄 Refresh", key=f"btn_n2_{int(time.time()/60)}"):
-                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
-            if not NEWS_LIB_READY: st.error("Missing Libraries.")
-            else:
-                news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
-                if not news_items: st.info("No news.")
-                else:
-                    for n in news_items: render_news(n)
+            news = fetch_news(GLOBAL.get("rss_feeds", []), [], ACTIVE_KEY)
+            for n in news: render_news_item(n)
 
     render_dashboard()
