@@ -6,13 +6,11 @@ import json
 import mysql.connector
 import requests
 import yfinance as yf
-# Using generic Exception to strictly prevent NameError/ImportError crashes
 from datetime import datetime, timedelta, timezone
 import streamlit.components.v1 as components
 import os
 import uuid
 import re
-import numpy as np
 
 # --- IMPORTS FOR NEWS & AI ---
 try:
@@ -70,15 +68,9 @@ def init_db():
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
-        # Ensure daily_briefing table exists with 'sent' column
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, sent TINYINT DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-        
-        # Auto-patch: Add 'sent' column if it's missing (Fixes your 1054 Error)
-        try:
-            cursor.execute("ALTER TABLE daily_briefing ADD COLUMN sent TINYINT DEFAULT 0")
+        try: cursor.execute("ALTER TABLE daily_briefing ADD COLUMN sent TINYINT DEFAULT 0"); 
         except: pass
-
-        # Auto-patch missing stock columns
         for col in ['day_high', 'day_low', 'company_name', 'pre_post_price', 'rating', 'next_earnings']:
             try:
                 dtype = "DECIMAL(20,4)" if "day" in col or "price" in col else "VARCHAR(255)"
@@ -229,12 +221,9 @@ def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     discovery_tickers = set()
-    
-    # 1. DISCOVERY: RSS Feeds (WITH HEADERS)
     try:
         feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        
+        headers = {'User-Agent': 'Mozilla/5.0'}
         for url in feeds:
             try:
                 resp = requests.get(url, headers=headers, timeout=5)
@@ -244,90 +233,48 @@ def run_gap_scanner(api_key):
                         match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
                         if match: 
                             t = match.group(0)
-                            if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO"]: 
-                                discovery_tickers.add(t)
+                            if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO"]: discovery_tickers.add(t)
             except: continue
     except: pass
-    
-    # 2. FORCE FALLBACK (ALWAYS ADD THESE TO ENSURE RESULTS)
     staples = ["NVDA", "TSLA", "AMD", "MARA", "COIN", "PLTR", "SOFI", "LCID", "GME", "HOLO", "MSTR", "DJT", "RIVN", "HOOD", "DKNG"]
     discovery_tickers.update(staples)
-    
     scan_list = list(discovery_tickers)
     
-    # 3. BATCH DOWNLOAD & FILTER
     try:
-        # Fetch 5 days history
         data = yf.download(" ".join(scan_list), period="5d", interval="1d", group_by='ticker', threads=True, progress=False)
-        
         for t in scan_list:
             try:
                 if len(scan_list) > 1:
                     if t not in data.columns.levels[0]: continue
                     df = data[t]
                 else: df = data
-
                 if df.empty or len(df) < 2: continue
-
                 prev_close = float(df['Close'].iloc[-2])
                 curr_price = float(df['Close'].iloc[-1]) 
-                
-                # Check Finnhub for real-time price
                 try:
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=1).json()
                     if 'c' in r and r['c'] != 0: curr_price = float(r['c'])
                 except: pass
-
                 gap_pct = ((curr_price - prev_close) / prev_close) * 100
                 avg_vol = df['Volume'].mean()
                 atr = (df['High'] - df['Low']).mean()
-
-                # RELAXED CRITERIA: Gap > 0.5% | Vol > 50k
-                # This ensures we catch movers even on slow days
                 if abs(gap_pct) >= 0.5 and avg_vol > 50000:
-                    candidates.append({
-                        "ticker": t,
-                        "gap": gap_pct,
-                        "atr": atr
-                    })
+                    candidates.append({"ticker": t, "gap": gap_pct, "atr": atr})
             except: continue
     except: return []
 
-    # 4. AI SELECTION
     if api_key and candidates:
         try:
-            # Sort by biggest gap first
             candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
             top_10 = candidates[:10]
-            
             client = openai.OpenAI(api_key=api_key)
             prompt = f"Pick Top 3 for day trading. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\nData: {str(top_10)}"
             resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
             return picks if picks else [c['ticker'] for c in top_10[:3]]
-        except: 
-            # If AI fails, return top 3 manually
-            return [c['ticker'] for c in candidates[:3]]
-            
-    # Fallback if no AI key
+        except: return [c['ticker'] for c in candidates[:3]]
     candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
     return [c['ticker'] for c in candidates[:3]]
-
-# --- MORNING BRIEFING ENGINE ---
-def run_morning_briefing(api_key):
-    try:
-        now = datetime.now()
-        if now.weekday() > 4: return 
-        today_str = now.strftime('%Y-%m-%d')
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT picks FROM daily_briefing WHERE date = %s", (today_str,))
-        if not cursor.fetchone() and 9 <= now.hour <= 10 and 45 <= now.minute <= 59:
-            final_picks = run_gap_scanner(api_key)
-            if final_picks:
-                cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(final_picks)))
-                conn.commit()
-        conn.close()
-    except: pass
 
 # --- AUTH & HELPERS ---
 def check_user_exists(username):
@@ -536,7 +483,6 @@ def get_tape_data(symbol_string, nickname_string=""):
 init_db()
 run_backend_update()
 ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
-run_morning_briefing(ACTIVE_KEY)
 
 if "init" not in st.session_state:
     st.session_state["init"] = True
@@ -651,10 +597,27 @@ else:
                 new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
                 if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
                 
-                # --- NEW FORCE TEST BUTTON ---
+                # --- REMOTE CONTROL BUTTON ---
                 st.divider()
-                st.markdown("### 🛠️ Testing")
-                if st.button("🔴 Force Morning Briefing (Test)"):
+                st.markdown("### 📡 Remote Trigger")
+                if st.button("🚀 Dispatch Telegram Alerts"):
+                    with st.spinner("Contacting Backend..."):
+                        try:
+                            # Triggers your PHP script secretly
+                            r = requests.get(f"https://atlanticcanadaschoice.com/up.php?t={int(time.time())}", timeout=15)
+                            if r.status_code == 200:
+                                st.success("Signal Sent Successfully!")
+                                with st.expander("Show Server Log"):
+                                    st.markdown(r.text, unsafe_allow_html=True)
+                            else:
+                                st.error(f"Failed to trigger. Server Code: {r.status_code}")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+                # --- FORCE TEST BUTTON ---
+                st.divider()
+                st.markdown("### 🛠️ Data Force")
+                if st.button("🔴 Generate Test Picks"):
                     with st.spinner("Generating Picks & Resetting DB..."):
                         test_picks = run_gap_scanner(ACTIVE_KEY)
                         try:
@@ -664,7 +627,7 @@ else:
                             cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(test_picks)))
                             conn.commit(); conn.close()
                             st.success(f"Generated! Picks: {[p.get('ticker', p) if isinstance(p,dict) else p for p in test_picks]}")
-                            st.info("👉 Now run your 'up.php' script to send the Telegram.")
+                            st.info("👉 Now click 'Dispatch Telegram Alerts' above.")
                         except Exception as e:
                             st.error(f"Error: {e}")
 
