@@ -1,4 +1,4 @@
-Import streamlit as st
+import streamlit as st
 import pandas as pd
 import altair as alt
 import time
@@ -219,24 +219,7 @@ def run_backend_update():
 @st.cache_data(ttl=3600) # Runs once per hour to save API
 def run_gap_scanner(user_tickers, api_key):
     # 1. EXPAND TARGET LIST (User's + High Volatility)
-    high_vol_tickers = [
-    # 60 Large-Cap Stocks (S&P 500 leaders/constituents)
-    'NVDA', 'GOOGL', 'AAPL', 'MSFT', 'AMZN', 'META', 'AVGO', 'TSLA', 'JPM', 
-    'V', 'JNJ', 'ORCL', 'MU', 'COST', 'HD', 'BAC', 'NFLX', 'PG', 'CVX', 
-    'UNH', 'KO', 'GE', 'CSCO', 'CAT', 'GS', 'TM', 'HSBC', 'AZN', 'MS', 
-    'NVS', 'NVO', 'LRCX', 'IBM', 'SAP', 'PM', 'WFC', 'MRK', 'RTX', 'AMAT', 
-    'AXP', 'RY', 'TMO', 'INTC', 'MCD', 'CRM', 'LIN', 'TMUS', 'SHEL', 'PEP', 
-    'KLAC', 'C', 'DIS', 'BA', 'ABT', 'ISRG', 'AMGN', 'SCHW', 'SYK', 'TXN',
-    'BLK', 
-    
-    # 40 Mid-Cap & Small-Cap Stocks (Russell 2000 constituents/high volume small caps) 
-    'CRDO', 'BE', 'IONQ', 'KTOS', 'HL', 'CDE', 'FN', 'NXT', 'AVAV', 'BBIO', 
-    'GH', 'SMCI', 'APG', 'CRUS', 'ONC', 'WTS', 'AEIS', 'AXSM', 'PGEN', 'BMY', 
-    'SNDX', 'RDW', 'LAC', 'WOLF', 'AXTI', 'BW', 'MGNI', 'AMPL', 'CWCO', 'SG', 
-    'SHAK', 'SQSP', 'PRCH', 'IRTC', 'UPWK', 'SKYW', 'RIVN', 'GOSS', 'ADTX', 
-    'MULN' # Some volatile small caps for potential gap moves
-]
-
+    high_vol_tickers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "SPY", "QQQ", "IWM", "MSTR", "HOOD", "DKNG", "ROKU"]
     scan_list = list(set(high_vol_tickers + user_tickers))
     
     candidates = []
@@ -679,4 +662,24 @@ else:
 
         with t3:
             c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
-            if c_btn.button("🔄 Refresh", key=f"btn_n1_{
+            if c_btn.button("🔄 Refresh", key=f"btn_n1_{int(time.time()/60)}"):
+                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY); st.rerun()
+            if not NEWS_LIB_READY: st.error("Missing Libraries.")
+            else:
+                news_items = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
+                if not news_items: st.info("No news.")
+                else:
+                    for n in news_items: render_news(n)
+        
+        with t4:
+            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
+            if c_btn.button("🔄 Refresh", key=f"btn_n2_{int(time.time()/60)}"):
+                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
+            if not NEWS_LIB_READY: st.error("Missing Libraries.")
+            else:
+                news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
+                if not news_items: st.info("No news.")
+                else:
+                    for n in news_items: render_news(n)
+
+    render_dashboard()
