@@ -215,48 +215,39 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (FINNHUB + OPENAI) ---
+# --- SCANNER ENGINE (FINNHUB + OPENAI LOGIC) ---
 @st.cache_data(ttl=3600)
 def run_gap_scanner(user_tickers, api_key):
     high_vol_tickers = ["NVDA", "TSLA", "AMD", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NFLX", "COIN", "MARA", "PLTR", "SOFI", "LCID", "RIVN", "GME", "AMC", "MSTR", "MULN"]
     scan_list = list(set(high_vol_tickers + user_tickers))
     candidates = []
     
-    # 1. CONNECT TO FINNHUB (Logic swap to prevent yfinance block)
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     try:
         for t in scan_list:
             r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}")
             data = r.json()
             if 'c' in data and data['c'] != 0:
-                curr_price = float(data['c']); prev_close = float(data['pc'])
-                gap_pct = ((curr_price - prev_close) / prev_close) * 100
+                curr_p = float(data['c']); prev_c = float(data['pc'])
+                gap_pct = ((curr_p - prev_c) / prev_c) * 100
                 if abs(gap_pct) >= 1.0:
-                    candidates.append({"ticker": t, "gap": gap_pct, "price": curr_price, "atr": 0.0})
-            time.sleep(0.1) # Small delay to avoid API spam
+                    candidates.append({"ticker": t, "gap": gap_pct, "atr": 0.0, "price": curr_p})
+            time.sleep(0.1)
     except: pass
 
     candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
     top_5 = candidates[:5]
     
-    # 2. OPENAI JUDGMENT
-    final_picks = top_5
     if api_key and NEWS_LIB_READY and top_5:
         try:
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Analyze these stocks for a day trade. Return JSON: {{'picks': ['TICKER', 'TICKER']}}.\nData: {str(top_5)}"
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
-            picks_json = json.loads(response.choices[0].message.content)
-            picked_tickers = picks_json.get("picks", [])
+            prompt = f"Analyze: {str(top_5)}. Return JSON: {{'picks': ['TICKER', 'TICKER']}}."
+            response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+            picked_tickers = json.loads(response.choices[0].message.content).get("picks", [])
             final_picks = [c for c in top_5 if c['ticker'] in picked_tickers]
-            if not final_picks: final_picks = top_5[:3]
+            return final_picks if final_picks else top_5[:3]
         except: pass
-        
-    return final_picks
+    return top_5[:3]
 
 # --- AUTH & HELPERS ---
 def check_user_exists(username):
@@ -342,7 +333,7 @@ def get_global_config_data():
     if g.get("rss_feeds"): rss_feeds = g.get("rss_feeds")
     return api_key, rss_feeds, g
 
-# --- NEWS ENGINE (FIXED LOGIC) ---
+# --- NEWS ENGINE (FIXED SENTIMENT) ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -359,7 +350,7 @@ def fetch_news(feeds, tickers, api_key):
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    articles = []; seen = set(); smart_tickers = {t: t.split('.')[0] for t in tickers} if tickers else {}
+    articles = []; seen = set()
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
@@ -370,15 +361,14 @@ def fetch_news(feeds, tickers, api_key):
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze news: '{entry.title}'. Return: TICKER|SENTIMENT (BULLISH/BEARISH/NEUTRAL)."
+                            prompt = f"Analyze: '{entry.title}'. Return: TICKER|SENTIMENT (BULLISH/BEARISH/NEUTRAL)."
                             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans:
                                 parts = ans.split("|"); found_ticker = parts[0].strip()
-                                # Internal fix to ensure it matches s_map keys
-                                raw_sent = parts[1].strip()
-                                if "BULL" in raw_sent: sentiment = "BULLISH"
-                                elif "BEAR" in raw_sent: sentiment = "BEARISH"
+                                raw_s = parts[1].strip()
+                                if "BULL" in raw_s: sentiment = "BULLISH"
+                                elif "BEAR" in raw_s: sentiment = "BEARISH"
                                 else: sentiment = "NEUTRAL"
                         except: pass
                     articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published", "")), "ticker": found_ticker, "sentiment": sentiment})
@@ -386,15 +376,6 @@ def fetch_news(feeds, tickers, api_key):
     return articles
 
 # --- DATA ENGINE ---
-@st.cache_data(ttl=600)
-def get_fundamentals(s):
-    try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
-        row = cursor.fetchone(); conn.close()
-        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
-    except: return {"rating": "N/A", "earn": "N/A"}
-
 def get_batch_data(tickers_list):
     if not tickers_list: return {}
     results = {}
@@ -416,8 +397,6 @@ def get_batch_data(tickers_list):
                     lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
                     col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
                     pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
-            
-            # Logic revealed: Pass volume data to UI
             vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
             day_h = float(row.get('day_high') or price); day_l = float(row.get('day_low') or price)
             range_pos = 50
@@ -444,7 +423,7 @@ def get_tape_data(symbol_string, nickname_string=""):
     if not symbols: return ""
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute(f"SELECT ticker, current_price, day_change FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
+        cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
         rows = cursor.fetchall(); conn.close()
         data_map = {row['ticker']: row for row in rows}
         for s in symbols:
@@ -461,16 +440,13 @@ init_db()
 run_backend_update()
 
 if "init" not in st.session_state:
-    st.session_state["init"] = True
-    st.session_state["logged_in"] = False
+    st.session_state["init"] = True; st.session_state["logged_in"] = False
     url_token = st.query_params.get("token", None)
     if url_token:
         user = validate_session(url_token)
         if user:
             st.session_state["username"] = user
-            st.session_state["user_data"] = load_user_profile(user)
-            st.session_state["global_data"] = load_global_config()
-            st.session_state["logged_in"] = True
+            st.session_state["user_data"] = load_user_profile(user); st.session_state["global_data"] = load_global_config(); st.session_state["logged_in"] = True
 if "fcm_token" in st.query_params: st.query_params.clear()
 
 st.markdown("""<style>
@@ -501,13 +477,11 @@ if not st.session_state["logged_in"]:
                 exists, stored_pin = check_user_exists(user.strip())
                 if exists and stored_pin == pin:
                     st.query_params["token"] = create_session(user.strip())
-                    st.session_state["username"] = user.strip()
-                    st.session_state["user_data"] = load_user_profile(user.strip()); st.session_state["global_data"] = load_global_config(); st.session_state["logged_in"] = True; st.rerun()
+                    st.session_state["username"] = user.strip(); st.session_state["user_data"] = load_user_profile(user.strip()); st.session_state["global_data"] = load_global_config(); st.session_state["logged_in"] = True; st.rerun()
                 elif not exists:
                     save_user_profile(user.strip(), {"w_input": "TD.TO, SPY"}, pin)
                     st.query_params["token"] = create_session(user.strip())
-                    st.session_state["username"] = user.strip()
-                    st.session_state["user_data"] = load_user_profile(user.strip()); st.session_state["global_data"] = load_global_config(); st.session_state["logged_in"] = True; st.rerun()
+                    st.session_state["username"] = user.strip(); st.session_state["user_data"] = load_user_profile(user.strip()); st.session_state["global_data"] = load_global_config(); st.session_state["logged_in"] = True; st.rerun()
 else:
     def push_user(): save_user_profile(st.session_state["username"], st.session_state["user_data"])
     def push_global(): save_global_config(st.session_state["global_data"])
@@ -527,18 +501,43 @@ else:
         with st.expander("⚡ AI Daily Picks", expanded=True):
             if st.button("🔎 Scan Market"):
                 with st.spinner("Finding Gaps..."):
-                    picks = run_gap_scanner([x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()], ACTIVE_KEY)
-                    for p in picks:
-                        st.markdown(f"**{p['ticker']}** (+{p['gap']:.1f}%)")
-                        st.caption(f"Price: ${p['price']:.2f}")
+                    w_list = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
+                    picks = run_gap_scanner(w_list, ACTIVE_KEY)
+                    for p in picks: st.markdown(f"**{p['ticker']}** (+{p['gap']:.1f}%)"); st.caption(f"${p['price']:.2f}")
 
+        st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
         if new_w != USER.get("w_input"):
             USER["w_input"] = new_w; push_user(); st.rerun()
 
+        st.divider()
+        with st.expander("🔔 Alert Settings"):
+            curr_tg = USER.get("telegram_id", "")
+            new_tg = st.text_input("Telegram Chat ID", value=curr_tg)
+            if new_tg != curr_tg: USER["telegram_id"] = new_tg.strip(); push_user(); st.rerun()
+            st.markdown("[Get ID](https://t.me/userinfobot)")
+            c1, c2 = st.columns(2)
+            a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
+            a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
+            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True)):
+                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; push_user(); st.rerun()
+
+        with st.expander("🔐 Admin"):
+            if st.text_input("Password", type="password") == ADMIN_PASSWORD:
+                if st.button("Import Old Picks"): GLOBAL["portfolio"] = USER.get("portfolio", {}); push_global(); st.rerun()
+                new_t = st.text_input("Ticker").upper()
+                c1, c2 = st.columns(2); new_p = c1.number_input("Cost"); new_q = c2.number_input("Qty", step=1)
+                if st.button("Add Pick") and new_t:
+                    if "portfolio" not in GLOBAL: GLOBAL["portfolio"] = {}
+                    GLOBAL["portfolio"][new_t] = {"e": new_p, "q": int(new_q)}; push_global(); st.rerun()
+                rem = st.selectbox("Remove Pick", [""] + list(GLOBAL.get("portfolio", {}).keys()))
+                if st.button("Delete") and rem: del GLOBAL["portfolio"][rem]; push_global(); st.rerun()
+                new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
+                if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
+
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
     
-    @st.fragment(run_every=120)
+    @st.fragment(run_every=60)
     def render_dashboard():
         t1, t2, t3, t4 = st.tabs(["📊 Market", "🚀 My Picks", "📰 News", "🌎 Discovery"])
         w_tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
@@ -555,37 +554,34 @@ else:
             pills = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
             if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
             if f["earn"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
-            
             with st.container():
                 st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 
-                # VOLUME BAR & TAGS REVEALED
-                st.markdown(f"<div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div></div>", unsafe_allow_html=True)
+                # VOLUME BAR (FIXED)
+                st.markdown(f"<div class='metric-label'><span>Volume ({d['vol_label']})</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div></div>", unsafe_allow_html=True)
                 
                 if port_item:
                     gain = (d["p"] - port_item["e"]) * port_item["q"]
-                    st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
                 st.divider()
 
         with t1:
-            cols = st.columns(3)
+            cols = st.columns(3); 
             for i, t in enumerate(w_tickers):
                 with cols[i % 3]: draw_card(t)
 
         with t2:
-            if not port: st.info("No Picks Published.")
-            else:
+            if port:
                 total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
                 for k, v in port.items():
                     d = batch_data.get(k)
                     if d:
                         total_val += d["p"] * v["q"]; total_cost += v["e"] * v["q"]
                         if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
-                day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"; tot_col = "#4caf50" if (total_val - total_cost) >= 0 else "#ff4b4b"
-                st.markdown(f"<div style='background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;'><div style='display:flex; justify-content:space-between; margin-bottom:10px;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>NET ASSETS</div><div style='font-size:24px; font-weight:900; color:#333;'>${total_val:,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>INVESTED</div><div style='font-size:24px; font-weight:900; color:#555;'>${total_cost:,.2f}</div></div></div><div style='height:1px; background:#eee; margin:10px 0;'></div><div style='display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>DAY P/L</div><div style='font-size:16px; font-weight:bold; color:{day_col};'>${day_pl_sum:+,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>TOTAL P/L</div><div style='font-size:16px; font-weight:bold; color:{tot_col};'>${total_val - total_cost:+,.2f}</div></div></div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;'><div style='display:flex; justify-content:space-between; margin-bottom:10px;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>NET ASSETS</div><div style='font-size:24px; font-weight:900; color:#333;'>${total_val:,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>INVESTED</div><div style='font-size:24px; font-weight:900; color:#555;'>${total_cost:,.2f}</div></div></div><div style='height:1px; background:#eee; margin:10px 0;'></div><div style='display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>DAY P/L</div><div style='font-size:16px; font-weight:bold; color:{'#4caf50' if day_pl_sum >= 0 else '#ff4b4b'};'>${day_pl_sum:+,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>TOTAL P/L</div><div style='font-size:16px; font-weight:bold; color:{'#4caf50' if (total_val - total_cost) >= 0 else '#ff4b4b'};'>${total_val - total_cost:+,.2f}</div></div></div></div>", unsafe_allow_html=True)
                 cols = st.columns(3); 
                 for i, (k, v) in enumerate(port.items()):
                     with cols[i % 3]: draw_card(k, v)
