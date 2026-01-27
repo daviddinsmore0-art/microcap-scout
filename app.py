@@ -407,7 +407,13 @@ def fetch_news(feeds, tickers, api_key):
                             prompt = f"Analyze this news: '{entry.title}'. Return: TICKER|SENTIMENT."
                             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=15)
                             ans = response.choices[0].message.content.strip().upper()
-                            if "|" in ans: parts = ans.split("|"); found_ticker = parts[0].strip(); sentiment = parts[1].strip()
+                            if "|" in ans: 
+                                parts = ans.split("|"); found_ticker = parts[0].strip()
+                                # FUZZY SENTIMENT MAPPING FOR NEWS COLORS
+                                raw_sent = parts[1].strip()
+                                if "BULL" in raw_sent: sentiment = "BULLISH"
+                                elif "BEAR" in raw_sent: sentiment = "BEARISH"
+                                else: sentiment = "NEUTRAL"
                         except: pass
                     if not found_ticker and tickers:
                         for original_t, root_t in smart_tickers.items():
@@ -457,7 +463,7 @@ def get_batch_data(tickers_list):
             chart_data = pd.DataFrame({'Idx': range(len(points)), 'Stock': points})
             base = chart_data['Stock'].iloc[0] if chart_data['Stock'].iloc[0] != 0 else 1
             chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
-            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data}
+            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "vol_label": vol_stat, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": "BULLISH" if trend == "UPTREND" else "BEARISH", "trend": trend, "pp": pp_html, "chart": chart_data}
     except: pass
     return results
 
@@ -559,6 +565,9 @@ else:
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
         
+        # --- API STATUS LIGHT ---
+        st.sidebar.caption(f"📡 Connection: Finnhub {'🟢' if st.secrets.get('FINNHUB_API_KEY') else '🔴'}")
+
         # --- NEW SCANNER ---
         with st.expander("⚡ AI Daily Picks", expanded=True):
             if st.button("🔎 Scan Market"):
@@ -586,8 +595,9 @@ else:
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
             a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
-            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True)):
-                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; push_user(); st.rerun()
+            a_pre = st.checkbox("Premarket", value=USER.get("alert_pre", True))
+            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
+                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
 
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
@@ -628,6 +638,15 @@ else:
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
+                
+                # --- SURGICAL ADD: VOLUME BAR VISUAL ---
+                st.markdown(f"""
+                    <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
+                    <div class='bar-bg'>
+                        <div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div>
+                    </div>
+                """, unsafe_allow_html=True)
+
                 if port_item:
                     gain = (d["p"] - port_item["e"]) * port_item["q"]
                     st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
@@ -657,8 +676,11 @@ else:
                     with cols[i % 3]: draw_card(k, v)
 
         def render_news(n):
-            col, disp = ("#4caf50" if n["sentiment"]=="BULLISH" else "#ff4b4b" if n["sentiment"]=="BEARISH" else "#333"), n["ticker"] if n["ticker"] else "MARKET"
-            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']}</div></div>", unsafe_allow_html=True)
+            # SURGICAL CSS UPDATE: Ensures BULLISH/BEARISH match exactly for Green/Red
+            s_map = {"BULLISH": "#4caf50", "BEARISH": "#ff4b4b", "NEUTRAL": "#9e9e9e"}
+            col = s_map.get(n["sentiment"], "#333")
+            disp = n["ticker"] if n["ticker"] else "MARKET"
+            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
         with t3:
             c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
