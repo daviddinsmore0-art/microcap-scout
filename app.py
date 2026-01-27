@@ -20,17 +20,16 @@ try:
 except ImportError:
     NEWS_LIB_READY = False
 
-# --- SETUP & STYLING ---
+# --- CONFIG ---
 try:
     st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide")
 except:
     pass
 
-# *** CONFIG ***
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "")
 LOGO_PATH = "logo.png"
 
-# *** DATABASE CONFIG (MASTER KEY) ***
+# *** DATABASE CONFIG ***
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com",
     "user": "atlantic",                 
@@ -215,7 +214,7 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (ROBUST BATCH + 0.5% GAP) ---
+# --- SCANNER ENGINE ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
@@ -553,17 +552,22 @@ else:
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
         
-        # --- NEW SCANNER ---
-        with st.expander("⚡ AI Daily Picks", expanded=True):
+        # --- SCANNER (COLLAPSED) ---
+        with st.expander("⚡ AI Daily Picks", expanded=False):
             if st.button("🔎 Scan Market"):
                 with st.spinner("Hunting for setups..."):
                     picks = run_gap_scanner(ACTIVE_KEY)
                     if not picks: st.warning("No matches today.")
                     else:
-                        for p in picks:
-                            ticker = p.get('ticker', p) if isinstance(p, dict) else p
-                            st.markdown(f"**{ticker}**")
+                        try:
+                            conn = get_connection(); cursor = conn.cursor()
+                            today_str = datetime.now().strftime('%Y-%m-%d')
+                            cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
+                            cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
+                            conn.commit(); conn.close()
+                            for p in picks: st.markdown(f"**{p.get('ticker', p) if isinstance(p, dict) else p}**")
                             st.divider()
+                        except: st.error("Database Error")
 
         st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
@@ -585,6 +589,7 @@ else:
 
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
+                # --- PORTFOLIO ---
                 if "portfolio" in USER and USER["portfolio"] and not GLOBAL.get("portfolio"):
                      if st.button("Import Old Picks"): GLOBAL["portfolio"] = USER["portfolio"]; push_global(); st.rerun()
                 new_t = st.text_input("Ticker").upper()
@@ -594,23 +599,45 @@ else:
                     GLOBAL["portfolio"][new_t] = {"e": new_p, "q": int(new_q)}; push_global(); st.rerun()
                 rem = st.selectbox("Remove Pick", [""] + list(GLOBAL.get("portfolio", {}).keys()))
                 if st.button("Delete") and rem: del GLOBAL["portfolio"][rem]; push_global(); st.rerun()
+                
+                # --- GLOBAL SETTINGS (RESTORED) ---
+                st.divider()
+                st.markdown("### ⚙️ Global Settings")
+                
+                # OpenAI Key
                 new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
                 if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
+
+                # RESTORED: RSS FEEDS
+                curr_feeds = "\n".join(GLOBAL.get("rss_feeds", []))
+                new_feeds = st.text_area("RSS Feeds (One per line)", value=curr_feeds, height=80)
+                if new_feeds != curr_feeds:
+                    GLOBAL["rss_feeds"] = [f.strip() for f in new_feeds.split("\n") if f.strip()]
+                    push_global(); st.success("Feeds Updated!"); time.sleep(1); st.rerun()
                 
+                # RESTORED: TAPE SCROLLER
+                curr_tape = GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F")
+                new_tape = st.text_input("Ticker Tape (Comma Separated)", value=curr_tape)
+                if new_tape != curr_tape:
+                    GLOBAL["tape_input"] = new_tape; push_global(); st.success("Tape Updated!"); time.sleep(1); st.rerun()
+
                 # --- REMOTE CONTROL BUTTON ---
                 st.divider()
                 st.markdown("### 📡 Remote Trigger")
+                # UPDATED DEFAULT URL
+                trigger_url = st.text_input("Target URL", value="https://atlanticcanadaschoice.com/pennypulse/up.php")
                 if st.button("🚀 Dispatch Telegram Alerts"):
                     with st.spinner("Contacting Backend..."):
                         try:
                             # Triggers your PHP script secretly
-                            r = requests.get(f"https://atlanticcanadaschoice.com/up.php?t={int(time.time())}", timeout=15)
+                            r = requests.get(f"{trigger_url}?t={int(time.time())}", timeout=15)
                             if r.status_code == 200:
                                 st.success("Signal Sent Successfully!")
                                 with st.expander("Show Server Log"):
                                     st.markdown(r.text, unsafe_allow_html=True)
                             else:
                                 st.error(f"Failed to trigger. Server Code: {r.status_code}")
+                                st.warning("Ensure 'up.php' is in the /pennypulse/ folder.")
                         except Exception as e:
                             st.error(f"Error: {e}")
 
@@ -671,18 +698,7 @@ else:
                 st.divider()
 
         with t1:
-            # MORNING BANNER
-            try:
-                conn = get_connection(); cursor = conn.cursor(dictionary=True)
-                today = datetime.now().strftime('%Y-%m-%d')
-                cursor.execute("SELECT picks FROM daily_briefing WHERE date = %s", (today,))
-                row = cursor.fetchone(); conn.close()
-                if row:
-                    picks_list = json.loads(row['picks'])
-                    display_tickers = [p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list]
-                    st.success(f"📌 **Daily Picks:** {', '.join(display_tickers)}")
-            except: pass
-            
+            # Banner Removed
             cols = st.columns(3)
             for i, t in enumerate(w_tickers):
                 with cols[i % 3]: draw_card(t)
