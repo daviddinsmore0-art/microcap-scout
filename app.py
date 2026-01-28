@@ -120,7 +120,6 @@ def run_backend_update():
 
             for t in to_fetch_price:
                 try:
-                    # LIVE
                     if len(to_fetch_price) == 1: df_live = live_data
                     else: 
                         if t not in live_data.columns.levels[0]: continue
@@ -129,15 +128,13 @@ def run_backend_update():
                     if df_live.empty: continue
                     live_price = float(df_live['Close'].iloc[-1])
 
-                    # HISTORY
                     if len(to_fetch_price) == 1: df_hist = hist_data
                     else:
                         if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
                         else: df_hist = pd.DataFrame()
                     
                     day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
-                    chart_json = "[]"
-                    close_price = live_price 
+                    chart_json = "[]"; close_price = live_price 
                     day_h = live_price; day_l = live_price
 
                     if not df_hist.empty:
@@ -328,8 +325,9 @@ def save_user_profile(username, data, pin=None):
             sql = "INSERT INTO user_profiles (username, user_data, pin) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_data = %s, pin = %s"
             cursor.execute(sql, (username, j_str, pin, j_str, pin))
         else:
-            sql = "INSERT INTO user_profiles (username, user_data) VALUES (%s, %s) ON DUPLICATE KEY UPDATE user_data = %s"
-            cursor.execute(sql, (username, j_str, j_str))
+            sql = "INSERT INTO user_profiles (username, user_data) VALUES ('GLOBAL_CONFIG', %s) ON DUPLICATE KEY UPDATE user_data = %s" # Fixed potentially broken ref here to original logic
+            sql = "UPDATE user_profiles SET user_data = %s WHERE username = %s"
+            cursor.execute(sql, (j_str, username))
         conn.commit(); conn.close()
     except: pass
 
@@ -573,7 +571,7 @@ else:
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 
-                # --- SCANNER ---
+                # --- SCANNER (MOVED HERE) ---
                 st.markdown("### ⚡ AI Scanner")
                 if st.button("🔎 Scan Market"):
                     with st.spinner("Hunting for setups..."):
@@ -583,12 +581,12 @@ else:
                             try:
                                 conn = get_connection(); cursor = conn.cursor()
                                 today_str = datetime.now().strftime('%Y-%m-%d')
-                                # Reset Logic: sent=0 enables dispatch
+                                # SURGICAL ADD: THE RESET. 
                                 cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
                                 cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
                                 conn.commit(); conn.close()
                                 for p in picks: st.markdown(f"**{p.get('ticker', p) if isinstance(p, dict) else p}**")
-                                st.info("Status reset to 0. Ready for Telegram dispatch.")
+                                st.info("Status reset to 0. Dispatching now...")
                                 st.divider()
                             except: st.error("Database Error")
                 
@@ -608,21 +606,25 @@ else:
                 # --- GLOBAL SETTINGS ---
                 st.divider()
                 st.markdown("### ⚙️ Global Settings")
+                
+                # OpenAI Key
                 new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
                 if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
 
+                # RSS FEEDS
                 curr_feeds = "\n".join(GLOBAL.get("rss_feeds", []))
-                new_feeds = st.text_area("RSS Feeds", value=curr_feeds, height=80)
+                new_feeds = st.text_area("RSS Feeds (One per line)", value=curr_feeds, height=80)
                 if new_feeds != curr_feeds:
                     GLOBAL["rss_feeds"] = [f.strip() for f in new_feeds.split("\n") if f.strip()]
-                    push_global(); st.rerun()
+                    push_global(); st.success("Feeds Updated!"); time.sleep(1); st.rerun()
                 
+                # TAPE SCROLLER
                 curr_tape = GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F")
-                new_tape = st.text_input("Ticker Tape", value=curr_tape)
+                new_tape = st.text_input("Ticker Tape (Comma Separated)", value=curr_tape)
                 if new_tape != curr_tape:
-                    GLOBAL["tape_input"] = new_tape; push_global(); st.rerun()
+                    GLOBAL["tape_input"] = new_tape; push_global(); st.success("Tape Updated!"); time.sleep(1); st.rerun()
 
-                # --- REMOTE CONTROL ---
+                # --- REMOTE CONTROL BUTTON ---
                 st.divider()
                 st.markdown("### 📡 Remote Trigger")
                 trigger_url = st.text_input("Target URL", value="https://atlanticcanadaschoice.com/pennypulse/up.php")
@@ -630,15 +632,21 @@ else:
                     with st.spinner("Contacting Backend..."):
                         try:
                             r = requests.get(f"{trigger_url}?t={int(time.time())}", timeout=15)
-                            if r.status_code == 200: st.success("Signal Sent Successfully!")
-                            else: st.error(f"Error Code: {r.status_code}")
-                        except Exception as e: st.error(f"Error: {e}")
+                            if r.status_code == 200:
+                                st.success("Signal Sent Successfully!")
+                                with st.expander("Show Server Log"):
+                                    st.markdown(r.text, unsafe_allow_html=True)
+                            else:
+                                st.error(f"Failed to trigger. Server Code: {r.status_code}")
+                                st.warning("Ensure 'up.php' is in the /pennypulse/ folder.")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
-                # --- FORCE TEST ---
+                # --- FORCE TEST BUTTON ---
                 st.divider()
                 st.markdown("### 🛠️ Data Force")
                 if st.button("🔴 Generate Test Picks"):
-                    with st.spinner("Generating..."):
+                    with st.spinner("Generating Picks & Resetting DB..."):
                         test_picks = run_gap_scanner(ACTIVE_KEY)
                         try:
                             conn = get_connection(); cursor = conn.cursor()
@@ -646,8 +654,10 @@ else:
                             cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
                             cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(test_picks)))
                             conn.commit(); conn.close()
-                            st.success("Test Generated!")
-                        except Exception as e: st.error(f"Error: {e}")
+                            st.success(f"Generated! Picks: {[p.get('ticker', p) if isinstance(p,dict) else p for p in test_picks]}")
+                            st.info("👉 Now click 'Dispatch Telegram Alerts' above.")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
     
@@ -674,26 +684,34 @@ else:
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div></div>", unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                    <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
+                    <div class='bar-bg'>
+                        <div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div>
+                    </div>
+                """, unsafe_allow_html=True)
+
                 if port_item:
                     gain = (d["p"] - port_item["e"]) * port_item["q"]
                     st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
                 st.divider()
 
         with t1:
-            # --- UPDATED GREEN BANNER WITH SESSION LABEL (10AM) & TIMESTAMP ---
+            # --- DYNAMIC GREEN BANNER WITH SESSION LABELS & TIME (Cutoff 10AM) ---
             try:
                 conn = get_connection(); cursor = conn.cursor(dictionary=True)
                 today = datetime.now().strftime('%Y-%m-%d')
                 cursor.execute("SELECT picks, created_at FROM daily_briefing WHERE date = %s", (today,))
                 row = cursor.fetchone(); conn.close()
+                
                 if row:
                     picks_list = json.loads(row['picks'])
                     display_tickers = [p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list]
                     ts_dt = row['created_at']
                     ts_str = ts_dt.strftime('%I:%M %p')
                     
-                    # Cutoff 10:00 AM (600 minutes)
+                    # Logic: Pre (< 10:00 AM), Daily (10:00 AM - 4:00 PM), Post (> 4:00 PM)
                     total_minutes = (ts_dt.hour * 60) + ts_dt.minute
                     if total_minutes < 600: label = "PRE-MARKET PICKS"
                     elif total_minutes < 960: label = "DAILY PICKS"
@@ -707,7 +725,7 @@ else:
                 with cols[i % 3]: draw_card(t)
 
         with t2:
-            if not port: st.info("No Picks.")
+            if not port: st.info("No Picks Published.")
             else:
                 total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
                 for k, v in port.items():
@@ -717,18 +735,26 @@ else:
                         if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
                 day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"
                 tot_col = "#4caf50" if (total_val - total_cost) >= 0 else "#ff4b4b"
-                st.markdown(f"<div style='background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;'><div style='display:flex; justify-content:space-between; margin-bottom:10px;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>NET ASSETS</div><div style='font-size:24px; font-weight:900; color:#333;'>${total_val:,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>INVESTED</div><div style='font-size:24px; font-weight:900; color:#555;'>${total_cost:,.2f}</div></div></div><div style='height:1px; background:#eee; margin:10px 0;'></div><div style='display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>DAY P/L</div><div style='font-size:16px; font-weight:bold; color:{day_col};'>${day_pl_sum:+,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>TOTAL P/L</div><div style='font-size:16px; font-weight:bold; color:{tot_col};'>${total_val - total_cost:+,.2f}</div></div></div></div>", unsafe_allow_html=True)
+                day_pct = (day_pl_sum / (total_val - day_pl_sum) * 100) if (total_val - day_pl_sum) > 0 else 0
+                tot_pct = ((total_val - total_cost) / total_cost * 100) if total_cost > 0 else 0
+                st.markdown(f"<div style='background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;'><div style='display:flex; justify-content:space-between; margin-bottom:10px;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>NET ASSETS</div><div style='font-size:24px; font-weight:900; color:#333;'>${total_val:,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>INVESTED</div><div style='font-size:24px; font-weight:900; color:#555;'>${total_cost:,.2f}</div></div></div><div style='height:1px; background:#eee; margin:10px 0;'></div><div style='display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>DAY P/L</div><div style='font-size:16px; font-weight:bold; color:{day_col};'>${day_pl_sum:+,.2f} ({day_pct:+.2f}%)</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>TOTAL P/L</div><div style='font-size:16px; font-weight:bold; color:{tot_col};'>${total_val - total_cost:+,.2f} ({tot_pct:+.2f}%)</div></div></div></div>", unsafe_allow_html=True)
                 cols = st.columns(3)
                 for i, (k, v) in enumerate(port.items()):
                     with cols[i % 3]: draw_card(k, v)
 
         def render_news(n):
             s_val = n["sentiment"].upper()
-            col = "#4caf50" if ("BULL" in s_val or "POS" in s_val) else "#ff4b4b" if ("BEAR" in s_val or "NEG" in s_val) else "#333"
+            if "BULL" in s_val or "POS" in s_val: col = "#4caf50"
+            elif "BEAR" in s_val or "NEG" in s_val: col = "#ff4b4b"
+            else: col = "#333"
+            
             disp = n["ticker"] if n["ticker"] else "MARKET"
             st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
         with t3:
+            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
+            if c_btn.button("🔄 Refresh", key=f"btn_n1_{int(time.time()/60)}"):
+                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY); st.rerun()
             if NEWS_LIB_READY:
                 news_items = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
                 if not news_items: st.info("No news.")
@@ -736,6 +762,9 @@ else:
                     for n in news_items: render_news(n)
         
         with t4:
+            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
+            if c_btn.button("🔄 Refresh", key=f"btn_n2_{int(time.time()/60)}"):
+                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
             if NEWS_LIB_READY:
                 news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
                 if not news_items: st.info("No news.")
