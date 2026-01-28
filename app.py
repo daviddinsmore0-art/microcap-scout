@@ -87,13 +87,24 @@ def run_backend_update():
         cursor = conn.cursor(dictionary=True, buffered=True)
         cursor.execute("SELECT user_data FROM user_profiles")
         users = cursor.fetchall()
+        
+        # Helper to clean "TICKER: NICKNAME" mess if it exists
+        def clean_list(raw_str):
+            if not raw_str: return []
+            cleaned = []
+            for t in raw_str.split(","):
+                # Split by ':' and take the first part (the symbol)
+                symbol = t.split(":")[0].strip().upper()
+                if symbol: cleaned.append(symbol)
+            return cleaned
+
         all_tickers = set(["^DJI", "^IXIC", "^GSPTSE", "GC=F"]) 
         for r in users:
             try:
                 data = json.loads(r['user_data'])
-                if 'w_input' in data: all_tickers.update([t.strip().upper() for t in data['w_input'].split(",") if t.strip()])
+                if 'w_input' in data: all_tickers.update(clean_list(data['w_input']))
                 if 'portfolio' in data: all_tickers.update(data['portfolio'].keys())
-                if 'tape_input' in data: all_tickers.update([t.strip().upper() for t in data['tape_input'].split(",") if t.strip()])
+                if 'tape_input' in data: all_tickers.update(clean_list(data['tape_input']))
             except: pass
 
         if not all_tickers: conn.close(); return
@@ -114,77 +125,89 @@ def run_backend_update():
                 to_fetch_meta.append(t)
         
         if to_fetch_price:
-            tickers_str = " ".join(to_fetch_price)
-            live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-            hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
-
-            for t in to_fetch_price:
+            # Batch size limited to 15 to prevent Yahoo choking on mixed assets
+            batch_size = 15
+            ticker_list = list(to_fetch_price)
+            for i in range(0, len(ticker_list), batch_size):
+                batch = ticker_list[i:i + batch_size]
+                tickers_str = " ".join(batch)
+                
                 try:
-                    if len(to_fetch_price) == 1: df_live = live_data
-                    else: 
-                        if t not in live_data.columns.levels[0]: continue
-                        df_live = live_data[t]
-                    df_live = df_live.dropna(subset=['Close'])
-                    if df_live.empty: continue
-                    live_price = float(df_live['Close'].iloc[-1])
+                    live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
+                    hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
-                    if len(to_fetch_price) == 1: df_hist = hist_data
-                    else:
-                        if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
-                        else: df_hist = pd.DataFrame()
-                    
-                    day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
-                    chart_json = "[]"; close_price = live_price 
-                    day_h = live_price; day_l = live_price
-
-                    if not df_hist.empty:
-                        df_hist = df_hist.dropna(subset=['Close'])
-                        close_price = float(df_hist['Close'].iloc[-1]) 
-                        if len(df_hist) > 0:
-                            day_h = float(df_hist['High'].iloc[-1])
-                            day_l = float(df_hist['Low'].iloc[-1])
-                            day_h = max(day_h, live_price)
-                            day_l = min(day_l, live_price)
-
-                        if len(df_hist) > 1:
-                            prev_close = float(df_hist['Close'].iloc[-2])
-                            if df_live.index[-1].date() > df_hist.index[-1].date():
-                                prev_close = float(df_hist['Close'].iloc[-1])
-                            day_change = ((close_price - prev_close) / prev_close) * 100
-                        
-                        trend = "UPTREND" if close_price > df_hist['Close'].tail(20).mean() else "DOWNTREND"
+                    for t in batch:
                         try:
-                            delta = df_hist['Close'].diff()
-                            g = delta.where(delta > 0, 0).rolling(14).mean()
-                            l = (-delta.where(delta < 0, 0)).rolling(14).mean()
-                            if not l.empty and l.iloc[-1] != 0: rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1])))
+                            if len(batch) == 1: df_live = live_data
+                            else: 
+                                if t not in live_data.columns.levels[0]: continue
+                                df_live = live_data[t]
+                            
+                            df_live = df_live.dropna(subset=['Close'])
+                            if df_live.empty: continue
+                            live_price = float(df_live['Close'].iloc[-1])
+
+                            if len(batch) == 1: df_hist = hist_data
+                            else:
+                                if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
+                                else: df_hist = pd.DataFrame()
+                            
+                            day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
+                            chart_json = "[]"; close_price = live_price 
+                            day_h = live_price; day_l = live_price
+
+                            if not df_hist.empty:
+                                df_hist = df_hist.dropna(subset=['Close'])
+                                close_price = float(df_hist['Close'].iloc[-1]) 
+                                if len(df_hist) > 0:
+                                    day_h = float(df_hist['High'].iloc[-1])
+                                    day_l = float(df_hist['Low'].iloc[-1])
+                                    day_h = max(day_h, live_price)
+                                    day_l = min(day_l, live_price)
+
+                                if len(df_hist) > 1:
+                                    prev_close = float(df_hist['Close'].iloc[-2])
+                                    if df_live.index[-1].date() > df_hist.index[-1].date():
+                                        prev_close = float(df_hist['Close'].iloc[-1])
+                                    if prev_close > 0:
+                                        day_change = ((live_price - prev_close) / prev_close) * 100
+                                
+                                trend = "UPTREND" if close_price > df_hist['Close'].tail(20).mean() else "DOWNTREND"
+                                try:
+                                    delta = df_hist['Close'].diff()
+                                    g = delta.where(delta > 0, 0).rolling(14).mean()
+                                    l = (-delta.where(delta < 0, 0)).rolling(14).mean()
+                                    if not l.empty and l.iloc[-1] != 0: rsi = 100 - (100 / (1 + (g.iloc[-1]/l.iloc[-1])))
+                                except: pass
+
+                                if not df_hist['Volume'].empty:
+                                    v_avg = df_hist['Volume'].mean()
+                                    if v_avg > 0:
+                                        v_curr = df_hist['Volume'].iloc[-1]
+                                        if v_curr > v_avg * 1.5: vol_stat = "HEAVY"
+                                        elif v_curr < v_avg * 0.5: vol_stat = "LIGHT"
+                                
+                                chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
+
+                            final_price = live_price
+                            pp_p = 0.0; pp_pct = 0.0
+                            is_crypto = "-" in t or "=F" in t or "=X" in t
+                            if is_crypto:
+                                final_price = live_price
+                                # Fallback math for crypto/forex to avoid 0%
+                                if day_change == 0 and not df_hist.empty:
+                                    prev_c = float(df_hist['Close'].iloc[-1])
+                                    if prev_c > 0: day_change = ((live_price - prev_c) / prev_c) * 100
+                            else:
+                                if abs(live_price - close_price) > 0.01:
+                                    pp_p = live_price
+                                    pp_pct = ((live_price - close_price) / close_price) * 100
+
+                            sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, pre_post_price, pre_post_pct, day_high, day_low, last_updated) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, pre_post_price=%s, pre_post_pct=%s, day_high=%s, day_low=%s, last_updated=NOW()"""
+                            v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l, final_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l)
+                            cursor.execute(sql, v)
+                            conn.commit()
                         except: pass
-
-                        if not df_hist['Volume'].empty:
-                            v_avg = df_hist['Volume'].mean()
-                            if v_avg > 0:
-                                v_curr = df_hist['Volume'].iloc[-1]
-                                if v_curr > v_avg * 1.5: vol_stat = "HEAVY"
-                                elif v_curr < v_avg * 0.5: vol_stat = "LIGHT"
-                        
-                        chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
-
-                    final_price = close_price
-                    pp_p = 0.0; pp_pct = 0.0
-                    is_crypto = "-" in t or "=F" in t
-                    if is_crypto:
-                        final_price = live_price
-                        if len(df_hist) > 0:
-                            day_change = ((live_price - float(df_hist['Close'].iloc[-1])) / float(df_hist['Close'].iloc[-1])) * 100
-                    else:
-                        if abs(live_price - close_price) > 0.01:
-                            pp_p = live_price
-                            pp_pct = ((live_price - close_price) / close_price) * 100
-
-                    sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, pre_post_price, pre_post_pct, day_high, day_low, last_updated) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, pre_post_price=%s, pre_post_pct=%s, day_high=%s, day_low=%s, last_updated=NOW()"""
-                    v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l, final_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l)
-                    cursor.execute(sql, v)
-                    conn.commit()
                 except: pass
 
         if to_fetch_meta:
@@ -450,28 +473,54 @@ def get_batch_data(tickers_list):
     except: pass
     return results
 
+# --- SCROLLER RENDERER (NICKNAME SUPPORT) ---
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
-    items = []; symbols = [x.strip().upper() for x in symbol_string.split(",") if x.strip()]
+    items = []; symbols = []
+    
+    # 1. Clean the Symbol List (Remove any old "BTC:BTC" mess if present)
+    for x in symbol_string.split(","):
+        clean_s = x.split(":")[0].strip().upper() # Always take left of colon
+        if clean_s: symbols.append(clean_s)
+
+    # 2. Build Nickname Map
     nick_map = {}
     if nickname_string:
         try:
-            for p in nickname_string.split(","): k, v = p.split(":"); nick_map[k.strip().upper()] = v.strip().upper()
+            for p in nickname_string.split(","): 
+                if ":" in p:
+                    k, v = p.split(":")
+                    nick_map[k.strip().upper()] = v.strip().upper()
         except: pass
-    defaults = {"^DJI": "DOW", "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "GC=F": "GOLD", "BTC-USD": "BTC"}
+    
+    # 3. Default "Nice Names"
+    defaults = {"^DJI": "DOW", "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "GC=F": "GOLD", "BTC-USD": "BTC", "CADUSD=X": "CAD/USD"}
     final_map = defaults.copy(); final_map.update(nick_map)
+
     if not symbols: return ""
+    
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
         cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
         rows = cursor.fetchall(); conn.close()
         data_map = {row['ticker']: row for row in rows}
+        
         for s in symbols:
+            # Check Nickname Map First, then Defaults, then Symbol
+            disp = final_map.get(s, s)
+            
             if s in data_map:
                 row = data_map[s]; px = float(row['current_price']); chg = float(row['day_change'])
-                disp = final_map.get(s, row.get('company_name', s).split(",")[0][:15])
+                
+                # If no custom nickname, try company name (shortened)
+                if s not in final_map and row.get('company_name'):
+                    disp = row['company_name'].split(",")[0][:15]
+                
                 col, arrow = ("#4caf50", "▲") if chg >= 0 else ("#ff4b4b", "▼")
                 items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp}</span> <span style='color:{col}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
+            else:
+                # Fallback so it doesn't disappear while loading
+                items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp}</span> <span style='color:#888; font-size:14px;'>(Loading...)</span>")
     except: pass
     return "    ".join(items)
 
@@ -567,10 +616,11 @@ else:
             if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
                 USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
 
+        # --- ADMIN SECTION (FIXED WITH NICKNAMES) ---
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 
-                # --- SCANNER (MOVED HERE) ---
+                # --- SCANNER ---
                 st.markdown("### ⚡ AI Scanner")
                 if st.button("🔎 Scan Market"):
                     with st.spinner("Hunting for setups..."):
@@ -580,7 +630,7 @@ else:
                             try:
                                 conn = get_connection(); cursor = conn.cursor()
                                 today_str = datetime.now().strftime('%Y-%m-%d')
-                                # SURGICAL ADD: THE RESET. 
+                                # SURGICAL ADD: THE RESET
                                 cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
                                 cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
                                 conn.commit(); conn.close()
@@ -606,22 +656,32 @@ else:
                 st.divider()
                 st.markdown("### ⚙️ Global Settings")
                 
-                # OpenAI Key
+                # 1. OpenAI Key
                 new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
-                if new_key != GLOBAL.get("openai_key", ""): GLOBAL["openai_key"] = new_key; push_global(); st.rerun()
-
-                # RSS FEEDS
+                
+                # 2. RSS Feeds
                 curr_feeds = "\n".join(GLOBAL.get("rss_feeds", []))
                 new_feeds = st.text_area("RSS Feeds (One per line)", value=curr_feeds, height=80)
-                if new_feeds != curr_feeds:
-                    GLOBAL["rss_feeds"] = [f.strip() for f in new_feeds.split("\n") if f.strip()]
-                    push_global(); st.success("Feeds Updated!"); time.sleep(1); st.rerun()
                 
-                # TAPE SCROLLER
+                # 3. Ticker Tape (Clean Symbols Only)
+                st.markdown("#### 🎞️ Scroller Settings")
                 curr_tape = GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F")
-                new_tape = st.text_input("Ticker Tape (Comma Separated)", value=curr_tape)
-                if new_tape != curr_tape:
-                    GLOBAL["tape_input"] = new_tape; push_global(); st.success("Tape Updated!"); time.sleep(1); st.rerun()
+                new_tape = st.text_input("Ticker Symbols (Comma Separated)", value=curr_tape, help="Example: ^DJI, BTC-USD, CADUSD=X")
+                
+                # 4. Nicknames (Mapping)
+                curr_nicks = GLOBAL.get("tape_nicknames", "")
+                new_nicks = st.text_input("Nicknames (Format: SYMBOL:NAME)", value=curr_nicks, help="Example: BTC-USD:Bitcoin, CADUSD=X:Loonie")
+
+                # --- THE SAVE BUTTON ---
+                if st.button("💾 Save Global Settings"):
+                    GLOBAL["openai_key"] = new_key
+                    GLOBAL["rss_feeds"] = [f.strip() for f in new_feeds.split("\n") if f.strip()]
+                    GLOBAL["tape_input"] = new_tape
+                    GLOBAL["tape_nicknames"] = new_nicks
+                    push_global()
+                    st.success("Settings Saved!")
+                    time.sleep(1)
+                    st.rerun()
 
                 # --- REMOTE CONTROL BUTTON ---
                 st.divider()
