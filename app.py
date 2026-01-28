@@ -681,4 +681,65 @@ else:
                 st.divider()
 
         with t1:
-       
+            # --- UPDATED GREEN BANNER WITH SESSION LABEL (10AM) & TIMESTAMP ---
+            try:
+                conn = get_connection(); cursor = conn.cursor(dictionary=True)
+                today = datetime.now().strftime('%Y-%m-%d')
+                cursor.execute("SELECT picks, created_at FROM daily_briefing WHERE date = %s", (today,))
+                row = cursor.fetchone(); conn.close()
+                if row:
+                    picks_list = json.loads(row['picks'])
+                    display_tickers = [p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list]
+                    ts_dt = row['created_at']
+                    ts_str = ts_dt.strftime('%I:%M %p')
+                    
+                    # Cutoff 10:00 AM (600 minutes)
+                    total_minutes = (ts_dt.hour * 60) + ts_dt.minute
+                    if total_minutes < 600: label = "PRE-MARKET PICKS"
+                    elif total_minutes < 960: label = "DAILY PICKS"
+                    else: label = "POST-MARKET PICKS"
+                    
+                    st.success(f"📌 **{label}:** {', '.join(display_tickers)} | _Updated at {ts_str}_")
+            except: pass
+            
+            cols = st.columns(3)
+            for i, t in enumerate(w_tickers):
+                with cols[i % 3]: draw_card(t)
+
+        with t2:
+            if not port: st.info("No Picks.")
+            else:
+                total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
+                for k, v in port.items():
+                    d = batch_data.get(k)
+                    if d:
+                        total_val += d["p"] * v["q"]; total_cost += v["e"] * v["q"]
+                        if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
+                day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"
+                tot_col = "#4caf50" if (total_val - total_cost) >= 0 else "#ff4b4b"
+                st.markdown(f"<div style='background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;'><div style='display:flex; justify-content:space-between; margin-bottom:10px;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>NET ASSETS</div><div style='font-size:24px; font-weight:900; color:#333;'>${total_val:,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>INVESTED</div><div style='font-size:24px; font-weight:900; color:#555;'>${total_cost:,.2f}</div></div></div><div style='height:1px; background:#eee; margin:10px 0;'></div><div style='display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>DAY P/L</div><div style='font-size:16px; font-weight:bold; color:{day_col};'>${day_pl_sum:+,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>TOTAL P/L</div><div style='font-size:16px; font-weight:bold; color:{tot_col};'>${total_val - total_cost:+,.2f}</div></div></div></div>", unsafe_allow_html=True)
+                cols = st.columns(3)
+                for i, (k, v) in enumerate(port.items()):
+                    with cols[i % 3]: draw_card(k, v)
+
+        def render_news(n):
+            s_val = n["sentiment"].upper()
+            col = "#4caf50" if ("BULL" in s_val or "POS" in s_val) else "#ff4b4b" if ("BEAR" in s_val or "NEG" in s_val) else "#333"
+            disp = n["ticker"] if n["ticker"] else "MARKET"
+            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
+
+        with t3:
+            if NEWS_LIB_READY:
+                news_items = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
+                if not news_items: st.info("No news.")
+                else:
+                    for n in news_items: render_news(n)
+        
+        with t4:
+            if NEWS_LIB_READY:
+                news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
+                if not news_items: st.info("No news.")
+                else:
+                    for n in news_items: render_news(n)
+
+    render_dashboard()
