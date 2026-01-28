@@ -583,10 +583,13 @@ else:
                             try:
                                 conn = get_connection(); cursor = conn.cursor()
                                 today_str = datetime.now().strftime('%Y-%m-%d')
+                                # SURGICAL ADD: THE RESET. 
+                                # We delete and re-insert with sent=0 to trigger up.php immediately.
                                 cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
                                 cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
                                 conn.commit(); conn.close()
                                 for p in picks: st.markdown(f"**{p.get('ticker', p) if isinstance(p, dict) else p}**")
+                                st.info("Status reset to 0. Dispatching now...")
                                 st.divider()
                             except: st.error("Database Error")
                 
@@ -652,6 +655,7 @@ else:
                         try:
                             conn = get_connection(); cursor = conn.cursor()
                             today_str = datetime.now().strftime('%Y-%m-%d')
+                            # SURGICAL ADD: Ensure 'sent' is 0 during test generation
                             cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
                             cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(test_picks)))
                             conn.commit(); conn.close()
