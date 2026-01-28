@@ -612,7 +612,7 @@ else:
             c1, c2 = st.columns(2)
             a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
             a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
-            a_pre = st.checkbox("Premarket", value=USER.get("alert_pre", True))
+            a_pre = st.checkbox("AI Daily Picks", value=USER.get("alert_pre", True))
             if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
                 USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
 
