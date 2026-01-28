@@ -221,7 +221,7 @@ def run_gap_scanner(api_key):
     candidates = []
     discovery_tickers = set()
     try:
-        feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/research-hub/screener/most_active_penny_stocks/", "https://finance.yahoo.com/news/rssindex"]
+        feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
         headers = {'User-Agent': 'Mozilla/5.0'}
         for url in feeds:
             try:
