@@ -573,7 +573,7 @@ else:
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
                 
-                # --- SCANNER (MOVED HERE) ---
+                # --- SCANNER ---
                 st.markdown("### ⚡ AI Scanner")
                 if st.button("🔎 Scan Market"):
                     with st.spinner("Hunting for setups..."):
@@ -583,13 +583,12 @@ else:
                             try:
                                 conn = get_connection(); cursor = conn.cursor()
                                 today_str = datetime.now().strftime('%Y-%m-%d')
-                                # SURGICAL ADD: THE RESET. 
-                                # We delete and re-insert with sent=0 to trigger up.php immediately.
+                                # Surgical Reset: sent=0 enables dispatch from up.php
                                 cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
                                 cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
                                 conn.commit(); conn.close()
                                 for p in picks: st.markdown(f"**{p.get('ticker', p) if isinstance(p, dict) else p}**")
-                                st.info("Status reset to 0. Dispatching now...")
+                                st.info("Status reset to 0. Dispatching enabled.")
                                 st.divider()
                             except: st.error("Database Error")
                 
@@ -634,15 +633,13 @@ else:
                 if st.button("🚀 Dispatch Telegram Alerts"):
                     with st.spinner("Contacting Backend..."):
                         try:
-                            # Triggers your PHP script secretly
                             r = requests.get(f"{trigger_url}?t={int(time.time())}", timeout=15)
                             if r.status_code == 200:
                                 st.success("Signal Sent Successfully!")
                                 with st.expander("Show Server Log"):
                                     st.markdown(r.text, unsafe_allow_html=True)
                             else:
-                                st.error(f"Failed to trigger. Server Code: {r.status_code}")
-                                st.warning("Ensure 'up.php' is in the /pennypulse/ folder.")
+                                st.error(f"Failed to trigger. Code: {r.status_code}")
                         except Exception as e:
                             st.error(f"Error: {e}")
 
@@ -655,7 +652,6 @@ else:
                         try:
                             conn = get_connection(); cursor = conn.cursor()
                             today_str = datetime.now().strftime('%Y-%m-%d')
-                            # SURGICAL ADD: Ensure 'sent' is 0 during test generation
                             cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
                             cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(test_picks)))
                             conn.commit(); conn.close()
@@ -690,7 +686,6 @@ else:
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 
-                # --- SURGICAL ADD: VOLUME BAR VISUAL ---
                 st.markdown(f"""
                     <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
                     <div class='bar-bg'>
@@ -704,16 +699,26 @@ else:
                 st.divider()
 
         with t1:
-            # RESTORED: THE GREEN BANNER
+            # --- DYNAMIC GREEN BANNER WITH SESSION LABELS & TIME ---
             try:
                 conn = get_connection(); cursor = conn.cursor(dictionary=True)
                 today = datetime.now().strftime('%Y-%m-%d')
-                cursor.execute("SELECT picks FROM daily_briefing WHERE date = %s", (today,))
+                cursor.execute("SELECT picks, created_at FROM daily_briefing WHERE date = %s", (today,))
                 row = cursor.fetchone(); conn.close()
+                
                 if row:
                     picks_list = json.loads(row['picks'])
                     display_tickers = [p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list]
-                    st.success(f"📌 **Daily Picks:** {', '.join(display_tickers)}")
+                    ts_dt = row['created_at']
+                    ts_str = ts_dt.strftime('%I:%M %p')
+                    
+                    # Logic: Pre (< 9:30), Daily (9:30 - 16:00), Post (> 16:00)
+                    total_minutes = (ts_dt.hour * 60) + ts_dt.minute
+                    if total_minutes < 570: label = "PRE-MARKET PICKS"
+                    elif total_minutes < 960: label = "DAILY PICKS"
+                    else: label = "POST-MARKET PICKS"
+                    
+                    st.success(f"📌 **{label}:** {', '.join(display_tickers)} | _Updated at {ts_str}_")
             except: pass
             
             cols = st.columns(3)
@@ -740,10 +745,7 @@ else:
 
         def render_news(n):
             s_val = n["sentiment"].upper()
-            if "BULL" in s_val or "POS" in s_val: col = "#4caf50"
-            elif "BEAR" in s_val or "NEG" in s_val: col = "#ff4b4b"
-            else: col = "#333"
-            
+            col = "#4caf50" if ("BULL" in s_val or "POS" in s_val) else "#ff4b4b" if ("BEAR" in s_val or "NEG" in s_val) else "#333"
             disp = n["ticker"] if n["ticker"] else "MARKET"
             st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
@@ -751,8 +753,7 @@ else:
             c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
             if c_btn.button("🔄 Refresh", key=f"btn_n1_{int(time.time()/60)}"):
                 with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY); st.rerun()
-            if not NEWS_LIB_READY: st.error("Missing Libraries.")
-            else:
+            if NEWS_LIB_READY:
                 news_items = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
                 if not news_items: st.info("No news.")
                 else:
@@ -762,8 +763,7 @@ else:
             c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
             if c_btn.button("🔄 Refresh", key=f"btn_n2_{int(time.time()/60)}"):
                 with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
-            if not NEWS_LIB_READY: st.error("Missing Libraries.")
-            else:
+            if NEWS_LIB_READY:
                 news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
                 if not news_items: st.info("No news.")
                 else:
