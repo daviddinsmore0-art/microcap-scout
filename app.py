@@ -133,7 +133,8 @@ def run_backend_update():
                 tickers_str = " ".join(batch)
                 
                 try:
-                    live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
+                    # --- FIX: prepost=False ensures we get the OFFICIAL CLOSE, not the after-hours price ---
+                    live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=False, group_by='ticker', threads=True, progress=False)
                     hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
                     for t in batch:
@@ -192,19 +193,13 @@ def run_backend_update():
                             final_price = live_price
                             pp_p = 0.0; pp_pct = 0.0
                             is_crypto = "-" in t or "=F" in t or "=X" in t
-                            if is_crypto:
-                                final_price = live_price
-                                # Fallback math for crypto/forex to avoid 0%
-                                if day_change == 0 and not df_hist.empty:
-                                    prev_c = float(df_hist['Close'].iloc[-1])
-                                    if prev_c > 0: day_change = ((live_price - prev_c) / prev_c) * 100
-                            else:
-                                if abs(live_price - close_price) > 0.01:
-                                    pp_p = live_price
-                                    pp_pct = ((live_price - close_price) / close_price) * 100
-
-                            sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, pre_post_price, pre_post_pct, day_high, day_low, last_updated) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, pre_post_price=%s, pre_post_pct=%s, day_high=%s, day_low=%s, last_updated=NOW()"""
-                            v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l, final_price, day_change, rsi, vol_stat, trend, chart_json, pp_p, pp_pct, day_h, day_l)
+                            
+                            # Note: The app backend logic won't capture post-market here because prepost=False
+                            # But the PHP script (up.php) running via Cron WILL capture it.
+                            # We leave this blank here so we don't accidentally overwrite correct PHP data with zeros.
+                            
+                            sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, day_high, day_low, last_updated) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, day_high=%s, day_low=%s, last_updated=NOW()"""
+                            v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l)
                             cursor.execute(sql, v)
                             conn.commit()
                         except: pass
@@ -453,18 +448,17 @@ def get_batch_data(tickers_list):
             vol_stat = row['volume_status']; display_name = row.get('company_name') or s
             pp_html = ""
             
-            # --- FIX: ALWAYS SHOW PRE/POST IF DATA EXISTS ---
+            # --- SHOW PRE/POST IF DATA EXISTS ---
             if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
                 pp_p = float(row['pre_post_price'])
                 pp_c = float(row['pre_post_pct'])
                 
-                # --- REMOVED THE "abs > 0.01" CHECK TO FORCE DISPLAY ---
                 now = datetime.now(timezone.utc) - timedelta(hours=5)
                 lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
                 if now.weekday() > 4: lbl = "POST" 
                 col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
                 pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
-            # ----------------------------------------------------
+            # ------------------------------------
 
             vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
             day_h = float(row.get('day_high') or price); day_l = float(row.get('day_low') or price)
