@@ -88,12 +88,10 @@ def run_backend_update():
         cursor.execute("SELECT user_data FROM user_profiles")
         users = cursor.fetchall()
         
-        # Helper to clean "TICKER: NICKNAME" mess if it exists
         def clean_list(raw_str):
             if not raw_str: return []
             cleaned = []
             for t in raw_str.split(","):
-                # Split by ':' and take the first part (the symbol)
                 symbol = t.split(":")[0].strip().upper()
                 if symbol: cleaned.append(symbol)
             return cleaned
@@ -125,7 +123,6 @@ def run_backend_update():
                 to_fetch_meta.append(t)
         
         if to_fetch_price:
-            # Batch size limited to 15 to prevent Yahoo choking on mixed assets
             batch_size = 15
             ticker_list = list(to_fetch_price)
             for i in range(0, len(ticker_list), batch_size):
@@ -133,7 +130,7 @@ def run_backend_update():
                 tickers_str = " ".join(batch)
                 
                 try:
-                    # --- FIX: prepost=False ensures we get the OFFICIAL CLOSE, not the after-hours price ---
+                    # FIX: prepost=False for OFFICIAL CLOSE accuracy
                     live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=False, group_by='ticker', threads=True, progress=False)
                     hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
@@ -146,7 +143,10 @@ def run_backend_update():
                             
                             df_live = df_live.dropna(subset=['Close'])
                             if df_live.empty: continue
+                            
+                            # 1. Grab Raw Data Points
                             live_price = float(df_live['Close'].iloc[-1])
+                            last_time = df_live.index[-1]
 
                             if len(batch) == 1: df_hist = hist_data
                             else:
@@ -154,26 +154,38 @@ def run_backend_update():
                                 else: df_hist = pd.DataFrame()
                             
                             day_change = 0.0; rsi = 50.0; vol_stat = "NORMAL"; trend = "NEUTRAL"
-                            chart_json = "[]"; close_price = live_price 
+                            chart_json = "[]"; final_price = live_price 
                             day_h = live_price; day_l = live_price
 
                             if not df_hist.empty:
                                 df_hist = df_hist.dropna(subset=['Close'])
-                                close_price = float(df_hist['Close'].iloc[-1]) 
+                                daily_price = float(df_hist['Close'].iloc[-1]) # This is the OFFICIAL adjusted close
+                                
+                                # --- OFFICIAL CLOSE LOGIC ---
+                                # If the last 1m candle was at 15:59 (End of Day), prefer the Daily Close (Official Settlement)
+                                # This fixes the ".09 cent" error.
+                                if last_time.hour >= 15 and last_time.minute >= 59:
+                                    if df_hist.index[-1].date() == last_time.date():
+                                        final_price = daily_price
+                                # ----------------------------
+
                                 if len(df_hist) > 0:
                                     day_h = float(df_hist['High'].iloc[-1])
                                     day_l = float(df_hist['Low'].iloc[-1])
+                                    # Ensure Live range is captured if market is moving fast
                                     day_h = max(day_h, live_price)
                                     day_l = min(day_l, live_price)
 
                                 if len(df_hist) > 1:
                                     prev_close = float(df_hist['Close'].iloc[-2])
-                                    if df_live.index[-1].date() > df_hist.index[-1].date():
+                                    # If live data is ahead of daily data (rare), fallback logic
+                                    if last_time.date() > df_hist.index[-1].date():
                                         prev_close = float(df_hist['Close'].iloc[-1])
+                                    
                                     if prev_close > 0:
-                                        day_change = ((live_price - prev_close) / prev_close) * 100
+                                        day_change = ((final_price - prev_close) / prev_close) * 100
                                 
-                                trend = "UPTREND" if close_price > df_hist['Close'].tail(20).mean() else "DOWNTREND"
+                                trend = "UPTREND" if daily_price > df_hist['Close'].tail(20).mean() else "DOWNTREND"
                                 try:
                                     delta = df_hist['Close'].diff()
                                     g = delta.where(delta > 0, 0).rolling(14).mean()
@@ -190,14 +202,11 @@ def run_backend_update():
                                 
                                 chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
 
-                            final_price = live_price
                             pp_p = 0.0; pp_pct = 0.0
-                            is_crypto = "-" in t or "=F" in t or "=X" in t
                             
-                            # Note: The app backend logic won't capture post-market here because prepost=False
-                            # But the PHP script (up.php) running via Cron WILL capture it.
-                            # We leave this blank here so we don't accidentally overwrite correct PHP data with zeros.
-                            
+                            # Note: pre_post is handled by PHP now, but we init to 0 here to satisfy variables
+                            # The SQL UPDATE below intentionally does NOT touch pre_post_price to let PHP handle it.
+
                             sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, day_high, day_low, last_updated) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, day_high=%s, day_low=%s, last_updated=NOW()"""
                             v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l)
                             cursor.execute(sql, v)
@@ -740,7 +749,7 @@ else:
             if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
             if f["earn"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
             with st.container():
-                st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:5px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
@@ -758,25 +767,20 @@ else:
                 st.divider()
 
         with t1:
-            # --- SURGICAL ADD: DYNAMIC GREEN BANNER WITH SESSION LABELS & TIME (Cutoff 10AM) ---
             try:
                 conn = get_connection(); cursor = conn.cursor(dictionary=True)
                 today = datetime.now().strftime('%Y-%m-%d')
                 cursor.execute("SELECT picks, created_at FROM daily_briefing WHERE date = %s", (today,))
                 row = cursor.fetchone(); conn.close()
-                
                 if row:
                     picks_list = json.loads(row['picks'])
                     display_tickers = [p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list]
                     ts_dt = row['created_at']
                     ts_str = ts_dt.strftime('%I:%M %p')
-                    
-                    # Cutoff 10:00 AM (600 minutes)
                     total_minutes = (ts_dt.hour * 60) + ts_dt.minute
                     if total_minutes < 600: label = "PRE-MARKET PICKS"
                     elif total_minutes < 960: label = "DAILY PICKS"
                     else: label = "POST-MARKET PICKS"
-                    
                     st.success(f"📌 **{label}:** {', '.join(display_tickers)} | _Updated at {ts_str}_")
             except: pass
             
@@ -785,7 +789,6 @@ else:
                 with cols[i % 3]: draw_card(t)
 
         with t2:
-            # --- RESTORED: PORTFOLIO DASHBOARD ---
             port = GLOBAL.get("portfolio", {})
             if not port: st.info("No Picks Published.")
             else:
@@ -809,7 +812,6 @@ else:
             if "BULL" in s_val or "POS" in s_val: col = "#4caf50"
             elif "BEAR" in s_val or "NEG" in s_val: col = "#ff4b4b"
             else: col = "#333"
-            
             disp = n["ticker"] if n["ticker"] else "MARKET"
             st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
 
