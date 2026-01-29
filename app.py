@@ -144,7 +144,6 @@ def run_backend_update():
                             df_live = df_live.dropna(subset=['Close'])
                             if df_live.empty: continue
                             
-                            # 1. Grab Raw Data Points
                             live_price = float(df_live['Close'].iloc[-1])
                             last_time = df_live.index[-1]
 
@@ -159,11 +158,9 @@ def run_backend_update():
 
                             if not df_hist.empty:
                                 df_hist = df_hist.dropna(subset=['Close'])
-                                daily_price = float(df_hist['Close'].iloc[-1]) # This is the OFFICIAL adjusted close
+                                daily_price = float(df_hist['Close'].iloc[-1]) # Official adjusted close
                                 
                                 # --- OFFICIAL CLOSE LOGIC ---
-                                # If the last 1m candle was at 15:59 (End of Day), prefer the Daily Close (Official Settlement)
-                                # This fixes the ".09 cent" error.
                                 if last_time.hour >= 15 and last_time.minute >= 59:
                                     if df_hist.index[-1].date() == last_time.date():
                                         final_price = daily_price
@@ -172,16 +169,13 @@ def run_backend_update():
                                 if len(df_hist) > 0:
                                     day_h = float(df_hist['High'].iloc[-1])
                                     day_l = float(df_hist['Low'].iloc[-1])
-                                    # Ensure Live range is captured if market is moving fast
                                     day_h = max(day_h, live_price)
                                     day_l = min(day_l, live_price)
 
                                 if len(df_hist) > 1:
                                     prev_close = float(df_hist['Close'].iloc[-2])
-                                    # If live data is ahead of daily data (rare), fallback logic
                                     if last_time.date() > df_hist.index[-1].date():
                                         prev_close = float(df_hist['Close'].iloc[-1])
-                                    
                                     if prev_close > 0:
                                         day_change = ((final_price - prev_close) / prev_close) * 100
                                 
@@ -201,11 +195,6 @@ def run_backend_update():
                                         elif v_curr < v_avg * 0.5: vol_stat = "LIGHT"
                                 
                                 chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
-
-                            pp_p = 0.0; pp_pct = 0.0
-                            
-                            # Note: pre_post is handled by PHP now, but we init to 0 here to satisfy variables
-                            # The SQL UPDATE below intentionally does NOT touch pre_post_price to let PHP handle it.
 
                             sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, day_high, day_low, last_updated) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, day_high=%s, day_low=%s, last_updated=NOW()"""
                             v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l)
@@ -769,8 +758,8 @@ else:
         with t1:
             try:
                 conn = get_connection(); cursor = conn.cursor(dictionary=True)
-                today = datetime.now().strftime('%Y-%m-%d')
-                cursor.execute("SELECT picks, created_at FROM daily_briefing WHERE date = %s", (today,))
+                # FIX: ORDER BY DESC LIMIT 1 ensures we get the latest picks regardless of timezone rollover
+                cursor.execute("SELECT picks, created_at FROM daily_briefing ORDER BY date DESC LIMIT 1")
                 row = cursor.fetchone(); conn.close()
                 if row:
                     picks_list = json.loads(row['picks'])
