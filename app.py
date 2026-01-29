@@ -227,28 +227,31 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE ---
+# --- SCANNER ENGINE (TITANIUM AI) ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     discovery_tickers = set()
     
-    # --- DYNAMIC THRESHOLD LOGIC ---
+    # --- DYNAMIC CONFIGURATION ---
+    # 1. Determine Market Session
     now_est = datetime.now(timezone.utc) - timedelta(hours=5)
     current_hour = now_est.hour
-    current_minute = now_est.minute
     
-    # Default (Regular Market): 0.5%
-    min_gap = 0.5
+    is_pre_market = current_hour < 9 or (current_hour == 9 and now_est.minute < 30)
+    is_post_market = current_hour >= 16
     
-    # Check Pre-Market (Before 9:30 AM EST)
-    if current_hour < 9 or (current_hour == 9 and current_minute < 30):
-        min_gap = 3.0 # Stricter
-    # Check Post-Market (After 4:00 PM EST)
-    elif current_hour >= 16:
-        min_gap = 3.0 # Stricter
-    # -------------------------------
+    # 2. Set Criteria Based on Session
+    if is_pre_market or is_post_market:
+        min_gap = 2.0  # Stricter GAP for Pre/Post (was 0.5, now 2.0 to find real runners)
+        max_price = 100 # Filter out huge stocks (focus on Small/Mid Cap volatility)
+        scan_mode = "EXTENDED"
+    else:
+        min_gap = 0.5  # Standard for Daily (Keep AI Picks untouched)
+        max_price = 5000 # No limit for daily
+        scan_mode = "REGULAR"
+    # -----------------------------
 
     try:
         feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
@@ -258,37 +261,47 @@ def run_gap_scanner(api_key):
                 resp = requests.get(url, headers=headers, timeout=5)
                 if resp.status_code == 200:
                     f = feedparser.parse(resp.content)
-                    for entry in f.entries[:25]:
+                    for entry in f.entries[:30]: # Scrape deeper
                         match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
                         if match: 
                             t = match.group(0)
                             if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO"]: discovery_tickers.add(t)
             except: continue
     except: pass
-    staples = []
-    discovery_tickers.update(staples)
+    
     scan_list = list(discovery_tickers)
     
     try:
-        data = yf.download(" ".join(scan_list), period="5d", interval="1d", group_by='ticker', threads=True, progress=False)
+        # ENABLE PREPOST=TRUE to actually see Pre-Market moves
+        data = yf.download(" ".join(scan_list), period="5d", interval="1d", prepost=True, group_by='ticker', threads=True, progress=False)
+        
         for t in scan_list:
             try:
                 if len(scan_list) > 1:
                     if t not in data.columns.levels[0]: continue
                     df = data[t]
                 else: df = data
+                
                 if df.empty or len(df) < 2: continue
+                
                 prev_close = float(df['Close'].iloc[-2])
                 curr_price = float(df['Close'].iloc[-1]) 
+                
+                # Finnhub Override (Better for Pre-Market)
                 try:
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=1).json()
                     if 'c' in r and r['c'] != 0: curr_price = float(r['c'])
                 except: pass
+                
                 gap_pct = ((curr_price - prev_close) / prev_close) * 100
                 avg_vol = df['Volume'].mean()
                 atr = (df['High'] - df['Low']).mean()
                 
-                # USE DYNAMIC MIN_GAP
+                # --- APPLY THE FILTERS ---
+                # 1. Price Cap (for Small/Mid Cap focus in pre-market)
+                if curr_price > max_price: continue
+                
+                # 2. Gap Threshold
                 if abs(gap_pct) >= min_gap and avg_vol > 50000:
                     candidates.append({"ticker": t, "gap": gap_pct, "atr": atr})
             except: continue
