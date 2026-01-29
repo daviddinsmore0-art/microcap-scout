@@ -235,22 +235,19 @@ def run_gap_scanner(api_key):
     discovery_tickers = set()
     
     # --- DYNAMIC CONFIGURATION ---
-    # 1. Determine Market Session
     now_est = datetime.now(timezone.utc) - timedelta(hours=5)
     current_hour = now_est.hour
     
     is_pre_market = current_hour < 9 or (current_hour == 9 and now_est.minute < 30)
     is_post_market = current_hour >= 16
     
-    # 2. Set Criteria Based on Session
+    # Set Criteria Based on Session
     if is_pre_market or is_post_market:
-        min_gap = 2.0  # Stricter GAP for Pre/Post (was 0.5, now 2.0 to find real runners)
-        max_price = 100 # Filter out huge stocks (focus on Small/Mid Cap volatility)
-        scan_mode = "EXTENDED"
+        min_gap = 2.0  # Stricter GAP for Pre/Post
+        max_price = 100 # Focus on volatile small/mid caps
     else:
-        min_gap = 0.5  # Standard for Daily (Keep AI Picks untouched)
-        max_price = 5000 # No limit for daily
-        scan_mode = "REGULAR"
+        min_gap = 0.5  # Standard for Daily
+        max_price = 5000 
     # -----------------------------
 
     try:
@@ -261,7 +258,7 @@ def run_gap_scanner(api_key):
                 resp = requests.get(url, headers=headers, timeout=5)
                 if resp.status_code == 200:
                     f = feedparser.parse(resp.content)
-                    for entry in f.entries[:30]: # Scrape deeper
+                    for entry in f.entries[:30]: 
                         match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
                         if match: 
                             t = match.group(0)
@@ -272,7 +269,7 @@ def run_gap_scanner(api_key):
     scan_list = list(discovery_tickers)
     
     try:
-        # ENABLE PREPOST=TRUE to actually see Pre-Market moves
+        # ENABLE PREPOST=TRUE
         data = yf.download(" ".join(scan_list), period="5d", interval="1d", prepost=True, group_by='ticker', threads=True, progress=False)
         
         for t in scan_list:
@@ -287,7 +284,6 @@ def run_gap_scanner(api_key):
                 prev_close = float(df['Close'].iloc[-2])
                 curr_price = float(df['Close'].iloc[-1]) 
                 
-                # Finnhub Override (Better for Pre-Market)
                 try:
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=1).json()
                     if 'c' in r and r['c'] != 0: curr_price = float(r['c'])
@@ -297,11 +293,8 @@ def run_gap_scanner(api_key):
                 avg_vol = df['Volume'].mean()
                 atr = (df['High'] - df['Low']).mean()
                 
-                # --- APPLY THE FILTERS ---
-                # 1. Price Cap (for Small/Mid Cap focus in pre-market)
+                # Filters
                 if curr_price > max_price: continue
-                
-                # 2. Gap Threshold
                 if abs(gap_pct) >= min_gap and avg_vol > 50000:
                     candidates.append({"ticker": t, "gap": gap_pct, "atr": atr})
             except: continue
@@ -481,22 +474,24 @@ def get_batch_data(tickers_list):
             # --- SHOW PRE/POST IF DATA EXISTS ---
             if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
                 pp_p = float(row['pre_post_price'])
-                pp_c = float(row['pre_post_pct'])
+                
+                # --- FIXED: RE-CALCULATE PERCENTAGE MANUALLY ---
+                # Yahoo's percent is often relative to yesterday's close.
+                # We want relative to TODAY'S close (the main price displayed).
+                pp_c = 0.0
+                if price > 0:
+                    pp_c = ((pp_p - price) / price) * 100
                 
                 # --- STRICT LABEL LOGIC (FIXED) ---
                 now = datetime.now(timezone.utc) - timedelta(hours=5) # EST
                 lbl = ""
                 
-                # Check Weekends first
                 if now.weekday() > 4: 
                     lbl = "POST"
-                # Check After Hours (4 PM EST+)
                 elif now.hour >= 16: 
                     lbl = "POST"
-                # Check Pre-Market (Before 9:30 AM EST)
                 elif now.hour < 9 or (now.hour == 9 and now.minute < 30): 
                     lbl = "PRE"
-                # Else: Market is Open, so keep lbl empty to hide the text
                 
                 if lbl:
                     col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
