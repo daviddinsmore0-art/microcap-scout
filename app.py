@@ -80,7 +80,7 @@ def init_db():
     except Exception:
         return False
 
-# --- BACKEND UPDATE ENGINE ---
+# --- BACKEND UPDATE ENGINE (FIXED FOR GHOST DATA) ---
 def run_backend_update():
     try:
         conn = get_connection()
@@ -130,12 +130,16 @@ def run_backend_update():
                 tickers_str = " ".join(batch)
                 
                 try:
-                    # FIX: prepost=False for OFFICIAL CLOSE accuracy
+                    # FETCH 1: REGULAR HOURS (Official Close)
                     live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=False, group_by='ticker', threads=True, progress=False)
+                    # FETCH 2: EXTENDED HOURS (Pre/Post Moves)
+                    post_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
+                    # FETCH 3: HISTORY (Charts/Analysis)
                     hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
                     for t in batch:
                         try:
+                            # --- 1. Get Regular Market Data ---
                             if len(batch) == 1: df_live = live_data
                             else: 
                                 if t not in live_data.columns.levels[0]: continue
@@ -147,6 +151,19 @@ def run_backend_update():
                             live_price = float(df_live['Close'].iloc[-1])
                             last_time = df_live.index[-1]
 
+                            # --- 2. Get Extended Market Data ---
+                            ext_price = live_price # Default to live price
+                            if len(batch) == 1: df_post = post_data
+                            else:
+                                if t in post_data.columns.levels[0]: df_post = post_data[t]
+                                else: df_post = pd.DataFrame()
+                            
+                            if not df_post.empty:
+                                df_post = df_post.dropna(subset=['Close'])
+                                if not df_post.empty:
+                                    ext_price = float(df_post['Close'].iloc[-1])
+
+                            # --- 3. Get History & Calculate ---
                             if len(batch) == 1: df_hist = hist_data
                             else:
                                 if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
@@ -158,13 +175,17 @@ def run_backend_update():
 
                             if not df_hist.empty:
                                 df_hist = df_hist.dropna(subset=['Close'])
-                                daily_price = float(df_hist['Close'].iloc[-1]) # Official adjusted close
+                                daily_price = float(df_hist['Close'].iloc[-1]) 
                                 
-                                # --- OFFICIAL CLOSE LOGIC ---
+                                # OFFICIAL CLOSE LOGIC
                                 if last_time.hour >= 15 and last_time.minute >= 59:
                                     if df_hist.index[-1].date() == last_time.date():
                                         final_price = daily_price
-                                # ----------------------------
+                                
+                                # Recalculate Extended Price relative to FINAL Official Close
+                                ext_pct = 0.0
+                                if final_price > 0:
+                                    ext_pct = ((ext_price - final_price) / final_price) * 100
 
                                 if len(df_hist) > 0:
                                     day_h = float(df_hist['High'].iloc[-1])
@@ -196,8 +217,16 @@ def run_backend_update():
                                 
                                 chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
 
-                            sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, day_high, day_low, last_updated) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, day_high=%s, day_low=%s, last_updated=NOW()"""
-                            v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l)
+                            # --- 4. UPDATED SQL (Now includes pre_post_price & pre_post_pct) ---
+                            sql = """INSERT INTO stock_cache 
+                                     (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, day_high, day_low, pre_post_price, pre_post_pct, last_updated) 
+                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) 
+                                     ON DUPLICATE KEY UPDATE 
+                                     current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, day_high=%s, day_low=%s, pre_post_price=%s, pre_post_pct=%s, last_updated=NOW()"""
+                            
+                            v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l, ext_price, ext_pct, 
+                                 final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l, ext_price, ext_pct)
+                            
                             cursor.execute(sql, v)
                             conn.commit()
                         except: pass
