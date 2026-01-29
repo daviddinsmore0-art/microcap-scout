@@ -233,6 +233,23 @@ def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     discovery_tickers = set()
+    
+    # --- DYNAMIC THRESHOLD LOGIC ---
+    now_est = datetime.now(timezone.utc) - timedelta(hours=5)
+    current_hour = now_est.hour
+    current_minute = now_est.minute
+    
+    # Default (Regular Market): 0.5%
+    min_gap = 0.5
+    
+    # Check Pre-Market (Before 9:30 AM EST)
+    if current_hour < 9 or (current_hour == 9 and current_minute < 30):
+        min_gap = 3.0 # Stricter
+    # Check Post-Market (After 4:00 PM EST)
+    elif current_hour >= 16:
+        min_gap = 3.0 # Stricter
+    # -------------------------------
+
     try:
         feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -270,7 +287,9 @@ def run_gap_scanner(api_key):
                 gap_pct = ((curr_price - prev_close) / prev_close) * 100
                 avg_vol = df['Volume'].mean()
                 atr = (df['High'] - df['Low']).mean()
-                if abs(gap_pct) >= 0.5 and avg_vol > 50000:
+                
+                # USE DYNAMIC MIN_GAP
+                if abs(gap_pct) >= min_gap and avg_vol > 50000:
                     candidates.append({"ticker": t, "gap": gap_pct, "atr": atr})
             except: continue
     except: return []
@@ -489,9 +508,9 @@ def get_batch_data(tickers_list):
 def get_tape_data(symbol_string, nickname_string=""):
     items = []; symbols = []
     
-    # 1. Clean the Symbol List (Remove any old "BTC:BTC" mess if present)
+    # 1. Clean the Symbol List
     for x in symbol_string.split(","):
-        clean_s = x.split(":")[0].strip().upper() # Always take left of colon
+        clean_s = x.split(":")[0].strip().upper()
         if clean_s: symbols.append(clean_s)
 
     # 2. Build Nickname Map
@@ -517,20 +536,14 @@ def get_tape_data(symbol_string, nickname_string=""):
         data_map = {row['ticker']: row for row in rows}
         
         for s in symbols:
-            # Check Nickname Map First, then Defaults, then Symbol
             disp = final_map.get(s, s)
-            
             if s in data_map:
                 row = data_map[s]; px = float(row['current_price']); chg = float(row['day_change'])
-                
-                # If no custom nickname, try company name (shortened)
                 if s not in final_map and row.get('company_name'):
                     disp = row['company_name'].split(",")[0][:15]
-                
                 col, arrow = ("#4caf50", "▲") if chg >= 0 else ("#ff4b4b", "▼")
                 items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp}</span> <span style='color:{col}'>{arrow} {px:,.2f} ({chg:+.2f}%)</span>")
             else:
-                # Fallback so it doesn't disappear while loading
                 items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp}</span> <span style='color:#888; font-size:14px;'>(Loading...)</span>")
     except: pass
     return "    ".join(items)
