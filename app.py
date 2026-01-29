@@ -451,11 +451,24 @@ def get_batch_data(tickers_list):
                 pp_p = float(row['pre_post_price'])
                 pp_c = float(row['pre_post_pct'])
                 
-                now = datetime.now(timezone.utc) - timedelta(hours=5)
-                lbl = "POST" if now.hour >= 16 else "PRE" if now.hour < 9 else "LIVE"
-                if now.weekday() > 4: lbl = "POST" 
-                col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
-                pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
+                # --- STRICT LABEL LOGIC (FIXED) ---
+                now = datetime.now(timezone.utc) - timedelta(hours=5) # EST
+                lbl = ""
+                
+                # Check Weekends first
+                if now.weekday() > 4: 
+                    lbl = "POST"
+                # Check After Hours (4 PM EST+)
+                elif now.hour >= 16: 
+                    lbl = "POST"
+                # Check Pre-Market (Before 9:30 AM EST)
+                elif now.hour < 9 or (now.hour == 9 and now.minute < 30): 
+                    lbl = "PRE"
+                # Else: Market is Open, so keep lbl empty to hide the text
+                
+                if lbl:
+                    col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
+                    pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
             # ------------------------------------
 
             vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
