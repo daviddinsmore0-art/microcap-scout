@@ -80,7 +80,7 @@ def init_db():
     except Exception:
         return False
 
-# --- BACKEND UPDATE ENGINE (FIXED FOR GHOST DATA) ---
+# --- BACKEND UPDATE ENGINE ---
 def run_backend_update():
     try:
         conn = get_connection()
@@ -256,12 +256,13 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (TITANIUM AI) ---
+# --- SCANNER ENGINE (TITANIUM AI: NEWS CONTEXT AWARE) ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
-    discovery_tickers = set()
+    # Map Ticker -> Headline (The Critical Fix)
+    ticker_news_map = {} 
     
     # --- DYNAMIC CONFIGURATION ---
     now_est = datetime.now(timezone.utc) - timedelta(hours=5)
@@ -272,10 +273,10 @@ def run_gap_scanner(api_key):
     
     # Set Criteria Based on Session
     if is_pre_market or is_post_market:
-        min_gap = 2.0  # Stricter GAP for Pre/Post
-        max_price = 100 # Focus on volatile small/mid caps
+        min_gap = 4.0  # INCREASED to 4% to filter "spread noise"
+        max_price = 50 # Lower price cap for volatility
     else:
-        min_gap = 0.5  # Standard for Daily
+        min_gap = 1.0 
         max_price = 5000 
     # -----------------------------
 
@@ -291,13 +292,18 @@ def run_gap_scanner(api_key):
                         match = re.search(r'\b[A-Z]{2,5}\b', entry.title)
                         if match: 
                             t = match.group(0)
-                            if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO"]: discovery_tickers.add(t)
+                            if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO", "Dow", "S&P"]: 
+                                # Save the headline!
+                                if t not in ticker_news_map:
+                                    ticker_news_map[t] = entry.title
             except: continue
     except: pass
     
-    scan_list = list(discovery_tickers)
+    scan_list = list(ticker_news_map.keys())
     
     try:
+        if not scan_list: return []
+        
         # ENABLE PREPOST=TRUE
         data = yf.download(" ".join(scan_list), period="5d", interval="1d", prepost=True, group_by='ticker', threads=True, progress=False)
         
@@ -313,6 +319,7 @@ def run_gap_scanner(api_key):
                 prev_close = float(df['Close'].iloc[-2])
                 curr_price = float(df['Close'].iloc[-1]) 
                 
+                # Double check with FinnHub for real-time
                 try:
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=1).json()
                     if 'c' in r and r['c'] != 0: curr_price = float(r['c'])
@@ -324,22 +331,40 @@ def run_gap_scanner(api_key):
                 
                 # Filters
                 if curr_price > max_price: continue
-                if abs(gap_pct) >= min_gap and avg_vol > 50000:
-                    candidates.append({"ticker": t, "gap": gap_pct, "atr": atr})
+                
+                # STRICTER LOGIC: Must have volume or huge news
+                if abs(gap_pct) >= min_gap:
+                    candidates.append({
+                        "ticker": t, 
+                        "gap": f"{gap_pct:.1f}%", 
+                        "headline": ticker_news_map.get(t, "No Headline")
+                    })
             except: continue
     except: return []
 
     if api_key and candidates:
         try:
-            candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
+            # Sort by biggest gap
+            candidates.sort(key=lambda x: float(x['gap'].strip('%')), reverse=True)
             top_10 = candidates[:10]
+            
             client = openai.OpenAI(api_key=api_key)
-            prompt = f"Pick Top 3 for day trading. Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\nData: {str(top_10)}"
+            
+            # --- IMPROVED PROMPT WITH NEWS CONTEXT ---
+            prompt = (
+                f"Analyze these stocks for a {('PRE-MARKET' if is_pre_market else 'POST-MARKET' if is_post_market else 'DAY TRADING')} strategy.\n"
+                f"Ignore stocks with 'Lawsuit' or 'Investigation' in the headline.\n"
+                f"Pick the top 3 that have the best CATALYST (News).\n"
+                f"Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\n"
+                f"Candidates: {str(top_10)}"
+            )
+            
             resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
             return picks if picks else [c['ticker'] for c in top_10[:3]]
         except: return [c['ticker'] for c in candidates[:3]]
-    candidates.sort(key=lambda x: abs(x['gap']), reverse=True)
+    
+    candidates.sort(key=lambda x: float(x['gap'].strip('%')), reverse=True)
     return [c['ticker'] for c in candidates[:3]]
 
 # --- AUTH & HELPERS ---
