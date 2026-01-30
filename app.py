@@ -242,14 +242,17 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER & NEWS ---
+# --- SCANNER ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     ticker_news_map = {} 
     
-    # Simple defaults for the free scanner tab
+    now_est = datetime.now(timezone.utc) - timedelta(hours=5)
+    current_hour = now_est.hour
+    is_pre_market = current_hour < 9 or (current_hour == 9 and now_est.minute < 30)
+    is_post_market = current_hour >= 16
     min_gap = 1.0; max_price = 5000 
 
     try:
@@ -285,7 +288,6 @@ def run_gap_scanner(api_key):
             except: continue
     except: return []
 
-    # AI Filter only if key provided (for Admin)
     if api_key and candidates:
         try:
             candidates.sort(key=lambda x: float(x['gap'].strip('%')), reverse=True)
@@ -298,7 +300,7 @@ def run_gap_scanner(api_key):
         except: return [c['ticker'] for c in candidates[:3]]
     
     candidates.sort(key=lambda x: float(x['gap'].strip('%')), reverse=True)
-    return candidates # Return full list for Tab 4
+    return candidates 
 
 def relative_time(date_str):
     try:
@@ -313,23 +315,41 @@ def relative_time(date_str):
 @st.cache_data(ttl=300)
 def fetch_fast_news(feeds):
     articles, seen = [], set()
+    # Simple Keywords for styling since we don't have AI sentiment
+    bull_words = ["SURGE", "JUMP", "RISE", "GAIN", "UP", "HIGH", "BEAT"]
+    bear_words = ["DROP", "FALL", "DOWN", "LOSS", "MISS", "CRASH", "LOW"]
+    
     for url in feeds:
         try:
             f = feedparser.parse(url)
             for entry in f.entries[:10]:
                 if entry.link not in seen:
                     seen.add(entry.link)
-                    found_t = "MARKET"
-                    # Better Ticker Extraction
+                    found_t = ""
+                    # 1. Try URL
                     match = re.search(r'symbol=([A-Z\.]+)', entry.link)
                     if match: found_t = match.group(1)
                     else:
-                        # Fallback: Look for "Ticker (SYMBOL)" pattern in title
+                        # 2. Try Title (Better Regex)
                         title_match = re.search(r'\b([A-Z]{2,5})\b', entry.title)
-                        if title_match and title_match.group(1) not in ["THE", "FOR", "AND", "NEW", "CEO", "IPO"]:
-                            found_t = title_match.group(1)
-                            
-                    articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published", "")), "ticker": found_t})
+                        if title_match:
+                            cand = title_match.group(1)
+                            if cand not in ["THE", "FOR", "AND", "NEW", "CEO", "IPO", "USA", "USD"]:
+                                found_t = cand
+                    
+                    # Sentiment Color Logic
+                    color = "#ccc" # Default Grey
+                    title_upper = entry.title.upper()
+                    if any(w in title_upper for w in bull_words): color = "#4caf50" # Green
+                    elif any(w in title_upper for w in bear_words): color = "#ff4b4b" # Red
+                    
+                    articles.append({
+                        "title": entry.title, 
+                        "link": entry.link, 
+                        "published": relative_time(entry.get("published", "")), 
+                        "ticker": found_t if found_t else "MARKET",
+                        "color": color
+                    })
         except: pass
     return articles
 
@@ -565,7 +585,7 @@ else:
                 new_t = st.text_input("Ticker").upper()
                 c1, c2 = st.columns(2)
                 new_p = c1.number_input("Cost", value=0.0)
-                new_q = c2.number_input("Qty", value=0, step=1)
+                new_q = c2.number_input("Quantity", value=0, step=1)
                 if st.button("Add Pick"):
                     if "portfolio" not in GLOBAL: GLOBAL["portfolio"] = {}
                     GLOBAL["portfolio"][new_t] = {"e": new_p, "q": int(new_q)}
@@ -592,7 +612,8 @@ else:
 
     @st.fragment(run_every=60)
     def render_dashboard():
-        t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 News Wire", "🚀 Breakout Scanner"])
+        # --- TAB 4 REMOVED ---
+        t1, t2, t3 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 News Wire"])
         w_tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
         port = GLOBAL.get("portfolio", {}); p_tickers = list(port.keys())
         all_view = list(set(w_tickers + p_tickers))
@@ -605,16 +626,22 @@ else:
             b_col = "#4caf50" if d["d"] >= 0 else "#ff4b4b"
             arrow = "▲" if d["d"] >= 0 else "▼" 
             
+            # --- FIX 1: RATINGS COLORS ---
+            r_text = f["rating"].upper()
+            if "BUY" in r_text or "OUT" in r_text: r_col = "#4caf50"
+            elif "SELL" in r_text or "UNDER" in r_text: r_col = "#ff4b4b"
+            else: r_col = "#ff9800" # Orange for Hold
+
             ai_bg = "#ff9100" if d["ai"] == "OVERBOUGHT" else "#4caf50" if d["ai"] == "RISING" or d["ai"] == "OVERSOLD" else "#ff4b4b"
             pills = f'<span class="info-pill" style="border-left: 3px solid {ai_bg}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {b_col}">TREND: {d["trend"]}</span>'
-            if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">RATING: {f["rating"]}</span>'
+            if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
             if f["earn"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
             
             with st.container():
                 st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
                 
-                # --- DAY RANGE BAR (RESTORED) ---
+                # --- FIX 2: DAY RANGE BAR RESTORED ---
                 st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div>", unsafe_allow_html=True)
                 st.markdown(f"<div class='metric-label'>RSI ({int(d['rsi'])})</div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{ai_bg};'></div></div>", unsafe_allow_html=True)
                 st.markdown(f"""
@@ -668,26 +695,14 @@ else:
                     with cols[i % 3]: draw_card(k, v)
 
         with t3:
-            st.markdown("### 🤖 AI Headlines")
+            st.markdown("### 📰 Headlines (My Watchlist + Top Stories)")
             feeds = GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"])
             all_news = fetch_fast_news(feeds)
             
             if not all_news: st.info("No news.")
             else:
                 for n in all_news:
-                    col = "#4caf50"
-                    st.markdown(f"<div class='news-card'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{n['ticker']}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']}</div></div>", unsafe_allow_html=True)
-
-        with t4:
-            st.subheader("🚀 Breakout Scanner (Top Movers)")
-            scanned = run_gap_scanner(None) # Raw scan without AI summary
-            if scanned:
-                df_scan = pd.DataFrame(scanned)
-                if 'price' in df_scan.columns:
-                    st.dataframe(df_scan[['ticker', 'gap', 'price', 'headline']], use_container_width=True, hide_index=True)
-                else:
-                    st.dataframe(df_scan, use_container_width=True, hide_index=True)
-            else:
-                st.info("Scanner running... check back in 1 minute.")
+                    # --- FIX 3: COLOR BORDER APPLIED ---
+                    st.markdown(f"<div class='news-card' style='border-left: 6px solid {n['color']};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:#333'>{n['ticker']}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']}</div></div>", unsafe_allow_html=True)
 
     render_dashboard()
