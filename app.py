@@ -80,7 +80,7 @@ def init_db():
     except Exception:
         return False
 
-# --- BACKEND UPDATE ENGINE (TSX FIX APPLIED) ---
+# --- BACKEND UPDATE ENGINE (RESTORED METADATA LOOP) ---
 def run_backend_update():
     try:
         conn = get_connection()
@@ -128,13 +128,9 @@ def run_backend_update():
             for i in range(0, len(ticker_list), batch_size):
                 batch = ticker_list[i:i + batch_size]
                 tickers_str = " ".join(batch)
-                
                 try:
-                    # FETCH 1: REGULAR HOURS
                     live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=False, group_by='ticker', threads=True, progress=False)
-                    # FETCH 2: EXTENDED HOURS
                     post_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-                    # FETCH 3: HISTORY
                     hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
                     for t in batch:
@@ -150,7 +146,7 @@ def run_backend_update():
                             live_price = float(df_live['Close'].iloc[-1])
                             last_time = df_live.index[-1]
 
-                            # 2. Extended Data (TSX FIX: Skip for .TO or .V)
+                            # 2. Extended Data (TSX FIX)
                             ext_price = live_price 
                             is_tsx = t.endswith(".TO") or t.endswith(".V")
 
@@ -159,13 +155,11 @@ def run_backend_update():
                                 else:
                                     if t in post_data.columns.levels[0]: df_post = post_data[t]
                                     else: df_post = pd.DataFrame()
-                                
                                 if not df_post.empty:
                                     df_post = df_post.dropna(subset=['Close'])
-                                    if not df_post.empty:
-                                        ext_price = float(df_post['Close'].iloc[-1])
+                                    if not df_post.empty: ext_price = float(df_post['Close'].iloc[-1])
 
-                            # 3. History & Calc
+                            # 3. History
                             if len(batch) == 1: df_hist = hist_data
                             else:
                                 if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
@@ -178,13 +172,9 @@ def run_backend_update():
                             if not df_hist.empty:
                                 df_hist = df_hist.dropna(subset=['Close'])
                                 daily_price = float(df_hist['Close'].iloc[-1]) 
-                                
-                                # OFFICIAL CLOSE LOGIC
                                 if last_time.hour >= 15 and last_time.minute >= 59:
-                                    if df_hist.index[-1].date() == last_time.date():
-                                        final_price = daily_price
+                                    if df_hist.index[-1].date() == last_time.date(): final_price = daily_price
                                 
-                                # Recalculate Extended Price relative to FINAL Official Close
                                 ext_pct = 0.0
                                 if not is_tsx and final_price > 0:
                                     ext_pct = ((ext_price - final_price) / final_price) * 100
@@ -224,15 +214,14 @@ def run_backend_update():
                                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) 
                                      ON DUPLICATE KEY UPDATE 
                                      current_price=%s, day_change=%s, rsi=%s, volume_status=%s, trend_status=%s, price_history=%s, day_high=%s, day_low=%s, pre_post_price=%s, pre_post_pct=%s, last_updated=NOW()"""
-                            
                             v = (t, final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l, ext_price, ext_pct, 
                                  final_price, day_change, rsi, vol_stat, trend, chart_json, day_h, day_l, ext_price, ext_pct)
-                            
                             cursor.execute(sql, v)
                             conn.commit()
                         except: pass
                 except: pass
 
+        # --- RESTORED METADATA FETCH (Ratings/Earnings) ---
         if to_fetch_meta:
             for t in to_fetch_meta[:3]: 
                 try:
@@ -257,10 +246,9 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE ---
+# --- SCANNER & NEWS ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
-    # This remains the same as your stable version
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
     ticker_news_map = {} 
@@ -269,7 +257,6 @@ def run_gap_scanner(api_key):
     current_hour = now_est.hour
     is_pre_market = current_hour < 9 or (current_hour == 9 and now_est.minute < 30)
     is_post_market = current_hour >= 16
-    
     min_gap = 4.0 if (is_pre_market or is_post_market) else 1.0
     max_price = 50 if (is_pre_market or is_post_market) else 5000 
 
@@ -320,7 +307,6 @@ def run_gap_scanner(api_key):
     candidates.sort(key=lambda x: float(x['gap'].strip('%')), reverse=True)
     return [c['ticker'] for c in candidates[:3]]
 
-# --- FAST NEWS ENGINE (NO AI LAG) ---
 def relative_time(date_str):
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -333,47 +319,82 @@ def relative_time(date_str):
 
 @st.cache_data(ttl=300)
 def fetch_fast_news(feeds, tickers):
-    # 1. Gather all feeds
     all_feeds = feeds.copy()
     if tickers:
         for t in tickers: all_feeds.append(f"https://finance.yahoo.com/rss/headline?s={t}")
-    
     articles, seen = [], set()
-    
-    # 2. Parse Feeds
     for url in all_feeds:
         try:
             f = feedparser.parse(url)
-            # Limit to 5 per feed to keep it snappy
             for entry in f.entries[:5]:
                 if entry.link not in seen:
                     seen.add(entry.link)
-                    
-                    # 3. EXTRACTION TRICK: Get Ticker from Link!
-                    # Yahoo Links: .../news/title-symbol=AAPL.html
                     found_t = ""
                     match = re.search(r'symbol=([A-Z\.]+)', entry.link)
-                    if match:
-                        found_t = match.group(1)
-                    
-                    # Fallback: Check title
+                    if match: found_t = match.group(1)
                     if not found_t and tickers:
                         for t in tickers:
                             if t in entry.title.upper(): found_t = t; break
-                    
-                    articles.append({
-                        "title": entry.title,
-                        "link": entry.link,
-                        "published": relative_time(entry.get("published", "")),
-                        "ticker": found_t if found_t else "MARKET",
-                        "raw_date": entry.get("published", "")
-                    })
+                    articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published", "")), "ticker": found_t if found_t else "MARKET"})
         except: pass
-    
-    # Sort by date (newest first)
-    return articles # You can add sorting logic here if dates are standard
+    return articles
 
-# --- AUTH & HELPERS ---
+# --- DATA FORMATTER (RESTORED CHARTS) ---
+@st.cache_data(ttl=600)
+def get_fundamentals(s):
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT rating, next_earnings FROM stock_cache WHERE ticker = %s", (s,))
+        row = cursor.fetchone(); conn.close()
+        return {"rating": row['rating'] or "N/A", "earn": row['next_earnings'] or "N/A"} if row else {"rating": "N/A", "earn": "N/A"}
+    except: return {"rating": "N/A", "earn": "N/A"}
+
+def get_batch_data(tickers_list):
+    if not tickers_list: return {}
+    results = {}
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        format_strings = ','.join(['%s'] * len(tickers_list))
+        cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers_list))
+        rows = cursor.fetchall(); conn.close()
+        for row in rows:
+            s = row['ticker']
+            price = float(row['current_price']); change = float(row['day_change'])
+            rsi_val = float(row['rsi'] or 50); trend = row['trend_status']
+            vol_stat = row['volume_status']; display_name = row.get('company_name') or s
+            pp_html = ""
+            
+            is_tsx = s.endswith(".TO") or s.endswith(".V")
+            if not is_tsx and row.get('pre_post_price') and float(row['pre_post_price']) > 0:
+                pp_p = float(row['pre_post_price'])
+                pp_c = ((pp_p - price) / price) * 100 if price > 0 else 0
+                now = datetime.now(timezone.utc) - timedelta(hours=5)
+                lbl = "POST" if (now.hour >= 16 or now.weekday() > 4) else "PRE" if now.hour < 9 else ""
+                if lbl:
+                    col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
+                    pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
+
+            ai_label = "NEUTRAL"
+            if rsi_val >= 70: ai_label = "OVERBOUGHT"
+            elif rsi_val <= 30: ai_label = "OVERSOLD"
+            elif trend == "UPTREND": ai_label = "RISING"
+            elif trend == "DOWNTREND": ai_label = "FALLING"
+
+            day_h = float(row.get('day_high') or price); day_l = float(row.get('day_low') or price)
+            range_pos = max(0, min(100, ((price - day_l) / (day_h - day_l)) * 100)) if day_h > day_l else 50
+            
+            # --- RESTORED CHART DATA ---
+            raw_hist = row.get('price_history')
+            points = json.loads(raw_hist) if raw_hist else [price] * 20
+            chart_data = pd.DataFrame({'Idx': range(len(points)), 'Stock': points})
+            base = chart_data['Stock'].iloc[0] if chart_data['Stock'].iloc[0] != 0 else 1
+            chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
+            
+            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": 150 if vol_stat=="HEAVY" else 100, "vol_label": vol_stat, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": ai_label, "trend": trend, "pp": pp_html, "chart": chart_data}
+    except: pass
+    return results
+
+# --- AUTH & TAPE ---
 def check_user_exists(username):
     try:
         conn = get_connection(); cursor = conn.cursor()
@@ -393,7 +414,7 @@ def create_session(username):
 def validate_session(token):
     for _ in range(3):
         try:
-            conn = get_connection() 
+            conn = get_connection(); 
             if not conn.is_connected(): conn.reconnect(attempts=3, delay=1)
             cursor = conn.cursor(); cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
             res = cursor.fetchone(); conn.close(); return res[0] if res else None
@@ -441,48 +462,7 @@ def get_global_config_data():
     if not api_key: api_key = g.get("openai_key")
     return api_key, g.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), g
 
-# --- DATA ENGINE ---
-def get_batch_data(tickers_list):
-    if not tickers_list: return {}
-    results = {}
-    try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        format_strings = ','.join(['%s'] * len(tickers_list))
-        cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers_list))
-        rows = cursor.fetchall(); conn.close()
-        for row in rows:
-            s = row['ticker']
-            price = float(row['current_price']); change = float(row['day_change'])
-            rsi_val = float(row['rsi'] or 50); trend = row['trend_status']
-            vol_stat = row['volume_status']; display_name = row.get('company_name') or s
-            pp_html = ""
-            
-            # TSX FIX
-            is_tsx = s.endswith(".TO") or s.endswith(".V")
-            if not is_tsx and row.get('pre_post_price') and float(row['pre_post_price']) > 0:
-                pp_p = float(row['pre_post_price'])
-                pp_c = ((pp_p - price) / price) * 100 if price > 0 else 0
-                now = datetime.now(timezone.utc) - timedelta(hours=5)
-                lbl = "POST" if (now.hour >= 16 or now.weekday() > 4) else "PRE" if now.hour < 9 else ""
-                if lbl:
-                    col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
-                    pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
-
-            # AI MOMENTUM BADGE
-            ai_label = "NEUTRAL"
-            if rsi_val >= 70: ai_label = "OVERBOUGHT"
-            elif rsi_val <= 30: ai_label = "OVERSOLD"
-            elif trend == "UPTREND": ai_label = "RISING"
-            elif trend == "DOWNTREND": ai_label = "FALLING"
-
-            day_h = float(row.get('day_high') or price); day_l = float(row.get('day_low') or price)
-            range_pos = max(0, min(100, ((price - day_l) / (day_h - day_l)) * 100)) if day_h > day_l else 50
-            chart_data = pd.DataFrame({'Idx': range(20), 'Stock': json.loads(row.get('price_history') or "[0]*20")})
-            
-            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": 150 if vol_stat=="HEAVY" else 100, "vol_label": vol_stat, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": ai_label, "trend": trend, "pp": pp_html, "chart": chart_data}
-    except: pass
-    return results
-
+# --- RESTORED SCROLLER (CSS ANIMATION) ---
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
     items, symbols = [], [x.split(":")[0].strip().upper() for x in symbol_string.split(",") if x.strip()]
@@ -496,16 +476,25 @@ def get_tape_data(symbol_string, nickname_string=""):
         for s in symbols:
             disp = final_map.get(s, s)
             if s in data_map:
-                row = data_map[s]; col, arrow = ("#4caf50", "▲") if float(row['day_change']) >= 0 else ("#ff4b4b", "▼")
-                items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp}</span> <span style='color:{col}'>{arrow} {float(row['current_price']):,.2f} ({float(row['day_change']):+.2f}%)</span>")
+                row = data_map[s]; col = "#4caf50" if float(row['day_change']) >= 0 else "#ff4b4b"
+                items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp}</span> <span style='color:{col}'>▲ {float(row['current_price']):,.2f} ({float(row['day_change']):+.2f}%)</span>")
             else: items.append(f"<span style='color:#ccc; margin-left:20px;'>{disp}</span> <span style='color:#888;'>(...)</span>")
     except: pass
-    return "    ".join(items)
+    return "".join(items)
 
-# --- UI LOGIC ---
+# --- APP START ---
 init_db()
 run_backend_update()
 ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
+
+if "init" not in st.session_state:
+    st.session_state["init"] = True
+    st.session_state["logged_in"] = False
+    url_token = st.query_params.get("token", None)
+    if url_token:
+        user = validate_session(url_token)
+        if user:
+            st.session_state.update({"username": user, "user_data": load_user_profile(user), "global_data": load_global_config(), "logged_in": True})
 
 st.markdown("""<style>
 .block-container { padding-top: 4.5rem !important; }
@@ -519,17 +508,7 @@ div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div
 .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; }
 .news-meta { font-size: 11px; color: #888; }
 .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-right: 6px; display: inline-block; vertical-align: middle; }
-.hot-badge { background: linear-gradient(90deg, #ff4b4b, #ff9100); color: white; padding: 2px 8px; border-radius: 10px; font-weight: bold; font-size: 10px; animation: pulse 2s infinite; }
-@keyframes pulse { 0%{opacity:0.8} 50%{opacity:1} 100%{opacity:0.8} }
 </style>""", unsafe_allow_html=True)
-
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-    url_token = st.query_params.get("token", None)
-    if url_token:
-        user = validate_session(url_token)
-        if user:
-            st.session_state.update({"username": user, "user_data": load_user_profile(user), "global_data": load_global_config(), "logged_in": True})
 
 if not st.session_state["logged_in"]:
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -591,14 +570,17 @@ else:
         def draw_card(t, port_item=None):
             d = batch.get(t)
             if not d: return
+            f = get_fundamentals(t)
             b_col = "#4caf50" if d["d"] >= 0 else "#ff4b4b"
             ai_bg = "#ff9100" if d["ai"] == "OVERBOUGHT" else "#4caf50" if d["ai"] == "RISING" or d["ai"] == "OVERSOLD" else "#ff4b4b"
             pills = f'<span class="info-pill" style="border-left: 3px solid {ai_bg}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {b_col}">TREND: {d["trend"]}</span>'
+            if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">RATING: {f["rating"]}</span>'
+            if f["earn"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
             
             with st.container():
                 st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
-                st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None)).properties(height=45), use_container_width=True)
-                st.markdown(f"<div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{ai_bg};'></div></div>", unsafe_allow_html=True)
+                st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
+                st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:#999'>NEUTRAL</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:#999;'></div></div>", unsafe_allow_html=True)
                 st.divider()
 
         with t1:
@@ -619,41 +601,30 @@ else:
                 for i, (k, v) in enumerate(port.items()):
                     with cols[i % 3]: draw_card(k, v)
 
-        # --- TAB 3: THE NEWS WIRE (MERGED & OPTIMIZED) ---
         with t3:
             st.markdown("### 📰 Market Wire")
             mode = st.radio("Source", ["👀 My Watchlist", "🌎 General Market"], horizontal=True)
-            
-            # SESSION STATE FOR LOAD MORE
             if "news_limit" not in st.session_state: st.session_state["news_limit"] = 5
-            
             target_tickers = all_view if mode == "👀 My Watchlist" else []
             feeds = [] if mode == "👀 My Watchlist" else GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"])
-            
-            # FETCH FAST (No AI Lag)
             all_news = fetch_fast_news(feeds, target_tickers)
             visible_news = all_news[:st.session_state["news_limit"]]
-            
-            if not visible_news: st.info("No news found.")
+            if not visible_news: st.info("No news.")
             else:
                 for n in visible_news:
-                    col = "#4caf50" if "BULL" in n.get('sentiment', '') else "#333"
-                    t_badge = f"<span class='ticker-badge' style='background-color:{col}'>{n['ticker']}</span>"
-                    st.markdown(f"<div class='news-card'><div style='display:flex; align-items:center;'>{t_badge}<a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']}</div></div>", unsafe_allow_html=True)
-                
+                    col = "#4caf50"
+                    st.markdown(f"<div class='news-card'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{n['ticker']}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']}</div></div>", unsafe_allow_html=True)
                 if len(all_news) > st.session_state["news_limit"]:
-                    if st.button("Load More Stories", use_container_width=True):
+                    if st.button("Load More", use_container_width=True):
                         st.session_state["news_limit"] += 5
                         st.rerun()
 
-        # --- TAB 4: TOP MOVERS (NEW!) ---
         with t4:
             st.subheader("🏆 Market Movers")
             try:
                 movers = pd.DataFrame(yf.download("^IXIC ^DJI ^GSPTSE", period="1d")['Close'].iloc[-1]).reset_index()
                 movers.columns = ['Ticker', 'Price']
                 st.dataframe(movers, use_container_width=True, hide_index=True)
-                st.info("This tab can be expanded with a 'Day Gainers' API call later.")
             except: st.warning("Data unavailable.")
 
     render_dashboard()
