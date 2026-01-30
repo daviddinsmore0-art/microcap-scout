@@ -128,13 +128,9 @@ def run_backend_update():
             for i in range(0, len(ticker_list), batch_size):
                 batch = ticker_list[i:i + batch_size]
                 tickers_str = " ".join(batch)
-                
                 try:
-                    # FETCH 1: REGULAR HOURS
                     live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=False, group_by='ticker', threads=True, progress=False)
-                    # FETCH 2: EXTENDED HOURS
                     post_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-                    # FETCH 3: HISTORY
                     hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
                     for t in batch:
@@ -467,7 +463,7 @@ def get_global_config_data():
     if not api_key: api_key = g.get("openai_key")
     return api_key, g.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), g
 
-# --- RESTORED SCROLLER (CSS ANIMATION - 40s SLOW + DUPLICATED) ---
+# --- RESTORED SCROLLER (CSS ANIMATION - 45s SLOW + DUPLICATED) ---
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
     items, symbols = [], [x.split(":")[0].strip().upper() for x in symbol_string.split(",") if x.strip()]
@@ -513,8 +509,9 @@ div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div
 .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; }
 .news-meta { font-size: 11px; color: #888; }
 .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-right: 6px; display: inline-block; vertical-align: middle; }
-.hot-badge { background: linear-gradient(90deg, #ff4b4b, #ff9100); color: white; padding: 2px 8px; border-radius: 10px; font-weight: bold; font-size: 10px; animation: pulse 2s infinite; }
-@keyframes pulse { 0%{opacity:0.8} 50%{opacity:1} 100%{opacity:0.8} }
+.ticker-wrap { width: 100%; overflow: hidden; white-space: nowrap; }
+.ticker-move { display: inline-block; animation: ticker 45s linear infinite; } /* SLOWED TO 45s */
+@keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
 </style>""", unsafe_allow_html=True)
 
 if not st.session_state["logged_in"]:
@@ -539,9 +536,9 @@ else:
     
     tape = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC"), GLOBAL.get("tape_nicknames", ""))
     # DUPLICATED CONTENT FOR SMOOTH SCROLL (NO GAP)
-    display_tape = f"{tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape}"
+    display_tape = f"{tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape}"
     
-    components.html(f"""<!DOCTYPE html><html><head><style>body{{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}.ticker-container{{width:100%;height:45px;background:#111;display:flex;align-items:center;border-bottom:1px solid #333;border-radius:0 0 15px 15px;box-shadow:0 4px 10px rgba(0,0,0,0.3)}}.ticker-wrap{{width:100%;overflow:hidden;white-space:nowrap}}.ticker-move{{display:inline-block;animation:ticker 40s linear infinite}}.ticker-item{{display:inline-block;color:white;font-weight:900;font-size:16px;padding:0 20px}}@keyframes ticker{{0%{{transform:translate3d(0,0,0)}}100%{{transform:translate3d(-50%,0,0)}}}}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{display_tape}</span></div></div></div></body></html>""", height=50)
+    components.html(f"""<!DOCTYPE html><html><head><style>body{{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}.ticker-container{{width:100%;height:45px;background:#111;display:flex;align-items:center;border-bottom:1px solid #333;border-radius:0 0 15px 15px;box-shadow:0 4px 10px rgba(0,0,0,0.3)}}.ticker-wrap{{width:100%;overflow:hidden;white-space:nowrap}}.ticker-move{{display:inline-block;animation:ticker 45s linear infinite}}.ticker-item{{display:inline-block;color:white;font-weight:900;font-size:16px;padding:0 20px}}@keyframes ticker{{0%{{transform:translate3d(0,0,0)}}100%{{transform:translate3d(-50%,0,0)}}}}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{display_tape}</span></div></div></div></body></html>""", height=50)
 
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
@@ -620,6 +617,8 @@ else:
             if not d: return
             f = get_fundamentals(t)
             b_col = "#4caf50" if d["d"] >= 0 else "#ff4b4b"
+            arrow = "▲" if d["d"] >= 0 else "▼" # <--- CRASH FIX HERE
+            
             ai_bg = "#ff9100" if d["ai"] == "OVERBOUGHT" else "#4caf50" if d["ai"] == "RISING" or d["ai"] == "OVERSOLD" else "#ff4b4b"
             pills = f'<span class="info-pill" style="border-left: 3px solid {ai_bg}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {b_col}">TREND: {d["trend"]}</span>'
             if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">RATING: {f["rating"]}</span>'
