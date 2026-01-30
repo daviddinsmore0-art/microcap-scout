@@ -80,7 +80,7 @@ def init_db():
     except Exception:
         return False
 
-# --- BACKEND UPDATE ENGINE ---
+# --- BACKEND UPDATE ENGINE (TSX FIX APPLIED) ---
 def run_backend_update():
     try:
         conn = get_connection()
@@ -130,16 +130,16 @@ def run_backend_update():
                 tickers_str = " ".join(batch)
                 
                 try:
-                    # FETCH 1: REGULAR HOURS (Official Close)
+                    # FETCH 1: REGULAR HOURS
                     live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=False, group_by='ticker', threads=True, progress=False)
-                    # FETCH 2: EXTENDED HOURS (Pre/Post Moves)
+                    # FETCH 2: EXTENDED HOURS
                     post_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
-                    # FETCH 3: HISTORY (Charts/Analysis)
+                    # FETCH 3: HISTORY
                     hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
                     for t in batch:
                         try:
-                            # --- 1. Get Regular Market Data ---
+                            # 1. Regular Data
                             if len(batch) == 1: df_live = live_data
                             else: 
                                 if t not in live_data.columns.levels[0]: continue
@@ -147,23 +147,25 @@ def run_backend_update():
                             
                             df_live = df_live.dropna(subset=['Close'])
                             if df_live.empty: continue
-                            
                             live_price = float(df_live['Close'].iloc[-1])
                             last_time = df_live.index[-1]
 
-                            # --- 2. Get Extended Market Data ---
-                            ext_price = live_price # Default to live price
-                            if len(batch) == 1: df_post = post_data
-                            else:
-                                if t in post_data.columns.levels[0]: df_post = post_data[t]
-                                else: df_post = pd.DataFrame()
-                            
-                            if not df_post.empty:
-                                df_post = df_post.dropna(subset=['Close'])
-                                if not df_post.empty:
-                                    ext_price = float(df_post['Close'].iloc[-1])
+                            # 2. Extended Data (TSX FIX: Skip for .TO or .V)
+                            ext_price = live_price 
+                            is_tsx = t.endswith(".TO") or t.endswith(".V")
 
-                            # --- 3. Get History & Calculate ---
+                            if not is_tsx:
+                                if len(batch) == 1: df_post = post_data
+                                else:
+                                    if t in post_data.columns.levels[0]: df_post = post_data[t]
+                                    else: df_post = pd.DataFrame()
+                                
+                                if not df_post.empty:
+                                    df_post = df_post.dropna(subset=['Close'])
+                                    if not df_post.empty:
+                                        ext_price = float(df_post['Close'].iloc[-1])
+
+                            # 3. History & Calc
                             if len(batch) == 1: df_hist = hist_data
                             else:
                                 if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
@@ -184,7 +186,7 @@ def run_backend_update():
                                 
                                 # Recalculate Extended Price relative to FINAL Official Close
                                 ext_pct = 0.0
-                                if final_price > 0:
+                                if not is_tsx and final_price > 0:
                                     ext_pct = ((ext_price - final_price) / final_price) * 100
 
                                 if len(df_hist) > 0:
@@ -217,7 +219,6 @@ def run_backend_update():
                                 
                                 chart_json = json.dumps(df_hist['Close'].tail(20).tolist())
 
-                            # --- 4. UPDATED SQL (Now includes pre_post_price & pre_post_pct) ---
                             sql = """INSERT INTO stock_cache 
                                      (ticker, current_price, day_change, rsi, volume_status, trend_status, price_history, day_high, day_low, pre_post_price, pre_post_pct, last_updated) 
                                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) 
@@ -256,12 +257,11 @@ def run_backend_update():
         conn.close()
     except Exception: pass
 
-# --- SCANNER ENGINE (TITANIUM AI: NEWS CONTEXT AWARE) ---
+# --- SCANNER ENGINE ---
 @st.cache_data(ttl=900)
 def run_gap_scanner(api_key):
     fh_key = st.secrets.get("FINNHUB_API_KEY")
     candidates = []
-    # Map Ticker -> Headline (The Critical Fix)
     ticker_news_map = {} 
     
     # --- DYNAMIC CONFIGURATION ---
@@ -271,14 +271,12 @@ def run_gap_scanner(api_key):
     is_pre_market = current_hour < 9 or (current_hour == 9 and now_est.minute < 30)
     is_post_market = current_hour >= 16
     
-    # Set Criteria Based on Session
     if is_pre_market or is_post_market:
-        min_gap = 4.0  # INCREASED to 4% to filter "spread noise"
-        max_price = 50 # Lower price cap for volatility
+        min_gap = 4.0 
+        max_price = 50 
     else:
         min_gap = 1.0 
         max_price = 5000 
-    # -----------------------------
 
     try:
         feeds = ["https://finance.yahoo.com/rss/most-active", "https://finance.yahoo.com/news/rssindex"]
@@ -293,7 +291,6 @@ def run_gap_scanner(api_key):
                         if match: 
                             t = match.group(0)
                             if t not in ["ETF", "THE", "FOR", "AND", "NEW", "CEO", "Dow", "S&P"]: 
-                                # Save the headline!
                                 if t not in ticker_news_map:
                                     ticker_news_map[t] = entry.title
             except: continue
@@ -303,8 +300,6 @@ def run_gap_scanner(api_key):
     
     try:
         if not scan_list: return []
-        
-        # ENABLE PREPOST=TRUE
         data = yf.download(" ".join(scan_list), period="5d", interval="1d", prepost=True, group_by='ticker', threads=True, progress=False)
         
         for t in scan_list:
@@ -319,20 +314,15 @@ def run_gap_scanner(api_key):
                 prev_close = float(df['Close'].iloc[-2])
                 curr_price = float(df['Close'].iloc[-1]) 
                 
-                # Double check with FinnHub for real-time
+                # FinnHub check
                 try:
                     r = requests.get(f"https://finnhub.io/api/v1/quote?symbol={t}&token={fh_key}", timeout=1).json()
                     if 'c' in r and r['c'] != 0: curr_price = float(r['c'])
                 except: pass
                 
                 gap_pct = ((curr_price - prev_close) / prev_close) * 100
-                avg_vol = df['Volume'].mean()
-                atr = (df['High'] - df['Low']).mean()
-                
-                # Filters
                 if curr_price > max_price: continue
                 
-                # STRICTER LOGIC: Must have volume or huge news
                 if abs(gap_pct) >= min_gap:
                     candidates.append({
                         "ticker": t, 
@@ -344,21 +334,14 @@ def run_gap_scanner(api_key):
 
     if api_key and candidates:
         try:
-            # Sort by biggest gap
             candidates.sort(key=lambda x: float(x['gap'].strip('%')), reverse=True)
             top_10 = candidates[:10]
-            
             client = openai.OpenAI(api_key=api_key)
-            
-            # --- IMPROVED PROMPT WITH NEWS CONTEXT ---
             prompt = (
-                f"Analyze these stocks for a {('PRE-MARKET' if is_pre_market else 'POST-MARKET' if is_post_market else 'DAY TRADING')} strategy.\n"
-                f"Ignore stocks with 'Lawsuit' or 'Investigation' in the headline.\n"
-                f"Pick the top 3 that have the best CATALYST (News).\n"
+                f"Analyze these stocks. Pick top 3 with best CATALYST (News).\n"
                 f"Return JSON: {{'picks': ['TICKER', 'TICKER', 'TICKER']}}\n"
                 f"Candidates: {str(top_10)}"
             )
-            
             resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
             picks = json.loads(resp.choices[0].message.content).get("picks", [])
             return picks if picks else [c['ticker'] for c in top_10[:3]]
@@ -525,13 +508,14 @@ def get_batch_data(tickers_list):
             vol_stat = row['volume_status']; display_name = row.get('company_name') or s
             pp_html = ""
             
-            # --- SHOW PRE/POST IF DATA EXISTS ---
-            if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
+            # --- TSX FIX APPLIED HERE ---
+            # Don't show pre/post for .TO or .V
+            is_tsx = s.endswith(".TO") or s.endswith(".V")
+            
+            if not is_tsx and row.get('pre_post_price') and float(row['pre_post_price']) > 0:
                 pp_p = float(row['pre_post_price'])
                 
                 # --- FIXED: RE-CALCULATE PERCENTAGE MANUALLY ---
-                # Yahoo's percent is often relative to yesterday's close.
-                # We want relative to TODAY'S close (the main price displayed).
                 pp_c = 0.0
                 if price > 0:
                     pp_c = ((pp_p - price) / price) * 100
