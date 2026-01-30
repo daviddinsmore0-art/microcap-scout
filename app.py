@@ -80,7 +80,7 @@ def init_db():
     except Exception:
         return False
 
-# --- BACKEND UPDATE ENGINE (RESTORED METADATA LOOP) ---
+# --- BACKEND UPDATE ENGINE ---
 def run_backend_update():
     try:
         conn = get_connection()
@@ -221,7 +221,6 @@ def run_backend_update():
                         except: pass
                 except: pass
 
-        # --- RESTORED METADATA FETCH (Ratings/Earnings) ---
         if to_fetch_meta:
             for t in to_fetch_meta[:3]: 
                 try:
@@ -339,7 +338,7 @@ def fetch_fast_news(feeds, tickers):
         except: pass
     return articles
 
-# --- DATA FORMATTER (RESTORED CHARTS) ---
+# --- DATA FORMATTER ---
 @st.cache_data(ttl=600)
 def get_fundamentals(s):
     try:
@@ -383,14 +382,16 @@ def get_batch_data(tickers_list):
             day_h = float(row.get('day_high') or price); day_l = float(row.get('day_low') or price)
             range_pos = max(0, min(100, ((price - day_l) / (day_h - day_l)) * 100)) if day_h > day_l else 50
             
-            # --- RESTORED CHART DATA ---
+            # --- RESTORED CHART & VOLUME ---
             raw_hist = row.get('price_history')
             points = json.loads(raw_hist) if raw_hist else [price] * 20
             chart_data = pd.DataFrame({'Idx': range(len(points)), 'Stock': points})
             base = chart_data['Stock'].iloc[0] if chart_data['Stock'].iloc[0] != 0 else 1
             chart_data['Stock'] = ((chart_data['Stock'] - base) / base) * 100
             
-            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": 150 if vol_stat=="HEAVY" else 100, "vol_label": vol_stat, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": ai_label, "trend": trend, "pp": pp_html, "chart": chart_data}
+            vol_pct = 150 if vol_stat=="HEAVY" else (50 if vol_stat=="LIGHT" else 100)
+            
+            results[s] = {"p": price, "d": change, "name": display_name, "rsi": rsi_val, "vol_pct": vol_pct, "vol_label": vol_stat, "range_pos": range_pos, "h": day_h, "l": day_l, "ai": ai_label, "trend": trend, "pp": pp_html, "chart": chart_data}
     except: pass
     return results
 
@@ -462,7 +463,7 @@ def get_global_config_data():
     if not api_key: api_key = g.get("openai_key")
     return api_key, g.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), g
 
-# --- RESTORED SCROLLER (CSS ANIMATION) ---
+# --- RESTORED SCROLLER (CSS ANIMATION - 8s FAST) ---
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
     items, symbols = [], [x.split(":")[0].strip().upper() for x in symbol_string.split(",") if x.strip()]
@@ -508,6 +509,16 @@ div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div
 .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; }
 .news-meta { font-size: 11px; color: #888; }
 .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-right: 6px; display: inline-block; vertical-align: middle; }
+.ticker-wrap {
+    width: 100%; overflow: hidden; white-space: nowrap;
+}
+.ticker-move {
+    display: inline-block; animation: ticker 8s linear infinite; /* SPEEDED UP TO 8s */
+}
+@keyframes ticker {
+    0% { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(-100%, 0, 0); }
+}
 </style>""", unsafe_allow_html=True)
 
 if not st.session_state["logged_in"]:
@@ -531,7 +542,7 @@ else:
     GLOBAL, USER = st.session_state["global_data"], st.session_state["user_data"]
     
     tape = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC"), GLOBAL.get("tape_nicknames", ""))
-    components.html(f"""<!DOCTYPE html><html><head><style>body{{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}.ticker-container{{width:100%;height:45px;background:#111;display:flex;align-items:center;border-bottom:1px solid #333;border-radius:0 0 15px 15px;box-shadow:0 4px 10px rgba(0,0,0,0.3)}}.ticker-wrap{{width:100%;overflow:hidden;white-space:nowrap}}.ticker-move{{display:inline-block;animation:ticker 15s linear infinite}}@keyframes ticker{{0%{{transform:translate3d(0,0,0)}}100%{{transform:translate3d(-25%,0,0)}}}}.ticker-item{{display:inline-block;color:white;font-weight:900;font-size:16px;padding:0 20px}}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{tape}</span></div></div></div></body></html>""", height=50)
+    components.html(f"""<!DOCTYPE html><html><head><style>body{{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}.ticker-container{{width:100%;height:45px;background:#111;display:flex;align-items:center;border-bottom:1px solid #333;border-radius:0 0 15px 15px;box-shadow:0 4px 10px rgba(0,0,0,0.3)}}.ticker-wrap{{width:100%;overflow:hidden;white-space:nowrap}}.ticker-move{{display:inline-block;animation:ticker 8s linear infinite}}.ticker-item{{display:inline-block;color:white;font-weight:900;font-size:16px;padding:0 20px}}@keyframes ticker{{0%{{transform:translate3d(0,0,0)}}100%{{transform:translate3d(-100%,0,0)}}}}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{tape}</span></div></div></div></body></html>""", height=50)
 
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
@@ -542,7 +553,13 @@ else:
             curr_tg = USER.get("telegram_id", "")
             new_tg = st.text_input("Telegram Chat ID", value=curr_tg)
             if new_tg != curr_tg: USER["telegram_id"] = new_tg.strip(); push_user(); st.success("Saved!"); time.sleep(1); st.rerun()
-            st.checkbox("AI Daily Picks", value=USER.get("alert_pre", True))
+            st.markdown("[Get my ID](https://t.me/userinfobot)", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
+            a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
+            a_pre = st.checkbox("AI Daily Picks", value=USER.get("alert_pre", True))
+            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
+                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
         
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
@@ -580,7 +597,17 @@ else:
             with st.container():
                 st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
-                st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:#999'>NEUTRAL</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:#999;'></div></div>", unsafe_allow_html=True)
+                
+                # RSI + VOLUME RESTORED
+                st.markdown(f"<div class='metric-label'>RSI ({int(d['rsi'])})</div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{ai_bg};'></div></div>", unsafe_allow_html=True)
+                st.markdown(f"""
+                    <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff; color:white; padding:1px 4px; border-radius:3px;'>{d['vol_label']}</span></div>
+                    <div class='bar-bg'><div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div></div>
+                """, unsafe_allow_html=True)
+                
+                if port_item:
+                    gain = (d["p"] - port_item["e"]) * port_item["q"]
+                    st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
                 st.divider()
 
         with t1:
