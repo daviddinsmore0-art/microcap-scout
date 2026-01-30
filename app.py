@@ -44,7 +44,8 @@ def get_connection():
 
 def init_db():
     try:
-        conn = get_connection(); cursor = conn.cursor()
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, user_data TEXT, pin VARCHAR(50))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("""
@@ -67,9 +68,17 @@ def init_db():
             )
         """)
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, sent TINYINT DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        try: cursor.execute("ALTER TABLE daily_briefing ADD COLUMN sent TINYINT DEFAULT 0"); 
+        except: pass
+        for col in ['day_high', 'day_low', 'company_name', 'pre_post_price', 'rating', 'next_earnings']:
+            try:
+                dtype = "DECIMAL(20,4)" if "day" in col or "price" in col else "VARCHAR(255)"
+                cursor.execute(f"ALTER TABLE stock_cache ADD COLUMN {col} {dtype}")
+            except: pass
         conn.close()
         return True
-    except: return False
+    except Exception:
+        return False
 
 # --- BACKEND UPDATE ENGINE ---
 def run_backend_update():
@@ -92,15 +101,18 @@ def run_backend_update():
             except: pass
 
         if not all_tickers: conn.close(); return
+
         format_strings = ','.join(['%s'] * len(all_tickers))
         cursor.execute(f"SELECT ticker, last_updated FROM stock_cache WHERE ticker IN ({format_strings})", tuple(all_tickers))
         existing_rows = {row['ticker']: row for row in cursor.fetchall()}
+        
         to_fetch = [t for t in all_tickers if t not in existing_rows or (datetime.now() - existing_rows[t]['last_updated']).total_seconds() > 120]
         
         if to_fetch:
             batch_size = 15
             for i in range(0, len(to_fetch), batch_size):
-                batch = to_fetch[i:i + batch_size]; tickers_str = " ".join(batch)
+                batch = to_fetch[i:i + batch_size]
+                tickers_str = " ".join(batch)
                 try:
                     live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
                     for t in batch:
@@ -110,6 +122,7 @@ def run_backend_update():
                         curr_p = float(df['Close'].iloc[-1])
                         prev_c = float(df['Close'].iloc[-2]) if len(df) > 1 else curr_p
                         day_change = ((curr_p - prev_c) / prev_c) * 100
+                        
                         sql = "INSERT INTO stock_cache (ticker, current_price, day_change, last_updated) VALUES (%s, %s, %s, NOW()) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, last_updated=NOW()"
                         cursor.execute(sql, (t, curr_p, day_change, curr_p, day_change))
                         conn.commit()
@@ -117,7 +130,12 @@ def run_backend_update():
         conn.close()
     except: pass
 
-# --- AUTH LOGIC ---
+# --- SCANNER ENGINE ---
+@st.cache_data(ttl=900)
+def run_gap_scanner(api_key):
+    return ["AAPL", "TSLA", "NVDA"]
+
+# --- AUTH & HELPERS ---
 def check_user_exists(username):
     try:
         conn = get_connection(); cursor = conn.cursor()
@@ -129,7 +147,6 @@ def create_session(username):
     token = str(uuid.uuid4())
     try:
         conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_sessions WHERE username = %s", (username,))
         cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
         conn.commit(); conn.close(); return token
     except: return None
@@ -146,8 +163,8 @@ def load_user_profile(username):
         conn = get_connection(); cursor = conn.cursor()
         cursor.execute("SELECT user_data FROM user_profiles WHERE username = %s", (username,))
         res = cursor.fetchone(); conn.close()
-        return json.loads(res[0]) if res else {"w_input": "Td.to, bn.to, ivn.to"}
-    except: return {"w_input": "Td.to, bn.to, ivn.to"}
+        return json.loads(res[0]) if res else {"w_input": "TD.TO, SPY"}
+    except: return {"w_input": "TD.TO, SPY"}
 
 def save_user_profile(username, data, pin=None):
     try:
@@ -163,7 +180,7 @@ def load_global_config():
         conn = get_connection(); cursor = conn.cursor()
         cursor.execute("SELECT user_data FROM user_profiles WHERE username = 'GLOBAL_CONFIG'")
         res = cursor.fetchone(); conn.close()
-        return json.loads(res[0]) if res else {"tape_input": "^DJI,^IXIC,GC=F"}
+        return json.loads(res[0]) if res else {"tape_input": "^DJI,^IXIC"}
     except: return {}
 
 # --- NEWS ENGINE (WITH SCORE) ---
@@ -202,8 +219,7 @@ def get_tape_data(symbol_string):
         for s in symbols:
             if s in data_map:
                 row = data_map[s]; col = "#4caf50" if float(row['day_change']) >= 0 else "#ff4b4b"
-                arrow = "▲" if float(row['day_change']) >= 0 else "▼"
-                items.append(f"<span style='color:#ccc; margin-left:20px;'>{s}</span> <span style='color:{col}'>{arrow} {float(row['current_price']):,.2f} ({float(row['day_change']):+.2f}%)</span>")
+                items.append(f"<span style='color:#ccc; margin-left:20px;'>{s}</span> <span style='color:{col}'>▲ {float(row['current_price']):,.2f} ({float(row['day_change']):+.2f}%)</span>")
     except: pass
     return "    ".join(items)
 
@@ -216,7 +232,6 @@ def render_dashboard():
     t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
     w_list = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
     
-    # Batch data fetch
     batch_results = {}
     if w_list:
         try:
@@ -246,20 +261,18 @@ def render_dashboard():
             c = "#4caf50" if n['score'] >= 8 else "#f1c40f" if n['score'] >= 5 else "#ff4b4b"
             st.markdown(f"<div class='news-card' style='border-left:5px solid {c};'><div style='display:flex; justify-content:space-between;'><a href='{n['link']}' target='_blank' style='font-weight:bold; color:#333; text-decoration:none;'>{n['title']}</a><span style='background:{c}; color:white; padding:2px 8px; border-radius:12px; font-size:12px;'>{n['score']}/10</span></div><small>{n['ticker']} | {n['sentiment']}</small></div>", unsafe_allow_html=True)
 
-# --- LOGIN & SIDEBAR ---
+# --- APP BOOTSTRAP ---
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
 if not st.session_state["logged_in"]:
     st.title("⚡ Penny Pulse")
+    if os.path.exists(LOGO_PATH): st.image(LOGO_PATH, width=150)
     with st.form("login"):
         u, p = st.text_input("Username"), st.text_input("PIN", type="password")
         if st.form_submit_button("Login"):
             exists, stored = check_user_exists(u.strip())
-            if exists and stored == p:
-                st.session_state.update({"logged_in": True, "username": u.strip(), "user_data": load_user_profile(u.strip()), "global_data": load_global_config()})
-                st.rerun()
-            elif not exists:
-                save_user_profile(u.strip(), {"w_input": "Td.to, SPY"}, p)
+            if (exists and stored == p) or not exists:
+                if not exists: save_user_profile(u.strip(), {"w_input": "TD.TO, SPY"}, p)
                 st.session_state.update({"logged_in": True, "username": u.strip(), "user_data": load_user_profile(u.strip()), "global_data": load_global_config()})
                 st.rerun()
 else:
@@ -274,10 +287,8 @@ else:
             st.session_state["user_data"]["w_input"] = new_w; push_user(); st.rerun()
         
         with st.expander("🔔 Alert Settings"):
-            curr_id = st.session_state["user_data"].get("tg_id", "")
-            new_id = st.text_input("Telegram ID", value=curr_id)
-            if new_id != curr_id: st.session_state["user_data"]["tg_id"] = new_id; push_user(); st.rerun()
-            st.checkbox("AI Daily Picks", value=st.session_state["user_data"].get("alert_ai", True))
+            st.checkbox("AI Daily Picks", value=True)
+            st.text_input("Telegram ID", value="")
         
         if st.button("Logout"): st.session_state["logged_in"] = False; st.rerun()
             
