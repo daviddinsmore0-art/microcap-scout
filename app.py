@@ -128,9 +128,13 @@ def run_backend_update():
             for i in range(0, len(ticker_list), batch_size):
                 batch = ticker_list[i:i + batch_size]
                 tickers_str = " ".join(batch)
+                
                 try:
+                    # FETCH 1: REGULAR HOURS
                     live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=False, group_by='ticker', threads=True, progress=False)
+                    # FETCH 2: EXTENDED HOURS
                     post_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
+                    # FETCH 3: HISTORY
                     hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
                     for t in batch:
@@ -463,7 +467,7 @@ def get_global_config_data():
     if not api_key: api_key = g.get("openai_key")
     return api_key, g.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), g
 
-# --- RESTORED SCROLLER (CSS ANIMATION - 8s FAST) ---
+# --- RESTORED SCROLLER (CSS ANIMATION - 40s SLOW + DUPLICATED) ---
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
     items, symbols = [], [x.split(":")[0].strip().upper() for x in symbol_string.split(",") if x.strip()]
@@ -509,16 +513,8 @@ div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div
 .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; }
 .news-meta { font-size: 11px; color: #888; }
 .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-right: 6px; display: inline-block; vertical-align: middle; }
-.ticker-wrap {
-    width: 100%; overflow: hidden; white-space: nowrap;
-}
-.ticker-move {
-    display: inline-block; animation: ticker 8s linear infinite; /* SPEEDED UP TO 8s */
-}
-@keyframes ticker {
-    0% { transform: translate3d(0, 0, 0); }
-    100% { transform: translate3d(-100%, 0, 0); }
-}
+.hot-badge { background: linear-gradient(90deg, #ff4b4b, #ff9100); color: white; padding: 2px 8px; border-radius: 10px; font-weight: bold; font-size: 10px; animation: pulse 2s infinite; }
+@keyframes pulse { 0%{opacity:0.8} 50%{opacity:1} 100%{opacity:0.8} }
 </style>""", unsafe_allow_html=True)
 
 if not st.session_state["logged_in"]:
@@ -542,7 +538,10 @@ else:
     GLOBAL, USER = st.session_state["global_data"], st.session_state["user_data"]
     
     tape = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC"), GLOBAL.get("tape_nicknames", ""))
-    components.html(f"""<!DOCTYPE html><html><head><style>body{{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}.ticker-container{{width:100%;height:45px;background:#111;display:flex;align-items:center;border-bottom:1px solid #333;border-radius:0 0 15px 15px;box-shadow:0 4px 10px rgba(0,0,0,0.3)}}.ticker-wrap{{width:100%;overflow:hidden;white-space:nowrap}}.ticker-move{{display:inline-block;animation:ticker 8s linear infinite}}.ticker-item{{display:inline-block;color:white;font-weight:900;font-size:16px;padding:0 20px}}@keyframes ticker{{0%{{transform:translate3d(0,0,0)}}100%{{transform:translate3d(-100%,0,0)}}}}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{tape}</span></div></div></div></body></html>""", height=50)
+    # DUPLICATED CONTENT FOR SMOOTH SCROLL (NO GAP)
+    display_tape = f"{tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape} &nbsp;&nbsp;&nbsp;&nbsp; {tape}"
+    
+    components.html(f"""<!DOCTYPE html><html><head><style>body{{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}.ticker-container{{width:100%;height:45px;background:#111;display:flex;align-items:center;border-bottom:1px solid #333;border-radius:0 0 15px 15px;box-shadow:0 4px 10px rgba(0,0,0,0.3)}}.ticker-wrap{{width:100%;overflow:hidden;white-space:nowrap}}.ticker-move{{display:inline-block;animation:ticker 40s linear infinite}}.ticker-item{{display:inline-block;color:white;font-weight:900;font-size:16px;padding:0 20px}}@keyframes ticker{{0%{{transform:translate3d(0,0,0)}}100%{{transform:translate3d(-50%,0,0)}}}}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{display_tape}</span></div></div></div></body></html>""", height=50)
 
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
@@ -563,15 +562,47 @@ else:
         
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
+                st.markdown("### ⚡ AI Scanner")
                 if st.button("🔎 Scan Market"):
-                    picks = run_gap_scanner(ACTIVE_KEY)
-                    if picks:
-                        conn = get_connection(); cursor = conn.cursor()
-                        today_str = datetime.now().strftime('%Y-%m-%d')
-                        cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
-                        cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
-                        conn.commit(); conn.close(); st.success("Picks Saved!")
-                if st.button("💾 Save Global Settings"):
+                    with st.spinner("Hunting for setups..."):
+                        picks = run_gap_scanner(ACTIVE_KEY)
+                        if not picks: st.warning("No matches.")
+                        else:
+                            try:
+                                conn = get_connection(); cursor = conn.cursor()
+                                today_str = datetime.now().strftime('%Y-%m-%d')
+                                cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
+                                cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
+                                conn.commit(); conn.close()
+                                st.success("Saved!")
+                            except: st.error("Database Error")
+                
+                st.divider()
+                st.markdown("### 💼 Portfolio Manager")
+                new_t = st.text_input("Ticker Symbol").upper()
+                c1, c2 = st.columns(2)
+                new_p = c1.number_input("Cost Price", value=0.0)
+                new_q = c2.number_input("Quantity", value=0, step=1)
+                if st.button("Add Pick"):
+                    if "portfolio" not in GLOBAL: GLOBAL["portfolio"] = {}
+                    GLOBAL["portfolio"][new_t] = {"e": new_p, "q": int(new_q)}
+                    push_global()
+                    st.rerun()
+                rem_t = st.selectbox("Remove Pick", [""] + list(GLOBAL.get("portfolio", {}).keys()))
+                if st.button("Delete Pick") and rem_t:
+                    del GLOBAL["portfolio"][rem_t]
+                    push_global()
+                    st.rerun()
+
+                st.divider()
+                st.markdown("### ⚙️ Global Settings")
+                new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
+                new_tape = st.text_input("Ticker Tape", value=GLOBAL.get("tape_input", "^DJI,^IXIC"))
+                new_nicks = st.text_input("Nicknames (SYM:Name)", value=GLOBAL.get("tape_nicknames", ""))
+                new_rss = st.text_area("RSS Feeds", value="\n".join(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"])))
+                if st.button("💾 Save Global"):
+                    GLOBAL["openai_key"] = new_key; GLOBAL["tape_input"] = new_tape
+                    GLOBAL["tape_nicknames"] = new_nicks; GLOBAL["rss_feeds"] = new_rss.split("\n")
                     push_global(); st.success("Saved!")
 
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
@@ -595,10 +626,11 @@ else:
             if f["earn"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
             
             with st.container():
-                st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
                 st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
                 
-                # RSI + VOLUME RESTORED
+                # --- RESTORED DAY RANGE BAR ---
+                st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div>", unsafe_allow_html=True)
                 st.markdown(f"<div class='metric-label'>RSI ({int(d['rsi'])})</div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{ai_bg};'></div></div>", unsafe_allow_html=True)
                 st.markdown(f"""
                     <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff; color:white; padding:1px 4px; border-radius:3px;'>{d['vol_label']}</span></div>
