@@ -68,7 +68,7 @@ def init_db():
             )
         """)
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (date DATE PRIMARY KEY, picks JSON, sent TINYINT DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-        try: cursor.execute("ALTER TABLE daily_briefing ADD COLUMN sent TINYINT DEFAULT 0")
+        try: cursor.execute("ALTER TABLE daily_briefing ADD COLUMN sent TINYINT DEFAULT 0"); 
         except: pass
         for col in ['day_high', 'day_low', 'company_name', 'pre_post_price', 'rating', 'next_earnings']:
             try:
@@ -80,16 +80,21 @@ def init_db():
     except Exception:
         return False
 
-# --- BACKEND UPDATE ENGINE ---
+# --- BACKEND UPDATE ENGINE (TSX FIX APPLIED) ---
 def run_backend_update():
     try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True, buffered=True)
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True, buffered=True)
         cursor.execute("SELECT user_data FROM user_profiles")
         users = cursor.fetchall()
         
         def clean_list(raw_str):
             if not raw_str: return []
-            return [t.split(":")[0].strip().upper() for t in raw_str.split(",") if t.strip()]
+            cleaned = []
+            for t in raw_str.split(","):
+                symbol = t.split(":")[0].strip().upper()
+                if symbol: cleaned.append(symbol)
+            return cleaned
 
         all_tickers = set(["^DJI", "^IXIC", "^GSPTSE", "GC=F"]) 
         for r in users:
@@ -101,25 +106,35 @@ def run_backend_update():
             except: pass
 
         if not all_tickers: conn.close(); return
+
         format_strings = ','.join(['%s'] * len(all_tickers))
-        cursor.execute(f"SELECT ticker, last_updated FROM stock_cache WHERE ticker IN ({format_strings})", tuple(all_tickers))
+        cursor.execute(f"SELECT ticker, last_updated, rating, next_earnings FROM stock_cache WHERE ticker IN ({format_strings})", tuple(all_tickers))
         existing_rows = {row['ticker']: row for row in cursor.fetchall()}
         
         to_fetch_price = []
+        to_fetch_meta = []
         now = datetime.now()
+        
         for t in all_tickers:
             row = existing_rows.get(t)
             if not row or not row['last_updated'] or (now - row['last_updated']).total_seconds() > 120:
                 to_fetch_price.append(t)
+            if not row or row.get('rating') == 'N/A' or row.get('next_earnings') == 'N/A':
+                to_fetch_meta.append(t)
         
         if to_fetch_price:
             batch_size = 15
-            for i in range(0, len(to_fetch_price), batch_size):
-                batch = list(to_fetch_price)[i:i + batch_size]
+            ticker_list = list(to_fetch_price)
+            for i in range(0, len(ticker_list), batch_size):
+                batch = ticker_list[i:i + batch_size]
                 tickers_str = " ".join(batch)
+                
                 try:
+                    # FETCH 1: REGULAR HOURS
                     live_data = yf.download(tickers_str, period="5d", interval="1m", prepost=False, group_by='ticker', threads=True, progress=False)
+                    # FETCH 2: EXTENDED HOURS
                     post_data = yf.download(tickers_str, period="5d", interval="1m", prepost=True, group_by='ticker', threads=True, progress=False)
+                    # FETCH 3: HISTORY
                     hist_data = yf.download(tickers_str, period="1mo", interval="1d", group_by='ticker', threads=True, progress=False)
 
                     for t in batch:
@@ -135,7 +150,7 @@ def run_backend_update():
                             live_price = float(df_live['Close'].iloc[-1])
                             last_time = df_live.index[-1]
 
-                            # 2. Extended Data (TSX FIX)
+                            # 2. Extended Data (TSX FIX: Skip for .TO or .V)
                             ext_price = live_price 
                             is_tsx = t.endswith(".TO") or t.endswith(".V")
 
@@ -150,7 +165,7 @@ def run_backend_update():
                                     if not df_post.empty:
                                         ext_price = float(df_post['Close'].iloc[-1])
 
-                            # 3. History
+                            # 3. History & Calc
                             if len(batch) == 1: df_hist = hist_data
                             else:
                                 if t in hist_data.columns.levels[0]: df_hist = hist_data[t]
@@ -163,10 +178,13 @@ def run_backend_update():
                             if not df_hist.empty:
                                 df_hist = df_hist.dropna(subset=['Close'])
                                 daily_price = float(df_hist['Close'].iloc[-1]) 
+                                
+                                # OFFICIAL CLOSE LOGIC
                                 if last_time.hour >= 15 and last_time.minute >= 59:
                                     if df_hist.index[-1].date() == last_time.date():
                                         final_price = daily_price
                                 
+                                # Recalculate Extended Price relative to FINAL Official Close
                                 ext_pct = 0.0
                                 if not is_tsx and final_price > 0:
                                     ext_pct = ((ext_price - final_price) / final_price) * 100
@@ -213,6 +231,28 @@ def run_backend_update():
                             cursor.execute(sql, v)
                             conn.commit()
                         except: pass
+                except: pass
+
+        if to_fetch_meta:
+            for t in to_fetch_meta[:3]: 
+                try:
+                    time.sleep(0.5) 
+                    tk = yf.Ticker(t)
+                    info = tk.info
+                    r_val = info.get('recommendationKey', 'N/A').replace('_', ' ').upper()
+                    n_val = info.get('shortName') or info.get('longName') or t
+                    e_val = "N/A"
+                    try:
+                        cal = tk.calendar
+                        dates = []
+                        if isinstance(cal, dict) and 'Earnings Date' in cal: dates = cal['Earnings Date']
+                        elif hasattr(cal, 'iloc'): dates = [v for v in cal.values.flatten() if isinstance(v, (datetime, pd.Timestamp))]
+                        future_dates = [d for d in dates if pd.to_datetime(d).date() >= datetime.now().date()]
+                        if future_dates: e_val = min(future_dates).strftime('%b %d')
+                    except: pass
+                    sql = "UPDATE stock_cache SET rating=%s, next_earnings=%s, company_name=%s WHERE ticker=%s"
+                    cursor.execute(sql, (r_val, e_val, n_val, t))
+                    conn.commit()
                 except: pass
         conn.close()
     except Exception: pass
