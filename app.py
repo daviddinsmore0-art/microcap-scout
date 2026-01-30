@@ -478,25 +478,29 @@ def fetch_news(feeds, tickers, api_key):
             for entry in f.entries[:limit]:
                 if entry.link not in seen:
                     seen.add(entry.link)
-                    found_ticker, sentiment = "", "NEUTRAL"
-                    title_upper = entry.title.upper(); summary_text = entry.get("summary", "")
+                    found_ticker, sentiment, score = "", "NEUTRAL", 5
                     if api_key:
                         try:
                             client = openai.OpenAI(api_key=api_key)
-                            prompt = f"Analyze this news: '{entry.title}'. Return: TICKER|SENTIMENT."
-                            response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=15)
+                            # UPDATED PROMPT: Requesting Ticker, Sentiment, and a 1-10 Score
+                            prompt = f"Analyze this news: '{entry.title}'. Return: TICKER|SENTIMENT|SCORE(1-10)."
+                            response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=20)
                             ans = response.choices[0].message.content.strip().upper()
                             if "|" in ans: 
-                                parts = ans.split("|"); found_ticker = parts[0].strip()
+                                parts = ans.split("|")
+                                found_ticker = parts[0].strip()
                                 raw_sent = parts[1].strip()
+                                try: score = int(re.search(r'\d+', parts[2]).group())
+                                except: score = 5
+                                
                                 if "POS" in raw_sent or "BULL" in raw_sent: sentiment = "BULLISH"
                                 elif "NEG" in raw_sent or "BEAR" in raw_sent: sentiment = "BEARISH"
                                 else: sentiment = "NEUTRAL"
                         except: pass
                     if not found_ticker and tickers:
                         for original_t, root_t in smart_tickers.items():
-                            if re.search(r'\b'+re.escape(root_t)+r'\b', title_upper) or original_t in title_upper: found_ticker = original_t; break
-                    articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published", "")), "ticker": found_ticker, "sentiment": sentiment})
+                            if re.search(r'\b'+re.escape(root_t)+r'\b', entry.title.upper()) or original_t in entry.title.upper(): found_ticker = original_t; break
+                    articles.append({"title": entry.title, "link": entry.link, "published": relative_time(entry.get("published", "")), "ticker": found_ticker, "sentiment": sentiment, "score": score})
         except: pass
     return articles
 
@@ -528,29 +532,19 @@ def get_batch_data(tickers_list):
             # --- SHOW PRE/POST IF DATA EXISTS ---
             if row.get('pre_post_price') and float(row['pre_post_price']) > 0:
                 pp_p = float(row['pre_post_price'])
-                
-                # --- FIXED: RE-CALCULATE PERCENTAGE MANUALLY ---
-                # Yahoo's percent is often relative to yesterday's close.
-                # We want relative to TODAY'S close (the main price displayed).
                 pp_c = 0.0
                 if price > 0:
                     pp_c = ((pp_p - price) / price) * 100
                 
-                # --- STRICT LABEL LOGIC (FIXED) ---
                 now = datetime.now(timezone.utc) - timedelta(hours=5) # EST
                 lbl = ""
-                
-                if now.weekday() > 4: 
-                    lbl = "POST"
-                elif now.hour >= 16: 
-                    lbl = "POST"
-                elif now.hour < 9 or (now.hour == 9 and now.minute < 30): 
-                    lbl = "PRE"
+                if now.weekday() > 4: lbl = "POST"
+                elif now.hour >= 16: lbl = "POST"
+                elif now.hour < 9 or (now.hour == 9 and now.minute < 30): lbl = "PRE"
                 
                 if lbl:
                     col = "#4caf50" if pp_c >= 0 else "#ff4b4b"
                     pp_html = f"<div style='font-size:11px; color:#888; margin-top:2px;'>{lbl}: <span style='color:{col}; font-weight:bold;'>${pp_p:,.2f} ({pp_c:+.2f}%)</span></div>"
-            # ------------------------------------
 
             vol_pct = 150 if vol_stat == "HEAVY" else (50 if vol_stat == "LIGHT" else 100)
             day_h = float(row.get('day_high') or price); day_l = float(row.get('day_low') or price)
@@ -569,13 +563,9 @@ def get_batch_data(tickers_list):
 @st.cache_data(ttl=60)
 def get_tape_data(symbol_string, nickname_string=""):
     items = []; symbols = []
-    
-    # 1. Clean the Symbol List
     for x in symbol_string.split(","):
         clean_s = x.split(":")[0].strip().upper()
         if clean_s: symbols.append(clean_s)
-
-    # 2. Build Nickname Map
     nick_map = {}
     if nickname_string:
         try:
@@ -584,19 +574,14 @@ def get_tape_data(symbol_string, nickname_string=""):
                     k, v = p.split(":")
                     nick_map[k.strip().upper()] = v.strip().upper()
         except: pass
-    
-    # 3. Default "Nice Names"
     defaults = {"^DJI": "DOW", "^IXIC": "NASDAQ", "^GSPTSE": "TSX", "GC=F": "GOLD", "BTC-USD": "BTC", "CADUSD=X": "CAD/USD"}
     final_map = defaults.copy(); final_map.update(nick_map)
-
     if not symbols: return ""
-    
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
         cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({','.join(['%s']*len(symbols))})", tuple(symbols))
         rows = cursor.fetchall(); conn.close()
         data_map = {row['ticker']: row for row in rows}
-        
         for s in symbols:
             disp = final_map.get(s, s)
             if s in data_map:
@@ -610,7 +595,7 @@ def get_tape_data(symbol_string, nickname_string=""):
     except: pass
     return "    ".join(items)
 
-# --- UI LOGIC ---
+# --- MAIN APP ---
 init_db()
 run_backend_update()
 ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
@@ -626,7 +611,6 @@ if "init" not in st.session_state:
             st.session_state["user_data"] = load_user_profile(user)
             st.session_state["global_data"] = load_global_config()
             st.session_state["logged_in"] = True
-if "fcm_token" in st.query_params: st.query_params.clear()
 
 st.markdown("""<style>
 #MainMenu {visibility: visible;} footer {visibility: hidden;}
@@ -641,6 +625,8 @@ div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div
 .news-title { font-size: 16px; font-weight: 700; color: #333; text-decoration: none; display: block; margin-bottom: 4px; line-height: 1.3; }
 .news-meta { font-size: 11px; color: #888; }
 .ticker-badge { font-size: 9px; padding: 2px 5px; border-radius: 3px; color: white; font-weight: bold; margin-right: 6px; display: inline-block; vertical-align: middle; }
+.hot-badge { background: linear-gradient(90deg, #ff4b4b, #ff9100); color: white; padding: 2px 8px; border-radius: 10px; font-weight: bold; font-size: 10px; animation: pulse 2s infinite; }
+@keyframes pulse { 0% { opacity: 0.8; } 50% { opacity: 1; } 100% { opacity: 0.8; } }
 </style>""", unsafe_allow_html=True)
 
 if not st.session_state["logged_in"]:
@@ -651,160 +637,46 @@ if not st.session_state["logged_in"]:
         st.markdown("##### 👋 Welcome")
         with st.form("login_form"):
             user = st.text_input("Username", placeholder="e.g. Dave")
-            pin = st.text_input("4-Digit PIN", type="password", max_chars=4, help="Create a PIN if you are new. Enter your PIN if you are returning.")
+            pin = st.text_input("4-Digit PIN", type="password", max_chars=4)
             if st.form_submit_button("🚀 Login / Start", type="primary"):
                 exists, stored_pin = check_user_exists(user.strip())
                 if exists and stored_pin == pin:
-                    st.success("Welcome back!")
                     st.query_params["token"] = create_session(user.strip())
-                    st.session_state["username"] = user.strip()
-                    st.session_state["user_data"] = load_user_profile(user.strip())
-                    st.session_state["global_data"] = load_global_config()
-                    st.session_state["logged_in"] = True
+                    st.session_state.update({"username": user.strip(), "user_data": load_user_profile(user.strip()), "global_data": load_global_config(), "logged_in": True})
                     st.rerun()
-                elif exists: st.error("❌ Incorrect PIN.")
-                else:
+                elif not exists:
                     save_user_profile(user.strip(), {"w_input": "TD.TO, SPY"}, pin)
                     st.query_params["token"] = create_session(user.strip())
-                    st.session_state["username"] = user.strip()
-                    st.session_state["user_data"] = load_user_profile(user.strip())
-                    st.session_state["global_data"] = load_global_config()
-                    st.session_state["logged_in"] = True
+                    st.session_state.update({"username": user.strip(), "user_data": load_user_profile(user.strip()), "global_data": load_global_config(), "logged_in": True})
                     st.rerun()
+                else: st.error("❌ Incorrect PIN.")
 else:
     def push_user(): save_user_profile(st.session_state["username"], st.session_state["user_data"])
     def push_global(): save_global_config(st.session_state["global_data"])
-    GLOBAL = st.session_state["global_data"]
-    USER = st.session_state["user_data"]
+    GLOBAL, USER = st.session_state["global_data"], st.session_state["user_data"]
     ACTIVE_KEY, SHARED_FEEDS, _ = get_global_config_data()
 
     tape_content = get_tape_data(GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F"), GLOBAL.get("tape_nicknames", ""))
-    components.html(f"""<!DOCTYPE html><html><head><style>body{{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}.ticker-container{{width:100%;height:45px;background:#111;display:flex;align-items:center;border-bottom:1px solid #333;border-radius:0 0 15px 15px;box-shadow:0 4px 10px rgba(0,0,0,0.3)}}.ticker-wrap{{width:100%;overflow:hidden;white-space:nowrap}}.ticker-move{{display:inline-block;animation:ticker 15s linear infinite}}@keyframes ticker{{0%{{transform:translate3d(0,0,0)}}100%{{transform:translate3d(-25%,0,0)}}}}.ticker-item{{display:inline-block;color:white;font-weight:900;font-size:16px;padding:0 20px}}</style></head><body><div class="ticker-container"><div class="ticker-wrap"><div class="ticker-move"><span class="ticker-item">{tape_content}&nbsp;|&nbsp;{tape_content}&nbsp;|&nbsp;{tape_content}&nbsp;|&nbsp;{tape_content}</span></div></div></div></body></html>""", height=50)
+    components.html(f"""<div style='background:#111; height:45px; display:flex; align-items:center; border-radius:0 0 15px 15px;'><marquee scrollamount='5' style='color:white; font-weight:900; font-size:16px;'>{tape_content}</marquee></div>""", height=50)
 
     with st.sidebar:
         st.markdown(f"<div style='background:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px; text-align:center;'>👤 <b>{st.session_state['username']}</b></div>", unsafe_allow_html=True)
-        
-        st.subheader("Your Watchlist")
         new_w = st.text_area("Edit Tickers", value=USER.get("w_input", ""), height=100)
-        if new_w != USER.get("w_input"):
-            USER["w_input"] = new_w; push_user(); st.info("Updated!"); time.sleep(1); st.rerun()
+        if new_w != USER.get("w_input"): USER["w_input"] = new_w; push_user(); st.rerun()
 
-        st.divider()
-        with st.expander("🔔 Alert Settings"):
-            curr_tg = USER.get("telegram_id", "")
-            new_tg = st.text_input("Telegram Chat ID", value=curr_tg)
-            if new_tg != curr_tg: USER["telegram_id"] = new_tg.strip(); push_user(); st.success("Saved!"); time.sleep(1); st.rerun()
-            st.markdown("[Get my ID](https://t.me/userinfobot)", unsafe_allow_html=True)
-            c1, c2 = st.columns(2)
-            a_price = c1.checkbox("Price", value=USER.get("alert_price", True))
-            a_trend = c2.checkbox("Trend", value=USER.get("alert_trend", True))
-            a_pre = st.checkbox("AI Daily Picks", value=USER.get("alert_pre", True))
-            if (a_price != USER.get("alert_price", True) or a_trend != USER.get("alert_trend", True) or a_pre != USER.get("alert_pre", True)):
-                USER["alert_price"] = a_price; USER["alert_trend"] = a_trend; USER["alert_pre"] = a_pre; push_user(); st.rerun()
-
-        # --- ADMIN SECTION (FIXED WITH NICKNAMES) ---
         with st.expander("🔐 Admin"):
             if st.text_input("Password", type="password") == ADMIN_PASSWORD:
-                
-                # --- SCANNER ---
-                st.markdown("### ⚡ AI Scanner")
                 if st.button("🔎 Scan Market"):
-                    with st.spinner("Hunting for setups..."):
+                    with st.spinner("Scanning..."):
                         picks = run_gap_scanner(ACTIVE_KEY)
-                        if not picks: st.warning("No matches today.")
-                        else:
-                            try:
-                                conn = get_connection(); cursor = conn.cursor()
-                                today_str = datetime.now().strftime('%Y-%m-%d')
-                                # SURGICAL ADD: THE RESET
-                                cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
-                                cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(picks)))
-                                conn.commit(); conn.close()
-                                for p in picks: st.markdown(f"**{p.get('ticker', p) if isinstance(p, dict) else p}**")
-                                st.info("Status reset to 0. Dispatching now...")
-                                st.divider()
-                            except: st.error("Database Error")
-                
-                # --- PORTFOLIO ---
-                st.divider()
-                st.markdown("### 💼 Portfolio")
-                if "portfolio" in USER and USER["portfolio"] and not GLOBAL.get("portfolio"):
-                     if st.button("Import Old Picks"): GLOBAL["portfolio"] = USER["portfolio"]; push_global(); st.rerun()
-                new_t = st.text_input("Ticker").upper()
-                c1, c2 = st.columns(2); new_p = c1.number_input("Cost"); new_q = c2.number_input("Qty", step=1)
-                if st.button("Add Pick") and new_t:
-                    if "portfolio" not in GLOBAL: GLOBAL["portfolio"] = {}
-                    GLOBAL["portfolio"][new_t] = {"e": new_p, "q": int(new_q)}; push_global(); st.rerun()
-                rem = st.selectbox("Remove Pick", [""] + list(GLOBAL.get("portfolio", {}).keys()))
-                if st.button("Delete") and rem: del GLOBAL["portfolio"][rem]; push_global(); st.rerun()
-                
-                # --- GLOBAL SETTINGS ---
-                st.divider()
-                st.markdown("### ⚙️ Global Settings")
-                
-                # 1. OpenAI Key
-                new_key = st.text_input("OpenAI Key", value=GLOBAL.get("openai_key", ""), type="password")
-                
-                # 2. RSS Feeds
-                curr_feeds = "\n".join(GLOBAL.get("rss_feeds", []))
-                new_feeds = st.text_area("RSS Feeds (One per line)", value=curr_feeds, height=80)
-                
-                # 3. Ticker Tape (Clean Symbols Only)
-                st.markdown("#### 🎞️ Scroller Settings")
-                curr_tape = GLOBAL.get("tape_input", "^DJI, ^IXIC, ^GSPTSE, GC=F")
-                new_tape = st.text_input("Ticker Symbols (Comma Separated)", value=curr_tape, help="Example: ^DJI, BTC-USD, CADUSD=X")
-                
-                # 4. Nicknames (Mapping)
-                curr_nicks = GLOBAL.get("tape_nicknames", "")
-                new_nicks = st.text_input("Nicknames (Format: SYMBOL:NAME)", value=curr_nicks, help="Example: BTC-USD:Bitcoin, CADUSD=X:Loonie")
-
-                # --- THE SAVE BUTTON ---
-                if st.button("💾 Save Global Settings"):
-                    GLOBAL["openai_key"] = new_key
-                    GLOBAL["rss_feeds"] = [f.strip() for f in new_feeds.split("\n") if f.strip()]
-                    GLOBAL["tape_input"] = new_tape
-                    GLOBAL["tape_nicknames"] = new_nicks
-                    push_global()
-                    st.success("Settings Saved!")
-                    time.sleep(1)
-                    st.rerun()
-
-                # --- REMOTE CONTROL BUTTON ---
-                st.divider()
-                st.markdown("### 📡 Remote Trigger")
-                trigger_url = st.text_input("Target URL", value="https://atlanticcanadaschoice.com/pennypulse/up.php")
-                if st.button("🚀 Dispatch Telegram Alerts"):
-                    with st.spinner("Contacting Backend..."):
-                        try:
-                            # Triggers your PHP script secretly
-                            r = requests.get(f"{trigger_url}?t={int(time.time())}", timeout=15)
-                            if r.status_code == 200:
-                                st.success("Signal Sent Successfully!")
-                                with st.expander("Show Server Log"):
-                                    st.markdown(r.text, unsafe_allow_html=True)
-                            else:
-                                st.error(f"Failed to trigger. Server Code: {r.status_code}")
-                                st.warning("Ensure 'up.php' is in the /pennypulse/ folder.")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-
-                # --- FORCE TEST BUTTON ---
-                st.divider()
-                st.markdown("### 🛠️ Data Force")
-                if st.button("🔴 Generate Test Picks"):
-                    with st.spinner("Generating Picks & Resetting DB..."):
-                        test_picks = run_gap_scanner(ACTIVE_KEY)
-                        try:
+                        if picks:
                             conn = get_connection(); cursor = conn.cursor()
-                            today_str = datetime.now().strftime('%Y-%m-%d')
-                            cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (today_str,))
-                            cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (today_str, json.dumps(test_picks)))
-                            conn.commit(); conn.close()
-                            st.success(f"Generated! Picks: {[p.get('ticker', p) if isinstance(p,dict) else p for p in test_picks]}")
-                            st.info("👉 Now click 'Dispatch Telegram Alerts' above.")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-
+                            cursor.execute("DELETE FROM daily_briefing WHERE date = %s", (datetime.now().strftime('%Y-%m-%d'),))
+                            cursor.execute("INSERT INTO daily_briefing (date, picks, sent) VALUES (%s, %s, 0)", (datetime.now().strftime('%Y-%m-%d'), json.dumps(picks)))
+                            conn.commit(); conn.close(); st.success("Picks Saved!")
+                if st.button("🚀 Dispatch Telegram"):
+                    r = requests.get("https://atlanticcanadaschoice.com/pennypulse/up.php")
+                    st.info(r.text)
         if st.button("Logout"): logout_session(st.query_params.get("token")); st.query_params.clear(); st.session_state["logged_in"] = False; st.rerun()
     
     @st.fragment(run_every=60)
@@ -812,104 +684,61 @@ else:
         t1, t2, t3, t4 = st.tabs(["📊 Live Market", "🚀 My Picks", "📰 My News", "🌎 Discovery"])
         w_tickers = [x.strip().upper() for x in USER.get("w_input", "").split(",") if x.strip()]
         port = GLOBAL.get("portfolio", {}); p_tickers = list(port.keys())
-        batch_data = get_batch_data(list(set(w_tickers + p_tickers)))
+        all_view_tickers = list(set(w_tickers + p_tickers))
+        batch_data = get_batch_data(all_view_tickers)
+        
+        # PRE-FETCH NEWS FOR "HOT" LOGIC
+        news_items = fetch_news(SHARED_FEEDS, all_view_tickers, ACTIVE_KEY)
 
         def draw_card(t, port_item=None):
             d = batch_data.get(t)
-            if not d: st.markdown(f"<div style='padding:15px; border:1px dashed #ccc; border-radius:10px; color:#888; font-size:12px;'>⚠️ <b>{t}</b>: Processing...</div>", unsafe_allow_html=True); return
+            if not d: st.markdown(f"⚠️ {t} Loading..."); return
             f = get_fundamentals(t)
-            b_col, arrow = ("#4caf50", "▲") if d["d"] >= 0 else ("#ff4b4b", "▼")
-            r_up = f["rating"].upper()
-            r_col = "#4caf50" if "BUY" in r_up or "OUT" in r_up else "#ff4b4b" if "SELL" in r_up or "UNDER" in r_up else "#f1c40f"
-            ai_col = "#4caf50" if d["ai"] == "BULLISH" else "#ff4b4b"; tr_col = "#4caf50" if d["trend"] == "UPTREND" else "#ff4b4b"
+            
+            # 🔥 HOT CATALYST CHECK
+            ticker_high_scores = [n for n in news_items if n['ticker'] == t and n['score'] >= 8]
+            hot_label = "<span class='hot-badge'>🔥 HOT</span>" if len(ticker_high_scores) >= 2 else ""
+            
+            b_col = "#4caf50" if d["d"] >= 0 else "#ff4b4b"
+            ai_col = "#4caf50" if d["ai"] == "BULLISH" else "#ff4b4b"
+            tr_col = "#4caf50" if d["trend"] == "UPTREND" else "#ff4b4b"
             pills = f'<span class="info-pill" style="border-left: 3px solid {ai_col}">AI: {d["ai"]}</span><span class="info-pill" style="border-left: 3px solid {tr_col}">{d["trend"]}</span>'
-            if f["rating"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid {r_col}">RATING: {f["rating"]}</span>'
-            if f["earn"] != "N/A": pills += f'<span class="info-pill" style="border-left: 3px solid #333">EARN: {f["earn"]}</span>'
+            
             with st.container():
-                st.markdown(f"<div style='height:4px; width:100%; background-color:{b_col}; border-radius: 4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;'><div><div style='font-size:22px; font-weight:bold; margin-right:8px; color:#2c3e50;'>{t}</div><div style='font-size:12px; color:#888; margin-top:-2px;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold; color:#2c3e50;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col}; margin-top:-4px;'>{arrow} {d['d']:.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px; display:flex; flex-wrap:wrap; gap:4px;'>{pills}</div>", unsafe_allow_html=True)
-                st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None), tooltip=[]).configure_view(strokeWidth=0).properties(height=45), use_container_width=True)
+                st.markdown(f"<div style='height:4px; background:{b_col}; border-radius:4px 4px 0 0;'></div><div style='display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;'><div><div style='font-size:22px; font-weight:bold;'>{t} {hot_label}</div><div style='font-size:12px; color:#888;'>{d['name'][:25]}...</div></div><div style='text-align:right;'><div style='font-size:22px; font-weight:bold;'>${d['p']:,.2f}</div><div style='font-size:13px; font-weight:bold; color:{b_col};'>{d['d']:+.2f}%</div>{d['pp']}</div></div><div style='margin-bottom:10px;'>{pills}</div>", unsafe_allow_html=True)
+                st.altair_chart(alt.Chart(d["chart"]).mark_area(line={"color": b_col}, color=alt.Gradient(gradient="linear", stops=[alt.GradientStop(color=b_col, offset=0), alt.GradientStop(color="white", offset=1)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X("Idx", axis=None), y=alt.Y("Stock", axis=None)).properties(height=45), use_container_width=True)
                 rsi_bg = "#ff4b4b" if d["rsi"] > 70 else "#4caf50" if d["rsi"] < 30 else "#999"
-                st.markdown(f"<div class='metric-label'><span>Day Range</span><span style='color:#555'>${d['l']:,.2f} - ${d['h']:,.2f}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['range_pos']}%; background: linear-gradient(90deg, #ff4b4b, #f1c40f, #4caf50);'></div></div><div class='metric-label'><span>RSI ({int(d['rsi'])})</span><span class='tag' style='background:{rsi_bg}'>{'HOT' if d['rsi']>70 else 'COLD' if d['rsi']<30 else 'NEUTRAL'}</span></div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
-                
-                st.markdown(f"""
-                    <div class='metric-label'><span>Volume Status</span><span class='tag' style='background:#00d4ff'>{d['vol_label']}</span></div>
-                    <div class='bar-bg'>
-                        <div class='bar-fill' style='width:{d['vol_pct']}%; background:#00d4ff;'></div>
-                    </div>
-                """, unsafe_allow_html=True)
-
+                st.markdown(f"<div class='metric-label'>RSI ({int(d['rsi'])})</div><div class='bar-bg'><div class='bar-fill' style='width:{d['rsi']}%; background:{rsi_bg};'></div></div>", unsafe_allow_html=True)
                 if port_item:
                     gain = (d["p"] - port_item["e"]) * port_item["q"]
-                    st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span>Avg: <b>${port_item['e']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#f9f9f9; padding:5px; margin-top:10px; border-radius:5px; display:flex; justify-content:space-between; font-size:12px;'><span>Qty: <b>{port_item['q']}</b></span><span style='color:{'#4caf50' if gain>=0 else '#ff4b4b'}; font-weight:bold;'>${gain:+,.0f}</span></div>", unsafe_allow_html=True)
                 st.divider()
 
         with t1:
             try:
                 conn = get_connection(); cursor = conn.cursor(dictionary=True)
-                # FIX: ORDER BY DESC LIMIT 1 ensures we get the latest picks regardless of timezone rollover
                 cursor.execute("SELECT picks, created_at FROM daily_briefing ORDER BY date DESC LIMIT 1")
                 row = cursor.fetchone(); conn.close()
                 if row:
                     picks_list = json.loads(row['picks'])
-                    display_tickers = [p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list]
-                    ts_dt = row['created_at']
-                    ts_str = ts_dt.strftime('%I:%M %p')
-                    total_minutes = (ts_dt.hour * 60) + ts_dt.minute
-                    if total_minutes < 600: label = "PRE-MARKET PICKS"
-                    elif total_minutes < 960: label = "DAILY PICKS"
-                    else: label = "POST-MARKET PICKS"
-                    st.success(f"📌 **{label}:** {', '.join(display_tickers)} | _Updated at {ts_str}_")
+                    st.success(f"📌 **DAILY PICKS:** {', '.join([p.get('ticker', p) if isinstance(p, dict) else p for p in picks_list])}")
             except: pass
-            
             cols = st.columns(3)
             for i, t in enumerate(w_tickers):
                 with cols[i % 3]: draw_card(t)
 
-        with t2:
-            port = GLOBAL.get("portfolio", {})
-            if not port: st.info("No Picks Published.")
-            else:
-                total_val, total_cost, day_pl_sum = 0.0, 0.0, 0.0
-                for k, v in port.items():
-                    d = batch_data.get(k)
-                    if d:
-                        total_val += d["p"] * v["q"]; total_cost += v["e"] * v["q"]
-                        if d["d"] != 0: day_pl_sum += (d["p"] - (d["p"] / (1 + (d["d"] / 100)))) * v["q"]
-                day_col = "#4caf50" if day_pl_sum >= 0 else "#ff4b4b"
-                tot_col = "#4caf50" if (total_val - total_cost) >= 0 else "#ff4b4b"
-                day_pct = (day_pl_sum / (total_val - day_pl_sum) * 100) if (total_val - day_pl_sum) > 0 else 0
-                tot_pct = ((total_val - total_cost) / total_cost * 100) if total_cost > 0 else 0
-                st.markdown(f"<div style='background-color:white; border-radius:12px; padding:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #f0f0f0; margin-bottom:20px;'><div style='display:flex; justify-content:space-between; margin-bottom:10px;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>NET ASSETS</div><div style='font-size:24px; font-weight:900; color:#333;'>${total_val:,.2f}</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>INVESTED</div><div style='font-size:24px; font-weight:900; color:#555;'>${total_cost:,.2f}</div></div></div><div style='height:1px; background:#eee; margin:10px 0;'></div><div style='display:flex; justify-content:space-between;'><div><div style='font-size:11px; color:#888; font-weight:bold;'>DAY P/L</div><div style='font-size:16px; font-weight:bold; color:{day_col};'>${day_pl_sum:+,.2f} ({day_pct:+.2f}%)</div></div><div style='text-align:right;'><div style='font-size:11px; color:#888; font-weight:bold;'>TOTAL P/L</div><div style='font-size:16px; font-weight:bold; color:{tot_col};'>${total_val - total_cost:+,.2f} ({tot_pct:+.2f}%)</div></div></div></div>", unsafe_allow_html=True)
-                cols = st.columns(3)
-                for i, (k, v) in enumerate(port.items()):
-                    with cols[i % 3]: draw_card(k, v)
-
         def render_news(n):
-            s_val = n["sentiment"].upper()
-            if "BULL" in s_val or "POS" in s_val: col = "#4caf50"
-            elif "BEAR" in s_val or "NEG" in s_val: col = "#ff4b4b"
-            else: col = "#333"
-            disp = n["ticker"] if n["ticker"] else "MARKET"
-            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; align-items:center;'><span class='ticker-badge' style='background-color:{col}'>{disp}</span><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a></div><div class='news-meta'>{n['published']} | Sentiment: <b>{n['sentiment']}</b></div></div>", unsafe_allow_html=True)
+            score_val = n.get("score", 5)
+            col = "#4caf50" if score_val >= 8 else "#ff4b4b" if score_val <= 3 else "#f1c40f"
+            st.markdown(f"<div class='news-card' style='border-left-color: {col};'><div style='display:flex; justify-content:space-between;'><a href='{n['link']}' target='_blank' class='news-title'>{n['title']}</a><span style='background:{col}; color:white; padding:2px 8px; border-radius:12px; font-size:10px; font-weight:bold;'>{score_val}/10</span></div><div class='news-meta'>{n['published']} | Ticker: <b>{n['ticker']}</b></div></div>", unsafe_allow_html=True)
 
         with t3:
-            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Portfolio News")
-            if c_btn.button("🔄 Refresh", key=f"btn_n1_{int(time.time()/60)}"):
-                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY); st.rerun()
-            if NEWS_LIB_READY:
-                news_items = fetch_news([], list(set(w_tickers + p_tickers)), ACTIVE_KEY)
-                if not news_items: st.info("No news.")
-                else:
-                    for n in news_items: render_news(n)
+            if news_items:
+                for n in news_items: render_news(n)
+            else: st.info("No news.")
         
         with t4:
-            c_head, c_btn = st.columns([4, 1]); c_head.subheader("Market Discovery")
-            if c_btn.button("🔄 Refresh", key=f"btn_n2_{int(time.time()/60)}"):
-                with st.spinner("Analyzing..."): fetch_news.clear(); fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY); st.rerun()
-            if NEWS_LIB_READY:
-                news_items = fetch_news(GLOBAL.get("rss_feeds", ["https://finance.yahoo.com/news/rssindex"]), [], ACTIVE_KEY)
-                if not news_items: st.info("No news.")
-                else:
-                    for n in news_items: render_news(n)
+            disc_news = fetch_news(GLOBAL.get("rss_feeds", []), [], ACTIVE_KEY)
+            for n in disc_news: render_news(n)
 
     render_dashboard()
