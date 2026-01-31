@@ -2,6 +2,7 @@ import streamlit as st
 import mysql.connector
 import yfinance as yf
 import uuid
+import json
 
 # 1. CONFIG & DATABASE
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered")
@@ -21,18 +22,61 @@ def init_db():
     try:
         conn = get_connection()
         cursor = conn.cursor()
+        
+        # User Tables
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, user_data TEXT, pin VARCHAR(50))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20))")
+        
+        # New Portfolio Table (Fixed Syntax)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_portfolio (
+                id INT NOT NULL AUTO_INCREMENT, 
+                username VARCHAR(255), 
+                ticker VARCHAR(20), 
+                PRIMARY KEY (id)
+            )
+        """)
         
         # Cache Table
         sql = "CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), trend_status VARCHAR(20), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
         cursor.execute(sql)
         conn.close()
     except Exception as e:
-        st.error(f"DB Init Error: {e}")
+        st.error(f"DATABASE INIT ERROR: {e}")
 
-# 2. AUTHENTICATION & PORTFOLIO
+# 2. DATA MIGRATION (The Fix for 'List already in DB')
+def migrate_old_data(username):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # 1. Check if new portfolio is empty
+        cursor.execute("SELECT count(*) FROM user_portfolio WHERE username=%s", (username,))
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return # Already has data, don't overwrite
+            
+        # 2. Fetch old JSON data
+        cursor.execute("SELECT user_data FROM user_profiles WHERE username=%s", (username,))
+        row = cursor.fetchone()
+        if row and row[0]:
+            data = json.loads(row[0])
+            old_list = data.get("w_input", "").split(",")
+            
+            # 3. Insert into new table
+            for t in old_list:
+                clean_t = t.strip().upper()
+                if clean_t:
+                    cursor.execute("INSERT INTO user_portfolio (username, ticker) VALUES (%s, %s)", (username, clean_t))
+            
+            conn.commit()
+            st.toast(f"Migrated {len(old_list)} stocks from old database!")
+            
+        conn.close()
+    except Exception as e:
+        st.error(f"Migration Failed: {e}")
+
+# 3. AUTHENTICATION & PORTFOLIO
 def check_login(username, pin):
     try:
         conn = get_connection()
@@ -67,13 +111,16 @@ def add_ticker_to_db(username, ticker):
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        # Check if exists first to avoid dupes
+        # Check duplicate
         cursor.execute("SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
         if not cursor.fetchone():
             cursor.execute("INSERT INTO user_portfolio (username, ticker) VALUES (%s, %s)", (username, ticker))
             conn.commit()
         conn.close()
-    except: pass
+        return True
+    except Exception as e:
+        st.error(f"ADD ERROR: {e}")
+        return False
 
 def remove_ticker_from_db(username, ticker):
     try:
@@ -82,7 +129,8 @@ def remove_ticker_from_db(username, ticker):
         cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
         conn.commit()
         conn.close()
-    except: pass
+    except Exception as e:
+        st.error(f"DELETE ERROR: {e}")
 
 def get_user_portfolio(username):
     try:
@@ -92,9 +140,11 @@ def get_user_portfolio(username):
         rows = cursor.fetchall()
         conn.close()
         return [r[0] for r in rows]
-    except: return []
+    except Exception as e:
+        st.error(f"FETCH ERROR: {e}")
+        return []
 
-# 3. DATA ENGINE
+# 4. DATA ENGINE
 def update_stock_data(tickers):
     if not tickers: return
     try:
@@ -155,7 +205,7 @@ def calculate_risk(row):
     if final > 40: return final, "MEDIUM", "#fbbf24", "badge-med"
     return final, "LOW", "#4ade80", "badge-low"
 
-# 4. UI COMPONENTS
+# 5. UI COMPONENTS
 def create_gauge_html(score, label, color):
     radius = 80
     circumference = 3.14159 * radius
@@ -194,6 +244,9 @@ if not username:
     st.error("Session Expired")
     st.stop()
 
+# Attempt Migration (Only runs if new table is empty)
+migrate_old_data(username)
+
 # --- SIDEBAR MANAGER ---
 with st.sidebar:
     st.header(f"👤 {username}")
@@ -201,9 +254,9 @@ with st.sidebar:
     new_ticker = st.text_input("Add Ticker (e.g. AMZN)").upper()
     if st.button("Add Stock"):
         if new_ticker:
-            add_ticker_to_db(username, new_ticker)
-            st.success(f"Added {new_ticker}")
-            st.rerun()
+            if add_ticker_to_db(username, new_ticker):
+                st.success(f"Added {new_ticker}")
+                st.rerun()
     
     st.divider()
     st.write("### Remove Stock")
@@ -218,10 +271,8 @@ with st.sidebar:
 # --- MAIN APP ---
 my_portfolio = get_user_portfolio(username)
 
-# Default if empty
 if not my_portfolio:
     st.info("Your portfolio is empty. Add a stock in the sidebar!")
-    # Auto-add some defaults for first-time user
     if st.button("Load Default Portfolio"):
         for t in ["TD.TO", "TSLA", "NVDA"]: add_ticker_to_db(username, t)
         st.rerun()
@@ -233,7 +284,6 @@ if st.button("🔄 Refresh Prices"):
 
 data = get_cached_data(my_portfolio)
 
-# Calculate Risk
 if data:
     avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
     r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
