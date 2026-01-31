@@ -38,6 +38,17 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         
+        # ALERT TABLE (NEW)
+        cursor.execute("""CREATE TABLE IF NOT EXISTS user_alerts (
+            id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(255),
+            ticker VARCHAR(20),
+            condition_type VARCHAR(10), 
+            target_price DECIMAL(20, 4),
+            is_triggered BOOLEAN DEFAULT FALSE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""")
+
         sql = """CREATE TABLE IF NOT EXISTS stock_cache (
             ticker VARCHAR(20) PRIMARY KEY, 
             current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), 
@@ -48,6 +59,7 @@ def init_db():
         )"""
         cursor.execute(sql)
         
+        # Silent Migrations
         try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except: pass
         try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
@@ -63,8 +75,39 @@ def init_db():
     except Exception as e:
         st.error(f"DB Error: {e}")
 
-# 2. DATA ENGINE
-def update_stock_data(tickers):
+# 2. DATA ENGINE & ALERTS
+def check_alerts(username):
+    """Checks active alerts against cached stock prices"""
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    
+    # Get user's active alerts
+    cursor.execute("SELECT * FROM user_alerts WHERE username = %s AND is_triggered = FALSE", (username,))
+    alerts = cursor.fetchall()
+    
+    if not alerts: conn.close(); return
+
+    triggered_count = 0
+    for alert in alerts:
+        cursor.execute("SELECT current_price FROM stock_cache WHERE ticker = %s", (alert['ticker'],))
+        stock = cursor.fetchone()
+        
+        if stock:
+            price = float(stock['current_price'])
+            target = float(alert['target_price'])
+            condition = alert['condition_type'] # 'ABOVE' or 'BELOW'
+            
+            hit = False
+            if condition == 'ABOVE' and price >= target: hit = True
+            elif condition == 'BELOW' and price <= target: hit = True
+            
+            if hit:
+                cursor.execute("UPDATE user_alerts SET is_triggered = TRUE WHERE id = %s", (alert['id'],))
+                triggered_count += 1
+    
+    conn.commit(); conn.close()
+    return triggered_count
+
+def update_stock_data(tickers, username):
     if not tickers: return
     try:
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
@@ -149,6 +192,9 @@ def update_stock_data(tickers):
             cursor.execute(sql, vals)
         except: continue
     conn.commit(); conn.close()
+    
+    # Run alert check immediately after update
+    check_alerts(username)
 
 def get_cached_data(tickers):
     if not tickers: return []
@@ -209,6 +255,31 @@ def get_user_from_token(token):
         row = cursor.fetchone(); conn.close()
         return row if row else None
     except: return None
+
+# 4. ALERTS MANAGEMENT
+def add_alert(username, ticker, condition, price):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)",
+                       (username, ticker, condition, price))
+        conn.commit(); conn.close()
+        return True
+    except: return False
+
+def delete_alert(alert_id):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,))
+        conn.commit(); conn.close()
+    except: pass
+
+def get_user_alerts(username):
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
+        rows = cursor.fetchall(); conn.close()
+        return rows
+    except: return []
 
 # Portfolio Ops
 def add_ticker_to_db(username, ticker):
@@ -295,7 +366,6 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 init_db()
-# FIXED CSS FOR INPUTS
 st.markdown("""<style> 
     .stApp { background-color: #0f1219; color: #e0e6ed; } 
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } 
@@ -304,17 +374,10 @@ st.markdown("""<style>
     .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
     .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
-    
     /* INPUT FIELD FIX */
-    input[type="text"], input[type="password"] { 
-        background-color: #1a1f2b !important; 
-        color: white !important; 
-        border: 1px solid #2d3748 !important; 
-    }
-    div[data-baseweb="input"] {
-        background-color: #1a1f2b !important;
-        border-color: #2d3748 !important;
-    }
+    input[type="text"], input[type="password"], input[type="number"] { background-color: #1a1f2b !important; color: white !important; border: 1px solid #2d3748 !important; }
+    div[data-baseweb="input"] { background-color: #1a1f2b !important; border-color: #2d3748 !important; }
+    div[data-baseweb="select"] { background-color: #1a1f2b !important; color: white !important; }
     
     header {visibility: hidden;} footer {visibility: hidden;} 
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } 
@@ -322,55 +385,37 @@ st.markdown("""<style>
     .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; } 
 </style>""", unsafe_allow_html=True)
 
-# --- LOGIN / REGISTER PAGE ---
+# --- LOGIN ---
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         if os.path.exists("logo.png"): st.image("logo.png", width=200)
         else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-    
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
-    
     with tab1:
         with st.form("login_form"):
-            user = st.text_input("Username")
-            pin = st.text_input("PIN", type="password")
+            user = st.text_input("Username"); pin = st.text_input("PIN", type="password")
             if st.form_submit_button("Login", use_container_width=True):
                 user_data = login_user(user, pin)
-                if user_data: 
-                    token = create_session(user)
-                    st.query_params["token"] = token
-                    st.rerun()
+                if user_data: token = create_session(user); st.query_params["token"] = token; st.rerun()
                 else: st.error("Invalid Username or PIN")
-
     with tab2:
         with st.form("reg_form"):
-            new_user = st.text_input("Choose Username")
-            new_pin = st.text_input("Choose PIN", type="password")
-            disp_name = st.text_input("Your Name (e.g. Dave)")
-            email = st.text_input("Recovery Email (Optional)")
+            new_user = st.text_input("Choose Username"); new_pin = st.text_input("Choose PIN", type="password"); disp_name = st.text_input("Your Name (e.g. Dave)"); email = st.text_input("Recovery Email (Optional)")
             if st.form_submit_button("Create Account", use_container_width=True):
                 if new_user and new_pin and disp_name:
-                    if register_user(new_user, new_pin, disp_name, email):
-                        st.success("Account created! Please Login.")
+                    if register_user(new_user, new_pin, disp_name, email): st.success("Account created! Please Login.")
                     else: st.error("Username taken.")
-                else: st.error("Username, PIN, and Name are required.")
-
+                else: st.error("Required fields missing.")
     with tab3:
-        st.info("If you set an email, contact support to reset.")
-        lost_user = st.text_input("Username", key="lost_u")
-        if st.button("Request Reset"):
-            st.warning("Reset link sent (Simulation).")
-            
+        st.info("If you set an email, contact support to reset."); lost_user = st.text_input("Username", key="lost_u")
+        if st.button("Request Reset"): st.warning("Reset link sent (Simulation).")
     st.stop()
 
 # --- MAIN APP ---
 user_info = get_user_from_token(st.query_params["token"])
 if not user_info: st.error("Session Expired"); st.stop()
-
-username = user_info['username']
-display_name = user_info['display_name'] or username
-
+username = user_info['username']; display_name = user_info['display_name'] or username
 active_tab = st.query_params.get("tab", "home")
 
 # 1. HOME
@@ -380,7 +425,7 @@ if active_tab == "home":
     if not my_portfolio: st.info("No stocks. Go to Portfolio tab.")
     else:
         if st.button("🔄 Refresh", key="ref_home"):
-            with st.spinner("Analyzing fundamentals..."): update_stock_data(my_portfolio)
+            with st.spinner("Analyzing fundamentals..."): update_stock_data(my_portfolio, username)
         data = get_cached_data(my_portfolio)
         if data:
             avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
@@ -392,7 +437,6 @@ if active_tab == "home":
             
             highest_risk_stock = max(data, key=lambda x: calculate_risk(x)[0])
             most_volatile_stock = max(data, key=lambda x: abs(float(x['day_change'])))
-            
             earnings_candidates = [d for d in data if d.get('days_to_earnings', 999) < 999]
             earning_ticker = "-"
             if earnings_candidates:
@@ -435,7 +479,52 @@ elif active_tab == "portfolio":
             with c2: 
                 if st.button("🗑️", key=f"del_{t}"): remove_ticker_from_db(username, t); st.rerun()
 
-# 3. SCANNER
+# 3. ALERTS (NEW)
+elif active_tab == "alerts":
+    st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Price Alerts</div>", unsafe_allow_html=True)
+    
+    # Add New Alert
+    with st.expander("➕ Set New Alert", expanded=True):
+        my_stocks = get_user_portfolio(username)
+        if not my_stocks:
+            st.info("Add stocks to your portfolio first.")
+        else:
+            c1, c2, c3 = st.columns([2, 2, 2])
+            with c1: ticker = st.selectbox("Ticker", my_stocks)
+            with c2: condition = st.selectbox("Condition", ["BELOW", "ABOVE"])
+            with c3: price = st.number_input("Price ($)", min_value=0.01, step=0.01)
+            
+            if st.button("Create Alert", use_container_width=True):
+                if add_alert(username, ticker, condition, price):
+                    st.success(f"Alert Set: {ticker} {condition} ${price}")
+                    st.rerun()
+
+    # Active Alerts
+    st.write("### Active Alerts")
+    alerts = get_user_alerts(username)
+    if alerts:
+        for a in alerts:
+            # Visual style for triggered vs active
+            bg_color = "#3d1111" if a['is_triggered'] else "#1a1f2b"
+            border_color = "#ef4444" if a['is_triggered'] else "#2d3748"
+            status_icon = "🔔 TRIGGERED" if a['is_triggered'] else "👀 Watching"
+            
+            card_html = f"""
+            <div style="background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{a['ticker']}</div>
+                    <div style="font-size:0.85rem; color:#94a3b8;">{status_icon}: {a['condition_type']} ${a['target_price']}</div>
+                </div>
+            </div>
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
+            if st.button("Delete", key=f"del_alert_{a['id']}"):
+                delete_alert(a['id'])
+                st.rerun()
+    else:
+        st.info("No alerts set.")
+
+# 4. SCANNER
 elif active_tab == "scanner":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 5px;'>Scanner</div>", unsafe_allow_html=True)
     st.caption("Auto-generated from your portfolio")
@@ -454,29 +543,21 @@ elif active_tab == "scanner":
             if int(row.get('days_to_earnings', 999)) < 14: render_stock_card(row); found_any = True
         if not found_any: st.success("No alerts found.")
 
-# 4. SETTINGS
+# 5. SETTINGS
 elif active_tab == "settings":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Settings</div>", unsafe_allow_html=True)
-    
     st.write("### Profile")
     with st.form("settings_form"):
         new_name = st.text_input("Display Name", value=display_name)
         new_email = st.text_input("Recovery Email", value=user_info.get('email', ''))
         new_pin = st.text_input("New PIN (Leave blank to keep current)", type="password")
-        
         if st.form_submit_button("Save Changes"):
             pin_to_save = new_pin if new_pin else None
-            if update_user_settings(username, new_name, new_email, pin_to_save):
-                st.success("Settings saved! Reloading...")
-                st.rerun()
-            else:
-                st.error("Error saving settings.")
-                
+            if update_user_settings(username, new_name, new_email, pin_to_save): st.success("Settings saved! Reloading..."); st.rerun()
+            else: st.error("Error saving settings.")
     st.divider()
-    if st.button("Log Out"):
-        st.query_params.clear()
-        st.rerun()
+    if st.button("Log Out"): st.query_params.clear(); st.rerun()
 
 current_token = st.query_params.get("token", "")
-nav_html = f"""<style>.nav-container {{ position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background-color: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 9999; }} a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{ text-decoration: none; color: #94a3b8; font-family: sans-serif; font-size: 12px; text-align: center; width: 100%; padding: 5px 0; }} a.nav-link:hover {{ color: white; }} .nav-icon {{ font-size: 20px; display: block; margin-bottom: 2px; }} a.active, a.active:visited {{ color: #3b82f6 !important; font-weight: bold; }}</style><div class="nav-container"><a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}"><span class="nav-icon">🏠</span>Home</a><a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}"><span class="nav-icon">📡</span>Scan</a><a href="?token={current_token}&tab=settings" class="nav-link {'active' if active_tab == 'settings' else ''}"><span class="nav-icon">⚙️</span>Settings</a></div>"""
+nav_html = f"""<style>.nav-container {{ position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background-color: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 9999; }} a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{ text-decoration: none; color: #94a3b8; font-family: sans-serif; font-size: 12px; text-align: center; width: 100%; padding: 5px 0; }} a.nav-link:hover {{ color: white; }} .nav-icon {{ font-size: 20px; display: block; margin-bottom: 2px; }} a.active, a.active:visited {{ color: #3b82f6 !important; font-weight: bold; }}</style><div class="nav-container"><a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}"><span class="nav-icon">🏠</span>Home</a><a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={current_token}&tab=alerts" class="nav-link {'active' if active_tab == 'alerts' else ''}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}"><span class="nav-icon">📡</span>Scan</a><a href="?token={current_token}&tab=settings" class="nav-link {'active' if active_tab == 'settings' else ''}"><span class="nav-icon">⚙️</span>Set</a></div>"""
 st.markdown(nav_html, unsafe_allow_html=True)
