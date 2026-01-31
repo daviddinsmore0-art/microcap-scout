@@ -162,10 +162,11 @@ def calculate_risk(row):
 
 # 4. UI COMPONENTS
 def create_gauge_html(score, label, color):
+    # Fixed Cutoff: Increased viewBox height to 130 and adjusted text y position
     radius = 80
     circumference = 3.14159 * radius
     fill_amount = (score / 100) * circumference
-    svg = f'<svg viewBox="0 0 200 110" style="width: 100%; height: auto;">'
+    svg = f'<svg viewBox="0 0 200 130" style="width: 100%; height: auto;">'
     svg += '<defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs>'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" />'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" />'
@@ -195,18 +196,28 @@ st.markdown("""<style>
     .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
     .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
-    .block-container { padding-top: 1rem; padding-bottom: 5rem; } /* Padding for bottom nav */
+    .block-container { padding-top: 1rem; padding-bottom: 6rem; } /* Extra padding for bottom nav */
     input { color: black !important; }
     
-    /* Hide Default Header/Footer */
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Bottom Navigation Styling */
-    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; padding: 10px 0; z-index: 999; }
-    .nav-btn { background: none; border: none; color: #94a3b8; font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; cursor: pointer; text-decoration: none;}
-    .nav-btn.active { color: #3b82f6; font-weight: bold; }
-    .nav-icon { font-size: 1.5rem; margin-bottom: 2px; }
+    /* Force Bottom Nav to Stay Horizontal */
+    div[data-testid="column"] { width: 33% !important; flex: 1 1 33% !important; min-width: 33% !important; }
+    
+    /* Style the Bottom Buttons */
+    div.stButton > button {
+        background-color: #1a1f2b;
+        color: #94a3b8;
+        border: 1px solid #2d3748;
+        border-radius: 8px;
+        width: 100%;
+        padding: 10px 0;
+    }
+    div.stButton > button:hover {
+        border-color: #3b82f6;
+        color: white;
+    }
 </style>""", unsafe_allow_html=True)
 
 # LOGIN
@@ -237,8 +248,6 @@ if not username:
     st.stop()
 
 # --- CUSTOM NAVIGATION STATE ---
-# We use query params to track the active tab because Streamlit buttons reload the page
-# This mimics a "Router"
 active_tab = st.query_params.get("tab", "home")
 
 # ----------------------------
@@ -251,7 +260,6 @@ if active_tab == "home":
     if not my_portfolio:
         st.info("No stocks. Go to Portfolio tab.")
     else:
-        # Update Data Button (Small)
         if st.button("🔄 Refresh", key="ref_home"):
             with st.spinner("Checking market..."):
                 update_stock_data(my_portfolio)
@@ -259,7 +267,6 @@ if active_tab == "home":
         data = get_cached_data(my_portfolio)
         
         if data:
-            # Gauge Logic
             avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
             r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
             if avg_risk > 60: r_label, r_color = "HIGH", "#ef4444"
@@ -268,8 +275,7 @@ if active_tab == "home":
 
             st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
             
-            # --- SUMMARY STATS (The "Slick" Feature) ---
-            # Find Highest Risk & Most Volatile
+            # --- SUMMARY STATS ---
             highest_risk_stock = max(data, key=lambda x: calculate_risk(x)[0])
             most_volatile_stock = max(data, key=lambda x: abs(float(x['day_change'])))
             
@@ -286,7 +292,6 @@ if active_tab == "home":
             </div>
             """, unsafe_allow_html=True)
             
-            # --- AT A GLANCE ---
             st.write("### At a Glance")
             for row in data[:4]:
                 render_stock_card(row)
@@ -349,25 +354,22 @@ elif active_tab == "scanner":
         if not found_any:
             st.success("No alerts found.")
 
-# --- BOTTOM NAVIGATION BAR (Fake Injection) ---
-# We use st.columns at the bottom with buttons that set the query param
-st.markdown("<br><br>", unsafe_allow_html=True) # Spacer
-
-# This is a 'hacky' but effective way to put nav at bottom
-# We use 3 columns. Clicking one reloads page with new 'tab' param
+# --- BOTTOM NAVIGATION BAR ---
+st.markdown("<br><br><br>", unsafe_allow_html=True) 
+# The CSS above forces these columns to stay 33% width each (No Stacking)
 c1, c2, c3 = st.columns(3)
 with c1:
-    if st.button("🏠 Home", use_container_width=True):
+    if st.button("🏠\nHome"):
         st.query_params["token"] = st.query_params["token"]
         st.query_params["tab"] = "home"
         st.rerun()
 with c2:
-    if st.button("📂 Portfolio", use_container_width=True):
+    if st.button("📂\nStocks"):
         st.query_params["token"] = st.query_params["token"]
         st.query_params["tab"] = "portfolio"
         st.rerun()
 with c3:
-    if st.button("📡 Scanner", use_container_width=True):
+    if st.button("📡\nScan"):
         st.query_params["token"] = st.query_params["token"]
         st.query_params["tab"] = "scanner"
         st.rerun()
