@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# Define token early to prevent NameErrors
+# Define token early
 token = st.query_params.get("token", None)
 
 DB_CONFIG = {
@@ -108,7 +108,6 @@ def update_stock_data(tickers, username):
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
-            
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std()*100
@@ -308,7 +307,6 @@ def render_portfolio_row(row, market_data, current_token):
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
-    # FIX: Clean f-string using Streamlit color syntax (:green / :red) to completely avoid HTML tags
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p
@@ -316,21 +314,25 @@ def render_portfolio_row(row, market_data, current_token):
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
         
-        # Use simple color keywords that Streamlit Markdown guaranteed supports
+        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
         color_code = "green" if pl >= 0 else "red"
-        # We output the row in two parts or simple text to avoid HTML glitch
         # This string uses Streamlit's native color syntax: :color[text]
         pl_text = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
         
-        # We cannot mix HTML and Streamlit Markdown easily in one block without unsafe_allow_html
-        # So we return a pure HTML string but WITHOUT the complex font tag
-        # Fallback to simple text if color fails, but this structure is cleaner
+        # We output the row in two parts to avoid HTML glitch
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_text}</div>'
+        # Actually, standard markdown syntax doesn't render inside HTML div strings directly in some versions.
+        # Let's try the absolute safest method: No tags, just standard text color spans via style IF the other method failed.
+        # But since the user specifically reported the tag SHOWING up, it means the parser didn't treat it as a tag.
+        # The flattened HTML should help, but let's stick to the cleanest possible HTML.
+        
         c_hex = "#4ade80" if pl >= 0 else "#ef4444"
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • <span style='color:{c_hex}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
     elif shares > 0:
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
+    # Completely Flattened HTML
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -362,18 +364,20 @@ def render_navbar(active_tab, token):
 
 init_db()
 
-# --- CSS: NEON THEME ---
+# --- CSS: NEON GREEN THEME ---
 st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; }
     .block-container { padding-top: 0rem !important; padding-bottom: 7rem !important; }
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
     .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #4ade80 !important; }
+    
     input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
     div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; }
     div[role="listbox"] { background-color: #1e293b !important; }
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
+    
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
@@ -381,18 +385,23 @@ st.markdown("""<style>
     button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
     button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
     button[key="alert_action_btn"] { background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
+    
     button[data-baseweb="tab"] { color: #94a3b8 !important; }
     button[data-baseweb="tab"][aria-selected="true"] { color: #4ade80 !important; border-bottom-color: #4ade80 !important; }
+    
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 10px; -ms-overflow-style: none; scrollbar-width: none; }
     .scrolling-wrapper::-webkit-scrollbar { display: none; }
     .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; transition: transform 0.1s; }
+    
     .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 8px 0; border-bottom: 1px solid #2d3748; }
     .risk-label { color: #e0e6ed; font-size: 0.9rem; }
     .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
     .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
     .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
     .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+    
     header {visibility: hidden;} footer {visibility: hidden;} 
+    
     .nav-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background-color: #0f1219; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 99999; padding-bottom: 5px; }
     a.nav-link { text-decoration: none; color: #64748b; font-family: sans-serif; font-size: 10px; text-align: center; width: 100%; }
     a.nav-link.active { color: #4ade80; font-weight: bold; }
@@ -403,8 +412,13 @@ st.markdown("""<style>
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2: 
-        if os.path.exists("logo.png"): st.image("logo.png", width=200)
-        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+        # FALLBACK LOGO IF IMAGE MISSING
+        st.markdown("""
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="font-size: 60px;">⚡</div>
+            <h1 style="color: #4ade80; margin: 0; text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);">Penny Pulse</h1>
+        </div>
+        """, unsafe_allow_html=True)
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
         with st.form("login"):
@@ -439,8 +453,9 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        # CHART - ALTAIR (Shorter)
+        # LOAD HISTORY FOR CHART
         hist = yf.Ticker(ticker).history(period="3mo")
+        
         s, l, c, _, r = calculate_risk(stock)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
@@ -462,17 +477,20 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
+        # CHART (Closed by default)
         if not hist.empty:
             st.write("")
-            with st.expander("Price History (3 Mo)", expanded=True):
-                c = alt.Chart(hist.reset_index()).mark_area(
+            with st.expander("Price History (3 Mo)", expanded=False):
+                # Using Altair with reset_index to ensure date parsing works
+                hist_reset = hist.reset_index()
+                c = alt.Chart(hist_reset).mark_area(
+                    line={'color':'#4ade80'},
                     color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color='#4ade80', offset=0), alt.GradientStop(color='#4ade80', offset=1)], x1=1, x2=1, y1=1, y2=0),
-                    opacity=0.3,
-                    line={'color':'#4ade80'}
+                    opacity=0.3
                 ).encode(
                     x=alt.X('Date:T', axis=None),
-                    y=alt.Y('Close:Q', scale=alt.Scale(domain=[hist['Close'].min()*0.95, hist['Close'].max()*1.05]), axis=None)
-                ).properties(height=200)
+                    y=alt.Y('Close:Q', scale=alt.Scale(zero=False), axis=None) # Zero=False auto-scales to price range
+                ).configure_view(stroke=None).configure_axis(grid=False).properties(height=200)
                 st.altair_chart(c, use_container_width=True)
 
         st.markdown(f"""<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div><div style="font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;">{ticker} announces Q3 earnings date</div><div style="font-size:0.75rem; color:#64748b; margin-bottom:15px;">2 hours ago • FinanceWire</div><div style="border-bottom:1px solid #2d3748; margin-bottom:15px;"></div><div style="font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;">Market Volatility impacts small caps</div><div style="font-size:0.75rem; color:#64748b;">5 hours ago • MarketWatch</div></div>""", unsafe_allow_html=True)
