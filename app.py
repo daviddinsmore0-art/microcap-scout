@@ -31,23 +31,19 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations (Expanded to prevent Syntax Errors)
+        # Expanded Migrations to prevent Syntax Errors
         try: 
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except: pass
-        
         try: 
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
         except: pass
-        
         try: 
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
         except: pass
-        
         try: 
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
         except: pass
-        
         try: 
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
         except: pass
@@ -83,7 +79,6 @@ def update_stock_data(tickers, username):
             
             debt=0; mcap=0; eps=0; days=999
             
-            # Finnhub Earnings
             if finnhub_key:
                 try:
                     s_d = datetime.now().strftime('%Y-%m-%d'); e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
@@ -96,7 +91,6 @@ def update_stock_data(tickers, username):
                         if delta_d >= 0: days = delta_d
                 except: pass
             
-            # YF Fallback
             try:
                 io = yf.Ticker(t).info
                 debt = io.get('debtToEquity',0) or 0; mcap = io.get('marketCap',0) or 0; eps = io.get('trailingEps',0) or 0
@@ -116,7 +110,6 @@ def update_stock_data(tickers, username):
         except: continue
     conn.commit(); conn.close()
     
-    # Check Alerts
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
     alerts = cursor.fetchall()
@@ -173,6 +166,17 @@ def register_user(u, p, d, e):
     cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s,%s,%s,%s)", (u,p,d,e))
     conn.commit(); conn.close(); return True
 
+def update_user_settings(username, display_name, email, new_pin=None):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        if new_pin:
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
+        else:
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
+        conn.commit(); conn.close()
+        return True
+    except: return False
+
 def create_session(u):
     t = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
     cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t,u)); conn.commit(); conn.close()
@@ -183,7 +187,27 @@ def get_user_from_token(t):
     cursor.execute("SELECT s.username, p.display_name, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
     row = cursor.fetchone(); conn.close(); return row
 
-# Risk Logic
+# Alerts & Risk
+def add_alert(username, ticker, condition, price):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
+        conn.commit(); conn.close(); return True
+    except: return False
+
+def delete_alert(alert_id):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,)); conn.commit(); conn.close()
+    except: pass
+
+def get_user_alerts(username):
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
+        rows = cursor.fetchall(); conn.close(); return rows
+    except: return []
+
 def calculate_risk(row):
     s = 50; reasons = []
     if row.get('trend_status') == 'DOWNTREND': s += 10
@@ -203,7 +227,7 @@ def calculate_risk(row):
     if final > 35: return final, "MEDIUM", "#fbbf24", "badge-med", reasons
     return final, "LOW", "#4ade80", "badge-low", reasons
 
-# UI Components
+# UI
 def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
     vb = "0 0 200 120" if size == "big" else "0 0 160 100"
@@ -217,7 +241,6 @@ def render_clickable_list_row(row, current_token):
     s, l, c, css, r = calculate_risk(row)
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # Flattened HTML to avoid syntax errors
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: <span style="color:{c}">{l}</span></div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -242,12 +265,8 @@ st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; }
     .block-container { padding-top: 0rem !important; padding-bottom: 7rem !important; }
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
+    .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #3b82f6 !important; }
     
-    /* CLICK EFFECTS */
-    .clickable-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #3b82f6 !important; }
-    .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #3b82f6 !important; }
-
-    /* INPUTS */
     input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #3b82f6 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
     div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #3b82f6 !important; }
@@ -255,7 +274,6 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.9rem; }
 
-    /* BUTTONS */
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #2563eb, #06b6d4) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
@@ -263,14 +281,15 @@ st.markdown("""<style>
         background: #334155 !important; border: 1px solid #475569 !important; color: #cbd5e1 !important;
     }
 
-    /* SCROLLER */
+    button[data-baseweb="tab"] { color: #94a3b8 !important; }
+    button[data-baseweb="tab"][aria-selected="true"] { color: #3b82f6 !important; border-bottom-color: #3b82f6 !important; }
+
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 10px; -ms-overflow-style: none; scrollbar-width: none; }
     .scrolling-wrapper::-webkit-scrollbar { display: none; }
     .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; transition: transform 0.1s; }
     
     header {visibility: hidden;} footer {visibility: hidden;} 
     
-    /* NAV BAR */
     .nav-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background-color: #0f1219; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 99999; padding-bottom: 5px; }
     a.nav-link { text-decoration: none; color: #64748b; font-family: sans-serif; font-size: 10px; text-align: center; width: 100%; }
     a.nav-link.active { color: #3b82f6; font-weight: bold; }
@@ -280,8 +299,10 @@ st.markdown("""<style>
 # --- LOGIN ---
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
-    with col2: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-    tab1, tab2 = st.tabs(["Login", "Register"])
+    with col2: 
+        if os.path.exists("logo.png"): st.image("logo.png", width=200)
+        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+    tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
         with st.form("login"):
             u = st.text_input("Username"); p = st.text_input("PIN", type="password")
@@ -295,6 +316,10 @@ if "token" not in st.query_params:
             if st.form_submit_button("Create", use_container_width=True):
                 if register_user(u, p, d, ""): st.success("Created! Login now.")
                 else: st.error("Taken")
+    with tab3:
+        st.info("Contact support to reset PIN.")
+        st.text_input("Username", key="forgot_u")
+        st.button("Request Reset")
     st.stop()
 
 # LOGGED IN
@@ -308,9 +333,7 @@ if "ticker" in st.query_params:
     stock = get_single_stock(ticker)
     
     if st.button("← Back", key="back_btn"):
-        new_params = st.query_params.to_dict()
-        if "ticker" in new_params: del new_params["ticker"]
-        st.query_params.clear(); st.query_params.update(new_params); st.rerun()
+        del st.query_params["ticker"]; st.rerun()
         
     if stock:
         s, l, c, _, r = calculate_risk(stock)
@@ -326,10 +349,7 @@ if "ticker" in st.query_params:
         st.markdown("</div>", unsafe_allow_html=True)
         
         if st.button("🔔 Create Alert", use_container_width=True):
-            st.query_params["tab"] = "alerts"
-            new_params = st.query_params.to_dict(); 
-            if "ticker" in new_params: del new_params["ticker"]
-            st.query_params.clear(); st.query_params.update(new_params); st.rerun()
+            st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
     else: st.error("Data missing. Refresh portfolio.")
 
 else:
@@ -345,9 +365,33 @@ else:
             data = get_cached_data(port)
             if data:
                 avg = sum([calculate_risk(x)[0] for x in data])/len(data)
+                
+                # RE-ADDED: The Critical 3-Column Layout
                 riskiest = max(data, key=lambda x: calculate_risk(x)[0])
+                volatile = max(data, key=lambda x: abs(float(x['day_change'])))
+                earnings_candidates = [d for d in data if d.get('days_to_earnings', 999) < 999]
+                earning = min(earnings_candidates, key=lambda x: int(x.get('days_to_earnings', 999))) if earnings_candidates else None
+                earning_txt = f"{earning['ticker']} ({earning['days_to_earnings']}d)" if earning else "-"
+
                 st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
-                st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:50%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Riskiest Asset</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:50%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Portfolio Size</div><div style="color:white; font-weight:bold; font-size:1rem;">{len(data)} Stocks</div></div></div>""", unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;">
+                    <div style="text-align:center; width:33%; border-right:1px solid #2d3748;">
+                        <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div>
+                        <div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div>
+                    </div>
+                    <div style="text-align:center; width:33%; border-right:1px solid #2d3748;">
+                        <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div>
+                        <div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div>
+                    </div>
+                    <div style="text-align:center; width:33%;">
+                        <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earning</div>
+                        <div style="color:white; font-weight:bold; font-size:1rem;">{earning_txt}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
                 st.write("### At a Glance"); render_horizontal_grid(data, token)
         else: st.info("Welcome! Go to 'Stocks' to add your first ticker.")
 
@@ -401,6 +445,15 @@ else:
 
     elif tab == "settings":
         st.markdown("### Settings")
+        with st.form("settings_form"):
+            new_name = st.text_input("Display Name", value=display_name)
+            new_email = st.text_input("Recovery Email", value=user_info.get('email', ''))
+            new_pin = st.text_input("New PIN (Leave blank to keep current)", type="password")
+            if st.form_submit_button("Save Changes"):
+                pin_to_save = new_pin if new_pin else None
+                if update_user_settings(username, new_name, new_email, pin_to_save): st.success("Saved!"); st.rerun()
+        
+        st.divider()
         if st.button("Log Out", use_container_width=True): st.query_params.clear(); st.rerun()
 
 nav_html = f"""
