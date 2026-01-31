@@ -326,7 +326,7 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 init_db()
-# CSS: FORCE TEXT VISIBILITY (INPUTS, LABELS, TABS)
+# NUCLEAR CSS OVERRIDE
 st.markdown("""<style> 
     .stApp { background-color: #0f1219; color: #e0e6ed; } 
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } 
@@ -334,22 +334,61 @@ st.markdown("""<style>
     .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
     .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
-    .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
     
-    /* INPUTS & SELECTS (White Text on Dark BG) */
-    div[data-baseweb="input"] { background-color: #1a1f2b !important; border: 1px solid #2d3748 !important; border-radius: 8px !important; }
-    input[type="text"], input[type="password"], input[type="number"] { background-color: transparent !important; color: white !important; caret-color: white !important; }
-    div[data-baseweb="select"] { background-color: #1a1f2b !important; border-color: #2d3748 !important; color: white !important; }
-    div[data-baseweb="popover"], div[role="listbox"] { background-color: #1a1f2b !important; }
+    /* INPUTS (Text & Number) - Dark BG, White Text */
+    input[type="text"], input[type="password"], input[type="number"] { 
+        background-color: #1e293b !important; 
+        color: #ffffff !important; 
+        border: 1px solid #3b82f6 !important; /* Electric Blue Border */
+        border-radius: 8px !important;
+        padding: 8px 12px !important;
+    }
+    div[data-baseweb="input"] { 
+        background-color: #1e293b !important; 
+        border-color: #3b82f6 !important; 
+        color: white !important; 
+        border-radius: 8px !important;
+    }
+    
+    /* SELECT BOX (Dropdowns) */
+    div[data-baseweb="select"] > div {
+        background-color: #1e293b !important;
+        color: white !important;
+        border-color: #3b82f6 !important;
+        border-radius: 8px !important;
+    }
+    div[data-baseweb="popover"], div[role="listbox"] { 
+        background-color: #1e293b !important; 
+        color: white !important;
+    }
     div[role="option"] { color: white !important; }
-    
-    /* LABELS (Bright White) */
-    div[data-testid="stWidgetLabel"] p, label p, label { color: #e0e6ed !important; font-weight: bold; }
 
-    /* TAB HEADERS (Force White) */
-    button[data-baseweb="tab"] { color: #e0e6ed !important; }
-    button[data-baseweb="tab"] p { color: #e0e6ed !important; }
-    button[data-baseweb="tab"][aria-selected="true"] { color: #3b82f6 !important; border-color: #3b82f6 !important; }
+    /* LABELS & HEADERS - Bright White */
+    label, p, h1, h2, h3, div[data-testid="stWidgetLabel"] p {
+        color: #f8fafc !important;
+    }
+    
+    /* TABS - White Inactive, Blue Active */
+    button[data-baseweb="tab"] { color: #94a3b8 !important; }
+    button[data-baseweb="tab"][aria-selected="true"] { 
+        color: #3b82f6 !important; 
+        border-bottom-color: #3b82f6 !important;
+        font-weight: bold !important;
+    }
+    
+    /* BUTTONS - Electric Blue Gradient */
+    div.stButton > button {
+        background: linear-gradient(to right, #2563eb, #06b6d4) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        padding: 10px 20px !important;
+    }
+    div.stButton > button:hover {
+        opacity: 0.9 !important;
+        transform: scale(1.02);
+    }
 
     header {visibility: hidden;} footer {visibility: hidden;} 
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } 
