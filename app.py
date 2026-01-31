@@ -162,16 +162,16 @@ def calculate_risk(row):
 
 # 4. UI COMPONENTS
 def create_gauge_html(score, label, color):
-    # Adjusted ViewBox and text position to prevent cutoff
+    # Fixed Text Position: Lifted 'y' from 105 to 100 to clear the bottom
     radius = 80
     circumference = 3.14159 * radius
     fill_amount = (score / 100) * circumference
-    svg = f'<svg viewBox="0 0 200 130" style="width: 100%; height: auto;">'
+    svg = f'<svg viewBox="0 0 200 120" style="width: 100%; height: auto;">'
     svg += '<defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs>'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" />'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" />'
     svg += f'<text x="100" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text>'
-    svg += f'<text x="100" y="105" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
+    svg += f'<text x="100" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{svg}</div>'
 
 def render_stock_card(row):
@@ -196,35 +196,11 @@ st.markdown("""<style>
     .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
     .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
-    .block-container { padding-top: 1rem; padding-bottom: 6rem; } 
+    .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
     input { color: black !important; }
     
     header {visibility: hidden;}
     footer {visibility: hidden;}
-
-    /* THE FIX: Force Bottom Nav Columns to stay side-by-side */
-    div[data-testid="column"] {
-        display: inline-block !important;
-        width: 33% !important;
-        flex: 1 1 33% !important;
-        min-width: 33% !important;
-    }
-
-    /* Styling for the Navigation Buttons */
-    div.stButton > button {
-        background-color: #1a1f2b;
-        color: #94a3b8;
-        border: 1px solid #2d3748;
-        border-radius: 8px;
-        width: 100%;
-        padding: 12px 0;
-        margin-top: 10px;
-    }
-    div.stButton > button:active, div.stButton > button:focus {
-        background-color: #2d3748;
-        color: white;
-        border-color: #3b82f6;
-    }
 </style>""", unsafe_allow_html=True)
 
 # LOGIN
@@ -355,24 +331,57 @@ elif active_tab == "scanner":
         if not found_any:
             st.success("No alerts found.")
 
-# --- BOTTOM NAVIGATION BAR ---
-# Force columns to stick to bottom and span full width
-st.markdown("<br><br><br>", unsafe_allow_html=True) 
+# --- CUSTOM HTML BOTTOM NAV ---
+# This ignores Streamlit's stacking logic and uses raw CSS/HTML to force horizontal layout
+current_token = st.query_params.get("token", "")
 
-# Create 3 columns for navigation
-c1, c2, c3 = st.columns(3)
-with c1:
-    if st.button("🏠\nHome", key="nav_home"):
-        st.query_params["token"] = st.query_params["token"]
-        st.query_params["tab"] = "home"
-        st.rerun()
-with c2:
-    if st.button("📂\nStocks", key="nav_port"):
-        st.query_params["token"] = st.query_params["token"]
-        st.query_params["tab"] = "portfolio"
-        st.rerun()
-with c3:
-    if st.button("📡\nScan", key="nav_scan"):
-        st.query_params["token"] = st.query_params["token"]
-        st.query_params["tab"] = "scanner"
-        st.rerun()
+nav_html = f"""
+<style>
+    .nav-container {{
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 60px;
+        background-color: #1a1f2b;
+        border-top: 1px solid #2d3748;
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        z-index: 9999;
+    }}
+    .nav-link {{
+        text-decoration: none;
+        color: #94a3b8;
+        font-family: sans-serif;
+        font-size: 12px;
+        text-align: center;
+        width: 100%;
+        padding: 5px 0;
+    }}
+    .nav-link:hover {{
+        color: white;
+    }}
+    .nav-icon {{
+        font-size: 20px;
+        display: block;
+        margin-bottom: 2px;
+    }}
+    .active {{
+        color: #3b82f6;
+        font-weight: bold;
+    }}
+</style>
+<div class="nav-container">
+    <a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}">
+        <span class="nav-icon">🏠</span>Home
+    </a>
+    <a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}">
+        <span class="nav-icon">📂</span>Stocks
+    </a>
+    <a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}">
+        <span class="nav-icon">📡</span>Scan
+    </a>
+</div>
+"""
+st.markdown(nav_html, unsafe_allow_html=True)
