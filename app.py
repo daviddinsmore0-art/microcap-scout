@@ -193,7 +193,7 @@ st.markdown("""<style>
     .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
     .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
-    .block-container { padding-top: 2rem; } 
+    .block-container { padding-top: 1rem; } 
     input { color: black !important; }
     /* Fix Tab Styling */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
@@ -224,37 +224,42 @@ if not username:
 
 st.title(f"Hi, {username}")
 
-# --- NATIVE TABS (Visible & Reliable) ---
+# --- NATIVE TABS ---
 t1, t2, t3 = st.tabs(["🏠 Home", "📂 Portfolio", "📡 Scanner"])
 
-# 1. HOME TAB
+# 1. HOME TAB (Snapshot)
 with t1:
     my_portfolio = get_user_portfolio(username)
     if not my_portfolio:
         st.info("No stocks yet. Go to 'Portfolio' tab to add some!")
     else:
-        if st.button("🔄 Refresh Data", key="ref_home"):
-            with st.spinner("Checking market..."):
-                update_stock_data(my_portfolio)
-        
+        # Load Data
         data = get_cached_data(my_portfolio)
         
         if data:
+            # Gauge Logic
             avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
             r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
-            
             if avg_risk > 60: r_label, r_color = "HIGH", "#ef4444"
             elif avg_risk > 40: r_label, r_color = "MEDIUM", "#fbbf24"
             else: r_label, r_color = "LOW", "#4ade80"
 
             st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
             
-            st.write("### My Stocks")
-            # SHOW ALL STOCKS (No Limit)
-            for row in data:
-                render_stock_card(row)
+            # --- "AT A GLANCE" SECTION ---
+            # Header with "View All" visual cue
+            col_a, col_b = st.columns([3, 1])
+            with col_a: st.write("### At a Glance")
+            with col_b: st.caption("Top 4")
 
-# 2. PORTFOLIO TAB
+            # ONLY SHOW TOP 4
+            for row in data[:4]:
+                render_stock_card(row)
+                
+            if len(data) > 4:
+                st.info(f"And {len(data)-4} more in Portfolio...")
+
+# 2. PORTFOLIO TAB (Full Management)
 with t2:
     st.write("### Manage Stocks")
     col1, col2 = st.columns([2, 1])
@@ -270,8 +275,15 @@ with t2:
     
     st.divider()
     
+    if st.button("🔄 Refresh Market Data"):
+        my_portfolio = get_user_portfolio(username)
+        with st.spinner("Checking market..."):
+            update_stock_data(my_portfolio)
+            st.rerun()
+
     my_stocks = get_user_portfolio(username)
     if my_stocks:
+        # SHOW ALL STOCKS HERE
         for t in my_stocks:
             c1, c2 = st.columns([3, 1])
             with c1:
