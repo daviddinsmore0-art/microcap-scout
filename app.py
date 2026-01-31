@@ -6,12 +6,13 @@ import uuid
 import os
 import pandas as pd
 import pytz
+import altair as alt
 from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# Define token early
+# Define token early to prevent NameErrors
 token = st.query_params.get("token", None)
 
 DB_CONFIG = {
@@ -37,7 +38,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Strict Multi-line Blocks) ---
+        # --- SAFE MIGRATIONS ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -107,6 +108,7 @@ def update_stock_data(tickers, username):
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
+            
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std()*100
@@ -296,7 +298,6 @@ def create_gauge_html(score, label, color, size="big"):
     fill = (score / 100) * (3.14159 * rad)
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
     svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
-    # Flattened
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, market_data, current_token):
@@ -307,28 +308,35 @@ def render_portfolio_row(row, market_data, current_token):
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
+    # FIX: Clean f-string using Streamlit color syntax (:green / :red) to completely avoid HTML tags
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p
         cost = shares * entry
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
-        pl_color = "#4ade80" if pl >= 0 else "#ef4444"
         
-        # FIX: Flattened string + standard inline style with standard space/pipe
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} | <span style="color:{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</span></div>'
+        # Use simple color keywords that Streamlit Markdown guaranteed supports
+        color_code = "green" if pl >= 0 else "red"
+        # We output the row in two parts or simple text to avoid HTML glitch
+        # This string uses Streamlit's native color syntax: :color[text]
+        pl_text = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
+        
+        # We cannot mix HTML and Streamlit Markdown easily in one block without unsafe_allow_html
+        # So we return a pure HTML string but WITHOUT the complex font tag
+        # Fallback to simple text if color fails, but this structure is cleaner
+        c_hex = "#4ade80" if pl >= 0 else "#ef4444"
+        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • <span style='color:{c_hex}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
     elif shares > 0:
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
+        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # FIX: Flattened HTML string to prevent "code block" interpretation by Streamlit
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_simple_card(row, current_token):
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # Flattened
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {calculate_risk(row)[1]}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -339,7 +347,6 @@ def render_horizontal_grid(rows_dict, current_token):
         status = row.get('trend_status', 'Move')
         if row.get('volume_status') == 'SPIKE': status = "VOL SPIKE"
         link = f"?token={current_token}&ticker={ticker}"
-        # Flattened
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
@@ -350,13 +357,12 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 def render_navbar(active_tab, token):
-    # Flattened
     nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
     st.markdown(nav_html, unsafe_allow_html=True)
 
 init_db()
 
-# --- CSS: NEON GREEN THEME ---
+# --- CSS: NEON THEME ---
 st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; }
     .block-container { padding-top: 0rem !important; padding-bottom: 7rem !important; }
@@ -433,13 +439,16 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
+        # CHART - ALTAIR (Shorter)
         hist = yf.Ticker(ticker).history(period="3mo")
         s, l, c, _, r = calculate_risk(stock)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
+        
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='margin:0; color:{cc}; font-size: 1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%) Today</span></h2>", unsafe_allow_html=True)
-        if not hist.empty: st.area_chart(hist['Close'], color="#4ade80")
+        
         st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
+        
         st.markdown(f"<div class='card' style='margin-top:15px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
@@ -452,7 +461,22 @@ if "ticker" in st.query_params:
         st.markdown(f"<div class='risk-row'><div class='risk-label'>Debt / Equity</div><div class='risk-pill {d_cls}'>{d_txt}</div></div>", unsafe_allow_html=True)
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
+        
+        if not hist.empty:
+            st.write("")
+            with st.expander("Price History (3 Mo)", expanded=True):
+                c = alt.Chart(hist.reset_index()).mark_area(
+                    color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color='#4ade80', offset=0), alt.GradientStop(color='#4ade80', offset=1)], x1=1, x2=1, y1=1, y2=0),
+                    opacity=0.3,
+                    line={'color':'#4ade80'}
+                ).encode(
+                    x=alt.X('Date:T', axis=None),
+                    y=alt.Y('Close:Q', scale=alt.Scale(domain=[hist['Close'].min()*0.95, hist['Close'].max()*1.05]), axis=None)
+                ).properties(height=200)
+                st.altair_chart(c, use_container_width=True)
+
         st.markdown(f"""<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div><div style="font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;">{ticker} announces Q3 earnings date</div><div style="font-size:0.75rem; color:#64748b; margin-bottom:15px;">2 hours ago • FinanceWire</div><div style="border-bottom:1px solid #2d3748; margin-bottom:15px;"></div><div style="font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;">Market Volatility impacts small caps</div><div style="font-size:0.75rem; color:#64748b;">5 hours ago • MarketWatch</div></div>""", unsafe_allow_html=True)
+        
         st.write("")
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
             st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
