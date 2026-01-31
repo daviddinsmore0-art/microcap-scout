@@ -3,6 +3,8 @@ import mysql.connector
 import yfinance as yf
 import uuid
 import os
+import pandas as pd
+from datetime import datetime, timedelta
 
 # 1. CONFIG & DATABASE
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
@@ -26,14 +28,30 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         
-        # Create Table if not exists
-        sql = "CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10, 2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
+        # Expanded Table for New Metrics
+        # We use ALTER to safely add columns if they don't exist yet
+        sql = """CREATE TABLE IF NOT EXISTS stock_cache (
+            ticker VARCHAR(20) PRIMARY KEY, 
+            current_price DECIMAL(20, 4), 
+            day_change DECIMAL(10, 2), 
+            rsi DECIMAL(10, 2), 
+            trend_status VARCHAR(20), 
+            volume_status VARCHAR(20), 
+            range_loc DECIMAL(10, 2),
+            volatility DECIMAL(10, 2),
+            debt_ratio DECIMAL(10, 2),
+            days_to_earnings INT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )"""
         cursor.execute(sql)
         
-        # SILENT MIGRATION: Check if 'range_loc' exists, if not, add it
-        cursor.execute("SHOW COLUMNS FROM stock_cache LIKE 'range_loc'")
-        if not cursor.fetchone():
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN range_loc DECIMAL(10, 2) DEFAULT 50")
+        # Silent Migrations for existing users
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN volatility DECIMAL(10, 2) DEFAULT 0")
+        except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN debt_ratio DECIMAL(10, 2) DEFAULT 0")
+        except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 99")
+        except: pass
             
         conn.close()
     except Exception as e:
@@ -104,6 +122,8 @@ def get_user_portfolio(username):
 
 def update_stock_data(tickers):
     if not tickers: return
+    
+    # 1. Bulk Download Price History (Fast)
     try:
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
@@ -113,43 +133,84 @@ def update_stock_data(tickers):
     
     for t in tickers:
         try:
+            # Handle Single vs Multi Ticker Data Structure
             if len(tickers) > 1: df = data[t]
             else: df = data
             
             df = df.dropna()
             if df.empty: continue
 
+            # --- TECHNICALS ---
             price = float(df['Close'].iloc[-1])
             prev = float(df['Close'].iloc[-2])
             change = ((price - prev) / prev) * 100
             
-            # 1. RSI Logic
+            # RSI
             delta = df['Close'].diff()
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             
-            # 2. Trend Logic
+            # Trend & Volatility
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
+            
+            # Volatility (Standard Deviation of % returns * 100)
+            volatility = df['Close'].pct_change().std() * 100
 
-            # 3. Volume Logic
+            # Range Location
+            high_3m = df['Close'].max()
+            low_3m = df['Close'].min()
+            range_loc = 50
+            if high_3m != low_3m:
+                range_loc = ((price - low_3m) / (high_3m - low_3m)) * 100
+
+            # Volume / Hype Proxy
             avg_vol = df['Volume'].rolling(20).mean().iloc[-1]
             curr_vol = df['Volume'].iloc[-1]
             vol_stat = "SPIKE" if curr_vol > (avg_vol * 1.5) else "NORMAL"
 
-            # 4. NEW: Range Location Logic (0-100 score)
-            # 0 = At 3-month Low (Safe entry), 100 = At 3-month High (Risky)
-            high_3m = df['Close'].max()
-            low_3m = df['Close'].min()
-            if high_3m != low_3m:
-                range_loc = ((price - low_3m) / (high_3m - low_3m)) * 100
-            else:
-                range_loc = 50
+            # --- FUNDAMENTALS (Slow Calls - use defaults if fail) ---
+            debt_ratio = 0
+            days_to_earnings = 99
             
-            sql = "INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc) VALUES (%s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s"
-            cursor.execute(sql, (t, price, change, rsi, trend, vol_stat, range_loc, price, change, rsi, trend, vol_stat, range_loc))
-        except: continue
+            try:
+                # We fetch Ticker info individually. This is slower but necessary for Debt/Earnings
+                ticker_obj = yf.Ticker(t)
+                
+                # Debt
+                info = ticker_obj.info
+                debt_ratio = info.get('debtToEquity', 0)
+                if debt_ratio is None: debt_ratio = 0
+                
+                # Earnings
+                cal = ticker_obj.calendar
+                if cal is not None and not cal.empty:
+                    # Try to find next earnings date
+                    # Note: yfinance calendar format varies, simplified check
+                    earnings_date = cal.iloc[0, 0] # First row usually next earnings
+                    if isinstance(earnings_date, (datetime, pd.Timestamp)):
+                         delta_days = (earnings_date - datetime.now()).days
+                         if delta_days >= 0:
+                             days_to_earnings = delta_days
+            except:
+                pass # Fail silently on fundamentals to keep app running
+
+            # Update DB
+            sql = """INSERT INTO stock_cache 
+                     (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings) 
+                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
+                     ON DUPLICATE KEY UPDATE 
+                     current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, days_to_earnings=%s"""
+            
+            vals = (t, price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings,
+                    price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings)
+            
+            cursor.execute(sql, vals)
+            
+        except Exception as e:
+            continue
+            
     conn.commit()
     conn.close()
 
@@ -164,51 +225,70 @@ def get_cached_data(tickers):
     return rows
 
 def calculate_risk(row):
-    # --- THE NEW LOGIC ENGINE ---
-    # Base Score: 50
+    # --- ADVANCED RISK ENGINE ---
     score = 50
+    reasons = [] # Track why score changed
     
-    # 1. Trend Impact (+/- 15)
-    trend = row.get('trend_status', 'NEUTRAL')
-    if trend == 'DOWNTREND': score += 15 # Risk increases in downtrend
-    if trend == 'UPTREND': score -= 15   # Risk decreases in uptrend
+    # 1. Technicals
+    if row.get('trend_status') == 'DOWNTREND': score += 10
+    else: score -= 10
     
-    # 2. RSI Impact (+/- 15)
     rsi = float(row.get('rsi', 50))
-    if rsi > 70: score += 15  # Overbought = Risk of pullback
-    if rsi < 30: score -= 10  # Oversold = Potential bounce (lower risk entry)
+    if rsi > 70: score += 10
+    if rsi < 30: score -= 10
     
-    # 3. Range Location Impact (+/- 20) ** NEW **
-    # Buying at the top of the chart is risky!
-    r_loc = float(row.get('range_loc', 50))
-    if r_loc > 85: score += 20 # At 3-Month Highs = VERY RISKY
-    elif r_loc < 15: score -= 15 # At 3-Month Lows = Low Risk (Value)
+    # 2. Volatility (Daily swing % std dev)
+    vol = float(row.get('volatility', 0))
+    if vol > 3.0: 
+        score += 15 # High volatility is risky
+        reasons.append("High Volatility")
+        
+    # 3. Debt (Fundamental)
+    debt = float(row.get('debt_ratio', 0))
+    if debt > 150: 
+        score += 10 # High Leverage
+        reasons.append("High Debt")
+
+    # 4. Earnings Event (Event Risk)
+    days = int(row.get('days_to_earnings', 99))
+    if days < 10: 
+        score += 15 # Earnings uncertainty
+        reasons.append("Earnings Soon")
+
+    # 5. Range Location (Buying the Top)
+    loc = float(row.get('range_loc', 50))
+    if loc > 90: score += 10
+    elif loc < 10: score -= 10
     
-    # 4. Volume Spike (+10)
-    vol = row.get('volume_status', 'NORMAL')
-    if vol == "SPIKE": score += 10 # High volatility
-    
-    # Clamp score 0-100
+    # 6. Retail Hype (Volume Spike)
+    if row.get('volume_status') == 'SPIKE':
+        score += 10
+        reasons.append("Volume Spike")
+
     final = max(0, min(100, int(score)))
     
-    if final > 65: return final, "HIGH", "#ef4444", "badge-high"
-    if final > 35: return final, "MEDIUM", "#fbbf24", "badge-med"
-    return final, "LOW", "#4ade80", "badge-low"
+    css = "badge-low"
+    color = "#4ade80"
+    label = "LOW"
+    
+    if final > 65: 
+        label, color, css = "HIGH", "#ef4444", "badge-high"
+    elif final > 35: 
+        label, color, css = "MEDIUM", "#fbbf24", "badge-med"
+        
+    return final, label, color, css, reasons
 
-# 4. UI COMPONENTS - HTML GENERATORS
-
+# 4. UI COMPONENTS
 def create_gauge_html(score, label, color):
     radius = 80
     circumference = 3.14159 * radius
     fill_amount = (score / 100) * circumference
     header_html = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>'
-    
     svg = f'<svg viewBox="0 0 200 120" style="width: 100%; height: auto;"><defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs><path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" /><path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" /><text x="100" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="100" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
-    
     return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{header_html}{svg}</div>'
 
 def render_stock_card(row):
-    score, label, color, css = calculate_risk(row)
+    score, label, color, css, reasons = calculate_risk(row)
     price = float(row['current_price'])
     change = float(row['day_change'])
     c_color = "#4ade80" if change >= 0 else "#ef4444"
@@ -216,22 +296,24 @@ def render_stock_card(row):
     ticker = row['ticker']
     trend = row.get('trend_status', 'N/A')
     
-    html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
+    # Show reasons if risk is high/med
+    reason_html = ""
+    if reasons:
+        reason_html = f"<div style='font-size:0.7rem; color:#fbbf24; margin-top:2px;'>⚠️ {', '.join(reasons)}</div>"
+    
+    html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>{reason_html}</div><div class="{css} badge">{label}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows):
     html_content = '<div class="scrolling-wrapper">'
-    
     for row in rows:
-        score, label, color, css = calculate_risk(row)
+        score, label, color, css, reasons = calculate_risk(row)
         change = float(row['day_change'])
         c_color = "#4ade80" if change >= 0 else "#ef4444"
         arrow = "▲" if change >= 0 else "▼"
         ticker = row['ticker']
-        
         card = f'<div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 4px;">{ticker}</div><div style="font-size:0.85rem; color:{c_color}; font-weight:bold; margin-bottom: 8px;">{arrow} {change:.2f}%</div><div style="display: flex; align-items: center;"><div style="width: 8px; height: 8px; border-radius: 50%; background-color: {color}; margin-right: 6px;"></div><div style="font-size:0.75rem; color:#94a3b8;">{label}</div></div></div>'
         html_content += card
-        
     html_content += '</div>'
     st.markdown(html_content, unsafe_allow_html=True)
 
@@ -262,9 +344,7 @@ st.markdown("""<style>
         -ms-overflow-style: none;
         scrollbar-width: none;
     }
-    .scrolling-wrapper::-webkit-scrollbar {
-        display: none;
-    }
+    .scrolling-wrapper::-webkit-scrollbar { display: none; }
     .scrolling-card {
         flex: 0 0 auto;
         width: 130px;
@@ -313,15 +393,17 @@ if active_tab == "home":
     if not my_portfolio:
         st.info("No stocks. Go to Portfolio tab.")
     else:
+        # Refresh Data
         if st.button("🔄 Refresh", key="ref_home"):
-            with st.spinner("Checking market..."):
+            with st.spinner("Analyzing fundamentals..."):
                 update_stock_data(my_portfolio)
         
         data = get_cached_data(my_portfolio)
         
         if data:
             avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
-            r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
+            r_score, r_label, r_color, _, _ = calculate_risk({'trend_status':'N', 'rsi':50})
+            
             if avg_risk > 65: r_label, r_color = "HIGH", "#ef4444"
             elif avg_risk > 35: r_label, r_color = "MEDIUM", "#fbbf24"
             else: r_label, r_color = "LOW", "#4ade80"
@@ -347,7 +429,6 @@ if active_tab == "home":
             
             st.write("### At a Glance")
             render_horizontal_grid(data)
-
 
 # 2. PORTFOLIO SCREEN
 elif active_tab == "portfolio":
@@ -397,6 +478,13 @@ elif active_tab == "scanner":
         st.markdown("**🔊 Volume Spikes**")
         for row in data:
             if row.get('volume_status') == "SPIKE":
+                render_stock_card(row)
+                found_any = True
+                
+        # NEW SCANNER: Earnings
+        st.markdown("**📅 Earnings Coming Soon**")
+        for row in data:
+            if int(row.get('days_to_earnings', 99)) < 14:
                 render_stock_card(row)
                 found_any = True
 
