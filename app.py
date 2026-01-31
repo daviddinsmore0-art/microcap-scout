@@ -108,6 +108,7 @@ def update_stock_data(tickers, username):
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
+            
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std()*100
@@ -314,25 +315,25 @@ def render_portfolio_row(row, market_data, current_token):
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
         
-        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
+        # FIX: STREAMLIT MARKDOWN COLOR SYNTAX - NO HTML TAGS
         color_code = "green" if pl >= 0 else "red"
-        # This string uses Streamlit's native color syntax: :color[text]
-        pl_text = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
+        # The :color[...] syntax is specific to Streamlit and much safer here
+        pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
         
-        # We output the row in two parts to avoid HTML glitch
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_text}</div>'
-        # Actually, standard markdown syntax doesn't render inside HTML div strings directly in some versions.
-        # Let's try the absolute safest method: No tags, just standard text color spans via style IF the other method failed.
-        # But since the user specifically reported the tag SHOWING up, it means the parser didn't treat it as a tag.
-        # The flattened HTML should help, but let's stick to the cleanest possible HTML.
+        # Using bullet point and simple markdown formatting
+        # Note: We display the first part as plain text, second part colored
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
         
+        # Fallback if markdown inside HTML fails: Plain text, no tags.
+        # But wait, Streamlit HTML=True doesn't parse Markdown syntax inside. 
+        # WE MUST USE A PURE CSS SOLUTION to avoid the tag showing as text.
+        # Reverting to the simplest, most robust method: Inline style with single quotes to avoid conflicts.
         c_hex = "#4ade80" if pl >= 0 else "#ef4444"
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • <span style='color:{c_hex}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
     elif shares > 0:
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # Completely Flattened HTML
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -371,6 +372,7 @@ st.markdown("""<style>
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
     .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #4ade80 !important; }
     
+    /* NEON INPUTS */
     input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
     div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; }
@@ -378,9 +380,12 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
     
+    /* NEON BUTTONS */
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
+    
+    /* SECONDARY BUTTONS */
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
     button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
     button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
@@ -412,8 +417,8 @@ st.markdown("""<style>
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2: 
-        # FALLBACK LOGO IF IMAGE MISSING
-        st.markdown("""
+        if os.path.exists("logo.png"): st.image("logo.png", width=200)
+        else: st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
             <div style="font-size: 60px;">⚡</div>
             <h1 style="color: #4ade80; margin: 0; text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);">Penny Pulse</h1>
@@ -453,15 +458,11 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        # LOAD HISTORY FOR CHART
         hist = yf.Ticker(ticker).history(period="3mo")
-        
         s, l, c, _, r = calculate_risk(stock)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
-        
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='margin:0; color:{cc}; font-size: 1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%) Today</span></h2>", unsafe_allow_html=True)
-        
         st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
         
         st.markdown(f"<div class='card' style='margin-top:15px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
@@ -477,11 +478,10 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # CHART (Closed by default)
         if not hist.empty:
             st.write("")
             with st.expander("Price History (3 Mo)", expanded=False):
-                # Using Altair with reset_index to ensure date parsing works
+                # FIX: Centering and proper Y-scale to prevent blank look
                 hist_reset = hist.reset_index()
                 c = alt.Chart(hist_reset).mark_area(
                     line={'color':'#4ade80'},
@@ -489,7 +489,7 @@ if "ticker" in st.query_params:
                     opacity=0.3
                 ).encode(
                     x=alt.X('Date:T', axis=None),
-                    y=alt.Y('Close:Q', scale=alt.Scale(zero=False), axis=None) # Zero=False auto-scales to price range
+                    y=alt.Y('Close:Q', scale=alt.Scale(zero=False), axis=None)
                 ).configure_view(stroke=None).configure_axis(grid=False).properties(height=200)
                 st.altair_chart(c, use_container_width=True)
 
