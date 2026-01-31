@@ -1,6 +1,7 @@
 import streamlit as st
 import mysql.connector
 import yfinance as yf
+import requests
 import uuid
 import os
 import pandas as pd
@@ -57,69 +58,7 @@ def init_db():
     except Exception as e:
         st.error(f"DB Error: {e}")
 
-# 2. AUTHENTICATION
-def check_login(username, pin):
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT pin FROM user_profiles WHERE username = %s", (username,))
-        row = cursor.fetchone()
-        conn.close()
-        if row: return row[0] == pin
-        return True 
-    except: return False
-
-def create_session(username):
-    token = str(uuid.uuid4())
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
-    conn.commit()
-    conn.close()
-    return token
-
-def get_user_from_token(token):
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
-        row = cursor.fetchone()
-        conn.close()
-        return row[0] if row else None
-    except: return None
-
-# 3. PORTFOLIO & DATA
-def add_ticker_to_db(username, ticker):
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
-        if not cursor.fetchone():
-            cursor.execute("INSERT INTO user_portfolio (username, ticker) VALUES (%s, %s)", (username, ticker))
-            conn.commit()
-        conn.close()
-        return True
-    except: return False
-
-def remove_ticker_from_db(username, ticker):
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
-        conn.commit()
-        conn.close()
-    except: pass
-
-def get_user_portfolio(username):
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT ticker FROM user_portfolio WHERE username=%s", (username,))
-        rows = cursor.fetchall()
-        conn.close()
-        return [r[0] for r in rows]
-    except: return []
-
+# 2. DATA ENGINE
 def update_stock_data(tickers):
     if not tickers: return
     try:
@@ -128,6 +67,11 @@ def update_stock_data(tickers):
 
     conn = get_connection()
     cursor = conn.cursor()
+    
+    # Try to get Finnhub key from secrets
+    finnhub_key = None
+    if "finnhub" in st.secrets and "api_key" in st.secrets["finnhub"]:
+        finnhub_key = st.secrets["finnhub"]["api_key"]
     
     for t in tickers:
         try:
@@ -163,41 +107,75 @@ def update_stock_data(tickers):
 
             # Fundamentals
             debt_ratio = 0
-            days_to_earnings = 999 
             market_cap = 0
             eps = 0
             
-            try:
-                ticker_obj = yf.Ticker(t)
-                info = ticker_obj.info
-                debt_ratio = info.get('debtToEquity', 0) or 0
-                market_cap = info.get('marketCap', 0) or 0
-                eps = info.get('trailingEps', 0) or 0
-                
-                cal = ticker_obj.calendar
-                if cal is not None and not cal.empty:
-                    earnings_date = cal.iloc[0, 0]
-                    if isinstance(earnings_date, (datetime, pd.Timestamp)):
-                         delta_days = (earnings_date - datetime.now()).days
-                         if delta_days >= 0:
-                             days_to_earnings = delta_days
-            except:
-                pass 
+            # EARNINGS LOGIC
+            days_to_earnings = 999 
+            
+            # 1. Try Finnhub for Earnings (If Key Exists)
+            finnhub_success = False
+            if finnhub_key:
+                try:
+                    # Get upcoming earnings
+                    start_date = datetime.now().strftime('%Y-%m-%d')
+                    end_date = (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
+                    url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={t}&token={finnhub_key}"
+                    r = requests.get(url).json()
+                    
+                    if "earningsCalendar" in r and len(r["earningsCalendar"]) > 0:
+                        # Find the closest future date
+                        earnings_list = r["earningsCalendar"]
+                        # Sort by date
+                        earnings_list.sort(key=lambda x: x['date'])
+                        next_date_str = earnings_list[0]['date']
+                        next_date = datetime.strptime(next_date_str, '%Y-%m-%d')
+                        
+                        delta = (next_date - datetime.now()).days
+                        if delta >= 0:
+                            days_to_earnings = delta
+                            finnhub_success = True
+                except:
+                    pass
 
-            # SMART UPDATE SQL: Only overwrite earnings if we actually found a valid date (!= 999)
-            # This prevents "flashing" or vanishing data if the API hiccups
+            # 2. Fallback to YFinance if Finnhub failed/no key
+            if not finnhub_success:
+                try:
+                    ticker_obj = yf.Ticker(t)
+                    info = ticker_obj.info
+                    debt_ratio = info.get('debtToEquity', 0) or 0
+                    market_cap = info.get('marketCap', 0) or 0
+                    eps = info.get('trailingEps', 0) or 0
+                    
+                    cal = ticker_obj.calendar
+                    if cal is not None and not cal.empty:
+                        # Handle different yfinance versions
+                        if isinstance(cal, pd.DataFrame):
+                            earnings_date = cal.iloc[0, 0]
+                        elif isinstance(cal, dict):
+                            earnings_date = cal.get('Earnings Date', [None])[0]
+                        else:
+                            earnings_date = None
+
+                        if isinstance(earnings_date, (datetime, pd.Timestamp)):
+                             delta_days = (earnings_date - datetime.now()).days
+                             if delta_days >= 0:
+                                 days_to_earnings = delta_days
+                except:
+                    pass 
+
+            # SMART SQL UPDATE
             sql = """INSERT INTO stock_cache 
                      (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
                      ON DUPLICATE KEY UPDATE 
                      current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, 
-                     days_to_earnings = CASE WHEN %s = 999 THEN days_to_earnings ELSE %s END, 
+                     days_to_earnings = CASE WHEN %s < 999 THEN %s ELSE days_to_earnings END, 
                      market_cap=%s, eps=%s"""
             
-            # Note the double passing of 'days_to_earnings' in the values tuple for the CASE statement
             vals = (t, price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps,
                     price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, 
-                    days_to_earnings, days_to_earnings, # Pass twice for the CASE logic
+                    days_to_earnings, days_to_earnings, # Pass twice for logic check
                     market_cap, eps)
             cursor.execute(sql, vals)
         except: continue
@@ -214,82 +192,95 @@ def get_cached_data(tickers):
     conn.close()
     return rows
 
+# 3. AUTH & RISK LOGIC
+def check_login(username, pin):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT pin FROM user_profiles WHERE username = %s", (username,))
+        row = cursor.fetchone(); conn.close()
+        if row: return row[0] == pin
+        return True 
+    except: return False
+
+def create_session(username):
+    token = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
+    conn.commit(); conn.close()
+    return token
+
+def get_user_from_token(token):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
+        row = cursor.fetchone(); conn.close()
+        return row[0] if row else None
+    except: return None
+
+def add_ticker_to_db(username, ticker):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO user_portfolio (username, ticker) VALUES (%s, %s)", (username, ticker))
+            conn.commit()
+        conn.close(); return True
+    except: return False
+
+def remove_ticker_from_db(username, ticker):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
+        conn.commit(); conn.close()
+    except: pass
+
+def get_user_portfolio(username):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT ticker FROM user_portfolio WHERE username=%s", (username,))
+        rows = cursor.fetchall(); conn.close()
+        return [r[0] for r in rows]
+    except: return []
+
 def calculate_risk(row):
-    score = 50
-    reasons = [] 
-    
+    score = 50; reasons = [] 
     if row.get('trend_status') == 'DOWNTREND': score += 10
     else: score -= 10
-    
     rsi = float(row.get('rsi', 50))
     if rsi > 70: score += 10
     if rsi < 30: score -= 10
-    
     vol = float(row.get('volatility', 0))
-    if vol > 3.0: 
-        score += 10
-        reasons.append("High Volatility")
-        
+    if vol > 3.0: score += 10; reasons.append("High Volatility")
     debt = float(row.get('debt_ratio', 0))
-    if debt > 150: 
-        score += 5
-        reasons.append("High Debt")
-
+    if debt > 150: score += 5; reasons.append("High Debt")
     days = int(row.get('days_to_earnings', 999))
-    if days < 10: 
-        score += 15
-        reasons.append("Earnings Soon")
-
+    if days < 10: score += 15; reasons.append("Earnings Soon")
     loc = float(row.get('range_loc', 50))
     if loc > 90: score += 10
     elif loc < 10: score -= 10
-    
-    if row.get('volume_status') == 'SPIKE':
-        score += 5
-        reasons.append("Vol Spike")
-
+    if row.get('volume_status') == 'SPIKE': score += 5; reasons.append("Vol Spike")
     mcap = float(row.get('market_cap', 0))
-    if 0 < mcap < 250000000: 
-        score += 15
-        reasons.append("Micro Cap")
-    elif 0 < mcap < 2000000000: 
-        score += 5
-    
+    if 0 < mcap < 250000000: score += 15; reasons.append("Micro Cap")
+    elif 0 < mcap < 2000000000: score += 5
     eps = float(row.get('eps', 0))
-    if eps < 0:
-        score += 10
-        reasons.append("Unprofitable")
-
+    if eps < 0: score += 10; reasons.append("Unprofitable")
+    
     final = max(0, min(100, int(score)))
     css, color, label = "badge-low", "#4ade80", "LOW"
-    
     if final > 65: label, color, css = "HIGH", "#ef4444", "badge-high"
     elif final > 35: label, color, css = "MEDIUM", "#fbbf24", "badge-med"
-        
     return final, label, color, css, reasons
 
-# 4. UI GENERATORS
+# 4. UI 
 def create_gauge_html(score, label, color):
-    radius = 80
-    circumference = 3.14159 * radius
-    fill_amount = (score / 100) * circumference
-    header_html = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>'
+    circumference = 3.14159 * 80; fill_amount = (score / 100) * circumference
+    header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>'
     svg = f'<svg viewBox="0 0 200 120" style="width: 100%; height: auto;"><defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs><path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" /><path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" /><text x="100" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="100" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
-    return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{header_html}{svg}</div>'
+    return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{header}{svg}</div>'
 
 def render_stock_card(row):
     score, label, color, css, reasons = calculate_risk(row)
-    price = float(row['current_price'])
-    change = float(row['day_change'])
-    c_color = "#4ade80" if change >= 0 else "#ef4444"
-    arrow = "▲" if change >= 0 else "▼"
-    ticker = row['ticker']
-    trend = row.get('trend_status', 'N/A')
-    
-    reason_html = ""
-    if reasons:
-        reason_html = f"<div style='font-size:0.65rem; color:#94a3b8; margin-top:4px;'>⚠️ {', '.join(reasons[:2])}</div>"
-    
+    price = float(row['current_price']); change = float(row['day_change']); c_color = "#4ade80" if change >= 0 else "#ef4444"; arrow = "▲" if change >= 0 else "▼"; ticker = row['ticker']; trend = row.get('trend_status', 'N/A')
+    reason_html = f"<div style='font-size:0.65rem; color:#94a3b8; margin-top:4px;'>⚠️ {', '.join(reasons[:2])}</div>" if reasons else ""
     html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div>{reason_html}</div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -297,46 +288,23 @@ def render_horizontal_grid(rows):
     html_content = '<div class="scrolling-wrapper">'
     for row in rows:
         score, label, color, css, reasons = calculate_risk(row)
-        change = float(row['day_change'])
-        c_color = "#4ade80" if change >= 0 else "#ef4444"
-        arrow = "▲" if change >= 0 else "▼"
-        ticker = row['ticker']
+        change = float(row['day_change']); c_color = "#4ade80" if change >= 0 else "#ef4444"; arrow = "▲" if change >= 0 else "▼"; ticker = row['ticker']
         card = f'<div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 4px;">{ticker}</div><div style="font-size:0.85rem; color:{c_color}; font-weight:bold; margin-bottom: 8px;">{arrow} {change:.2f}%</div><div style="display: flex; align-items: center;"><div style="width: 8px; height: 8px; border-radius: 50%; background-color: {color}; margin-right: 6px;"></div><div style="font-size:0.75rem; color:#94a3b8;">{label}</div></div></div>'
         html_content += card
-    html_content += '</div>'
-    st.markdown(html_content, unsafe_allow_html=True)
+    html_content += '</div>'; st.markdown(html_content, unsafe_allow_html=True)
 
 init_db()
+st.markdown("""<style> .stApp { background-color: #0f1219; color: #e0e6ed; } .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; } .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } .block-container { padding-top: 1rem; padding-bottom: 5rem; } input { color: black !important; } header {visibility: hidden;} footer {visibility: hidden;} .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } .scrolling-wrapper::-webkit-scrollbar { display: none; } .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; } </style>""", unsafe_allow_html=True)
 
-st.markdown("""<style>
-    .stApp { background-color: #0f1219; color: #e0e6ed; } 
-    .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } 
-    .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; } 
-    .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
-    .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
-    .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
-    .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
-    input { color: black !important; }
-    header {visibility: hidden;} footer {visibility: hidden;}
-    .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; }
-    .scrolling-wrapper::-webkit-scrollbar { display: none; }
-    .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; }
-</style>""", unsafe_allow_html=True)
-
-# LOGIN
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         if os.path.exists("logo.png"): st.image("logo.png", width=200)
         else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
     with st.form("login"):
-        user = st.text_input("Username")
-        pin = st.text_input("PIN", type="password")
+        user = st.text_input("Username"); pin = st.text_input("PIN", type="password")
         if st.form_submit_button("Login"):
-            if check_login(user, pin):
-                token = create_session(user)
-                st.query_params["token"] = token
-                st.rerun()
+            if check_login(user, pin): token = create_session(user); st.query_params["token"] = token; st.rerun()
             else: st.error("Invalid PIN")
     st.stop()
 
@@ -351,8 +319,7 @@ if active_tab == "home":
     if not my_portfolio: st.info("No stocks. Go to Portfolio tab.")
     else:
         if st.button("🔄 Refresh", key="ref_home"):
-            with st.spinner("Analyzing fundamentals..."):
-                update_stock_data(my_portfolio)
+            with st.spinner("Analyzing fundamentals..."): update_stock_data(my_portfolio)
         data = get_cached_data(my_portfolio)
         if data:
             avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
@@ -362,7 +329,6 @@ if active_tab == "home":
             else: r_label, r_color = "LOW", "#4ade80"
             st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
             
-            # --- SUMMARY STATS (Adjusted Order) ---
             highest_risk_stock = max(data, key=lambda x: calculate_risk(x)[0])
             most_volatile_stock = max(data, key=lambda x: abs(float(x['day_change'])))
             
@@ -370,7 +336,7 @@ if active_tab == "home":
             earnings_candidates = [d for d in data if d.get('days_to_earnings', 999) < 999]
             if earnings_candidates:
                 next_earnings_stock = min(earnings_candidates, key=lambda x: int(x.get('days_to_earnings', 999)))
-                earning_ticker = next_earnings_stock['ticker']
+                earning_ticker = f"{next_earnings_stock['ticker']} ({next_earnings_stock['days_to_earnings']}d)"
             else:
                 earning_ticker = "-"
 
@@ -395,30 +361,24 @@ if active_tab == "home":
 
 elif active_tab == "portfolio":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Manage Portfolio</div>", unsafe_allow_html=True)
-    col1, col2 = st.columns([2, 1])
+    col1, col2 = st.columns([2, 1]); 
     with col1: new_ticker = st.text_input("Ticker Symbol").upper()
     with col2:
         st.write(""); st.write("")
         if st.button("Add"):
-            if new_ticker and add_ticker_to_db(username, new_ticker):
-                st.success(f"Added {new_ticker}")
-                st.rerun()
-    st.divider()
-    my_stocks = get_user_portfolio(username)
+            if new_ticker and add_ticker_to_db(username, new_ticker): st.success(f"Added {new_ticker}"); st.rerun()
+    st.divider(); my_stocks = get_user_portfolio(username)
     if my_stocks:
         for t in my_stocks:
-            c1, c2 = st.columns([3, 1])
+            c1, c2 = st.columns([3, 1]); 
             with c1: st.markdown(f"<div style='font-size:1.2rem; font-weight:bold; color:white; padding:5px;'>{t}</div>", unsafe_allow_html=True)
-            with c2:
-                if st.button("🗑️", key=f"del_{t}"):
-                    remove_ticker_from_db(username, t)
-                    st.rerun()
+            with c2: 
+                if st.button("🗑️", key=f"del_{t}"): remove_ticker_from_db(username, t); st.rerun()
 
 elif active_tab == "scanner":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 5px;'>Scanner</div>", unsafe_allow_html=True)
     st.caption("Auto-generated from your portfolio")
-    my_portfolio = get_user_portfolio(username)
-    data = get_cached_data(my_portfolio)
+    my_portfolio = get_user_portfolio(username); data = get_cached_data(my_portfolio)
     if not data: st.info("No data to scan.")
     else:
         found_any = False
@@ -430,22 +390,9 @@ elif active_tab == "scanner":
             if row.get('volume_status') == "SPIKE": render_stock_card(row); found_any = True
         st.markdown("**📅 Earnings Coming Soon**")
         for row in data:
-            if int(row.get('days_to_earnings', 99)) < 14: render_stock_card(row); found_any = True
+            if int(row.get('days_to_earnings', 999)) < 14: render_stock_card(row); found_any = True
         if not found_any: st.success("No alerts found.")
 
 current_token = st.query_params.get("token", "")
-nav_html = f"""
-<style>
-    .nav-container {{ position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background-color: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 9999; }}
-    a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{ text-decoration: none; color: #94a3b8; font-family: sans-serif; font-size: 12px; text-align: center; width: 100%; padding: 5px 0; }}
-    a.nav-link:hover {{ color: white; }}
-    .nav-icon {{ font-size: 20px; display: block; margin-bottom: 2px; }}
-    a.active, a.active:visited {{ color: #3b82f6 !important; font-weight: bold; }}
-</style>
-<div class="nav-container">
-    <a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}"><span class="nav-icon">🏠</span>Home</a>
-    <a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a>
-    <a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}"><span class="nav-icon">📡</span>Scan</a>
-</div>
-"""
+nav_html = f"""<style>.nav-container {{ position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background-color: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 9999; }} a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{ text-decoration: none; color: #94a3b8; font-family: sans-serif; font-size: 12px; text-align: center; width: 100%; padding: 5px 0; }} a.nav-link:hover {{ color: white; }} .nav-icon {{ font-size: 20px; display: block; margin-bottom: 2px; }} a.active, a.active:visited {{ color: #3b82f6 !important; font-weight: bold; }}</style><div class="nav-container"><a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}"><span class="nav-icon">🏠</span>Home</a><a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}"><span class="nav-icon">📡</span>Scan</a></div>"""
 st.markdown(nav_html, unsafe_allow_html=True)
