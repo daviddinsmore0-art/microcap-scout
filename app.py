@@ -179,6 +179,7 @@ def create_gauge_html(score, label, color):
     
     return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{header_html}{svg}</div>'
 
+# Standard wide card for Portfolio/Scanner tabs
 def render_stock_card(row):
     score, label, color, css = calculate_risk(row)
     price = float(row['current_price'])
@@ -189,6 +190,27 @@ def render_stock_card(row):
     trend = row.get('trend_status', 'N/A')
     
     html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
+    st.markdown(html, unsafe_allow_html=True)
+
+# NEW: Compact grid card for Home tab "At a Glance"
+def render_small_stock_card(row):
+    score, label, color, css = calculate_risk(row)
+    price = float(row['current_price'])
+    change = float(row['day_change'])
+    c_color = "#4ade80" if change >= 0 else "#ef4444"
+    arrow = "▲" if change >= 0 else "▼"
+    ticker = row['ticker']
+    
+    html = f"""
+    <div class="card" style="padding: 15px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;">
+        <div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 5px;">{ticker}</div>
+        <div style="font-size:0.9rem; color:{c_color}; font-weight:bold; margin-bottom: 10px;">{arrow} {change:.2f}%</div>
+         <div style="display: flex; align-items: center;">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background-color: {color}; margin-right: 6px;"></div>
+            <div style="font-size:0.75rem; color:#94a3b8;">Risk: {label}</div>
+        </div>
+    </div>
+    """
     st.markdown(html, unsafe_allow_html=True)
 
 init_db()
@@ -241,7 +263,7 @@ active_tab = st.query_params.get("tab", "home")
 # 1. HOME SCREEN
 if active_tab == "home":
     # Custom Smaller Header
-    st.markdown(f"<div style='font-size: 26px; font-weight: 800; color: white; margin-bottom: 15px;'>Hi, {username}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Hi, {username}</div>", unsafe_allow_html=True)
     
     my_portfolio = get_user_portfolio(username)
     if not my_portfolio:
@@ -280,12 +302,21 @@ if active_tab == "home":
             """, unsafe_allow_html=True)
             
             st.write("### At a Glance")
-            for row in data[:4]:
-                render_stock_card(row)
+            # New Horizontal Grid Layout for Top 3
+            c1, c2, c3 = st.columns(3)
+            top_3 = data[:3]
+            
+            if len(top_3) > 0:
+                with c1: render_small_stock_card(top_3[0])
+            if len(top_3) > 1:
+                with c2: render_small_stock_card(top_3[1])
+            if len(top_3) > 2:
+                with c3: render_small_stock_card(top_3[2])
+
 
 # 2. PORTFOLIO SCREEN
 elif active_tab == "portfolio":
-    st.markdown(f"<div style='font-size: 26px; font-weight: 800; color: white; margin-bottom: 15px;'>Manage Portfolio</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Manage Portfolio</div>", unsafe_allow_html=True)
     
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -312,7 +343,7 @@ elif active_tab == "portfolio":
 
 # 3. SCANNER SCREEN
 elif active_tab == "scanner":
-    st.markdown(f"<div style='font-size: 26px; font-weight: 800; color: white; margin-bottom: 5px;'>Scanner</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 5px;'>Scanner</div>", unsafe_allow_html=True)
     st.caption("Auto-generated from your portfolio")
     
     my_portfolio = get_user_portfolio(username)
@@ -337,7 +368,7 @@ elif active_tab == "scanner":
         if not found_any:
             st.success("No alerts found.")
 
-# --- CUSTOM HTML BOTTOM NAV (High Contrast) ---
+# --- CUSTOM HTML BOTTOM NAV (High Contrast & Fixed Color) ---
 current_token = st.query_params.get("token", "")
 
 nav_html = f"""
@@ -357,23 +388,23 @@ nav_html = f"""
     }}
     .nav-link {{
         text-decoration: none;
-        color: #e0e6ed;  /* Bright White/Grey */
+        color: #94a3b8 !important; /* Force inactive color */
         font-family: sans-serif;
-        font-size: 14px; /* Larger Font */
+        font-size: 12px;
         text-align: center;
         width: 100%;
-        padding: 8px 0;
+        padding: 5px 0;
     }}
     .nav-link:hover {{
-        color: white;
+        color: white !important;
     }}
     .nav-icon {{
-        font-size: 22px; /* Larger Icon */
+        font-size: 20px;
         display: block;
         margin-bottom: 2px;
     }}
     .active {{
-        color: #3b82f6; /* Bright Blue Active State */
+        color: #3b82f6 !important; /* Force active color */
         font-weight: bold;
     }}
 </style>
