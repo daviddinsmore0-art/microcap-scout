@@ -2,9 +2,10 @@ import streamlit as st
 import mysql.connector
 import yfinance as yf
 import uuid
+import os
 
 # 1. CONFIG & DATABASE
-st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com",
@@ -170,7 +171,7 @@ def create_gauge_html(score, label, color):
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" />'
     svg += f'<text x="100" y="85" font-family="sans-serif" font-size="40" font-weight="bold" fill="white" text-anchor="middle">{score}</text>'
     svg += f'<text x="100" y="105" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
-    return f'<div class="card" style="padding-bottom:0;">{svg}</div>'
+    return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{svg}</div>'
 
 def render_stock_card(row):
     score, label, color, css = calculate_risk(row)
@@ -186,6 +187,7 @@ def render_stock_card(row):
 
 init_db()
 
+# GLOBAL CSS
 st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; } 
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } 
@@ -193,17 +195,29 @@ st.markdown("""<style>
     .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
     .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
-    .block-container { padding-top: 1rem; } 
+    .block-container { padding-top: 1rem; padding-bottom: 5rem; } /* Padding for bottom nav */
     input { color: black !important; }
-    /* Fix Tab Styling */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { background-color: #1a1f2b; border-radius: 8px; color: #94a3b8; padding: 10px 20px; border: 1px solid #2d3748; }
-    .stTabs [aria-selected="true"] { background-color: #3b82f6; color: white; border: 1px solid #3b82f6; }
+    
+    /* Hide Default Header/Footer */
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Bottom Navigation Styling */
+    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; padding: 10px 0; z-index: 999; }
+    .nav-btn { background: none; border: none; color: #94a3b8; font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; cursor: pointer; text-decoration: none;}
+    .nav-btn.active { color: #3b82f6; font-weight: bold; }
+    .nav-icon { font-size: 1.5rem; margin-bottom: 2px; }
 </style>""", unsafe_allow_html=True)
 
 # LOGIN
 if "token" not in st.query_params:
-    st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        if os.path.exists("logo.png"):
+            st.image("logo.png", width=200)
+        else:
+            st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+            
     with st.form("login"):
         user = st.text_input("Username")
         pin = st.text_input("PIN", type="password")
@@ -222,18 +236,26 @@ if not username:
     st.error("Session Expired")
     st.stop()
 
-st.title(f"Hi, {username}")
+# --- CUSTOM NAVIGATION STATE ---
+# We use query params to track the active tab because Streamlit buttons reload the page
+# This mimics a "Router"
+active_tab = st.query_params.get("tab", "home")
 
-# --- NATIVE TABS ---
-t1, t2, t3 = st.tabs(["🏠 Home", "📂 Portfolio", "📡 Scanner"])
-
-# 1. HOME TAB (Snapshot)
-with t1:
+# ----------------------------
+# 1. HOME SCREEN
+# ----------------------------
+if active_tab == "home":
+    st.title(f"Hi, {username}")
+    
     my_portfolio = get_user_portfolio(username)
     if not my_portfolio:
-        st.info("No stocks yet. Go to 'Portfolio' tab to add some!")
+        st.info("No stocks. Go to Portfolio tab.")
     else:
-        # Load Data
+        # Update Data Button (Small)
+        if st.button("🔄 Refresh", key="ref_home"):
+            with st.spinner("Checking market..."):
+                update_stock_data(my_portfolio)
+        
         data = get_cached_data(my_portfolio)
         
         if data:
@@ -246,22 +268,35 @@ with t1:
 
             st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
             
-            # --- "AT A GLANCE" SECTION ---
-            # Header with "View All" visual cue
-            col_a, col_b = st.columns([3, 1])
-            with col_a: st.write("### At a Glance")
-            with col_b: st.caption("Top 4")
-
-            # ONLY SHOW TOP 4
+            # --- SUMMARY STATS (The "Slick" Feature) ---
+            # Find Highest Risk & Most Volatile
+            highest_risk_stock = max(data, key=lambda x: calculate_risk(x)[0])
+            most_volatile_stock = max(data, key=lambda x: abs(float(x['day_change'])))
+            
+            st.markdown(f"""
+            <div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;">
+                <div style="text-align:center; width:50%; border-right:1px solid #2d3748;">
+                    <div style="color:#94a3b8; font-size:0.7rem; text-transform:uppercase;">Highest Risk</div>
+                    <div style="color:white; font-weight:bold; font-size:1.1rem;">{highest_risk_stock['ticker']}</div>
+                </div>
+                <div style="text-align:center; width:50%;">
+                    <div style="color:#94a3b8; font-size:0.7rem; text-transform:uppercase;">Most Volatile</div>
+                    <div style="color:white; font-weight:bold; font-size:1.1rem;">{most_volatile_stock['ticker']}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # --- AT A GLANCE ---
+            st.write("### At a Glance")
             for row in data[:4]:
                 render_stock_card(row)
-                
-            if len(data) > 4:
-                st.info(f"And {len(data)-4} more in Portfolio...")
 
-# 2. PORTFOLIO TAB (Full Management)
-with t2:
-    st.write("### Manage Stocks")
+# ----------------------------
+# 2. PORTFOLIO SCREEN
+# ----------------------------
+elif active_tab == "portfolio":
+    st.title("Manage Portfolio")
+    
     col1, col2 = st.columns([2, 1])
     with col1:
         new_ticker = st.text_input("Ticker Symbol").upper()
@@ -274,16 +309,8 @@ with t2:
                 st.rerun()
     
     st.divider()
-    
-    if st.button("🔄 Refresh Market Data"):
-        my_portfolio = get_user_portfolio(username)
-        with st.spinner("Checking market..."):
-            update_stock_data(my_portfolio)
-            st.rerun()
-
     my_stocks = get_user_portfolio(username)
     if my_stocks:
-        # SHOW ALL STOCKS HERE
         for t in my_stocks:
             c1, c2 = st.columns([3, 1])
             with c1:
@@ -293,9 +320,11 @@ with t2:
                     remove_ticker_from_db(username, t)
                     st.rerun()
 
-# 3. SCANNER TAB
-with t3:
-    st.write("### Market Scanner")
+# ----------------------------
+# 3. SCANNER SCREEN
+# ----------------------------
+elif active_tab == "scanner":
+    st.title("Scanner")
     st.caption("Auto-generated from your portfolio")
     
     my_portfolio = get_user_portfolio(username)
@@ -319,3 +348,26 @@ with t3:
 
         if not found_any:
             st.success("No alerts found.")
+
+# --- BOTTOM NAVIGATION BAR (Fake Injection) ---
+# We use st.columns at the bottom with buttons that set the query param
+st.markdown("<br><br>", unsafe_allow_html=True) # Spacer
+
+# This is a 'hacky' but effective way to put nav at bottom
+# We use 3 columns. Clicking one reloads page with new 'tab' param
+c1, c2, c3 = st.columns(3)
+with c1:
+    if st.button("🏠 Home", use_container_width=True):
+        st.query_params["token"] = st.query_params["token"]
+        st.query_params["tab"] = "home"
+        st.rerun()
+with c2:
+    if st.button("📂 Portfolio", use_container_width=True):
+        st.query_params["token"] = st.query_params["token"]
+        st.query_params["tab"] = "portfolio"
+        st.rerun()
+with c3:
+    if st.button("📡 Scanner", use_container_width=True):
+        st.query_params["token"] = st.query_params["token"]
+        st.query_params["tab"] = "scanner"
+        st.rerun()
