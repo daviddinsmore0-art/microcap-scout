@@ -38,7 +38,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS ---
+        # --- SAFE MIGRATIONS (Strict Multi-line Blocks to fix SyntaxError) ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -83,7 +83,8 @@ def update_stock_data(tickers, username):
     if not tickers: return
     try: 
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
-    except: return
+    except: 
+        return
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -108,14 +109,9 @@ def update_stock_data(tickers, username):
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std()*100
-            high3 = df['Close'].max()
-            low3 = df['Close'].min()
-            r_loc = 50
-            if high3 != low3:
-                r_loc = ((price-low3)/(high3-low3))*100
-                
-            avg_v = df['Volume'].rolling(20).mean().iloc[-1]
-            cur_v = df['Volume'].iloc[-1]
+            high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
+            if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
+            avg_v = df['Volume'].rolling(20).mean().iloc[-1]; cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
             debt=0; mcap=0; eps=0; days=999
@@ -154,7 +150,9 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
-    conn.commit(); conn.close()
+    
+    conn.commit()
+    conn.close()
     
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -304,22 +302,30 @@ def render_portfolio_row(row, market_data, current_token):
     
     pl_html = ""
     if shares > 0 and entry > 0:
-        val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
-        color_code = "green" if pl >= 0 else "red"
-        # FIX: Using Streamlit Markdown syntax instead of HTML to prevent code leakage
-        pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • </div>'
+        val = shares * p
+        cost = shares * entry
+        pl = val - cost
+        pl_pct = (pl / cost) * 100 if cost > 0 else 0
         
-        # We render the text separately to use Streamlit's markdown processor, but inside the loop we return HTML.
-        # To avoid the bug completely, we format it as a single line string WITHOUT HTML tags for the colored part.
-        # But we are inside an HTML block. 
-        # FINAL FIX: Use standard hex colors in a style attribute, but ensure NO NEWLINES in the string.
+        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
+        color_code = "green" if pl >= 0 else "red"
+        # This string uses Streamlit's native color syntax: :color[text]
+        pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
+        
+        # We output the row in two parts to avoid HTML glitch
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
+        
+        # Fallback if markdown inside HTML fails: Plain text, no tags.
+        # But wait, Streamlit HTML=True doesn't parse Markdown syntax inside. 
+        # WE MUST USE A PURE CSS SOLUTION to avoid the tag showing as text.
+        # Reverting to the simplest, most robust method: Inline style with single quotes to avoid conflicts.
         c_hex = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • <span style='color:{c_hex};'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
+        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • <span style='color:{c_hex}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
     elif shares > 0:
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
+    # Completely Flattened HTML
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -358,6 +364,7 @@ st.markdown("""<style>
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
     .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #4ade80 !important; }
     
+    /* NEON INPUTS */
     input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
     div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; }
@@ -365,15 +372,15 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
     
+    /* NEON BUTTONS */
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
     
-    /* LOGO SVG */
-    .neon-logo { font-size: 60px; text-shadow: 0 0 15px rgba(74, 222, 128, 0.8); animation: pulse 2s infinite; }
-    @keyframes pulse { 0% { opacity: 0.8; } 50% { opacity: 1; } 100% { opacity: 0.8; } }
+    /* FIX: Ensure Expander Button is Visible */
+    div[data-testid="stExpander"] details summary { color: #4ade80 !important; }
+    div[data-testid="stExpander"] details summary:hover { color: #16a34a !important; }
     
-    /* BUTTON HOVER FIX */
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
     button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
     button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
