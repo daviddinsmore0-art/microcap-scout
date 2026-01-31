@@ -163,7 +163,6 @@ def update_stock_data(tickers, username):
     conn.commit()
     conn.close()
     
-    # Check Alerts
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
@@ -310,16 +309,25 @@ def render_portfolio_row(row, market_data, current_token):
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
-    # FIXED: Replaced nested tags and entities with simple Font tag
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p
         cost = shares * entry
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
+        
+        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
+        color_str = "green" if pl >= 0 else "red"
+        pl_str = f":{color_str}[${pl:,.2f} ({pl_pct:.1f}%)]"
+        
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • </div>' 
+        # Note: We need to render the colored part separately if using standard HTML, but to keep it simple and robust,
+        # let's rely on standard color hexes in a style attribute which is safer than font tags.
+        
+        # BETTER FIX: Pure inline style, no fancy tags that break parser
         pl_color = "#4ade80" if pl >= 0 else "#ef4444"
-        # Using bullet point and FONT tag - bulletproof
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <font color="{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</font></div>'
+        pl_text = f"${pl:,.2f} ({pl_pct:.1f}%)"
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <span style="color:{pl_color}">{pl_text}</span></div>'
     elif shares > 0:
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
 
@@ -340,7 +348,6 @@ def render_horizontal_grid(rows_dict, current_token):
         status = row.get('trend_status', 'Move')
         if row.get('volume_status') == 'SPIKE': status = "VOL SPIKE"
         link = f"?token={current_token}&ticker={ticker}"
-        # Flattened HTML
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
