@@ -326,7 +326,7 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 init_db()
-# FIXED CSS FOR VISIBILITY AND INPUTS
+# CSS: FORCE TEXT VISIBILITY (INPUTS, LABELS, TABS)
 st.markdown("""<style> 
     .stApp { background-color: #0f1219; color: #e0e6ed; } 
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } 
@@ -336,28 +336,20 @@ st.markdown("""<style>
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
     .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
     
-    /* FORCE TEXT INPUT VISIBILITY (WHITE ON DARK) */
-    div[data-baseweb="input"] { 
-        background-color: #1a1f2b !important; 
-        border: 1px solid #2d3748 !important; 
-        border-radius: 8px !important; 
-    }
-    input[type="text"], input[type="password"], input[type="number"] { 
-        background-color: #1a1f2b !important; 
-        color: white !important; 
-        caret-color: white !important;
-    }
-    
-    /* FORCE SELECT BOX VISIBILITY */
+    /* INPUTS & SELECTS (White Text on Dark BG) */
+    div[data-baseweb="input"] { background-color: #1a1f2b !important; border: 1px solid #2d3748 !important; border-radius: 8px !important; }
+    input[type="text"], input[type="password"], input[type="number"] { background-color: transparent !important; color: white !important; caret-color: white !important; }
     div[data-baseweb="select"] { background-color: #1a1f2b !important; border-color: #2d3748 !important; color: white !important; }
     div[data-baseweb="popover"], div[role="listbox"] { background-color: #1a1f2b !important; }
     div[role="option"] { color: white !important; }
     
-    /* FIX WIDGET LABELS */
-    div[data-testid="stWidgetLabel"] p, label p, label {
-        color: #e0e6ed !important;
-        font-weight: bold;
-    }
+    /* LABELS (Bright White) */
+    div[data-testid="stWidgetLabel"] p, label p, label { color: #e0e6ed !important; font-weight: bold; }
+
+    /* TAB HEADERS (Force White) */
+    button[data-baseweb="tab"] { color: #e0e6ed !important; }
+    button[data-baseweb="tab"] p { color: #e0e6ed !important; }
+    button[data-baseweb="tab"][aria-selected="true"] { color: #3b82f6 !important; border-color: #3b82f6 !important; }
 
     header {visibility: hidden;} footer {visibility: hidden;} 
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } 
