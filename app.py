@@ -181,7 +181,7 @@ def get_single_stock(ticker):
     row = cursor.fetchone(); conn.close()
     return row
 
-# 3. AUTH
+# 3. AUTH & UTILS
 def login_user(username, pin):
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
@@ -196,10 +196,8 @@ def register_user(username, pin, display_name, email):
         conn = get_connection(); cursor = conn.cursor()
         cursor.execute("SELECT username FROM user_profiles WHERE username = %s", (username,))
         if cursor.fetchone(): conn.close(); return False
-        cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s, %s, %s, %s)", 
-                       (username, pin, display_name, email))
-        conn.commit(); conn.close()
-        return True
+        cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s, %s, %s, %s)", (username, pin, display_name, email))
+        conn.commit(); conn.close(); return True
     except: return False
 
 def update_user_settings(username, display_name, email, new_pin=None):
@@ -207,15 +205,13 @@ def update_user_settings(username, display_name, email, new_pin=None):
         conn = get_connection(); cursor = conn.cursor()
         if new_pin: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
         else: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
-        conn.commit(); conn.close()
-        return True
+        conn.commit(); conn.close(); return True
     except: return False
 
 def create_session(username):
     token = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
     cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s, %s)", (token, username))
-    conn.commit(); conn.close()
-    return token
+    conn.commit(); conn.close(); return token
 
 def get_user_from_token(token):
     try:
@@ -225,7 +221,7 @@ def get_user_from_token(token):
         return row if row else None
     except: return None
 
-# 4. ALERTS & PORTFOLIO
+# 4. ALERTS & PORTFOLIO OPS
 def add_alert(username, ticker, condition, price):
     try:
         conn = get_connection(); cursor = conn.cursor()
@@ -243,8 +239,7 @@ def get_user_alerts(username):
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
-        rows = cursor.fetchall(); conn.close()
-        return rows
+        rows = cursor.fetchall(); conn.close(); return rows
     except: return []
 
 def add_ticker_to_db(username, ticker):
@@ -277,8 +272,8 @@ def calculate_risk(row):
     if row.get('trend_status') == 'DOWNTREND': score += 10
     else: score -= 10
     rsi = float(row.get('rsi', 50))
-    if rsi > 70: score += 10
-    if rsi < 30: score -= 10
+    if rsi > 70: score += 10; reasons.append("Overbought")
+    if rsi < 30: score -= 10; reasons.append("Oversold")
     vol = float(row.get('volatility', 0))
     if vol > 3.0: score += 10; reasons.append("High Volatility")
     debt = float(row.get('debt_ratio', 0))
@@ -332,20 +327,8 @@ def render_clickable_list_row(row, current_token):
     # URL to trigger detail view
     link = f"?token={current_token}&ticker={ticker}"
     
-    html = f"""
-    <a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;">
-        <div class="card" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: transform 0.1s;">
-            <div>
-                <div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div>
-                <div style="font-size:0.8rem; color:#94a3b8;">Risk: <span style="color:{color}">{label}</span></div>
-            </div>
-            <div style="text-align: right;">
-                <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-                <div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
-            </div>
-        </div>
-    </a>
-    """
+    # FIX: Flattened HTML string to prevent whitespace from breaking Streamlit rendering
+    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: transform 0.1s;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: <span style="color:{color}">{label}</span></div></div><div style="text-align: right;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows, current_token):
@@ -355,18 +338,8 @@ def render_horizontal_grid(rows, current_token):
         # CLICKABLE SCROLLER ITEM
         link = f"?token={current_token}&ticker={ticker}"
         
-        card = f"""
-        <a href="{link}" target="_self" style="text-decoration:none; color:inherit;">
-            <div class="scrolling-card">
-                <div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 4px;">{ticker}</div>
-                <div style="font-size:0.85rem; color:{c_color}; font-weight:bold; margin-bottom: 8px;">{arrow} {change:.2f}%</div>
-                <div style="display: flex; align-items: center;">
-                    <div style="width: 8px; height: 8px; border-radius: 50%; background-color: {c_color}; margin-right: 6px;"></div>
-                    <div style="font-size:0.75rem; color:#94a3b8;">Move</div>
-                </div>
-            </div>
-        </a>
-        """
+        # FIX: Flattened HTML string to prevent whitespace bugs
+        card = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 4px;">{ticker}</div><div style="font-size:0.85rem; color:{c_color}; font-weight:bold; margin-bottom: 8px;">{arrow} {change:.2f}%</div><div style="display: flex; align-items: center;"><div style="width: 8px; height: 8px; border-radius: 50%; background-color: {c_color}; margin-right: 6px;"></div><div style="font-size:0.75rem; color:#94a3b8;">Move</div></div></div></a>'
         html_content += card
     html_content += '</div>'; st.markdown(html_content, unsafe_allow_html=True)
 
@@ -394,7 +367,17 @@ st.markdown("""<style>
     button[data-baseweb="tab"] { color: #94a3b8 !important; }
     button[data-baseweb="tab"][aria-selected="true"] { color: #3b82f6 !important; border-bottom-color: #3b82f6 !important; font-weight: bold !important; }
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button { background: linear-gradient(to right, #2563eb, #06b6d4) !important; color: white !important; border: none !important; border-radius: 8px !important; font-weight: bold !important; padding: 10px 20px !important; }
-    
+    div.stButton > button:hover { opacity: 0.9 !important; transform: scale(1.02); }
+
+    /* STOCK LIST BUTTONS (Make them look like cards) */
+    div.stButton > button[kind="secondary"] {
+        background: #1a1f2b !important; 
+        border: 1px solid #2d3748 !important;
+        text-align: left !important;
+        display: flex; justify-content: space-between;
+        margin-bottom: 5px;
+    }
+
     header {visibility: hidden;} footer {visibility: hidden;} 
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } 
     .scrolling-wrapper::-webkit-scrollbar { display: none; } 
