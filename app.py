@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# Define token early to prevent NameErrors
+# Define token early
 token = st.query_params.get("token", None)
 
 DB_CONFIG = {
@@ -33,47 +33,18 @@ def init_db():
         # Base Tables
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        # Note: Updated schema with shares/entry_price
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, PRIMARY KEY (id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-
-        # NEW: Shares and Entry Price columns
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
+        # Safe Migrations
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
         
         conn.close()
     except Exception as e:
@@ -93,10 +64,8 @@ def update_stock_data(tickers, username):
     
     for t in tickers:
         try:
-            if len(tickers) > 1:
-                df = data[t]
-            else:
-                df = data
+            if len(tickers) > 1: df = data[t]
+            else: df = data
             
             df = df.dropna()
             if df.empty: continue
@@ -109,25 +78,19 @@ def update_stock_data(tickers, username):
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
-            
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
-            
             vol = df['Close'].pct_change().std()*100
-            
             high3 = df['Close'].max()
             low3 = df['Close'].min()
             r_loc = 50
-            if high3 != low3:
-                r_loc = ((price-low3)/(high3-low3))*100
-                
+            if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
             avg_v = df['Volume'].rolling(20).mean().iloc[-1]
             cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
             debt=0; mcap=0; eps=0; days=999
             
-            # Finnhub
             if finnhub_key:
                 try:
                     s_d = datetime.now().strftime('%Y-%m-%d')
@@ -135,24 +98,19 @@ def update_stock_data(tickers, username):
                     u = f"https://finnhub.io/api/v1/calendar/earnings?from={s_d}&to={e_d}&symbol={t}&token={finnhub_key}"
                     res = requests.get(u).json()
                     if "earningsCalendar" in res and res["earningsCalendar"]:
-                        el = res["earningsCalendar"]
-                        el.sort(key=lambda x: x['date'])
+                        el = res["earningsCalendar"]; el.sort(key=lambda x: x['date'])
                         nd = datetime.strptime(el[0]['date'], '%Y-%m-%d')
                         delta_d = (nd - datetime.now()).days
                         if delta_d >= 0: days = delta_d
                 except: pass
             
-            # YF Fallback
             try:
                 io = yf.Ticker(t).info
-                debt = io.get('debtToEquity',0) or 0
-                mcap = io.get('marketCap',0) or 0
-                eps = io.get('trailingEps',0) or 0
+                debt = io.get('debtToEquity',0) or 0; mcap = io.get('marketCap',0) or 0; eps = io.get('trailingEps',0) or 0
                 if days == 999:
                     cal = yf.Ticker(t).calendar
                     if cal is not None:
-                        if isinstance(cal, dict) and 'Earnings Date' in cal:
-                            days = (cal['Earnings Date'][0] - datetime.now()).days
+                        if isinstance(cal, dict) and 'Earnings Date' in cal: days = (cal['Earnings Date'][0] - datetime.now()).days
             except: pass
 
             sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
@@ -163,27 +121,19 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
+    conn.commit(); conn.close()
     
-    conn.commit()
-    conn.close()
-    
-    # Check Alerts
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
     alerts = cursor.fetchall()
     for a in alerts:
         cursor.execute("SELECT day_change FROM stock_cache WHERE ticker=%s", (a['ticker'],))
         row = cursor.fetchone()
         if row:
-            pct = float(row['day_change'])
-            target = float(a['target_price'])
-            cond = a['condition_type']
+            pct = float(row['day_change']); target = float(a['target_price']); cond = a['condition_type']
             hit = (cond=='UP' and pct>=target) or (cond=='DOWN' and pct<=(target*-1))
-            if hit:
-                cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
-    conn.commit()
-    conn.close()
+            if hit: cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
+    conn.commit(); conn.close()
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -290,7 +240,6 @@ def calculate_risk(row):
     if row.get('volume_status') == 'SPIKE': s += 5; reasons.append("Vol Spike")
     if 0 < float(row.get('market_cap', 0)) < 250000000: s += 15; reasons.append("Micro Cap")
     if float(row.get('eps', 0)) < 0: s += 10; reasons.append("Unprofitable")
-    
     final = max(0, min(100, int(s)))
     if final > 65: return final, "HIGH", "#ef4444", "badge-high", reasons
     if final > 35: return final, "MEDIUM", "#fbbf24", "badge-med", reasons
@@ -303,7 +252,6 @@ def create_gauge_html(score, label, color, size="big"):
     fs = "38" if size == "big" else "28"
     fill = (score / 100) * (3.14159 * rad)
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
-    # Flattened HTML
     svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
@@ -315,7 +263,7 @@ def render_portfolio_row(row, market_data, current_token):
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
-    # FIXED: Replaced HTML entities with standard text/spans and simplified structure
+    # FIXED: Replaced nested spans with a font tag to prevent rendering breakage
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p
@@ -323,13 +271,11 @@ def render_portfolio_row(row, market_data, current_token):
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
         pl_color = "#4ade80" if pl >= 0 else "#ef4444"
-        # Flattened HTML string with cleaner structure
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <span style="color:{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</span></div>'
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <font color="{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</font></div>'
     elif shares > 0:
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
 
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # Flattened HTML to avoid markdown bugs
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -346,7 +292,6 @@ def render_horizontal_grid(rows_dict, current_token):
         status = row.get('trend_status', 'Move')
         if row.get('volume_status') == 'SPIKE': status = "VOL SPIKE"
         link = f"?token={current_token}&ticker={ticker}"
-        # Flattened HTML
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
@@ -357,44 +302,56 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 def render_navbar(active_tab, token):
-    # Flattened HTML
     nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
     st.markdown(nav_html, unsafe_allow_html=True)
 
 init_db()
 
-# --- CSS ---
+# --- CSS: NEON GREEN THEME ---
 st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; }
     .block-container { padding-top: 0rem !important; padding-bottom: 7rem !important; }
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
-    .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #2ecc71 !important; }
-    input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #2ecc71 !important; border-radius: 8px; padding: 10px; }
+    .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #4ade80 !important; }
+    
+    /* NEON GREEN INPUTS */
+    input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
-    div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #2ecc71 !important; }
+    div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; }
     div[role="listbox"] { background-color: #1e293b !important; }
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
-    div.stButton > button, div[data-testid="stFormSubmitButton"] > button { background: linear-gradient(135deg, #2ecc71, #27ae60) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px; }
+    
+    /* NEON GREEN BUTTONS */
+    div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
+        background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
+    }
+    
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
     button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
-    button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
-    button[key="alert_action_btn"] { background: linear-gradient(135deg, #2ecc71, #27ae60) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
+    
+    /* ALERT BUTTON */
+    button[key="alert_action_btn"] { background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
+    
     button[data-baseweb="tab"] { color: #94a3b8 !important; }
-    button[data-baseweb="tab"][aria-selected="true"] { color: #2ecc71 !important; border-bottom-color: #2ecc71 !important; }
+    button[data-baseweb="tab"][aria-selected="true"] { color: #4ade80 !important; border-bottom-color: #4ade80 !important; }
+    
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 10px; -ms-overflow-style: none; scrollbar-width: none; }
     .scrolling-wrapper::-webkit-scrollbar { display: none; }
     .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; transition: transform 0.1s; }
+    
     .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 8px 0; border-bottom: 1px solid #2d3748; }
     .risk-label { color: #e0e6ed; font-size: 0.9rem; }
     .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
     .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
     .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
     .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+    
     header {visibility: hidden;} footer {visibility: hidden;} 
+    
     .nav-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background-color: #0f1219; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 99999; padding-bottom: 5px; }
     a.nav-link { text-decoration: none; color: #64748b; font-family: sans-serif; font-size: 10px; text-align: center; width: 100%; }
-    a.nav-link.active { color: #2ecc71; font-weight: bold; }
+    a.nav-link.active { color: #4ade80; font-weight: bold; }
     .nav-icon { font-size: 22px; display: block; margin-bottom: 2px; }
 </style>""", unsafe_allow_html=True)
 
