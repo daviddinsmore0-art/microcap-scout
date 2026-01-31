@@ -90,15 +90,15 @@ def check_alerts(username):
         stock = cursor.fetchone()
         
         if stock:
-            # Logic Change: Compare 'day_change' % instead of absolute price
+            # Compare 'day_change' % instead of absolute price
             pct_move = float(stock['day_change'])
             target_pct = float(alert['target_price']) # reusing column for % value
             condition = alert['condition_type'] 
             
             hit = False
-            # If Condition is UP, check if move >= target (e.g. up 5%)
+            # UP: Did it rise MORE than target? (e.g. > 5%)
             if condition == 'UP' and pct_move >= target_pct: hit = True
-            # If Condition is DOWN, check if move <= -target (e.g. down 5%)
+            # DOWN: Did it drop MORE than target? (e.g. < -5%)
             elif condition == 'DOWN' and pct_move <= (target_pct * -1): hit = True
             
             if hit:
@@ -380,7 +380,7 @@ st.markdown("""<style>
     input[type="text"], input[type="password"], input[type="number"] { 
         background-color: transparent !important; 
         color: white !important; 
-        caret-color: white !important; /* Cursor color */
+        caret-color: white !important;
     }
     
     /* FORCE SELECT BOX VISIBILITY */
@@ -388,6 +388,11 @@ st.markdown("""<style>
     div[data-baseweb="popover"], div[role="listbox"] { background-color: #1a1f2b !important; }
     div[role="option"] { color: white !important; }
     
+    /* FIX WIDGET LABELS (Ticker, Move, etc) */
+    div[data-testid="stWidgetLabel"] p, label p, label {
+        color: #e0e6ed !important;
+    }
+
     header {visibility: hidden;} footer {visibility: hidden;} 
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } 
     .scrolling-wrapper::-webkit-scrollbar { display: none; } 
@@ -471,7 +476,7 @@ elif active_tab == "portfolio":
             with c2: 
                 if st.button("🗑️", key=f"del_{t}"): remove_ticker_from_db(username, t); st.rerun()
 
-# 3. ALERTS (NEW PERCENT LOGIC)
+# 3. ALERTS (PERCENT LOGIC)
 elif active_tab == "alerts":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Volatility Alerts</div>", unsafe_allow_html=True)
     
@@ -496,21 +501,11 @@ elif active_tab == "alerts":
             bg_color = "#3d1111" if a['is_triggered'] else "#1a1f2b"
             border_color = "#ef4444" if a['is_triggered'] else "#2d3748"
             status_icon = "🔔 TRIGGERED" if a['is_triggered'] else "👀 Watching"
-            
-            # Logic: Show % instead of $ in UI
             arrow = "📉 Drops" if a['condition_type'] == 'DOWN' else "📈 Rises"
             
-            card_html = f"""
-            <div style="background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{a['ticker']}</div>
-                    <div style="font-size:0.85rem; color:#94a3b8;">{status_icon}: {arrow} {a['target_price']}%</div>
-                </div>
-            </div>
-            """
+            card_html = f"""<div style="background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{status_icon}: {arrow} {a['target_price']}%</div></div></div>"""
             st.markdown(card_html, unsafe_allow_html=True)
-            if st.button("Delete", key=f"del_alert_{a['id']}"):
-                delete_alert(a['id']); st.rerun()
+            if st.button("Delete", key=f"del_alert_{a['id']}"): delete_alert(a['id']); st.rerun()
     else: st.info("No alerts set.")
 
 # 4. SCANNER
