@@ -142,6 +142,7 @@ def calculate_risk(row):
 # ---------------------------------------------------------
 init_db()
 
+# CSS Configuration (Single quotes used for safety)
 st.markdown("""
 <style>
     .stApp { background-color: #0f1219; color: #e0e6ed; }
@@ -200,17 +201,17 @@ else: r_label, r_color = "LOW", "#4ade80"
 st.title(f"Good Evening, {username}")
 
 # Widget 1: Risk Gauge
-gauge_html = f"""
-<div class="card" style="text-align: center;">
-    <div style="color: #94a3b8; font-size: 0.8rem; margin-bottom:10px;">PORTFOLIO RISK</div>
-    <div class="big-score">{int(avg_risk)}</div>
-    <div style="color: {r_color}; font-weight: bold; letter-spacing: 2px;">{r_label}</div>
-    <div style="height: 8px; background: #334155; border-radius: 4px; margin-top: 10px; overflow:hidden;">
-        <div style="width: {avg_risk}%; height:100%; background: linear-gradient(90deg, #4ade80, #fbbf24, #ef4444);"></div>
-    </div>
-</div>
-"""
+gauge_html = (
+    f'<div class="card" style="text-align: center;">'
+    f'<div style="color: #94a3b8; font-size: 0.8rem; margin-bottom:10px;">PORTFOLIO RISK</div>'
+    f'<div class="big-score">{int(avg_risk)}</div>'
+    f'<div style="color: {r_color}; font-weight: bold; letter-spacing: 2px;">{r_label}</div>'
+    f'<div style="height: 8px; background: #334155; border-radius: 4px; margin-top: 10px; overflow:hidden;">'
+    f'<div style="width: {avg_risk}%; height:100%; background: linear-gradient(90deg, #4ade80, #fbbf24, #ef4444);"></div>'
+    f'</div></div>'
+)
 st.markdown(gauge_html, unsafe_allow_html=True)
+
 # Widget 2: Portfolio List
 st.subheader("My Portfolio")
 
@@ -220,24 +221,22 @@ for row in data:
     change = float(row['day_change'])
     c_color = "#4ade80" if change >= 0 else "#ef4444"
     arrow = "▲" if change >= 0 else "▼"
+    ticker = row['ticker']
+    trend = row.get('trend_status', 'N/A')
     
-    # We build the HTML string cleanly in a variable first
-    html_code = f"""
-    <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-            <div style="font-size:0.8rem; color:#94a3b8;">Trend: {row['trend_status']}</div>
-        </div>
-        <div style="text-align: right; flex-grow:1; padding-right:15px;">
-            <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-            <div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
-        </div>
-        <div class="{css} badge">{label}</div>
-    </div>
-    """
+    # Safe HTML construction (No triple quotes)
+    card_html = (
+        f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;">'
+        f'<div>'
+        f'<div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div>'
+        f'<div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div>'
+        f'</div>'
+        f'<div style="text-align: right; flex-grow:1; padding-right:15px;">'
+        f'<div style="color:white; font-weight:bold;">${price:,.2f}</div>'
+        f'<div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>'
+        f'</div>'
+        f'<div class="{css} badge">{label}</div>'
+        f'</div>'
+    )
     
-    # Then we print it. This prevents the syntax error.
-    st.markdown(html_code, unsafe_allow_html=True)
-
-# --- END OF FILE ---
-
+    st.markdown(card_html, unsafe_allow_html=True)
