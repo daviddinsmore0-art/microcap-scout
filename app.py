@@ -45,6 +45,7 @@ def init_db():
         )"""
         cursor.execute(sql)
         
+        # Silent Migrations
         try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
         except: pass
         try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10, 2) DEFAULT 0")
@@ -162,7 +163,7 @@ def update_stock_data(tickers):
 
             # Fundamentals
             debt_ratio = 0
-            days_to_earnings = 999 # Default high number so it doesn't show as "soon"
+            days_to_earnings = 999 
             market_cap = 0
             eps = 0
             
@@ -175,7 +176,6 @@ def update_stock_data(tickers):
                 
                 cal = ticker_obj.calendar
                 if cal is not None and not cal.empty:
-                    # Look for earnings date
                     earnings_date = cal.iloc[0, 0]
                     if isinstance(earnings_date, (datetime, pd.Timestamp)):
                          delta_days = (earnings_date - datetime.now()).days
@@ -184,14 +184,21 @@ def update_stock_data(tickers):
             except:
                 pass 
 
+            # SMART UPDATE SQL: Only overwrite earnings if we actually found a valid date (!= 999)
+            # This prevents "flashing" or vanishing data if the API hiccups
             sql = """INSERT INTO stock_cache 
                      (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
                      ON DUPLICATE KEY UPDATE 
-                     current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, days_to_earnings=%s, market_cap=%s, eps=%s"""
+                     current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, 
+                     days_to_earnings = CASE WHEN %s = 999 THEN days_to_earnings ELSE %s END, 
+                     market_cap=%s, eps=%s"""
             
+            # Note the double passing of 'days_to_earnings' in the values tuple for the CASE statement
             vals = (t, price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps,
-                    price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps)
+                    price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, 
+                    days_to_earnings, days_to_earnings, # Pass twice for the CASE logic
+                    market_cap, eps)
             cursor.execute(sql, vals)
         except: continue
     conn.commit()
