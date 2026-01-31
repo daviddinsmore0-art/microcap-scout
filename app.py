@@ -166,13 +166,18 @@ def create_gauge_html(score, label, color):
     radius = 80
     circumference = 3.14159 * radius
     fill_amount = (score / 100) * circumference
+    
+    # ADDED: Top Label HTML
+    header_html = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>'
+    
     svg = f'<svg viewBox="0 0 200 120" style="width: 100%; height: auto;">'
     svg += '<defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs>'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" />'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" />'
     svg += f'<text x="100" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text>'
     svg += f'<text x="100" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
-    return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{svg}</div>'
+    
+    return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{header_html}{svg}</div>'
 
 def render_stock_card(row):
     score, label, color, css = calculate_risk(row)
@@ -235,7 +240,8 @@ active_tab = st.query_params.get("tab", "home")
 
 # 1. HOME SCREEN
 if active_tab == "home":
-    st.title(f"Hi, {username}")
+    # Custom Smaller Header
+    st.markdown(f"<div style='font-size: 26px; font-weight: 800; color: white; margin-bottom: 15px;'>Hi, {username}</div>", unsafe_allow_html=True)
     
     my_portfolio = get_user_portfolio(username)
     if not my_portfolio:
@@ -279,7 +285,7 @@ if active_tab == "home":
 
 # 2. PORTFOLIO SCREEN
 elif active_tab == "portfolio":
-    st.title("Manage Portfolio")
+    st.markdown(f"<div style='font-size: 26px; font-weight: 800; color: white; margin-bottom: 15px;'>Manage Portfolio</div>", unsafe_allow_html=True)
     
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -306,7 +312,7 @@ elif active_tab == "portfolio":
 
 # 3. SCANNER SCREEN
 elif active_tab == "scanner":
-    st.title("Scanner")
+    st.markdown(f"<div style='font-size: 26px; font-weight: 800; color: white; margin-bottom: 5px;'>Scanner</div>", unsafe_allow_html=True)
     st.caption("Auto-generated from your portfolio")
     
     my_portfolio = get_user_portfolio(username)
@@ -331,8 +337,7 @@ elif active_tab == "scanner":
         if not found_any:
             st.success("No alerts found.")
 
-# --- CUSTOM HTML BOTTOM NAV ---
-# This ignores Streamlit's stacking logic and uses raw CSS/HTML to force horizontal layout
+# --- CUSTOM HTML BOTTOM NAV (High Contrast) ---
 current_token = st.query_params.get("token", "")
 
 nav_html = f"""
@@ -352,23 +357,23 @@ nav_html = f"""
     }}
     .nav-link {{
         text-decoration: none;
-        color: #94a3b8;
+        color: #e0e6ed;  /* Bright White/Grey */
         font-family: sans-serif;
-        font-size: 12px;
+        font-size: 14px; /* Larger Font */
         text-align: center;
         width: 100%;
-        padding: 5px 0;
+        padding: 8px 0;
     }}
     .nav-link:hover {{
         color: white;
     }}
     .nav-icon {{
-        font-size: 20px;
+        font-size: 22px; /* Larger Icon */
         display: block;
         margin-bottom: 2px;
     }}
     .active {{
-        color: #3b82f6;
+        color: #3b82f6; /* Bright Blue Active State */
         font-weight: bold;
     }}
 </style>
