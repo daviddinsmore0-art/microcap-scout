@@ -192,26 +192,33 @@ def render_stock_card(row):
     html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
 
-# NEW: Compact grid card for Home tab "At a Glance"
-def render_small_stock_card(row):
-    score, label, color, css = calculate_risk(row)
-    price = float(row['current_price'])
-    change = float(row['day_change'])
-    c_color = "#4ade80" if change >= 0 else "#ef4444"
-    arrow = "▲" if change >= 0 else "▼"
-    ticker = row['ticker']
+# NEW: Forced Horizontal Scroll Container
+def render_horizontal_grid(rows):
+    html_content = '<div style="display: flex; flex-direction: row; gap: 10px; overflow-x: auto; padding-bottom: 5px;">'
     
-    html = f"""
-    <div class="card" style="padding: 15px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;">
-        <div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 5px;">{ticker}</div>
-        <div style="font-size:0.9rem; color:{c_color}; font-weight:bold; margin-bottom: 10px;">{arrow} {change:.2f}%</div>
-         <div style="display: flex; align-items: center;">
-            <div style="width: 8px; height: 8px; border-radius: 50%; background-color: {color}; margin-right: 6px;"></div>
-            <div style="font-size:0.75rem; color:#94a3b8;">Risk: {label}</div>
+    for row in rows:
+        score, label, color, css = calculate_risk(row)
+        price = float(row['current_price'])
+        change = float(row['day_change'])
+        c_color = "#4ade80" if change >= 0 else "#ef4444"
+        arrow = "▲" if change >= 0 else "▼"
+        ticker = row['ticker']
+        
+        # Mini Card HTML
+        card = f"""
+        <div style="background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; min-width: 130px; flex: 0 0 auto;">
+            <div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 4px;">{ticker}</div>
+            <div style="font-size:0.85rem; color:{c_color}; font-weight:bold; margin-bottom: 8px;">{arrow} {change:.2f}%</div>
+            <div style="display: flex; align-items: center;">
+                <div style="width: 8px; height: 8px; border-radius: 50%; background-color: {color}; margin-right: 6px;"></div>
+                <div style="font-size:0.75rem; color:#94a3b8;">{label}</div>
+            </div>
         </div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
+        """
+        html_content += card
+        
+    html_content += '</div>'
+    st.markdown(html_content, unsafe_allow_html=True)
 
 init_db()
 
@@ -302,16 +309,10 @@ if active_tab == "home":
             """, unsafe_allow_html=True)
             
             st.write("### At a Glance")
-            # New Horizontal Grid Layout for Top 3
-            c1, c2, c3 = st.columns(3)
-            top_3 = data[:3]
             
-            if len(top_3) > 0:
-                with c1: render_small_stock_card(top_3[0])
-            if len(top_3) > 1:
-                with c2: render_small_stock_card(top_3[1])
-            if len(top_3) > 2:
-                with c3: render_small_stock_card(top_3[2])
+            # Use the new Forced Horizontal Grid function
+            # We pass the top 4 stocks to it
+            render_horizontal_grid(data[:5])
 
 
 # 2. PORTFOLIO SCREEN
