@@ -315,7 +315,7 @@ def render_portfolio_row(row, market_data, current_token):
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
-    # FIXED: Replaced HTML entities with standard text/spans
+    # FIXED: Replaced HTML entities with standard text/spans and simplified structure
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p
@@ -323,7 +323,7 @@ def render_portfolio_row(row, market_data, current_token):
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
         pl_color = "#4ade80" if pl >= 0 else "#ef4444"
-        # Flattened HTML string
+        # Flattened HTML string with cleaner structure
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <span style="color:{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</span></div>'
     elif shares > 0:
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
@@ -368,20 +368,20 @@ st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; }
     .block-container { padding-top: 0rem !important; padding-bottom: 7rem !important; }
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
-    .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #3b82f6 !important; }
-    input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #3b82f6 !important; border-radius: 8px; padding: 10px; }
+    .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #2ecc71 !important; }
+    input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #2ecc71 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
-    div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #3b82f6 !important; }
+    div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #2ecc71 !important; }
     div[role="listbox"] { background-color: #1e293b !important; }
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
-    div.stButton > button, div[data-testid="stFormSubmitButton"] > button { background: linear-gradient(135deg, #2563eb, #06b6d4) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px; }
+    div.stButton > button, div[data-testid="stFormSubmitButton"] > button { background: linear-gradient(135deg, #2ecc71, #27ae60) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px; }
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
     button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
     button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
-    button[key="alert_action_btn"] { background: linear-gradient(135deg, #10b981, #059669) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
+    button[key="alert_action_btn"] { background: linear-gradient(135deg, #2ecc71, #27ae60) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
     button[data-baseweb="tab"] { color: #94a3b8 !important; }
-    button[data-baseweb="tab"][aria-selected="true"] { color: #3b82f6 !important; border-bottom-color: #3b82f6 !important; }
+    button[data-baseweb="tab"][aria-selected="true"] { color: #2ecc71 !important; border-bottom-color: #2ecc71 !important; }
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 10px; -ms-overflow-style: none; scrollbar-width: none; }
     .scrolling-wrapper::-webkit-scrollbar { display: none; }
     .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; transition: transform 0.1s; }
@@ -394,7 +394,7 @@ st.markdown("""<style>
     header {visibility: hidden;} footer {visibility: hidden;} 
     .nav-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background-color: #0f1219; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 99999; padding-bottom: 5px; }
     a.nav-link { text-decoration: none; color: #64748b; font-family: sans-serif; font-size: 10px; text-align: center; width: 100%; }
-    a.nav-link.active { color: #3b82f6; font-weight: bold; }
+    a.nav-link.active { color: #2ecc71; font-weight: bold; }
     .nav-icon { font-size: 22px; display: block; margin-bottom: 2px; }
 </style>""", unsafe_allow_html=True)
 
