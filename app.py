@@ -2,7 +2,6 @@ import streamlit as st
 import mysql.connector
 import yfinance as yf
 import uuid
-import math
 
 # 1. CONFIG & DATABASE
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered")
@@ -24,14 +23,16 @@ def init_db():
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, user_data TEXT, pin VARCHAR(50))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        # Short SQL string to be safe
+        cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20))")
+        
+        # Cache Table
         sql = "CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), trend_status VARCHAR(20), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
         cursor.execute(sql)
         conn.close()
     except Exception as e:
         st.error(f"DB Init Error: {e}")
 
-# 2. AUTHENTICATION
+# 2. AUTHENTICATION & PORTFOLIO
 def check_login(username, pin):
     try:
         conn = get_connection()
@@ -61,6 +62,37 @@ def get_user_from_token(token):
         conn.close()
         return row[0] if row else None
     except: return None
+
+def add_ticker_to_db(username, ticker):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        # Check if exists first to avoid dupes
+        cursor.execute("SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO user_portfolio (username, ticker) VALUES (%s, %s)", (username, ticker))
+            conn.commit()
+        conn.close()
+    except: pass
+
+def remove_ticker_from_db(username, ticker):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
+        conn.commit()
+        conn.close()
+    except: pass
+
+def get_user_portfolio(username):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT ticker FROM user_portfolio WHERE username=%s", (username,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except: return []
 
 # 3. DATA ENGINE
 def update_stock_data(tickers):
@@ -99,6 +131,7 @@ def update_stock_data(tickers):
     conn.close()
 
 def get_cached_data(tickers):
+    if not tickers: return []
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     format_strings = ','.join(['%s'] * len(tickers))
@@ -122,35 +155,17 @@ def calculate_risk(row):
     if final > 40: return final, "MEDIUM", "#fbbf24", "badge-med"
     return final, "LOW", "#4ade80", "badge-low"
 
-# 4. SLICK UI COMPONENTS
+# 4. UI COMPONENTS
 def create_gauge_html(score, label, color):
-    # Math to calculate the arc path (Semi-circle is 180 degrees)
     radius = 80
-    circumference = 3.14159 * radius # pi * r
+    circumference = 3.14159 * radius
     fill_amount = (score / 100) * circumference
-    
-    # SVG Strings constructed carefully
     svg = f'<svg viewBox="0 0 200 110" style="width: 100%; height: auto;">'
-    
-    # Gradients
-    svg += '<defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%">'
-    svg += '<stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" />'
-    svg += '<stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" />'
-    svg += '<stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" />'
-    svg += '</linearGradient></defs>'
-    
-    # Background Track (Grey)
+    svg += '<defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs>'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" />'
-    
-    # Colored Value Track
-    # stroke-dasharray controls the fill. We calculated fill_amount above.
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" />'
-    
-    # Text
     svg += f'<text x="100" y="85" font-family="sans-serif" font-size="40" font-weight="bold" fill="white" text-anchor="middle">{score}</text>'
-    svg += f'<text x="100" y="105" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text>'
-    svg += '</svg>'
-    
+    svg += f'<text x="100" y="105" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     return f'<div class="card" style="padding-bottom:0;">{svg}</div>'
 
 init_db()
@@ -179,38 +194,67 @@ if not username:
     st.error("Session Expired")
     st.stop()
 
-my_portfolio = ["TD.TO", "TSLA", "NVDA", "AAPL", "PLTR"]
-if st.button("🔄 Refresh"):
+# --- SIDEBAR MANAGER ---
+with st.sidebar:
+    st.header(f"👤 {username}")
+    st.write("### Manage Portfolio")
+    new_ticker = st.text_input("Add Ticker (e.g. AMZN)").upper()
+    if st.button("Add Stock"):
+        if new_ticker:
+            add_ticker_to_db(username, new_ticker)
+            st.success(f"Added {new_ticker}")
+            st.rerun()
+    
+    st.divider()
+    st.write("### Remove Stock")
+    my_stocks = get_user_portfolio(username)
+    if my_stocks:
+        rem_ticker = st.selectbox("Select to Delete", my_stocks)
+        if st.button("Delete Selected"):
+            remove_ticker_from_db(username, rem_ticker)
+            st.success(f"Removed {rem_ticker}")
+            st.rerun()
+
+# --- MAIN APP ---
+my_portfolio = get_user_portfolio(username)
+
+# Default if empty
+if not my_portfolio:
+    st.info("Your portfolio is empty. Add a stock in the sidebar!")
+    # Auto-add some defaults for first-time user
+    if st.button("Load Default Portfolio"):
+        for t in ["TD.TO", "TSLA", "NVDA"]: add_ticker_to_db(username, t)
+        st.rerun()
+    st.stop()
+
+if st.button("🔄 Refresh Prices"):
     with st.spinner("Updating..."):
         update_stock_data(my_portfolio)
 
 data = get_cached_data(my_portfolio)
-if not data:
-    st.info("New account? Click Refresh to pull data.")
-    st.stop()
 
-# Calculate Portfolio Risk
-avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
-r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
-if avg_risk > 60: r_label, r_color = "HIGH", "#ef4444"
-elif avg_risk > 40: r_label, r_color = "MEDIUM", "#fbbf24"
-else: r_label, r_color = "LOW", "#4ade80"
+# Calculate Risk
+if data:
+    avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
+    r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
+    if avg_risk > 60: r_label, r_color = "HIGH", "#ef4444"
+    elif avg_risk > 40: r_label, r_color = "MEDIUM", "#fbbf24"
+    else: r_label, r_color = "LOW", "#4ade80"
 
-st.title(f"Good Evening, {username}")
+    st.title(f"Good Evening, {username}")
+    st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
 
-# 1. RENDER THE SLICK GAUGE
-st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
-
-# 2. RENDER THE LIST
-st.subheader("My Portfolio")
-for row in data:
-    score, label, color, css = calculate_risk(row)
-    price = float(row['current_price'])
-    change = float(row['day_change'])
-    c_color = "#4ade80" if change >= 0 else "#ef4444"
-    arrow = "▲" if change >= 0 else "▼"
-    ticker = row['ticker']
-    trend = row.get('trend_status', 'N/A')
-    
-    card_html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
-    st.markdown(card_html, unsafe_allow_html=True)
+    st.subheader("My Portfolio")
+    for row in data:
+        score, label, color, css = calculate_risk(row)
+        price = float(row['current_price'])
+        change = float(row['day_change'])
+        c_color = "#4ade80" if change >= 0 else "#ef4444"
+        arrow = "▲" if change >= 0 else "▼"
+        ticker = row['ticker']
+        trend = row.get('trend_status', 'N/A')
+        
+        card_html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
+        st.markdown(card_html, unsafe_allow_html=True)
+else:
+    st.info("Click 'Refresh Prices' to load data.")
