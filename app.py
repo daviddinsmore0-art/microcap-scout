@@ -29,7 +29,6 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         
         # Expanded Table for New Metrics
-        # We use ALTER to safely add columns if they don't exist yet
         sql = """CREATE TABLE IF NOT EXISTS stock_cache (
             ticker VARCHAR(20) PRIMARY KEY, 
             current_price DECIMAL(20, 4), 
@@ -41,16 +40,16 @@ def init_db():
             volatility DECIMAL(10, 2),
             debt_ratio DECIMAL(10, 2),
             days_to_earnings INT,
+            market_cap BIGINT,
+            eps DECIMAL(10, 2),
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )"""
         cursor.execute(sql)
         
-        # Silent Migrations for existing users
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN volatility DECIMAL(10, 2) DEFAULT 0")
+        # Silent Migrations for existing users (Add new columns safely)
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
         except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN debt_ratio DECIMAL(10, 2) DEFAULT 0")
-        except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 99")
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10, 2) DEFAULT 0")
         except: pass
             
         conn.close()
@@ -123,7 +122,7 @@ def get_user_portfolio(username):
 def update_stock_data(tickers):
     if not tickers: return
     
-    # 1. Bulk Download Price History (Fast)
+    # 1. Bulk Download Price History
     try:
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
@@ -133,7 +132,6 @@ def update_stock_data(tickers):
     
     for t in tickers:
         try:
-            # Handle Single vs Multi Ticker Data Structure
             if len(tickers) > 1: df = data[t]
             else: df = data
             
@@ -145,66 +143,65 @@ def update_stock_data(tickers):
             prev = float(df['Close'].iloc[-2])
             change = ((price - prev) / prev) * 100
             
-            # RSI
             delta = df['Close'].diff()
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             
-            # Trend & Volatility
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             
-            # Volatility (Standard Deviation of % returns * 100)
             volatility = df['Close'].pct_change().std() * 100
 
-            # Range Location
             high_3m = df['Close'].max()
             low_3m = df['Close'].min()
             range_loc = 50
             if high_3m != low_3m:
                 range_loc = ((price - low_3m) / (high_3m - low_3m)) * 100
 
-            # Volume / Hype Proxy
             avg_vol = df['Volume'].rolling(20).mean().iloc[-1]
             curr_vol = df['Volume'].iloc[-1]
             vol_stat = "SPIKE" if curr_vol > (avg_vol * 1.5) else "NORMAL"
 
-            # --- FUNDAMENTALS (Slow Calls - use defaults if fail) ---
+            # --- FUNDAMENTALS ---
             debt_ratio = 0
             days_to_earnings = 99
+            market_cap = 0
+            eps = 0
             
             try:
-                # We fetch Ticker info individually. This is slower but necessary for Debt/Earnings
                 ticker_obj = yf.Ticker(t)
-                
-                # Debt
                 info = ticker_obj.info
-                debt_ratio = info.get('debtToEquity', 0)
-                if debt_ratio is None: debt_ratio = 0
                 
-                # Earnings
+                # Fetch Data
+                debt_ratio = info.get('debtToEquity', 0)
+                market_cap = info.get('marketCap', 0)
+                eps = info.get('trailingEps', 0)
+                
+                # Cleanup Nones
+                if debt_ratio is None: debt_ratio = 0
+                if market_cap is None: market_cap = 0
+                if eps is None: eps = 0
+                
                 cal = ticker_obj.calendar
                 if cal is not None and not cal.empty:
-                    # Try to find next earnings date
-                    # Note: yfinance calendar format varies, simplified check
-                    earnings_date = cal.iloc[0, 0] # First row usually next earnings
+                    earnings_date = cal.iloc[0, 0]
                     if isinstance(earnings_date, (datetime, pd.Timestamp)):
                          delta_days = (earnings_date - datetime.now()).days
                          if delta_days >= 0:
                              days_to_earnings = delta_days
             except:
-                pass # Fail silently on fundamentals to keep app running
+                pass 
 
             # Update DB
             sql = """INSERT INTO stock_cache 
-                     (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings) 
-                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
+                     (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
+                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
                      ON DUPLICATE KEY UPDATE 
-                     current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, days_to_earnings=%s"""
+                     current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, days_to_earnings=%s, market_cap=%s, eps=%s"""
             
-            vals = (t, price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings,
-                    price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings)
+            vals = (t, price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps,
+                    price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps)
             
             cursor.execute(sql, vals)
             
@@ -225,9 +222,9 @@ def get_cached_data(tickers):
     return rows
 
 def calculate_risk(row):
-    # --- ADVANCED RISK ENGINE ---
+    # --- PRO RISK ENGINE ---
     score = 50
-    reasons = [] # Track why score changed
+    reasons = [] 
     
     # 1. Technicals
     if row.get('trend_status') == 'DOWNTREND': score += 10
@@ -237,33 +234,47 @@ def calculate_risk(row):
     if rsi > 70: score += 10
     if rsi < 30: score -= 10
     
-    # 2. Volatility (Daily swing % std dev)
+    # 2. Volatility 
     vol = float(row.get('volatility', 0))
     if vol > 3.0: 
-        score += 15 # High volatility is risky
+        score += 10
         reasons.append("High Volatility")
         
-    # 3. Debt (Fundamental)
+    # 3. Debt 
     debt = float(row.get('debt_ratio', 0))
     if debt > 150: 
-        score += 10 # High Leverage
+        score += 5
         reasons.append("High Debt")
 
-    # 4. Earnings Event (Event Risk)
+    # 4. Earnings
     days = int(row.get('days_to_earnings', 99))
     if days < 10: 
-        score += 15 # Earnings uncertainty
+        score += 15
         reasons.append("Earnings Soon")
 
-    # 5. Range Location (Buying the Top)
+    # 5. Range Location
     loc = float(row.get('range_loc', 50))
     if loc > 90: score += 10
     elif loc < 10: score -= 10
     
-    # 6. Retail Hype (Volume Spike)
+    # 6. Retail Hype
     if row.get('volume_status') == 'SPIKE':
+        score += 5
+        reasons.append("Vol Spike")
+
+    # 7. MARKET CAP (Size Risk)
+    mcap = float(row.get('market_cap', 0))
+    if 0 < mcap < 250000000: # Less than 250M
+        score += 15
+        reasons.append("Micro Cap")
+    elif 0 < mcap < 2000000000: # Less than 2B
+        score += 5
+    
+    # 8. PROFITABILITY (EPS)
+    eps = float(row.get('eps', 0))
+    if eps < 0:
         score += 10
-        reasons.append("Volume Spike")
+        reasons.append("Unprofitable")
 
     final = max(0, min(100, int(score)))
     
@@ -296,12 +307,14 @@ def render_stock_card(row):
     ticker = row['ticker']
     trend = row.get('trend_status', 'N/A')
     
-    # Show reasons if risk is high/med
+    # Compact reason badges
     reason_html = ""
     if reasons:
-        reason_html = f"<div style='font-size:0.7rem; color:#fbbf24; margin-top:2px;'>⚠️ {', '.join(reasons)}</div>"
+        # Show max 2 reasons to keep card clean
+        display_reasons = reasons[:2]
+        reason_html = f"<div style='font-size:0.65rem; color:#94a3b8; margin-top:4px;'>⚠️ {', '.join(display_reasons)}</div>"
     
-    html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>{reason_html}</div><div class="{css} badge">{label}</div></div>'
+    html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div>{reason_html}</div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows):
@@ -319,7 +332,6 @@ def render_horizontal_grid(rows):
 
 init_db()
 
-# GLOBAL CSS
 st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; } 
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } 
@@ -329,41 +341,19 @@ st.markdown("""<style>
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
     .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
     input { color: black !important; }
-    
     header {visibility: hidden;}
     footer {visibility: hidden;}
-
-    .scrolling-wrapper {
-        display: flex;
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        gap: 12px;
-        padding-bottom: 10px;
-        margin-bottom: 15px;
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-    }
+    .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; }
     .scrolling-wrapper::-webkit-scrollbar { display: none; }
-    .scrolling-card {
-        flex: 0 0 auto;
-        width: 130px;
-        background-color: #1a1f2b; 
-        border: 1px solid #2d3748; 
-        border-radius: 12px; 
-        padding: 15px;
-    }
+    .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; }
 </style>""", unsafe_allow_html=True)
 
 # LOGIN
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=200)
-        else:
-            st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-            
+        if os.path.exists("logo.png"): st.image("logo.png", width=200)
+        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
     with st.form("login"):
         user = st.text_input("Username")
         pin = st.text_input("PIN", type="password")
@@ -372,8 +362,7 @@ if "token" not in st.query_params:
                 token = create_session(user)
                 st.query_params["token"] = token
                 st.rerun()
-            else:
-                st.error("Invalid PIN")
+            else: st.error("Invalid PIN")
     st.stop()
 
 # MAIN APP
@@ -382,35 +371,27 @@ if not username:
     st.error("Session Expired")
     st.stop()
 
-# --- CUSTOM NAVIGATION STATE ---
 active_tab = st.query_params.get("tab", "home")
 
-# 1. HOME SCREEN
 if active_tab == "home":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Hi, {username}</div>", unsafe_allow_html=True)
-    
     my_portfolio = get_user_portfolio(username)
     if not my_portfolio:
         st.info("No stocks. Go to Portfolio tab.")
     else:
-        # Refresh Data
         if st.button("🔄 Refresh", key="ref_home"):
             with st.spinner("Analyzing fundamentals..."):
                 update_stock_data(my_portfolio)
-        
         data = get_cached_data(my_portfolio)
-        
         if data:
             avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
             r_score, r_label, r_color, _, _ = calculate_risk({'trend_status':'N', 'rsi':50})
-            
             if avg_risk > 65: r_label, r_color = "HIGH", "#ef4444"
             elif avg_risk > 35: r_label, r_color = "MEDIUM", "#fbbf24"
             else: r_label, r_color = "LOW", "#4ade80"
-
+            
             st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
             
-            # --- SUMMARY STATS ---
             highest_risk_stock = max(data, key=lambda x: calculate_risk(x)[0])
             most_volatile_stock = max(data, key=lambda x: abs(float(x['day_change'])))
             
@@ -430,43 +411,33 @@ if active_tab == "home":
             st.write("### At a Glance")
             render_horizontal_grid(data)
 
-# 2. PORTFOLIO SCREEN
 elif active_tab == "portfolio":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Manage Portfolio</div>", unsafe_allow_html=True)
-    
     col1, col2 = st.columns([2, 1])
-    with col1:
-        new_ticker = st.text_input("Ticker Symbol").upper()
+    with col1: new_ticker = st.text_input("Ticker Symbol").upper()
     with col2:
-        st.write("") 
-        st.write("") 
+        st.write(""); st.write("")
         if st.button("Add"):
             if new_ticker and add_ticker_to_db(username, new_ticker):
                 st.success(f"Added {new_ticker}")
                 st.rerun()
-    
     st.divider()
     my_stocks = get_user_portfolio(username)
     if my_stocks:
         for t in my_stocks:
             c1, c2 = st.columns([3, 1])
-            with c1:
-                st.markdown(f"<div style='font-size:1.2rem; font-weight:bold; color:white; padding:5px;'>{t}</div>", unsafe_allow_html=True)
+            with c1: st.markdown(f"<div style='font-size:1.2rem; font-weight:bold; color:white; padding:5px;'>{t}</div>", unsafe_allow_html=True)
             with c2:
                 if st.button("🗑️", key=f"del_{t}"):
                     remove_ticker_from_db(username, t)
                     st.rerun()
 
-# 3. SCANNER SCREEN
 elif active_tab == "scanner":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 5px;'>Scanner</div>", unsafe_allow_html=True)
     st.caption("Auto-generated from your portfolio")
-    
     my_portfolio = get_user_portfolio(username)
     data = get_cached_data(my_portfolio)
-    
-    if not data:
-        st.info("No data to scan.")
+    if not data: st.info("No data to scan.")
     else:
         found_any = False
         st.markdown("**📉 Oversold (RSI < 35)**")
@@ -474,49 +445,23 @@ elif active_tab == "scanner":
             if float(row['rsi']) < 35: 
                 render_stock_card(row)
                 found_any = True
-        
         st.markdown("**🔊 Volume Spikes**")
         for row in data:
             if row.get('volume_status') == "SPIKE":
                 render_stock_card(row)
                 found_any = True
-                
-        # NEW SCANNER: Earnings
         st.markdown("**📅 Earnings Coming Soon**")
         for row in data:
             if int(row.get('days_to_earnings', 99)) < 14:
                 render_stock_card(row)
                 found_any = True
+        if not found_any: st.success("No alerts found.")
 
-        if not found_any:
-            st.success("No alerts found.")
-
-# --- CUSTOM HTML BOTTOM NAV ---
 current_token = st.query_params.get("token", "")
 nav_html = f"""
 <style>
-    .nav-container {{
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        height: 60px;
-        background-color: #1a1f2b;
-        border-top: 1px solid #2d3748;
-        display: flex;
-        justify-content: space-around;
-        align-items: center;
-        z-index: 9999;
-    }}
-    a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{
-        text-decoration: none;
-        color: #94a3b8;
-        font-family: sans-serif;
-        font-size: 12px;
-        text-align: center;
-        width: 100%;
-        padding: 5px 0;
-    }}
+    .nav-container {{ position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background-color: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 9999; }}
+    a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{ text-decoration: none; color: #94a3b8; font-family: sans-serif; font-size: 12px; text-align: center; width: 100%; padding: 5px 0; }}
     a.nav-link:hover {{ color: white; }}
     .nav-icon {{ font-size: 20px; display: block; margin-bottom: 2px; }}
     a.active, a.active:visited {{ color: #3b82f6 !important; font-weight: bold; }}
