@@ -10,8 +10,6 @@ from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-
-# Define token early to prevent NameErrors
 token = st.query_params.get("token", None)
 
 DB_CONFIG = {
@@ -22,136 +20,74 @@ DB_CONFIG = {
     "connect_timeout": 30,
 }
 
-def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+def get_connection(): return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        # Base Tables
+        conn = get_connection(); cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, PRIMARY KEY (id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-
-        # NEW: Shares and Entry Price columns
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
+        # Safe Migrations
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
         
         conn.close()
-    except Exception as e:
-        st.error(f"DB Error: {e}")
+    except Exception as e: st.error(f"DB Error: {e}")
 
 # 2. DATA ENGINE
 def update_stock_data(tickers, username):
     if not tickers: return
-    try: 
-        data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
-    except: 
-        return
-
-    conn = get_connection()
-    cursor = conn.cursor()
+    try: data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
+    except: return
+    conn = get_connection(); cursor = conn.cursor()
     finnhub_key = st.secrets["finnhub"]["api_key"] if "finnhub" in st.secrets else None
     
     for t in tickers:
         try:
-            if len(tickers) > 1:
-                df = data[t]
-            else:
-                df = data
-            
-            df = df.dropna()
+            if len(tickers) > 1: df = data[t]
+            else: df = data
+            df = df.dropna(); 
             if df.empty: continue
             
-            price = float(df['Close'].iloc[-1])
-            prev = float(df['Close'].iloc[-2])
-            change = ((price - prev)/prev)*100
-            
-            delta = df['Close'].diff()
-            up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+            price = float(df['Close'].iloc[-1]); prev = float(df['Close'].iloc[-2]); change = ((price - prev)/prev)*100
+            delta = df['Close'].diff(); up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
-            
-            ma50 = df['Close'].rolling(50).mean().iloc[-1]
-            trend = "UPTREND" if price > ma50 else "DOWNTREND"
-            
+            ma50 = df['Close'].rolling(50).mean().iloc[-1]; trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std()*100
-            
-            high3 = df['Close'].max()
-            low3 = df['Close'].min()
-            r_loc = 50
-            if high3 != low3:
-                r_loc = ((price-low3)/(high3-low3))*100
-                
-            avg_v = df['Volume'].rolling(20).mean().iloc[-1]
-            cur_v = df['Volume'].iloc[-1]
+            high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
+            if high3!=low3: r_loc = ((price-low3)/(high3-low3))*100
+            avg_v = df['Volume'].rolling(20).mean().iloc[-1]; cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
             debt=0; mcap=0; eps=0; days=999
-            
-            # Finnhub
             if finnhub_key:
                 try:
-                    s_d = datetime.now().strftime('%Y-%m-%d')
-                    e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
+                    s_d = datetime.now().strftime('%Y-%m-%d'); e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
                     u = f"https://finnhub.io/api/v1/calendar/earnings?from={s_d}&to={e_d}&symbol={t}&token={finnhub_key}"
                     res = requests.get(u).json()
                     if "earningsCalendar" in res and res["earningsCalendar"]:
-                        el = res["earningsCalendar"]
-                        el.sort(key=lambda x: x['date'])
+                        el = res["earningsCalendar"]; el.sort(key=lambda x: x['date'])
                         nd = datetime.strptime(el[0]['date'], '%Y-%m-%d')
                         delta_d = (nd - datetime.now()).days
                         if delta_d >= 0: days = delta_d
                 except: pass
-            
-            # YF Fallback
             try:
                 io = yf.Ticker(t).info
-                debt = io.get('debtToEquity',0) or 0
-                mcap = io.get('marketCap',0) or 0
-                eps = io.get('trailingEps',0) or 0
+                debt = io.get('debtToEquity',0) or 0; mcap = io.get('marketCap',0) or 0; eps = io.get('trailingEps',0) or 0
                 if days == 999:
                     cal = yf.Ticker(t).calendar
                     if cal is not None:
-                        if isinstance(cal, dict) and 'Earnings Date' in cal:
-                            days = (cal['Earnings Date'][0] - datetime.now()).days
+                        if isinstance(cal, dict) and 'Earnings Date' in cal: days = (cal['Earnings Date'][0] - datetime.now()).days
             except: pass
 
             sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
@@ -162,27 +98,19 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
+    conn.commit(); conn.close()
     
-    conn.commit()
-    conn.close()
-    
-    # Check Alerts
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
     alerts = cursor.fetchall()
     for a in alerts:
         cursor.execute("SELECT day_change FROM stock_cache WHERE ticker=%s", (a['ticker'],))
         row = cursor.fetchone()
         if row:
-            pct = float(row['day_change'])
-            target = float(a['target_price'])
-            cond = a['condition_type']
+            pct = float(row['day_change']); target = float(a['target_price']); cond = a['condition_type']
             hit = (cond=='UP' and pct>=target) or (cond=='DOWN' and pct<=(target*-1))
-            if hit:
-                cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
-    conn.commit()
-    conn.close()
+            if hit: cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
+    conn.commit(); conn.close()
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -296,31 +224,34 @@ def create_gauge_html(score, label, color, size="big"):
     fs = "38" if size == "big" else "28"
     fill = (score / 100) * (3.14159 * rad)
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
-    # Flattened HTML
     svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, market_data, current_token):
+    # Calculates P/L and renders the card
     p = float(market_data['current_price'])
     ch = float(market_data['day_change'])
     cc = "#4ade80" if ch>=0 else "#ef4444"
     arr = "▲" if ch>=0 else "▼"
+    
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
+    # FIXED: Replaced &nbsp; and span logic with cleaner text formatting
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p
         cost = shares * entry
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
-        pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} &nbsp;|&nbsp; <span style='color:{pl_c}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
+        pl_color = "#4ade80" if pl >= 0 else "#ef4444"
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <span style="color:{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</span></div>'
     elif shares > 0:
-        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
 
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # Flattened HTML
+    
+    # Flattened HTML to avoid markdown bugs
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -348,7 +279,6 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 def render_navbar(active_tab, token):
-    # Flattened HTML
     nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
     st.markdown(nav_html, unsafe_allow_html=True)
 
