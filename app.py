@@ -339,7 +339,7 @@ st.markdown("""<style>
     input[type="text"], input[type="password"], input[type="number"] { 
         background-color: #1e293b !important; 
         color: #ffffff !important; 
-        border: 1px solid #3b82f6 !important; /* Electric Blue Border */
+        border: 1px solid #3b82f6 !important; 
         border-radius: 8px !important;
         padding: 8px 12px !important;
     }
@@ -376,8 +376,8 @@ st.markdown("""<style>
         font-weight: bold !important;
     }
     
-    /* BUTTONS - Electric Blue Gradient */
-    div.stButton > button {
+    /* BUTTONS - Electric Blue Gradient (TARGETS ALL BUTTONS INCLUDING FORM SUBMIT) */
+    div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(to right, #2563eb, #06b6d4) !important;
         color: white !important;
         border: none !important;
@@ -385,7 +385,7 @@ st.markdown("""<style>
         font-weight: bold !important;
         padding: 10px 20px !important;
     }
-    div.stButton > button:hover {
+    div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover {
         opacity: 0.9 !important;
         transform: scale(1.02);
     }
