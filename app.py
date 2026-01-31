@@ -3,12 +3,9 @@ import mysql.connector
 import yfinance as yf
 import uuid
 
-# ---------------------------------------------------------
 # 1. CONFIG & DATABASE
-# ---------------------------------------------------------
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered")
 
-# *** DATABASE CREDENTIALS ***
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com",
     "user": "atlantic",                 
@@ -26,23 +23,14 @@ def init_db():
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, user_data TEXT, pin VARCHAR(50))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS stock_cache (
-                ticker VARCHAR(20) PRIMARY KEY,
-                current_price DECIMAL(20, 4),
-                day_change DECIMAL(10, 2),
-                rsi DECIMAL(10, 2),
-                trend_status VARCHAR(20),
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        """)
+        # Simple string for SQL to avoid quote errors
+        sql = "CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), trend_status VARCHAR(20), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
+        cursor.execute(sql)
         conn.close()
     except Exception as e:
         st.error(f"DB Init Error: {e}")
 
-# ---------------------------------------------------------
 # 2. AUTHENTICATION
-# ---------------------------------------------------------
 def check_login(username, pin):
     try:
         conn = get_connection()
@@ -73,9 +61,7 @@ def get_user_from_token(token):
         return row[0] if row else None
     except: return None
 
-# ---------------------------------------------------------
 # 3. DATA ENGINE
-# ---------------------------------------------------------
 def update_stock_data(tickers):
     if not tickers: return
     try:
@@ -105,9 +91,7 @@ def update_stock_data(tickers):
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             
-            sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status) 
-                     VALUES (%s, %s, %s, %s, %s)
-                     ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, trend_status=%s"""
+            sql = "INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status) VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, trend_status=%s"
             cursor.execute(sql, (t, price, change, rsi, trend, price, change, rsi, trend))
         except: continue
     conn.commit()
@@ -137,27 +121,13 @@ def calculate_risk(row):
     if final > 40: return final, "MEDIUM", "#fbbf24", "badge-med"
     return final, "LOW", "#4ade80", "badge-low"
 
-# ---------------------------------------------------------
 # 4. UI & APP FLOW
-# ---------------------------------------------------------
 init_db()
 
-# CSS Configuration (Single quotes used for safety)
-st.markdown("""
-<style>
-    .stApp { background-color: #0f1219; color: #e0e6ed; }
-    .card { background-color: #1a1f2b; border-radius: 12px; padding: 15px; margin-bottom: 10px; border: 1px solid #2d3748; }
-    .big-score { font-size: 3.5rem; font-weight: 800; color: white; line-height: 1; }
-    .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; }
-    .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-    .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-    .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-    .block-container { padding-top: 2rem; }
-    input { color: black !important; } 
-</style>
-""", unsafe_allow_html=True)
+# CSS (One line to prevent syntax errors)
+st.markdown("<style>.stApp { background-color: #0f1219; color: #e0e6ed; } .card { background-color: #1a1f2b; border-radius: 12px; padding: 15px; margin-bottom: 10px; border: 1px solid #2d3748; } .big-score { font-size: 3.5rem; font-weight: 800; color: white; line-height: 1; } .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; } .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } .block-container { padding-top: 2rem; } input { color: black !important; }</style>", unsafe_allow_html=True)
 
-# --- LOGIN SCREEN ---
+# LOGIN
 if "token" not in st.query_params:
     st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
     with st.form("login"):
@@ -172,47 +142,34 @@ if "token" not in st.query_params:
                 st.error("Invalid PIN")
     st.stop()
 
-# --- MAIN DASHBOARD ---
+# DASHBOARD
 username = get_user_from_token(st.query_params["token"])
 if not username:
     st.error("Session Expired")
     st.stop()
 
-# 1. Data Refresh
 my_portfolio = ["TD.TO", "TSLA", "NVDA", "AAPL", "PLTR"]
 if st.button("🔄 Refresh"):
     with st.spinner("Updating..."):
         update_stock_data(my_portfolio)
 
-# 2. Fetch Data
 data = get_cached_data(my_portfolio)
 if not data:
     st.info("New account? Click Refresh to pull data.")
     st.stop()
 
-# 3. Calculate Portfolio Avg
 avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
 r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
 if avg_risk > 60: r_label, r_color = "HIGH", "#ef4444"
 elif avg_risk > 40: r_label, r_color = "MEDIUM", "#fbbf24"
 else: r_label, r_color = "LOW", "#4ade80"
 
-# --- RENDER UI ---
 st.title(f"Good Evening, {username}")
 
-# Widget 1: Risk Gauge
-gauge_html = (
-    f'<div class="card" style="text-align: center;">'
-    f'<div style="color: #94a3b8; font-size: 0.8rem; margin-bottom:10px;">PORTFOLIO RISK</div>'
-    f'<div class="big-score">{int(avg_risk)}</div>'
-    f'<div style="color: {r_color}; font-weight: bold; letter-spacing: 2px;">{r_label}</div>'
-    f'<div style="height: 8px; background: #334155; border-radius: 4px; margin-top: 10px; overflow:hidden;">'
-    f'<div style="width: {avg_risk}%; height:100%; background: linear-gradient(90deg, #4ade80, #fbbf24, #ef4444);"></div>'
-    f'</div></div>'
-)
+# Gauge
+gauge_html = f'<div class="card" style="text-align: center;"><div style="color: #94a3b8; font-size: 0.8rem; margin-bottom:10px;">PORTFOLIO RISK</div><div class="big-score">{int(avg_risk)}</div><div style="color: {r_color}; font-weight: bold; letter-spacing: 2px;">{r_label}</div><div style="height: 8px; background: #334155; border-radius: 4px; margin-top: 10px; overflow:hidden;"><div style="width: {avg_risk}%; height:100%; background: linear-gradient(90deg, #4ade80, #fbbf24, #ef4444);"></div></div></div>'
 st.markdown(gauge_html, unsafe_allow_html=True)
 
-# Widget 2: Portfolio List
 st.subheader("My Portfolio")
 
 for row in data:
@@ -224,19 +181,7 @@ for row in data:
     ticker = row['ticker']
     trend = row.get('trend_status', 'N/A')
     
-    # Safe HTML construction (No triple quotes)
-    card_html = (
-        f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;">'
-        f'<div>'
-        f'<div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div>'
-        f'<div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div>'
-        f'</div>'
-        f'<div style="text-align: right; flex-grow:1; padding-right:15px;">'
-        f'<div style="color:white; font-weight:bold;">${price:,.2f}</div>'
-        f'<div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>'
-        f'</div>'
-        f'<div class="{css} badge">{label}</div>'
-        f'</div>'
-    )
+    # Card HTML (One line safe)
+    card_html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
     
     st.markdown(card_html, unsafe_allow_html=True)
