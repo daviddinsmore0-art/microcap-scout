@@ -11,6 +11,9 @@ from datetime import datetime, timedelta
 # 1. CONFIG
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
+# GLOBAL VARIABLES
+current_token = st.query_params.get("token", None)
+
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com",
     "user": "atlantic",                 
@@ -23,40 +26,19 @@ def get_connection(): return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        # Base Tables
+        conn = get_connection(); cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
-        
-        # Safe Migrations (Expanded to prevent SyntaxError)
-        try: 
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except: pass
-        
-        try: 
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except: pass
-        
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except: pass
-        
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except: pass
-        
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: pass
-        
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
         conn.close()
-    except Exception as e:
-        st.error(f"DB Error: {e}")
+    except Exception as e: st.error(f"DB Error: {e}")
 
 # 2. DATA ENGINE
 def update_stock_data(tickers, username):
@@ -85,7 +67,6 @@ def update_stock_data(tickers, username):
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
             debt=0; mcap=0; eps=0; days=999
-            
             if finnhub_key:
                 try:
                     s_d = datetime.now().strftime('%Y-%m-%d'); e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
@@ -97,7 +78,6 @@ def update_stock_data(tickers, username):
                         delta_d = (nd - datetime.now()).days
                         if delta_d >= 0: days = delta_d
                 except: pass
-            
             try:
                 io = yf.Ticker(t).info
                 debt = io.get('debtToEquity',0) or 0; mcap = io.get('marketCap',0) or 0; eps = io.get('trailingEps',0) or 0
@@ -245,7 +225,6 @@ def render_clickable_list_row(row, current_token):
     s, l, c, css, r = calculate_risk(row)
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # Sleek List Row Design
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: <span style="color:{c}">{l}</span></div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -262,6 +241,18 @@ def get_greeting(name):
     if hour < 12: return f"Good Morning, {name}"
     elif 12 <= hour < 18: return f"Good Afternoon, {name}"
     else: return f"Good Evening, {name}"
+
+def render_navbar(active_tab, token):
+    nav_html = f"""
+    <div class="nav-container">
+        <a href="?token={token}&tab=home" class="nav-link {'active' if active_tab=='home' else ''}"><span class="nav-icon">🏠</span>Home</a>
+        <a href="?token={token}&tab=portfolio" class="nav-link {'active' if active_tab=='portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a>
+        <a href="?token={token}&tab=alerts" class="nav-link {'active' if active_tab=='alerts' else ''}"><span class="nav-icon">🔔</span>Alerts</a>
+        <a href="?token={token}&tab=scanner" class="nav-link {'active' if active_tab=='scanner' else ''}"><span class="nav-icon">📡</span>Scan</a>
+        <a href="?token={token}&tab=settings" class="nav-link {'active' if active_tab=='settings' else ''}"><span class="nav-icon">⚙️</span>Set</a>
+    </div>
+    """
+    st.markdown(nav_html, unsafe_allow_html=True)
 
 init_db()
 
@@ -351,9 +342,9 @@ if "token" not in st.query_params:
     st.stop()
 
 # LOGGED IN
-user_info = get_user_from_token(st.query_params["token"])
+user_info = get_user_from_token(current_token)
 if not user_info: st.error("Session Expired"); st.stop()
-username = user_info['username']; display_name = user_info['display_name'] or username; token = st.query_params["token"]
+username = user_info['username']; display_name = user_info['display_name'] or username
 
 # CHECK FOR DETAIL VIEW
 if "ticker" in st.query_params:
@@ -378,21 +369,17 @@ if "ticker" in st.query_params:
         
         # Helper for pill color
         def get_pill(val, type="risk"):
-            # Mock logic for display - simplified
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
             if type=="debt": return "pill-high" if val > 150 else "pill-low", "HIGH" if val > 150 else "LOW"
             if type=="rsi": return "pill-med" if val > 70 or val < 30 else "pill-low", "EXTREME" if val > 70 or val < 30 else "NORMAL"
             return "pill-low", "LOW"
 
-        # Volatility Row
         v_cls, v_txt = get_pill(float(stock['volatility']), "vol")
         st.markdown(f"<div class='risk-row'><div class='risk-label'>Volatility</div><div class='risk-pill {v_cls}'>{v_txt}</div></div>", unsafe_allow_html=True)
         
-        # Debt Row
         d_cls, d_txt = get_pill(float(stock['debt_ratio']), "debt")
         st.markdown(f"<div class='risk-row'><div class='risk-label'>Debt / Equity</div><div class='risk-pill {d_cls}'>{d_txt}</div></div>", unsafe_allow_html=True)
         
-        # RSI Row
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -409,12 +396,15 @@ if "ticker" in st.query_params:
         </div>
         """, unsafe_allow_html=True)
         
-        # BIG ACTION BUTTON
         st.write("")
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
             st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
             
     else: st.error("Data missing. Refresh portfolio.")
+    
+    # RENDER NAVBAR ON DETAIL PAGE
+    render_navbar("portfolio", current_token) # Highlight 'Stocks' as active
+    st.stop() # Stop here so main tabs don't render below
 
 else:
     # MAIN TABS
@@ -430,7 +420,7 @@ else:
             if data:
                 avg = sum([calculate_risk(x)[0] for x in data])/len(data)
                 
-                # RESTORED: The Critical 3-Column Layout
+                # RESTORED 3-COL LAYOUT
                 riskiest = max(data, key=lambda x: calculate_risk(x)[0])
                 volatile = max(data, key=lambda x: abs(float(x['day_change'])))
                 earnings_candidates = [d for d in data if d.get('days_to_earnings', 999) < 999]
@@ -456,7 +446,7 @@ else:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                st.write("### At a Glance"); render_horizontal_grid(data, token)
+                st.write("### At a Glance"); render_horizontal_grid(data, current_token)
         else: st.info("Welcome! Go to 'Stocks' to add your first ticker.")
 
     elif tab == "portfolio":
@@ -472,7 +462,7 @@ else:
         if data:
             for row in data:
                 c1, c2 = st.columns([5, 1])
-                with c1: render_clickable_list_row(row, token)
+                with c1: render_clickable_list_row(row, current_token)
                 with c2: 
                     st.write(""); st.write("") 
                     if st.button("✕", key=f"del_{row['ticker']}"): remove_ticker_from_db(username, row['ticker']); st.rerun()
@@ -502,10 +492,10 @@ else:
         if data:
             st.markdown("**📉 Oversold (RSI < 40)**")
             for r in data: 
-                if float(r['rsi']) < 40: render_clickable_list_row(r, token)
+                if float(r['rsi']) < 40: render_clickable_list_row(r, current_token)
             st.markdown("**📅 Earnings Soon**")
             for r in data:
-                if int(r.get('days_to_earnings', 999)) < 14: render_clickable_list_row(r, token)
+                if int(r.get('days_to_earnings', 999)) < 14: render_clickable_list_row(r, current_token)
 
     elif tab == "settings":
         st.markdown("### Settings")
@@ -520,13 +510,5 @@ else:
         st.divider()
         if st.button("Log Out", use_container_width=True): st.query_params.clear(); st.rerun()
 
-nav_html = f"""
-<div class="nav-container">
-    <a href="?token={token}&tab=home" class="nav-link {'active' if tab=='home' else ''}"><span class="nav-icon">🏠</span>Home</a>
-    <a href="?token={token}&tab=portfolio" class="nav-link {'active' if tab=='portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a>
-    <a href="?token={token}&tab=alerts" class="nav-link {'active' if tab=='alerts' else ''}"><span class="nav-icon">🔔</span>Alerts</a>
-    <a href="?token={token}&tab=scanner" class="nav-link {'active' if tab=='scanner' else ''}"><span class="nav-icon">📡</span>Scan</a>
-    <a href="?token={token}&tab=settings" class="nav-link {'active' if tab=='settings' else ''}"><span class="nav-icon">⚙️</span>Set</a>
-</div>
-"""
-st.markdown(nav_html, unsafe_allow_html=True)
+    # RENDER NAVBAR ON MAIN TABS
+    render_navbar(tab, current_token)
