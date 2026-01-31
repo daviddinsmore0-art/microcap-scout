@@ -28,7 +28,6 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         
-        # Ensure table exists with all columns
         sql = """CREATE TABLE IF NOT EXISTS stock_cache (
             ticker VARCHAR(20) PRIMARY KEY, 
             current_price DECIMAL(20, 4), 
@@ -46,12 +45,11 @@ def init_db():
         )"""
         cursor.execute(sql)
         
-        # Silent Migrations
         try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
         except: pass
         try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10, 2) DEFAULT 0")
         except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 99")
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
         except: pass
             
         conn.close()
@@ -164,7 +162,7 @@ def update_stock_data(tickers):
 
             # Fundamentals
             debt_ratio = 0
-            days_to_earnings = 99
+            days_to_earnings = 999 # Default high number so it doesn't show as "soon"
             market_cap = 0
             eps = 0
             
@@ -177,7 +175,7 @@ def update_stock_data(tickers):
                 
                 cal = ticker_obj.calendar
                 if cal is not None and not cal.empty:
-                    # yfinance calendar structure varies, usually first item is next date
+                    # Look for earnings date
                     earnings_date = cal.iloc[0, 0]
                     if isinstance(earnings_date, (datetime, pd.Timestamp)):
                          delta_days = (earnings_date - datetime.now()).days
@@ -213,7 +211,6 @@ def calculate_risk(row):
     score = 50
     reasons = [] 
     
-    # Technicals
     if row.get('trend_status') == 'DOWNTREND': score += 10
     else: score -= 10
     
@@ -231,7 +228,7 @@ def calculate_risk(row):
         score += 5
         reasons.append("High Debt")
 
-    days = int(row.get('days_to_earnings', 99))
+    days = int(row.get('days_to_earnings', 999))
     if days < 10: 
         score += 15
         reasons.append("Earnings Soon")
@@ -245,10 +242,10 @@ def calculate_risk(row):
         reasons.append("Vol Spike")
 
     mcap = float(row.get('market_cap', 0))
-    if 0 < mcap < 250000000: # Micro Cap
+    if 0 < mcap < 250000000: 
         score += 15
         reasons.append("Micro Cap")
-    elif 0 < mcap < 2000000000: # Small Cap
+    elif 0 < mcap < 2000000000: 
         score += 5
     
     eps = float(row.get('eps', 0))
@@ -358,14 +355,14 @@ if active_tab == "home":
             else: r_label, r_color = "LOW", "#4ade80"
             st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
             
-            # --- SUMMARY STATS ---
+            # --- SUMMARY STATS (Adjusted Order) ---
             highest_risk_stock = max(data, key=lambda x: calculate_risk(x)[0])
             most_volatile_stock = max(data, key=lambda x: abs(float(x['day_change'])))
             
-            # Find closest earning date (Min days, but not 99)
-            earnings_candidates = [d for d in data if d.get('days_to_earnings', 99) < 90]
+            # Find closest earning date (Anything positive)
+            earnings_candidates = [d for d in data if d.get('days_to_earnings', 999) < 999]
             if earnings_candidates:
-                next_earnings_stock = min(earnings_candidates, key=lambda x: int(x.get('days_to_earnings', 99)))
+                next_earnings_stock = min(earnings_candidates, key=lambda x: int(x.get('days_to_earnings', 999)))
                 earning_ticker = next_earnings_stock['ticker']
             else:
                 earning_ticker = "-"
@@ -377,12 +374,12 @@ if active_tab == "home":
                     <div style="color:white; font-weight:bold; font-size:1rem;">{highest_risk_stock['ticker']}</div>
                 </div>
                 <div style="text-align:center; width:33.3%; border-right:1px solid #2d3748;">
-                    <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earning</div>
-                    <div style="color:white; font-weight:bold; font-size:1rem;">{earning_ticker}</div>
-                </div>
-                <div style="text-align:center; width:33.3%;">
                     <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div>
                     <div style="color:white; font-weight:bold; font-size:1rem;">{most_volatile_stock['ticker']}</div>
+                </div>
+                <div style="text-align:center; width:33.3%;">
+                    <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earning</div>
+                    <div style="color:white; font-weight:bold; font-size:1rem;">{earning_ticker}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
