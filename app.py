@@ -33,18 +33,47 @@ def init_db():
         # Base Tables
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        # Note: Updated schema with shares/entry_price
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, PRIMARY KEY (id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except:
+            pass
+
+        # NEW: Shares and Entry Price columns
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
+        except:
+            pass
         
         conn.close()
     except Exception as e:
@@ -64,8 +93,10 @@ def update_stock_data(tickers, username):
     
     for t in tickers:
         try:
-            if len(tickers) > 1: df = data[t]
-            else: df = data
+            if len(tickers) > 1:
+                df = data[t]
+            else:
+                df = data
             
             df = df.dropna()
             if df.empty: continue
@@ -78,19 +109,25 @@ def update_stock_data(tickers, username):
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
+            
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
+            
             vol = df['Close'].pct_change().std()*100
+            
             high3 = df['Close'].max()
             low3 = df['Close'].min()
             r_loc = 50
-            if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
+            if high3 != low3:
+                r_loc = ((price-low3)/(high3-low3))*100
+                
             avg_v = df['Volume'].rolling(20).mean().iloc[-1]
             cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
             debt=0; mcap=0; eps=0; days=999
             
+            # Finnhub
             if finnhub_key:
                 try:
                     s_d = datetime.now().strftime('%Y-%m-%d')
@@ -98,19 +135,24 @@ def update_stock_data(tickers, username):
                     u = f"https://finnhub.io/api/v1/calendar/earnings?from={s_d}&to={e_d}&symbol={t}&token={finnhub_key}"
                     res = requests.get(u).json()
                     if "earningsCalendar" in res and res["earningsCalendar"]:
-                        el = res["earningsCalendar"]; el.sort(key=lambda x: x['date'])
+                        el = res["earningsCalendar"]
+                        el.sort(key=lambda x: x['date'])
                         nd = datetime.strptime(el[0]['date'], '%Y-%m-%d')
                         delta_d = (nd - datetime.now()).days
                         if delta_d >= 0: days = delta_d
                 except: pass
             
+            # YF Fallback
             try:
                 io = yf.Ticker(t).info
-                debt = io.get('debtToEquity',0) or 0; mcap = io.get('marketCap',0) or 0; eps = io.get('trailingEps',0) or 0
+                debt = io.get('debtToEquity',0) or 0
+                mcap = io.get('marketCap',0) or 0
+                eps = io.get('trailingEps',0) or 0
                 if days == 999:
                     cal = yf.Ticker(t).calendar
                     if cal is not None:
-                        if isinstance(cal, dict) and 'Earnings Date' in cal: days = (cal['Earnings Date'][0] - datetime.now()).days
+                        if isinstance(cal, dict) and 'Earnings Date' in cal:
+                            days = (cal['Earnings Date'][0] - datetime.now()).days
             except: pass
 
             sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
@@ -122,19 +164,26 @@ def update_stock_data(tickers, username):
             cursor.execute(sql, vals)
         except: continue
     
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    # Check Alerts
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
     alerts = cursor.fetchall()
     for a in alerts:
         cursor.execute("SELECT day_change FROM stock_cache WHERE ticker=%s", (a['ticker'],))
         row = cursor.fetchone()
         if row:
-            pct = float(row['day_change']); target = float(a['target_price']); cond = a['condition_type']
+            pct = float(row['day_change'])
+            target = float(a['target_price'])
+            cond = a['condition_type']
             hit = (cond=='UP' and pct>=target) or (cond=='DOWN' and pct<=(target*-1))
-            if hit: cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
-    conn.commit(); conn.close()
+            if hit:
+                cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
+    conn.commit()
+    conn.close()
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -199,7 +248,8 @@ def create_session(u):
 def get_user_from_token(t):
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
-    row = cursor.fetchone(); conn.close(); return row
+    row = cursor.fetchone(); conn.close()
+    return row if row else None
 
 # Alerts & Risk
 def add_alert(username, ticker, condition, price):
@@ -257,7 +307,6 @@ def render_portfolio_row(row, market_data, current_token):
     ch = float(market_data['day_change'])
     cc = "#4ade80" if ch>=0 else "#ef4444"
     arr = "▲" if ch>=0 else "▼"
-    
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
@@ -274,6 +323,7 @@ def render_portfolio_row(row, market_data, current_token):
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
+    # Flattened HTML to avoid markdown bugs
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -290,6 +340,7 @@ def render_horizontal_grid(rows_dict, current_token):
         status = row.get('trend_status', 'Move')
         if row.get('volume_status') == 'SPIKE': status = "VOL SPIKE"
         link = f"?token={current_token}&ticker={ticker}"
+        # Flattened HTML
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
