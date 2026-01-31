@@ -38,7 +38,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Strict Multi-line Blocks to fix SyntaxError) ---
+        # --- SAFE MIGRATIONS ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -116,20 +116,7 @@ def update_stock_data(tickers, username):
             
             debt=0; mcap=0; eps=0; days=999
             
-            if finnhub_key:
-                try:
-                    s_d = datetime.now().strftime('%Y-%m-%d')
-                    e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
-                    u = f"https://finnhub.io/api/v1/calendar/earnings?from={s_d}&to={e_d}&symbol={t}&token={finnhub_key}"
-                    res = requests.get(u).json()
-                    if "earningsCalendar" in res and res["earningsCalendar"]:
-                        el = res["earningsCalendar"]
-                        el.sort(key=lambda x: x['date'])
-                        nd = datetime.strptime(el[0]['date'], '%Y-%m-%d')
-                        delta_d = (nd - datetime.now()).days
-                        if delta_d >= 0: days = delta_d
-                except: pass
-            
+            # YF Fallback
             try:
                 io = yf.Ticker(t).info
                 debt = io.get('debtToEquity',0) or 0
@@ -150,7 +137,9 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
-    conn.commit(); conn.close()
+    
+    conn.commit()
+    conn.close()
     
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -300,30 +289,14 @@ def render_portfolio_row(row, market_data, current_token):
     
     pl_html = ""
     if shares > 0 and entry > 0:
-        val = shares * p
-        cost = shares * entry
-        pl = val - cost
-        pl_pct = (pl / cost) * 100 if cost > 0 else 0
-        
-        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
-        color_code = "green" if pl >= 0 else "red"
-        # This string uses Streamlit's native color syntax: :color[text]
-        pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
-        
-        # We output the row in two parts to avoid HTML glitch
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
-        
-        # Fallback if markdown inside HTML fails: Plain text, no tags.
-        # But wait, Streamlit HTML=True doesn't parse Markdown syntax inside. 
-        # WE MUST USE A PURE CSS SOLUTION to avoid the tag showing as text.
-        # Reverting to the simplest, most robust method: Inline style with single quotes to avoid conflicts.
+        val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
+        # FIX: PURE CSS Styling via f-string without nested tags to prevent visual glitches
         c_hex = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • <span style='color:{c_hex}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
+        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} &nbsp;&bull;&nbsp; <span style='color:{c_hex}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
     elif shares > 0:
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # Completely Flattened HTML
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -373,7 +346,10 @@ st.markdown("""<style>
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
     
-    /* FIX: Ensure Expander Button is Visible */
+    /* LOGO ANIMATION */
+    @keyframes pulse { 0% { opacity: 0.8; } 50% { opacity: 1; } 100% { opacity: 0.8; } }
+    
+    /* FIX: BUTTON HOVER & EXPANDER */
     div[data-testid="stExpander"] details summary { color: #4ade80 !important; }
     div[data-testid="stExpander"] details summary:hover { color: #16a34a !important; }
     
@@ -408,10 +384,11 @@ st.markdown("""<style>
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2: 
-        if os.path.exists("logo.png"): st.image("logo.png", width=200)
-        else: st.markdown("""
+        st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
-            <div style="font-size: 60px; color: #4ade80; text-shadow: 0 0 10px #4ade80;">⚡</div>
+            <svg style="width: 80px; height: 80px; animation: pulse 2s infinite;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="#4ade80" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
             <h1 style="color: #4ade80; margin: 0; text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);">Penny Pulse</h1>
         </div>
         """, unsafe_allow_html=True)
@@ -473,23 +450,12 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # CHART (Closed by default)
+        # CHART (Native Streamlit)
         if not hist.empty:
             st.write("")
             with st.expander("Price History (3 Mo)", expanded=False):
-                # Using Altair with reset_index + explicit axis scaling to prevent "flat line at top"
-                hist_reset = hist.reset_index()
-                y_min = hist_reset['Close'].min() * 0.95
-                y_max = hist_reset['Close'].max() * 1.05
-                c = alt.Chart(hist_reset).mark_area(
-                    line={'color':'#4ade80'},
-                    color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color='#4ade80', offset=0), alt.GradientStop(color='#4ade80', offset=1)], x1=1, x2=1, y1=1, y2=0),
-                    opacity=0.3
-                ).encode(
-                    x=alt.X('Date:T', axis=None),
-                    y=alt.Y('Close:Q', scale=alt.Scale(domain=[y_min, y_max]), axis=None)
-                ).configure_view(stroke=None).configure_axis(grid=False).properties(height=200)
-                st.altair_chart(c, use_container_width=True)
+                # Using native Streamlit area chart which handles axes better automatically
+                st.area_chart(hist['Close'], color="#4ade80", use_container_width=True)
 
         # LIVE NEWS SECTION
         news_items = []
@@ -501,10 +467,11 @@ if "ticker" in st.query_params:
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
-                title = item.get('title', 'No Title')
-                pub = item.get('publisher', 'Unknown')
-                # Time calculation
+                # Yahoo Finance sometimes uses different keys
+                title = item.get('title') or item.get('headline') or 'No Title'
+                pub = item.get('publisher') or 'Unknown'
                 ts = item.get('providerPublishTime', 0)
+                
                 time_str = "Recently"
                 if ts:
                     diff = datetime.now() - datetime.fromtimestamp(ts)
