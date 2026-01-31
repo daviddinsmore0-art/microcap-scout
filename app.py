@@ -326,9 +326,15 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 init_db()
-# NUCLEAR CSS OVERRIDE
+# NUCLEAR CSS OVERRIDE + PADDING FIX
 st.markdown("""<style> 
     .stApp { background-color: #0f1219; color: #e0e6ed; } 
+    /* PADDING FIX: REMOVE TOP SPACE */
+    .block-container { 
+        padding-top: 0rem !important; 
+        padding-bottom: 5rem !important; 
+    }
+    
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } 
     .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; } 
     .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
