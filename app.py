@@ -7,7 +7,6 @@ import os
 import pandas as pd
 import pytz
 import altair as alt
-import time
 from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
@@ -39,14 +38,41 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS ---
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        # --- SAFE MIGRATIONS (Strict Multi-line Blocks to fix SyntaxError) ---
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
+        except:
+            pass
         
         conn.close()
     except Exception as e:
@@ -92,11 +118,13 @@ def update_stock_data(tickers, username):
             
             if finnhub_key:
                 try:
-                    s_d = datetime.now().strftime('%Y-%m-%d'); e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
+                    s_d = datetime.now().strftime('%Y-%m-%d')
+                    e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
                     u = f"https://finnhub.io/api/v1/calendar/earnings?from={s_d}&to={e_d}&symbol={t}&token={finnhub_key}"
                     res = requests.get(u).json()
                     if "earningsCalendar" in res and res["earningsCalendar"]:
-                        el = res["earningsCalendar"]; el.sort(key=lambda x: x['date'])
+                        el = res["earningsCalendar"]
+                        el.sort(key=lambda x: x['date'])
                         nd = datetime.strptime(el[0]['date'], '%Y-%m-%d')
                         delta_d = (nd - datetime.now()).days
                         if delta_d >= 0: days = delta_d
@@ -104,7 +132,9 @@ def update_stock_data(tickers, username):
             
             try:
                 io = yf.Ticker(t).info
-                debt = io.get('debtToEquity',0) or 0; mcap = io.get('marketCap',0) or 0; eps = io.get('trailingEps',0) or 0
+                debt = io.get('debtToEquity',0) or 0
+                mcap = io.get('marketCap',0) or 0
+                eps = io.get('trailingEps',0) or 0
                 if days == 999:
                     cal = yf.Ticker(t).calendar
                     if cal is not None:
@@ -122,17 +152,22 @@ def update_stock_data(tickers, username):
         except: continue
     conn.commit(); conn.close()
     
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
     alerts = cursor.fetchall()
     for a in alerts:
         cursor.execute("SELECT day_change FROM stock_cache WHERE ticker=%s", (a['ticker'],))
         row = cursor.fetchone()
         if row:
-            pct = float(row['day_change']); target = float(a['target_price']); cond = a['condition_type']
+            pct = float(row['day_change'])
+            target = float(a['target_price'])
+            cond = a['condition_type']
             hit = (cond=='UP' and pct>=target) or (cond=='DOWN' and pct<=(target*-1))
-            if hit: cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
-    conn.commit(); conn.close()
+            if hit:
+                cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
+    conn.commit()
+    conn.close()
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -239,6 +274,7 @@ def calculate_risk(row):
     if row.get('volume_status') == 'SPIKE': s += 5; reasons.append("Vol Spike")
     if 0 < float(row.get('market_cap', 0)) < 250000000: s += 15; reasons.append("Micro Cap")
     if float(row.get('eps', 0)) < 0: s += 10; reasons.append("Unprofitable")
+    
     final = max(0, min(100, int(s)))
     if final > 65: return final, "HIGH", "#ef4444", "badge-high", reasons
     if final > 35: return final, "MEDIUM", "#fbbf24", "badge-med", reasons
@@ -252,6 +288,7 @@ def create_gauge_html(score, label, color, size="big"):
     fill = (score / 100) * (3.14159 * rad)
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
     svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
+    # Flattened HTML
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, market_data, current_token):
@@ -266,12 +303,15 @@ def render_portfolio_row(row, market_data, current_token):
     if shares > 0 and entry > 0:
         val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
         color_code = "green" if pl >= 0 else "red"
+        # Streamlit Markdown color syntax :color[text] is safer than HTML here
         pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
+        # Pure string, no HTML tags for the text part
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
     elif shares > 0:
-        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
 
     link = f"?token={current_token}&ticker={row['ticker']}"
+    # Flattened HTML to avoid "code block" glitch
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -321,8 +361,12 @@ st.markdown("""<style>
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
     
-    /* FIX: BUTTON HOVER & EXPANDER */
+    /* FIX: Ensure Expander Button is Visible */
+    div[data-testid="stExpander"] details summary { color: #4ade80 !important; }
+    div[data-testid="stExpander"] details summary:hover { color: #16a34a !important; }
+    
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
+    button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
     button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
     button[key="alert_action_btn"] { background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
     
