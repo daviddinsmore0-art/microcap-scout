@@ -38,40 +38,13 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
         # --- SAFE MIGRATIONS ---
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
         
         conn.close()
     except Exception as e:
@@ -82,8 +55,7 @@ def update_stock_data(tickers, username):
     if not tickers: return
     try: 
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
-    except: 
-        return
+    except: return
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -91,10 +63,8 @@ def update_stock_data(tickers, username):
     
     for t in tickers:
         try:
-            if len(tickers) > 1:
-                df = data[t]
-            else:
-                df = data
+            if len(tickers) > 1: df = data[t]
+            else: df = data
             
             df = df.dropna()
             if df.empty: continue
@@ -107,48 +77,35 @@ def update_stock_data(tickers, username):
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
-            
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std()*100
-            high3 = df['Close'].max()
-            low3 = df['Close'].min()
-            r_loc = 50
-            if high3 != low3:
-                r_loc = ((price-low3)/(high3-low3))*100
-                
-            avg_v = df['Volume'].rolling(20).mean().iloc[-1]
-            cur_v = df['Volume'].iloc[-1]
+            high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
+            if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
+            avg_v = df['Volume'].rolling(20).mean().iloc[-1]; cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
             debt=0; mcap=0; eps=0; days=999
             
-            # Finnhub
             if finnhub_key:
                 try:
-                    s_d = datetime.now().strftime('%Y-%m-%d')
-                    e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
+                    s_d = datetime.now().strftime('%Y-%m-%d'); e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
                     u = f"https://finnhub.io/api/v1/calendar/earnings?from={s_d}&to={e_d}&symbol={t}&token={finnhub_key}"
                     res = requests.get(u).json()
                     if "earningsCalendar" in res and res["earningsCalendar"]:
-                        el = res["earningsCalendar"]
-                        el.sort(key=lambda x: x['date'])
+                        el = res["earningsCalendar"]; el.sort(key=lambda x: x['date'])
                         nd = datetime.strptime(el[0]['date'], '%Y-%m-%d')
                         delta_d = (nd - datetime.now()).days
                         if delta_d >= 0: days = delta_d
                 except: pass
             
-            # YF Fallback
             try:
                 io = yf.Ticker(t).info
-                debt = io.get('debtToEquity',0) or 0
-                mcap = io.get('marketCap',0) or 0
-                eps = io.get('trailingEps',0) or 0
+                debt = io.get('debtToEquity',0) or 0; mcap = io.get('marketCap',0) or 0; eps = io.get('trailingEps',0) or 0
                 if days == 999:
                     cal = yf.Ticker(t).calendar
                     if cal is not None:
-                        if isinstance(cal, dict) and 'Earnings Date' in cal:
-                            days = (cal['Earnings Date'][0] - datetime.now()).days
+                        if isinstance(cal, dict) and 'Earnings Date' in cal: days = (cal['Earnings Date'][0] - datetime.now()).days
             except: pass
 
             sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
@@ -159,26 +116,19 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
+    conn.commit(); conn.close()
     
-    conn.commit()
-    conn.close()
-    
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
     alerts = cursor.fetchall()
     for a in alerts:
         cursor.execute("SELECT day_change FROM stock_cache WHERE ticker=%s", (a['ticker'],))
         row = cursor.fetchone()
         if row:
-            pct = float(row['day_change'])
-            target = float(a['target_price'])
-            cond = a['condition_type']
+            pct = float(row['day_change']); target = float(a['target_price']); cond = a['condition_type']
             hit = (cond=='UP' and pct>=target) or (cond=='DOWN' and pct<=(target*-1))
-            if hit:
-                cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
-    conn.commit()
-    conn.close()
+            if hit: cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
+    conn.commit(); conn.close()
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -316,18 +266,10 @@ def render_portfolio_row(row, market_data, current_token):
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
         
-        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
-        color_str = "green" if pl >= 0 else "red"
-        pl_str = f":{color_str}[${pl:,.2f} ({pl_pct:.1f}%)]"
-        
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • </div>' 
-        # Note: We need to render the colored part separately if using standard HTML, but to keep it simple and robust,
-        # let's rely on standard color hexes in a style attribute which is safer than font tags.
-        
-        # BETTER FIX: Pure inline style, no fancy tags that break parser
-        pl_color = "#4ade80" if pl >= 0 else "#ef4444"
+        # BUG FIX: Use class names instead of inline styles to prevent Streamlit parser errors
+        color_class = "profit" if pl >= 0 else "loss"
         pl_text = f"${pl:,.2f} ({pl_pct:.1f}%)"
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <span style="color:{pl_color}">{pl_text}</span></div>'
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <span class="{color_class}">{pl_text}</span></div>'
     elif shares > 0:
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
 
@@ -363,13 +305,17 @@ def render_navbar(active_tab, token):
 
 init_db()
 
-# --- CSS: NEON THEME ---
+# --- CSS: NEON THEME & PROFIT FIX ---
 st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; }
     .block-container { padding-top: 0rem !important; padding-bottom: 7rem !important; }
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
     .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #4ade80 !important; }
     
+    /* PROFIT/LOSS CLASSES (Fix for Tesla Tag) */
+    .profit { color: #4ade80 !important; font-weight: bold; }
+    .loss { color: #ef4444 !important; font-weight: bold; }
+
     /* NEON INPUTS */
     input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
@@ -453,10 +399,18 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
+        # LOAD HISTORY FOR CHART
+        hist = yf.Ticker(ticker).history(period="3mo")
+        
         s, l, c, _, r = calculate_risk(stock)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='margin:0; color:{cc}; font-size: 1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%) Today</span></h2>", unsafe_allow_html=True)
+        
+        # CHART
+        if not hist.empty:
+            st.area_chart(hist['Close'], color="#4ade80")
+        
         st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
         
         st.markdown(f"<div class='card' style='margin-top:15px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
