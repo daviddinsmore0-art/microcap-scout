@@ -28,7 +28,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         
-        # Expanded Table for New Metrics
+        # Ensure table exists with all columns
         sql = """CREATE TABLE IF NOT EXISTS stock_cache (
             ticker VARCHAR(20) PRIMARY KEY, 
             current_price DECIMAL(20, 4), 
@@ -46,10 +46,12 @@ def init_db():
         )"""
         cursor.execute(sql)
         
-        # Silent Migrations for existing users (Add new columns safely)
+        # Silent Migrations
         try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
         except: pass
         try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10, 2) DEFAULT 0")
+        except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 99")
         except: pass
             
         conn.close()
@@ -121,8 +123,6 @@ def get_user_portfolio(username):
 
 def update_stock_data(tickers):
     if not tickers: return
-    
-    # 1. Bulk Download Price History
     try:
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
@@ -134,11 +134,10 @@ def update_stock_data(tickers):
         try:
             if len(tickers) > 1: df = data[t]
             else: df = data
-            
             df = df.dropna()
             if df.empty: continue
 
-            # --- TECHNICALS ---
+            # Technicals
             price = float(df['Close'].iloc[-1])
             prev = float(df['Close'].iloc[-2])
             change = ((price - prev) / prev) * 100
@@ -163,7 +162,7 @@ def update_stock_data(tickers):
             curr_vol = df['Volume'].iloc[-1]
             vol_stat = "SPIKE" if curr_vol > (avg_vol * 1.5) else "NORMAL"
 
-            # --- FUNDAMENTALS ---
+            # Fundamentals
             debt_ratio = 0
             days_to_earnings = 99
             market_cap = 0
@@ -172,19 +171,13 @@ def update_stock_data(tickers):
             try:
                 ticker_obj = yf.Ticker(t)
                 info = ticker_obj.info
-                
-                # Fetch Data
-                debt_ratio = info.get('debtToEquity', 0)
-                market_cap = info.get('marketCap', 0)
-                eps = info.get('trailingEps', 0)
-                
-                # Cleanup Nones
-                if debt_ratio is None: debt_ratio = 0
-                if market_cap is None: market_cap = 0
-                if eps is None: eps = 0
+                debt_ratio = info.get('debtToEquity', 0) or 0
+                market_cap = info.get('marketCap', 0) or 0
+                eps = info.get('trailingEps', 0) or 0
                 
                 cal = ticker_obj.calendar
                 if cal is not None and not cal.empty:
+                    # yfinance calendar structure varies, usually first item is next date
                     earnings_date = cal.iloc[0, 0]
                     if isinstance(earnings_date, (datetime, pd.Timestamp)):
                          delta_days = (earnings_date - datetime.now()).days
@@ -193,7 +186,6 @@ def update_stock_data(tickers):
             except:
                 pass 
 
-            # Update DB
             sql = """INSERT INTO stock_cache 
                      (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
@@ -202,12 +194,8 @@ def update_stock_data(tickers):
             
             vals = (t, price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps,
                     price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps)
-            
             cursor.execute(sql, vals)
-            
-        except Exception as e:
-            continue
-            
+        except: continue
     conn.commit()
     conn.close()
 
@@ -222,11 +210,10 @@ def get_cached_data(tickers):
     return rows
 
 def calculate_risk(row):
-    # --- PRO RISK ENGINE ---
     score = 50
     reasons = [] 
     
-    # 1. Technicals
+    # Technicals
     if row.get('trend_status') == 'DOWNTREND': score += 10
     else: score -= 10
     
@@ -234,62 +221,50 @@ def calculate_risk(row):
     if rsi > 70: score += 10
     if rsi < 30: score -= 10
     
-    # 2. Volatility 
     vol = float(row.get('volatility', 0))
     if vol > 3.0: 
         score += 10
         reasons.append("High Volatility")
         
-    # 3. Debt 
     debt = float(row.get('debt_ratio', 0))
     if debt > 150: 
         score += 5
         reasons.append("High Debt")
 
-    # 4. Earnings
     days = int(row.get('days_to_earnings', 99))
     if days < 10: 
         score += 15
         reasons.append("Earnings Soon")
 
-    # 5. Range Location
     loc = float(row.get('range_loc', 50))
     if loc > 90: score += 10
     elif loc < 10: score -= 10
     
-    # 6. Retail Hype
     if row.get('volume_status') == 'SPIKE':
         score += 5
         reasons.append("Vol Spike")
 
-    # 7. MARKET CAP (Size Risk)
     mcap = float(row.get('market_cap', 0))
-    if 0 < mcap < 250000000: # Less than 250M
+    if 0 < mcap < 250000000: # Micro Cap
         score += 15
         reasons.append("Micro Cap")
-    elif 0 < mcap < 2000000000: # Less than 2B
+    elif 0 < mcap < 2000000000: # Small Cap
         score += 5
     
-    # 8. PROFITABILITY (EPS)
     eps = float(row.get('eps', 0))
     if eps < 0:
         score += 10
         reasons.append("Unprofitable")
 
     final = max(0, min(100, int(score)))
+    css, color, label = "badge-low", "#4ade80", "LOW"
     
-    css = "badge-low"
-    color = "#4ade80"
-    label = "LOW"
-    
-    if final > 65: 
-        label, color, css = "HIGH", "#ef4444", "badge-high"
-    elif final > 35: 
-        label, color, css = "MEDIUM", "#fbbf24", "badge-med"
+    if final > 65: label, color, css = "HIGH", "#ef4444", "badge-high"
+    elif final > 35: label, color, css = "MEDIUM", "#fbbf24", "badge-med"
         
     return final, label, color, css, reasons
 
-# 4. UI COMPONENTS
+# 4. UI GENERATORS
 def create_gauge_html(score, label, color):
     radius = 80
     circumference = 3.14159 * radius
@@ -307,12 +282,9 @@ def render_stock_card(row):
     ticker = row['ticker']
     trend = row.get('trend_status', 'N/A')
     
-    # Compact reason badges
     reason_html = ""
     if reasons:
-        # Show max 2 reasons to keep card clean
-        display_reasons = reasons[:2]
-        reason_html = f"<div style='font-size:0.65rem; color:#94a3b8; margin-top:4px;'>⚠️ {', '.join(display_reasons)}</div>"
+        reason_html = f"<div style='font-size:0.65rem; color:#94a3b8; margin-top:4px;'>⚠️ {', '.join(reasons[:2])}</div>"
     
     html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div>{reason_html}</div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
@@ -341,8 +313,7 @@ st.markdown("""<style>
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
     .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
     input { color: black !important; }
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+    header {visibility: hidden;} footer {visibility: hidden;}
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; }
     .scrolling-wrapper::-webkit-scrollbar { display: none; }
     .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; }
@@ -365,19 +336,15 @@ if "token" not in st.query_params:
             else: st.error("Invalid PIN")
     st.stop()
 
-# MAIN APP
 username = get_user_from_token(st.query_params["token"])
-if not username:
-    st.error("Session Expired")
-    st.stop()
+if not username: st.error("Session Expired"); st.stop()
 
 active_tab = st.query_params.get("tab", "home")
 
 if active_tab == "home":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Hi, {username}</div>", unsafe_allow_html=True)
     my_portfolio = get_user_portfolio(username)
-    if not my_portfolio:
-        st.info("No stocks. Go to Portfolio tab.")
+    if not my_portfolio: st.info("No stocks. Go to Portfolio tab.")
     else:
         if st.button("🔄 Refresh", key="ref_home"):
             with st.spinner("Analyzing fundamentals..."):
@@ -389,25 +356,36 @@ if active_tab == "home":
             if avg_risk > 65: r_label, r_color = "HIGH", "#ef4444"
             elif avg_risk > 35: r_label, r_color = "MEDIUM", "#fbbf24"
             else: r_label, r_color = "LOW", "#4ade80"
-            
             st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
             
+            # --- SUMMARY STATS ---
             highest_risk_stock = max(data, key=lambda x: calculate_risk(x)[0])
             most_volatile_stock = max(data, key=lambda x: abs(float(x['day_change'])))
             
+            # Find closest earning date (Min days, but not 99)
+            earnings_candidates = [d for d in data if d.get('days_to_earnings', 99) < 90]
+            if earnings_candidates:
+                next_earnings_stock = min(earnings_candidates, key=lambda x: int(x.get('days_to_earnings', 99)))
+                earning_ticker = next_earnings_stock['ticker']
+            else:
+                earning_ticker = "-"
+
             st.markdown(f"""
             <div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;">
-                <div style="text-align:center; width:50%; border-right:1px solid #2d3748;">
-                    <div style="color:#94a3b8; font-size:0.7rem; text-transform:uppercase;">Highest Risk</div>
-                    <div style="color:white; font-weight:bold; font-size:1.1rem;">{highest_risk_stock['ticker']}</div>
+                <div style="text-align:center; width:33.3%; border-right:1px solid #2d3748;">
+                    <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div>
+                    <div style="color:white; font-weight:bold; font-size:1rem;">{highest_risk_stock['ticker']}</div>
                 </div>
-                <div style="text-align:center; width:50%;">
-                    <div style="color:#94a3b8; font-size:0.7rem; text-transform:uppercase;">Most Volatile</div>
-                    <div style="color:white; font-weight:bold; font-size:1.1rem;">{most_volatile_stock['ticker']}</div>
+                <div style="text-align:center; width:33.3%; border-right:1px solid #2d3748;">
+                    <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earning</div>
+                    <div style="color:white; font-weight:bold; font-size:1rem;">{earning_ticker}</div>
+                </div>
+                <div style="text-align:center; width:33.3%;">
+                    <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div>
+                    <div style="color:white; font-weight:bold; font-size:1rem;">{most_volatile_stock['ticker']}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            
             st.write("### At a Glance")
             render_horizontal_grid(data)
 
@@ -442,19 +420,13 @@ elif active_tab == "scanner":
         found_any = False
         st.markdown("**📉 Oversold (RSI < 35)**")
         for row in data:
-            if float(row['rsi']) < 35: 
-                render_stock_card(row)
-                found_any = True
+            if float(row['rsi']) < 35: render_stock_card(row); found_any = True
         st.markdown("**🔊 Volume Spikes**")
         for row in data:
-            if row.get('volume_status') == "SPIKE":
-                render_stock_card(row)
-                found_any = True
+            if row.get('volume_status') == "SPIKE": render_stock_card(row); found_any = True
         st.markdown("**📅 Earnings Coming Soon**")
         for row in data:
-            if int(row.get('days_to_earnings', 99)) < 14:
-                render_stock_card(row)
-                found_any = True
+            if int(row.get('days_to_earnings', 99)) < 14: render_stock_card(row); found_any = True
         if not found_any: st.success("No alerts found.")
 
 current_token = st.query_params.get("token", "")
