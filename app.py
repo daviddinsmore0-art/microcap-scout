@@ -160,26 +160,19 @@ def calculate_risk(row):
     if final > 40: return final, "MEDIUM", "#fbbf24", "badge-med"
     return final, "LOW", "#4ade80", "badge-low"
 
-# 4. UI COMPONENTS
+# 4. UI COMPONENTS - HTML GENERATORS
+
 def create_gauge_html(score, label, color):
-    # Fixed Text Position: Lifted 'y' from 105 to 100 to clear the bottom
     radius = 80
     circumference = 3.14159 * radius
     fill_amount = (score / 100) * circumference
-    
-    # ADDED: Top Label HTML
     header_html = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>'
     
-    svg = f'<svg viewBox="0 0 200 120" style="width: 100%; height: auto;">'
-    svg += '<defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs>'
-    svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" />'
-    svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" />'
-    svg += f'<text x="100" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text>'
-    svg += f'<text x="100" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
+    # We construct the SVG on a single line to avoid indentation bugs
+    svg = f'<svg viewBox="0 0 200 120" style="width: 100%; height: auto;"><defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs><path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" /><path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" /><text x="100" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="100" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     
     return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{header_html}{svg}</div>'
 
-# Standard wide card for Portfolio/Scanner tabs
 def render_stock_card(row):
     score, label, color, css = calculate_risk(row)
     price = float(row['current_price'])
@@ -189,12 +182,14 @@ def render_stock_card(row):
     ticker = row['ticker']
     trend = row.get('trend_status', 'N/A')
     
+    # Flat HTML string to prevent code block rendering
     html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
 
-# NEW: Forced Horizontal Scroll Container
+# THE FIX: Horizontal Grid with stripped whitespace
 def render_horizontal_grid(rows):
-    html_content = '<div style="display: flex; flex-direction: row; gap: 10px; overflow-x: auto; padding-bottom: 5px;">'
+    # Start container
+    html_content = '<div class="scrolling-wrapper">'
     
     for row in rows:
         score, label, color, css = calculate_risk(row)
@@ -204,17 +199,8 @@ def render_horizontal_grid(rows):
         arrow = "▲" if change >= 0 else "▼"
         ticker = row['ticker']
         
-        # Mini Card HTML
-        card = f"""
-        <div style="background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; min-width: 130px; flex: 0 0 auto;">
-            <div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 4px;">{ticker}</div>
-            <div style="font-size:0.85rem; color:{c_color}; font-weight:bold; margin-bottom: 8px;">{arrow} {change:.2f}%</div>
-            <div style="display: flex; align-items: center;">
-                <div style="width: 8px; height: 8px; border-radius: 50%; background-color: {color}; margin-right: 6px;"></div>
-                <div style="font-size:0.75rem; color:#94a3b8;">{label}</div>
-            </div>
-        </div>
-        """
+        # We build this string without indentation to avoid the markdown bug
+        card = f'<div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 4px;">{ticker}</div><div style="font-size:0.85rem; color:{c_color}; font-weight:bold; margin-bottom: 8px;">{arrow} {change:.2f}%</div><div style="display: flex; align-items: center;"><div style="width: 8px; height: 8px; border-radius: 50%; background-color: {color}; margin-right: 6px;"></div><div style="font-size:0.75rem; color:#94a3b8;">{label}</div></div></div>'
         html_content += card
         
     html_content += '</div>'
@@ -235,6 +221,31 @@ st.markdown("""<style>
     
     header {visibility: hidden;}
     footer {visibility: hidden;}
+
+    /* NETFLIX STYLE HORIZONTAL SCROLL */
+    .scrolling-wrapper {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        gap: 12px;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+        /* Hide Scrollbar for clean look */
+        -ms-overflow-style: none;  /* IE and Edge */
+        scrollbar-width: none;  /* Firefox */
+    }
+    .scrolling-wrapper::-webkit-scrollbar {
+        display: none;
+    }
+    .scrolling-card {
+        flex: 0 0 auto; /* Don't shrink */
+        width: 130px;
+        background-color: #1a1f2b; 
+        border: 1px solid #2d3748; 
+        border-radius: 12px; 
+        padding: 15px;
+    }
 </style>""", unsafe_allow_html=True)
 
 # LOGIN
@@ -269,7 +280,6 @@ active_tab = st.query_params.get("tab", "home")
 
 # 1. HOME SCREEN
 if active_tab == "home":
-    # Custom Smaller Header
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Hi, {username}</div>", unsafe_allow_html=True)
     
     my_portfolio = get_user_portfolio(username)
@@ -310,9 +320,8 @@ if active_tab == "home":
             
             st.write("### At a Glance")
             
-            # Use the new Forced Horizontal Grid function
-            # We pass the top 4 stocks to it
-            render_horizontal_grid(data[:5])
+            # Use the new Forced Horizontal Grid function (Pass all data, let user scroll)
+            render_horizontal_grid(data)
 
 
 # 2. PORTFOLIO SCREEN
@@ -369,7 +378,7 @@ elif active_tab == "scanner":
         if not found_any:
             st.success("No alerts found.")
 
-# --- CUSTOM HTML BOTTOM NAV (High Contrast & Fixed Color) ---
+# --- CUSTOM HTML BOTTOM NAV (High Contrast & Forced Colors) ---
 current_token = st.query_params.get("token", "")
 
 nav_html = f"""
@@ -387,25 +396,28 @@ nav_html = f"""
         align-items: center;
         z-index: 9999;
     }}
-    .nav-link {{
+    /* FORCE COLORS: Override any user-agent blue links */
+    a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{
         text-decoration: none;
-        color: #94a3b8 !important; /* Force inactive color */
+        color: #94a3b8; /* Default Grey */
         font-family: sans-serif;
         font-size: 12px;
         text-align: center;
         width: 100%;
         padding: 5px 0;
+        -webkit-tap-highlight-color: transparent;
     }}
-    .nav-link:hover {{
-        color: white !important;
+    a.nav-link:hover {{
+        color: white;
     }}
     .nav-icon {{
         font-size: 20px;
         display: block;
         margin-bottom: 2px;
     }}
-    .active {{
-        color: #3b82f6 !important; /* Force active color */
+    /* Active State Color */
+    a.active, a.active:visited {{
+        color: #3b82f6 !important;
         font-weight: bold;
     }}
 </style>
