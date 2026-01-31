@@ -211,7 +211,6 @@ gauge_html = f"""
 </div>
 """
 st.markdown(gauge_html, unsafe_allow_html=True)
-
 # Widget 2: Portfolio List
 st.subheader("My Portfolio")
 
@@ -221,15 +220,13 @@ for row in data:
     change = float(row['day_change'])
     c_color = "#4ade80" if change >= 0 else "#ef4444"
     arrow = "▲" if change >= 0 else "▼"
-    ticker = row['ticker']
-    trend = row.get('trend_status', 'N/A')
     
-    # Store HTML in variable first to be safe
-    card_html = f"""
+    # We build the HTML string cleanly in a variable first
+    html_code = f"""
     <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
         <div>
-            <div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div>
-            <div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div>
+            <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+            <div style="font-size:0.8rem; color:#94a3b8;">Trend: {row['trend_status']}</div>
         </div>
         <div style="text-align: right; flex-grow:1; padding-right:15px;">
             <div style="color:white; font-weight:bold;">${price:,.2f}</div>
@@ -239,6 +236,8 @@ for row in data:
     </div>
     """
     
-    st.markdown(card_html, unsafe_allow_html=True)
+    # Then we print it. This prevents the syntax error.
+    st.markdown(html_code, unsafe_allow_html=True)
 
 # --- END OF FILE ---
+
