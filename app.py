@@ -25,8 +25,16 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, user_data TEXT, pin VARCHAR(50))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
-        sql = "CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), trend_status VARCHAR(20), volume_status VARCHAR(20), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
+        
+        # Create Table if not exists
+        sql = "CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10, 2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
         cursor.execute(sql)
+        
+        # SILENT MIGRATION: Check if 'range_loc' exists, if not, add it
+        cursor.execute("SHOW COLUMNS FROM stock_cache LIKE 'range_loc'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN range_loc DECIMAL(10, 2) DEFAULT 50")
+            
         conn.close()
     except Exception as e:
         st.error(f"DB Error: {e}")
@@ -115,20 +123,32 @@ def update_stock_data(tickers):
             prev = float(df['Close'].iloc[-2])
             change = ((price - prev) / prev) * 100
             
+            # 1. RSI Logic
             delta = df['Close'].diff()
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             
+            # 2. Trend Logic
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
 
+            # 3. Volume Logic
             avg_vol = df['Volume'].rolling(20).mean().iloc[-1]
             curr_vol = df['Volume'].iloc[-1]
             vol_stat = "SPIKE" if curr_vol > (avg_vol * 1.5) else "NORMAL"
+
+            # 4. NEW: Range Location Logic (0-100 score)
+            # 0 = At 3-month Low (Safe entry), 100 = At 3-month High (Risky)
+            high_3m = df['Close'].max()
+            low_3m = df['Close'].min()
+            if high_3m != low_3m:
+                range_loc = ((price - low_3m) / (high_3m - low_3m)) * 100
+            else:
+                range_loc = 50
             
-            sql = "INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status, volume_status) VALUES (%s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s"
-            cursor.execute(sql, (t, price, change, rsi, trend, vol_stat, price, change, rsi, trend, vol_stat))
+            sql = "INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc) VALUES (%s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s"
+            cursor.execute(sql, (t, price, change, rsi, trend, vol_stat, range_loc, price, change, rsi, trend, vol_stat, range_loc))
         except: continue
     conn.commit()
     conn.close()
@@ -144,20 +164,35 @@ def get_cached_data(tickers):
     return rows
 
 def calculate_risk(row):
+    # --- THE NEW LOGIC ENGINE ---
+    # Base Score: 50
     score = 50
+    
+    # 1. Trend Impact (+/- 15)
     trend = row.get('trend_status', 'NEUTRAL')
+    if trend == 'DOWNTREND': score += 15 # Risk increases in downtrend
+    if trend == 'UPTREND': score -= 15   # Risk decreases in uptrend
+    
+    # 2. RSI Impact (+/- 15)
     rsi = float(row.get('rsi', 50))
+    if rsi > 70: score += 15  # Overbought = Risk of pullback
+    if rsi < 30: score -= 10  # Oversold = Potential bounce (lower risk entry)
+    
+    # 3. Range Location Impact (+/- 20) ** NEW **
+    # Buying at the top of the chart is risky!
+    r_loc = float(row.get('range_loc', 50))
+    if r_loc > 85: score += 20 # At 3-Month Highs = VERY RISKY
+    elif r_loc < 15: score -= 15 # At 3-Month Lows = Low Risk (Value)
+    
+    # 4. Volume Spike (+10)
     vol = row.get('volume_status', 'NORMAL')
+    if vol == "SPIKE": score += 10 # High volatility
     
-    if trend == 'DOWNTREND': score += 20
-    if trend == 'UPTREND': score -= 15
-    if rsi > 70: score += 20
-    if rsi < 30: score -= 10
-    if vol == "SPIKE": score += 10 
-    
+    # Clamp score 0-100
     final = max(0, min(100, int(score)))
-    if final > 60: return final, "HIGH", "#ef4444", "badge-high"
-    if final > 40: return final, "MEDIUM", "#fbbf24", "badge-med"
+    
+    if final > 65: return final, "HIGH", "#ef4444", "badge-high"
+    if final > 35: return final, "MEDIUM", "#fbbf24", "badge-med"
     return final, "LOW", "#4ade80", "badge-low"
 
 # 4. UI COMPONENTS - HTML GENERATORS
@@ -168,7 +203,6 @@ def create_gauge_html(score, label, color):
     fill_amount = (score / 100) * circumference
     header_html = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>'
     
-    # We construct the SVG on a single line to avoid indentation bugs
     svg = f'<svg viewBox="0 0 200 120" style="width: 100%; height: auto;"><defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs><path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" /><path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" /><text x="100" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="100" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     
     return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{header_html}{svg}</div>'
@@ -182,24 +216,19 @@ def render_stock_card(row):
     ticker = row['ticker']
     trend = row.get('trend_status', 'N/A')
     
-    # Flat HTML string to prevent code block rendering
     html = f'<div class="card" style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{ticker}</div><div style="font-size:0.8rem; color:#94a3b8;">Trend: {trend}</div></div><div style="text-align: right; flex-grow:1; padding-right:15px;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{c_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div><div class="{css} badge">{label}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
 
-# THE FIX: Horizontal Grid with stripped whitespace
 def render_horizontal_grid(rows):
-    # Start container
     html_content = '<div class="scrolling-wrapper">'
     
     for row in rows:
         score, label, color, css = calculate_risk(row)
-        price = float(row['current_price'])
         change = float(row['day_change'])
         c_color = "#4ade80" if change >= 0 else "#ef4444"
         arrow = "▲" if change >= 0 else "▼"
         ticker = row['ticker']
         
-        # We build this string without indentation to avoid the markdown bug
         card = f'<div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom: 4px;">{ticker}</div><div style="font-size:0.85rem; color:{c_color}; font-weight:bold; margin-bottom: 8px;">{arrow} {change:.2f}%</div><div style="display: flex; align-items: center;"><div style="width: 8px; height: 8px; border-radius: 50%; background-color: {color}; margin-right: 6px;"></div><div style="font-size:0.75rem; color:#94a3b8;">{label}</div></div></div>'
         html_content += card
         
@@ -222,7 +251,6 @@ st.markdown("""<style>
     header {visibility: hidden;}
     footer {visibility: hidden;}
 
-    /* NETFLIX STYLE HORIZONTAL SCROLL */
     .scrolling-wrapper {
         display: flex;
         flex-wrap: nowrap;
@@ -231,15 +259,14 @@ st.markdown("""<style>
         gap: 12px;
         padding-bottom: 10px;
         margin-bottom: 15px;
-        /* Hide Scrollbar for clean look */
-        -ms-overflow-style: none;  /* IE and Edge */
-        scrollbar-width: none;  /* Firefox */
+        -ms-overflow-style: none;
+        scrollbar-width: none;
     }
     .scrolling-wrapper::-webkit-scrollbar {
         display: none;
     }
     .scrolling-card {
-        flex: 0 0 auto; /* Don't shrink */
+        flex: 0 0 auto;
         width: 130px;
         background-color: #1a1f2b; 
         border: 1px solid #2d3748; 
@@ -295,8 +322,8 @@ if active_tab == "home":
         if data:
             avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
             r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
-            if avg_risk > 60: r_label, r_color = "HIGH", "#ef4444"
-            elif avg_risk > 40: r_label, r_color = "MEDIUM", "#fbbf24"
+            if avg_risk > 65: r_label, r_color = "HIGH", "#ef4444"
+            elif avg_risk > 35: r_label, r_color = "MEDIUM", "#fbbf24"
             else: r_label, r_color = "LOW", "#4ade80"
 
             st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
@@ -319,8 +346,6 @@ if active_tab == "home":
             """, unsafe_allow_html=True)
             
             st.write("### At a Glance")
-            
-            # Use the new Forced Horizontal Grid function (Pass all data, let user scroll)
             render_horizontal_grid(data)
 
 
@@ -378,9 +403,8 @@ elif active_tab == "scanner":
         if not found_any:
             st.success("No alerts found.")
 
-# --- CUSTOM HTML BOTTOM NAV (High Contrast & Forced Colors) ---
+# --- CUSTOM HTML BOTTOM NAV ---
 current_token = st.query_params.get("token", "")
-
 nav_html = f"""
 <style>
     .nav-container {{
@@ -396,41 +420,23 @@ nav_html = f"""
         align-items: center;
         z-index: 9999;
     }}
-    /* FORCE COLORS: Override any user-agent blue links */
     a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{
         text-decoration: none;
-        color: #94a3b8; /* Default Grey */
+        color: #94a3b8;
         font-family: sans-serif;
         font-size: 12px;
         text-align: center;
         width: 100%;
         padding: 5px 0;
-        -webkit-tap-highlight-color: transparent;
     }}
-    a.nav-link:hover {{
-        color: white;
-    }}
-    .nav-icon {{
-        font-size: 20px;
-        display: block;
-        margin-bottom: 2px;
-    }}
-    /* Active State Color */
-    a.active, a.active:visited {{
-        color: #3b82f6 !important;
-        font-weight: bold;
-    }}
+    a.nav-link:hover {{ color: white; }}
+    .nav-icon {{ font-size: 20px; display: block; margin-bottom: 2px; }}
+    a.active, a.active:visited {{ color: #3b82f6 !important; font-weight: bold; }}
 </style>
 <div class="nav-container">
-    <a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}">
-        <span class="nav-icon">🏠</span>Home
-    </a>
-    <a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}">
-        <span class="nav-icon">📂</span>Stocks
-    </a>
-    <a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}">
-        <span class="nav-icon">📡</span>Scan
-    </a>
+    <a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}"><span class="nav-icon">🏠</span>Home</a>
+    <a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a>
+    <a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}"><span class="nav-icon">📡</span>Scan</a>
 </div>
 """
 st.markdown(nav_html, unsafe_allow_html=True)
