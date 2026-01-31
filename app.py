@@ -31,7 +31,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations (One by one, standard format)
+        # Safe Migrations (Expanded to prevent Syntax Errors)
         try: 
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except: pass
@@ -103,7 +103,6 @@ def update_stock_data(tickers, username):
                 if days == 999:
                     cal = yf.Ticker(t).calendar
                     if cal is not None:
-                        # Logic to extract date from various YF formats
                         if isinstance(cal, dict) and 'Earnings Date' in cal: days = (cal['Earnings Date'][0] - datetime.now()).days
             except: pass
 
@@ -218,7 +217,7 @@ def render_clickable_list_row(row, current_token):
     s, l, c, css, r = calculate_risk(row)
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # ADDED: Active state CSS in the style block below makes this scale down when clicked
+    # Flattened HTML to avoid syntax errors
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: <span style="color:{c}">{l}</span></div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -230,21 +229,25 @@ def render_horizontal_grid(rows, current_token):
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{row["ticker"]}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.75rem; color:#94a3b8;">Move</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
+def get_greeting(name):
+    hour = datetime.now(pytz.timezone('America/Halifax')).hour
+    if hour < 12: return f"Good Morning, {name}"
+    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
+    else: return f"Good Evening, {name}"
+
 init_db()
 
-# --- CSS: NUCLEAR OPTION 2.0 ---
+# --- CSS ---
 st.markdown("""<style>
     .stApp { background-color: #0f1219; color: #e0e6ed; }
     .block-container { padding-top: 0rem !important; padding-bottom: 7rem !important; }
+    .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
     
-    /* CARDS */
-    .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s, background-color 0.1s; }
-    
-    /* CLICK FEEDBACK - This is the magic sauce */
+    /* CLICK EFFECTS */
     .clickable-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #3b82f6 !important; }
     .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #3b82f6 !important; }
 
-    /* INPUTS - High Visibility */
+    /* INPUTS */
     input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #3b82f6 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
     div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #3b82f6 !important; }
@@ -252,21 +255,13 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.9rem; }
 
-    /* BUTTONS - Primary Gradient */
+    /* BUTTONS */
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #2563eb, #06b6d4) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
-    div.stButton > button:active { opacity: 0.7; transform: scale(0.98); }
-
-    /* SECONDARY BUTTONS (Delete / Back) - Low Profile */
-    /* Target buttons that are NOT primary submit buttons or the main refresh */
     button[key*="del_"], button[key="back_btn"] {
         background: #334155 !important; border: 1px solid #475569 !important; color: #cbd5e1 !important;
     }
-
-    /* TABS */
-    button[data-baseweb="tab"] { color: #94a3b8 !important; }
-    button[data-baseweb="tab"][aria-selected="true"] { color: #3b82f6 !important; border-bottom-color: #3b82f6 !important; }
 
     /* SCROLLER */
     .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 10px; -ms-overflow-style: none; scrollbar-width: none; }
@@ -275,14 +270,14 @@ st.markdown("""<style>
     
     header {visibility: hidden;} footer {visibility: hidden;} 
     
-    /* NAV BAR - FIXED BOTTOM */
+    /* NAV BAR */
     .nav-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background-color: #0f1219; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 99999; padding-bottom: 5px; }
     a.nav-link { text-decoration: none; color: #64748b; font-family: sans-serif; font-size: 10px; text-align: center; width: 100%; }
     a.nav-link.active { color: #3b82f6; font-weight: bold; }
     .nav-icon { font-size: 22px; display: block; margin-bottom: 2px; }
 </style>""", unsafe_allow_html=True)
 
-# --- APP FLOW ---
+# --- LOGIN ---
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
@@ -305,16 +300,17 @@ if "token" not in st.query_params:
 # LOGGED IN
 user_info = get_user_from_token(st.query_params["token"])
 if not user_info: st.error("Session Expired"); st.stop()
-username = user_info['username']; token = st.query_params["token"]
+username = user_info['username']; display_name = user_info['display_name'] or username; token = st.query_params["token"]
 
 # CHECK FOR DETAIL VIEW
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
     stock = get_single_stock(ticker)
     
-    # Back Button (Secondary Style)
     if st.button("← Back", key="back_btn"):
-        del st.query_params["ticker"]; st.rerun()
+        new_params = st.query_params.to_dict()
+        if "ticker" in new_params: del new_params["ticker"]
+        st.query_params.clear(); st.query_params.update(new_params); st.rerun()
         
     if stock:
         s, l, c, _, r = calculate_risk(stock)
@@ -329,9 +325,11 @@ if "ticker" in st.query_params:
         else: st.markdown("✅ Fundamentals look solid.")
         st.markdown("</div>", unsafe_allow_html=True)
         
-        # Action Buttons
         if st.button("🔔 Create Alert", use_container_width=True):
-            st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
+            st.query_params["tab"] = "alerts"
+            new_params = st.query_params.to_dict(); 
+            if "ticker" in new_params: del new_params["ticker"]
+            st.query_params.clear(); st.query_params.update(new_params); st.rerun()
     else: st.error("Data missing. Refresh portfolio.")
 
 else:
@@ -339,7 +337,7 @@ else:
     tab = st.query_params.get("tab", "home")
     
     if tab == "home":
-        st.markdown(f"<div style='font-size:24px; font-weight:800; color:white; margin-bottom:10px;'>{get_greeting(user_info['display_name'])}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:24px; font-weight:800; color:white; margin-bottom:10px;'>{get_greeting(display_name)}</div>", unsafe_allow_html=True)
         port = get_user_portfolio(username)
         if port:
             if st.button("🔄 Refresh Data", key="ref_home"):
@@ -368,7 +366,7 @@ else:
                 c1, c2 = st.columns([5, 1])
                 with c1: render_clickable_list_row(row, token)
                 with c2: 
-                    st.write(""); st.write("") # Spacer
+                    st.write(""); st.write("") 
                     if st.button("✕", key=f"del_{row['ticker']}"): remove_ticker_from_db(username, row['ticker']); st.rerun()
 
     elif tab == "alerts":
@@ -380,8 +378,6 @@ else:
             if st.button("Set Alert", use_container_width=True): add_alert(username, t, c, v); st.rerun()
         
         st.divider()
-        alerts = st.session_state.get('alerts', []) # Optimization: Fetch only if needed
-        # (Fetching logic simplified for brevity - in prod we call DB)
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM user_alerts WHERE username=%s", (username,)); alerts = cursor.fetchall(); conn.close()
         
@@ -407,8 +403,6 @@ else:
         st.markdown("### Settings")
         if st.button("Log Out", use_container_width=True): st.query_params.clear(); st.rerun()
 
-# BOTTOM NAV ALWAYS VISIBLE
-# We manually highlight the active tab based on query param
 nav_html = f"""
 <div class="nav-container">
     <a href="?token={token}&tab=home" class="nav-link {'active' if tab=='home' else ''}"><span class="nav-icon">🏠</span>Home</a>
