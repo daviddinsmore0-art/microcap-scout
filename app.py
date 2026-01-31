@@ -150,9 +150,7 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
-    
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
     
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -364,7 +362,6 @@ st.markdown("""<style>
     .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
     .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #4ade80 !important; }
     
-    /* NEON INPUTS */
     input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; border-radius: 8px; padding: 10px; }
     div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
     div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; }
@@ -372,7 +369,6 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
     
-    /* NEON BUTTONS */
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
@@ -415,7 +411,7 @@ if "token" not in st.query_params:
         if os.path.exists("logo.png"): st.image("logo.png", width=200)
         else: st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
-            <div class="neon-logo">⚡</div>
+            <div style="font-size: 60px; color: #4ade80; text-shadow: 0 0 10px #4ade80;">⚡</div>
             <h1 style="color: #4ade80; margin: 0; text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);">Penny Pulse</h1>
         </div>
         """, unsafe_allow_html=True)
