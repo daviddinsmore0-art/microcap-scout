@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
+
+# Define token early
 token = st.query_params.get("token", None)
 
 DB_CONFIG = {
@@ -20,11 +22,15 @@ DB_CONFIG = {
     "connect_timeout": 30,
 }
 
-def get_connection(): return mysql.connector.connect(**DB_CONFIG)
+def get_connection():
+    return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
     try:
-        conn = get_connection(); cursor = conn.cursor()
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Base Tables
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, PRIMARY KEY (id))")
@@ -41,38 +47,54 @@ def init_db():
         try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
         
         conn.close()
-    except Exception as e: st.error(f"DB Error: {e}")
+    except Exception as e:
+        st.error(f"DB Error: {e}")
 
 # 2. DATA ENGINE
 def update_stock_data(tickers, username):
     if not tickers: return
-    try: data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
-    except: return
-    conn = get_connection(); cursor = conn.cursor()
+    try: 
+        data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
+    except: 
+        return
+
+    conn = get_connection()
+    cursor = conn.cursor()
     finnhub_key = st.secrets["finnhub"]["api_key"] if "finnhub" in st.secrets else None
     
     for t in tickers:
         try:
             if len(tickers) > 1: df = data[t]
             else: df = data
-            df = df.dropna(); 
+            
+            df = df.dropna()
             if df.empty: continue
             
-            price = float(df['Close'].iloc[-1]); prev = float(df['Close'].iloc[-2]); change = ((price - prev)/prev)*100
-            delta = df['Close'].diff(); up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+            price = float(df['Close'].iloc[-1])
+            prev = float(df['Close'].iloc[-2])
+            change = ((price - prev)/prev)*100
+            
+            delta = df['Close'].diff()
+            up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
-            ma50 = df['Close'].rolling(50).mean().iloc[-1]; trend = "UPTREND" if price > ma50 else "DOWNTREND"
+            ma50 = df['Close'].rolling(50).mean().iloc[-1]
+            trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std()*100
-            high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
-            if high3!=low3: r_loc = ((price-low3)/(high3-low3))*100
-            avg_v = df['Volume'].rolling(20).mean().iloc[-1]; cur_v = df['Volume'].iloc[-1]
+            high3 = df['Close'].max()
+            low3 = df['Close'].min()
+            r_loc = 50
+            if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
+            avg_v = df['Volume'].rolling(20).mean().iloc[-1]
+            cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
             debt=0; mcap=0; eps=0; days=999
+            
             if finnhub_key:
                 try:
-                    s_d = datetime.now().strftime('%Y-%m-%d'); e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
+                    s_d = datetime.now().strftime('%Y-%m-%d')
+                    e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
                     u = f"https://finnhub.io/api/v1/calendar/earnings?from={s_d}&to={e_d}&symbol={t}&token={finnhub_key}"
                     res = requests.get(u).json()
                     if "earningsCalendar" in res and res["earningsCalendar"]:
@@ -81,6 +103,7 @@ def update_stock_data(tickers, username):
                         delta_d = (nd - datetime.now()).days
                         if delta_d >= 0: days = delta_d
                 except: pass
+            
             try:
                 io = yf.Ticker(t).info
                 debt = io.get('debtToEquity',0) or 0; mcap = io.get('marketCap',0) or 0; eps = io.get('trailingEps',0) or 0
@@ -98,6 +121,7 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
+    
     conn.commit(); conn.close()
     
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
@@ -175,7 +199,8 @@ def create_session(u):
 def get_user_from_token(t):
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
-    row = cursor.fetchone(); conn.close(); return row
+    row = cursor.fetchone(); conn.close()
+    return row if row else None
 
 # Alerts & Risk
 def add_alert(username, ticker, condition, price):
@@ -228,7 +253,6 @@ def create_gauge_html(score, label, color, size="big"):
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, market_data, current_token):
-    # Calculates P/L and renders the card
     p = float(market_data['current_price'])
     ch = float(market_data['day_change'])
     cc = "#4ade80" if ch>=0 else "#ef4444"
@@ -237,21 +261,19 @@ def render_portfolio_row(row, market_data, current_token):
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
-    # FIXED: Replaced &nbsp; and span logic with cleaner text formatting
+    # FIXED: Replaced HTML entities with standard text/spans
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p
         cost = shares * entry
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
-        pl_color = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <span style="color:{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</span></div>'
+        pl_c = "#4ade80" if pl >= 0 else "#ef4444"
+        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • <span style='color:{pl_c}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
     elif shares > 0:
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
+        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
-    
-    # Flattened HTML to avoid markdown bugs
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -268,7 +290,6 @@ def render_horizontal_grid(rows_dict, current_token):
         status = row.get('trend_status', 'Move')
         if row.get('volume_status') == 'SPIKE': status = "VOL SPIKE"
         link = f"?token={current_token}&ticker={ticker}"
-        # Flattened HTML
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
