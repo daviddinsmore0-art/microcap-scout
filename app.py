@@ -27,7 +27,6 @@ def init_db():
         conn = get_connection()
         cursor = conn.cursor()
         
-        # Expanded User Profile Table
         cursor.execute("""CREATE TABLE IF NOT EXISTS user_profiles (
             username VARCHAR(255) PRIMARY KEY, 
             pin VARCHAR(50),
@@ -39,7 +38,6 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         
-        # Stock Cache Table
         sql = """CREATE TABLE IF NOT EXISTS stock_cache (
             ticker VARCHAR(20) PRIMARY KEY, 
             current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), 
@@ -50,7 +48,6 @@ def init_db():
         )"""
         cursor.execute(sql)
         
-        # Silent Migrations (Safe Upgrades)
         try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except: pass
         try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
@@ -174,10 +171,8 @@ def login_user(username, pin):
 def register_user(username, pin, display_name, email):
     try:
         conn = get_connection(); cursor = conn.cursor()
-        # Check if exists
         cursor.execute("SELECT username FROM user_profiles WHERE username = %s", (username,))
         if cursor.fetchone(): conn.close(); return False
-        
         cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s, %s, %s, %s)", 
                        (username, pin, display_name, email))
         conn.commit(); conn.close()
@@ -206,7 +201,6 @@ def create_session(username):
 def get_user_from_token(token):
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        # Join with profile to get display name
         cursor.execute("""
             SELECT s.username, p.display_name, p.email 
             FROM user_sessions s 
@@ -301,7 +295,32 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 init_db()
-st.markdown("""<style> .stApp { background-color: #0f1219; color: #e0e6ed; } .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; } .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } .block-container { padding-top: 1rem; padding-bottom: 5rem; } input { color: black !important; } header {visibility: hidden;} footer {visibility: hidden;} .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } .scrolling-wrapper::-webkit-scrollbar { display: none; } .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; } </style>""", unsafe_allow_html=True)
+# FIXED CSS FOR INPUTS
+st.markdown("""<style> 
+    .stApp { background-color: #0f1219; color: #e0e6ed; } 
+    .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } 
+    .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; } 
+    .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
+    .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
+    .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
+    .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
+    
+    /* INPUT FIELD FIX */
+    input[type="text"], input[type="password"] { 
+        background-color: #1a1f2b !important; 
+        color: white !important; 
+        border: 1px solid #2d3748 !important; 
+    }
+    div[data-baseweb="input"] {
+        background-color: #1a1f2b !important;
+        border-color: #2d3748 !important;
+    }
+    
+    header {visibility: hidden;} footer {visibility: hidden;} 
+    .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } 
+    .scrolling-wrapper::-webkit-scrollbar { display: none; } 
+    .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; } 
+</style>""", unsafe_allow_html=True)
 
 # --- LOGIN / REGISTER PAGE ---
 if "token" not in st.query_params:
@@ -341,7 +360,6 @@ if "token" not in st.query_params:
         st.info("If you set an email, contact support to reset.")
         lost_user = st.text_input("Username", key="lost_u")
         if st.button("Request Reset"):
-            # Mock Reset
             st.warning("Reset link sent (Simulation).")
             
     st.stop()
