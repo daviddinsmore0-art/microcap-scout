@@ -6,7 +6,6 @@ import uuid
 import os
 import pandas as pd
 import pytz
-import altair as alt
 from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
@@ -83,8 +82,7 @@ def update_stock_data(tickers, username):
     if not tickers: return
     try: 
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
-    except: 
-        return
+    except: return
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -115,6 +113,21 @@ def update_stock_data(tickers, username):
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
             debt=0; mcap=0; eps=0; days=999
+            
+            # Finnhub
+            if finnhub_key:
+                try:
+                    s_d = datetime.now().strftime('%Y-%m-%d')
+                    e_d = (datetime.now()+timedelta(days=90)).strftime('%Y-%m-%d')
+                    u = f"https://finnhub.io/api/v1/calendar/earnings?from={s_d}&to={e_d}&symbol={t}&token={finnhub_key}"
+                    res = requests.get(u).json()
+                    if "earningsCalendar" in res and res["earningsCalendar"]:
+                        el = res["earningsCalendar"]
+                        el.sort(key=lambda x: x['date'])
+                        nd = datetime.strptime(el[0]['date'], '%Y-%m-%d')
+                        delta_d = (nd - datetime.now()).days
+                        if delta_d >= 0: days = delta_d
+                except: pass
             
             # YF Fallback
             try:
@@ -349,9 +362,11 @@ st.markdown("""<style>
     /* LOGO ANIMATION */
     @keyframes pulse { 0% { opacity: 0.8; } 50% { opacity: 1; } 100% { opacity: 0.8; } }
     
-    /* FIX: BUTTON HOVER & EXPANDER */
-    div[data-testid="stExpander"] details summary { color: #4ade80 !important; }
-    div[data-testid="stExpander"] details summary:hover { color: #16a34a !important; }
+    /* BUTTON HOVER FIX - SPECIFIC TO STBUTTON */
+    div.stButton > button:hover { opacity: 0.9; color: white !important; }
+    
+    /* EXPANDER FIX */
+    .streamlit-expanderHeader { background-color: #1a1f2b !important; color: #4ade80 !important; }
     
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
     button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
@@ -384,14 +399,17 @@ st.markdown("""<style>
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2: 
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 20px;">
-            <svg style="width: 80px; height: 80px; animation: pulse 2s infinite;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="#4ade80" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <h1 style="color: #4ade80; margin: 0; text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);">Penny Pulse</h1>
-        </div>
-        """, unsafe_allow_html=True)
+        if os.path.exists("logo.png"): 
+            st.image("logo.png", width=200)
+        else:
+            # SVG Fallback
+            st.markdown("""
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="font-size: 60px; color: #4ade80; text-shadow: 0 0 10px #4ade80;">⚡</div>
+                <h1 style="color: #4ade80; margin: 0; text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);">Penny Pulse</h1>
+            </div>
+            """, unsafe_allow_html=True)
+    
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
         with st.form("login"):
@@ -426,9 +444,6 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        # LOAD HISTORY FOR CHART
-        hist = yf.Ticker(ticker).history(period="3mo")
-        
         s, l, c, _, r = calculate_risk(stock)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
@@ -450,13 +465,6 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # CHART (Native Streamlit)
-        if not hist.empty:
-            st.write("")
-            with st.expander("Price History (3 Mo)", expanded=False):
-                # Using native Streamlit area chart which handles axes better automatically
-                st.area_chart(hist['Close'], color="#4ade80", use_container_width=True)
-
         # LIVE NEWS SECTION
         news_items = []
         try:
@@ -467,9 +475,8 @@ if "ticker" in st.query_params:
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
-                # Yahoo Finance sometimes uses different keys
-                title = item.get('title') or item.get('headline') or 'No Title'
-                pub = item.get('publisher') or 'Unknown'
+                title = item.get('title') or item.get('headline', 'No Title')
+                pub = item.get('publisher', 'Unknown')
                 ts = item.get('providerPublishTime', 0)
                 
                 time_str = "Recently"
