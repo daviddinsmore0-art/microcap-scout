@@ -38,7 +38,6 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         
-        # ALERT TABLE
         cursor.execute("""CREATE TABLE IF NOT EXISTS user_alerts (
             id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
             username VARCHAR(255),
@@ -59,7 +58,6 @@ def init_db():
         )"""
         cursor.execute(sql)
         
-        # Silent Migrations
         try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except: pass
         try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
@@ -77,41 +75,31 @@ def init_db():
 
 # 2. DATA ENGINE
 def check_alerts(username):
-    """Checks alerts based on DAILY % CHANGE"""
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username = %s AND is_triggered = FALSE", (username,))
     alerts = cursor.fetchall()
-    
     if not alerts: conn.close(); return
 
     triggered_count = 0
     for alert in alerts:
         cursor.execute("SELECT day_change FROM stock_cache WHERE ticker = %s", (alert['ticker'],))
         stock = cursor.fetchone()
-        
         if stock:
-            # Compare 'day_change' % instead of absolute price
             pct_move = float(stock['day_change'])
-            target_pct = float(alert['target_price']) # reusing column for % value
+            target_pct = float(alert['target_price']) 
             condition = alert['condition_type'] 
-            
             hit = False
-            # UP: Did it rise MORE than target? (e.g. > 5%)
             if condition == 'UP' and pct_move >= target_pct: hit = True
-            # DOWN: Did it drop MORE than target? (e.g. < -5%)
             elif condition == 'DOWN' and pct_move <= (target_pct * -1): hit = True
-            
             if hit:
                 cursor.execute("UPDATE user_alerts SET is_triggered = TRUE WHERE id = %s", (alert['id'],))
                 triggered_count += 1
-    
     conn.commit(); conn.close()
     return triggered_count
 
 def update_stock_data(tickers, username):
     if not tickers: return
-    try:
-        data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
+    try: data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
 
     conn = get_connection(); cursor = conn.cursor()
@@ -126,39 +114,26 @@ def update_stock_data(tickers, username):
             df = df.dropna()
             if df.empty: continue
 
-            price = float(df['Close'].iloc[-1])
-            prev = float(df['Close'].iloc[-2])
-            change = ((price - prev) / prev) * 100
-            
-            delta = df['Close'].diff()
-            up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+            price = float(df['Close'].iloc[-1]); prev = float(df['Close'].iloc[-2]); change = ((price - prev) / prev) * 100
+            delta = df['Close'].diff(); up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
-            
-            ma50 = df['Close'].rolling(50).mean().iloc[-1]
-            trend = "UPTREND" if price > ma50 else "DOWNTREND"
-            
+            ma50 = df['Close'].rolling(50).mean().iloc[-1]; trend = "UPTREND" if price > ma50 else "DOWNTREND"
             volatility = df['Close'].pct_change().std() * 100
-            high_3m = df['Close'].max(); low_3m = df['Close'].min()
-            range_loc = 50
+            high_3m = df['Close'].max(); low_3m = df['Close'].min(); range_loc = 50
             if high_3m != low_3m: range_loc = ((price - low_3m) / (high_3m - low_3m)) * 100
-
-            avg_vol = df['Volume'].rolling(20).mean().iloc[-1]
-            curr_vol = df['Volume'].iloc[-1]
+            avg_vol = df['Volume'].rolling(20).mean().iloc[-1]; curr_vol = df['Volume'].iloc[-1]
             vol_stat = "SPIKE" if curr_vol > (avg_vol * 1.5) else "NORMAL"
 
             debt_ratio = 0; market_cap = 0; eps = 0; days_to_earnings = 999 
-            
             finnhub_success = False
             if finnhub_key:
                 try:
-                    start_date = datetime.now().strftime('%Y-%m-%d')
-                    end_date = (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
+                    start_date = datetime.now().strftime('%Y-%m-%d'); end_date = (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
                     url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={t}&token={finnhub_key}"
                     r = requests.get(url).json()
                     if "earningsCalendar" in r and len(r["earningsCalendar"]) > 0:
-                        earnings_list = r["earningsCalendar"]
-                        earnings_list.sort(key=lambda x: x['date'])
+                        earnings_list = r["earningsCalendar"]; earnings_list.sort(key=lambda x: x['date'])
                         next_date = datetime.strptime(earnings_list[0]['date'], '%Y-%m-%d')
                         delta = (next_date - datetime.now()).days
                         if delta >= 0: days_to_earnings = delta; finnhub_success = True
@@ -166,11 +141,8 @@ def update_stock_data(tickers, username):
 
             if not finnhub_success:
                 try:
-                    ticker_obj = yf.Ticker(t)
-                    info = ticker_obj.info
-                    debt_ratio = info.get('debtToEquity', 0) or 0
-                    market_cap = info.get('marketCap', 0) or 0
-                    eps = info.get('trailingEps', 0) or 0
+                    ticker_obj = yf.Ticker(t); info = ticker_obj.info
+                    debt_ratio = info.get('debtToEquity', 0) or 0; market_cap = info.get('marketCap', 0) or 0; eps = info.get('trailingEps', 0) or 0
                     cal = ticker_obj.calendar
                     if cal is not None and not cal.empty:
                         if isinstance(cal, pd.DataFrame): earnings_date = cal.iloc[0, 0]
@@ -227,12 +199,8 @@ def register_user(username, pin, display_name, email):
 def update_user_settings(username, display_name, email, new_pin=None):
     try:
         conn = get_connection(); cursor = conn.cursor()
-        if new_pin:
-            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", 
-                           (display_name, email, new_pin, username))
-        else:
-            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", 
-                           (display_name, email, username))
+        if new_pin: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
+        else: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
         conn.commit(); conn.close()
         return True
     except: return False
@@ -246,11 +214,7 @@ def create_session(username):
 def get_user_from_token(token):
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT s.username, p.display_name, p.email 
-            FROM user_sessions s 
-            JOIN user_profiles p ON s.username = p.username 
-            WHERE s.token = %s""", (token,))
+        cursor.execute("""SELECT s.username, p.display_name, p.email FROM user_sessions s JOIN user_profiles p ON s.username = p.username WHERE s.token = %s""", (token,))
         row = cursor.fetchone(); conn.close()
         return row if row else None
     except: return None
@@ -259,17 +223,14 @@ def get_user_from_token(token):
 def add_alert(username, ticker, condition, price):
     try:
         conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)",
-                       (username, ticker, condition, price))
-        conn.commit(); conn.close()
-        return True
+        cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
+        conn.commit(); conn.close(); return True
     except: return False
 
 def delete_alert(alert_id):
     try:
         conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,))
-        conn.commit(); conn.close()
+        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,)); conn.commit(); conn.close()
     except: pass
 
 def get_user_alerts(username):
@@ -375,10 +336,14 @@ st.markdown("""<style>
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
     .block-container { padding-top: 1rem; padding-bottom: 5rem; } 
     
-    /* FORCE TEXT INPUT VISIBILITY */
-    div[data-baseweb="input"] { background-color: #1a1f2b !important; border: 1px solid #2d3748 !important; border-radius: 8px !important; }
+    /* FORCE TEXT INPUT VISIBILITY (WHITE ON DARK) */
+    div[data-baseweb="input"] { 
+        background-color: #1a1f2b !important; 
+        border: 1px solid #2d3748 !important; 
+        border-radius: 8px !important; 
+    }
     input[type="text"], input[type="password"], input[type="number"] { 
-        background-color: transparent !important; 
+        background-color: #1a1f2b !important; 
         color: white !important; 
         caret-color: white !important;
     }
@@ -388,9 +353,10 @@ st.markdown("""<style>
     div[data-baseweb="popover"], div[role="listbox"] { background-color: #1a1f2b !important; }
     div[role="option"] { color: white !important; }
     
-    /* FIX WIDGET LABELS (Ticker, Move, etc) */
+    /* FIX WIDGET LABELS */
     div[data-testid="stWidgetLabel"] p, label p, label {
         color: #e0e6ed !important;
+        font-weight: bold;
     }
 
     header {visibility: hidden;} footer {visibility: hidden;} 
