@@ -31,22 +31,12 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Expanded Migrations to prevent Syntax Errors
-        try: 
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: pass
+        # Safe Migrations
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
         
         conn.close()
     except: pass
@@ -365,8 +355,6 @@ else:
             data = get_cached_data(port)
             if data:
                 avg = sum([calculate_risk(x)[0] for x in data])/len(data)
-                
-                # RE-ADDED: The Critical 3-Column Layout
                 riskiest = max(data, key=lambda x: calculate_risk(x)[0])
                 volatile = max(data, key=lambda x: abs(float(x['day_change'])))
                 earnings_candidates = [d for d in data if d.get('days_to_earnings', 999) < 999]
@@ -436,9 +424,9 @@ else:
         st.markdown("### Market Scanner")
         port = get_user_portfolio(username); data = get_cached_data(port)
         if data:
-            st.markdown("**📉 Oversold (RSI < 30)**")
+            st.markdown("**📉 Oversold (RSI < 40)**")
             for r in data: 
-                if float(r['rsi']) < 30: render_clickable_list_row(r, token)
+                if float(r['rsi']) < 40: render_clickable_list_row(r, token)
             st.markdown("**📅 Earnings Soon**")
             for r in data:
                 if int(r.get('days_to_earnings', 999)) < 14: render_clickable_list_row(r, token)
