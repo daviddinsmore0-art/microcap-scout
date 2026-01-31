@@ -297,6 +297,7 @@ def create_gauge_html(score, label, color, size="big"):
     fs = "38" if size == "big" else "28"
     fill = (score / 100) * (3.14159 * rad)
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
+    # Flattened HTML to prevent rendering bugs
     svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
@@ -323,20 +324,8 @@ def render_portfolio_row(row, market_data, current_token):
 
     link = f"?token={current_token}&ticker={row['ticker']}"
     
-    html = f"""
-    <a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;">
-        <div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;">
-            <div>
-                <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-                {pl_html}
-            </div>
-            <div style="text-align:right;">
-                <div style="color:white; font-weight:bold;">${p:,.2f}</div>
-                <div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div>
-            </div>
-        </div>
-    </a>
-    """
+    # Flattened HTML to fix "code block" bug
+    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_simple_card(row, current_token):
