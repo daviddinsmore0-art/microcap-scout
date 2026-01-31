@@ -201,4 +201,134 @@ st.markdown("""<style>
     input { color: black !important; }
     /* Menu Styling */
     div[role="radiogroup"] { background: #1a1f2b; border-radius: 12px; padding: 5px; border: 1px solid #2d3748; }
-    div[role
+    div[role="radiogroup"] label { border: none !important; background: transparent !important; color: #94a3b8 !important; }
+    div[role="radiogroup"] label[data-checked="true"] { background: #3b82f6 !important; color: white !important; border-radius: 8px; }
+</style>""", unsafe_allow_html=True)
+
+# LOGIN
+if "token" not in st.query_params:
+    st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+    with st.form("login"):
+        user = st.text_input("Username")
+        pin = st.text_input("PIN", type="password")
+        if st.form_submit_button("Login"):
+            if check_login(user, pin):
+                token = create_session(user)
+                st.query_params["token"] = token
+                st.rerun()
+            else:
+                st.error("Invalid PIN")
+    st.stop()
+
+# MAIN APP
+username = get_user_from_token(st.query_params["token"])
+if not username:
+    st.error("Session Expired")
+    st.stop()
+
+# --- APP NAVIGATION BAR ---
+nav = st.radio("Menu", ["Home", "Portfolio", "Scanner", "Alerts"], horizontal=True, label_visibility="collapsed")
+
+# 1. HOME TAB
+if nav == "Home":
+    st.title(f"Hi, {username}")
+    
+    my_portfolio = get_user_portfolio(username)
+    if not my_portfolio:
+        st.info("No stocks yet. Go to 'Portfolio' tab to add some!")
+    else:
+        # Auto-Refresh on load if data is old? For now manual
+        if st.button("🔄 Refresh Market Data"):
+            with st.spinner("Checking market..."):
+                update_stock_data(my_portfolio)
+        
+        data = get_cached_data(my_portfolio)
+        
+        if data:
+            avg_risk = sum([calculate_risk(x)[0] for x in data]) / len(data)
+            r_score, r_label, r_color, _ = calculate_risk({'trend_status':'N', 'rsi':50})
+            
+            # Recalculate label
+            if avg_risk > 60: r_label, r_color = "HIGH", "#ef4444"
+            elif avg_risk > 40: r_label, r_color = "MEDIUM", "#fbbf24"
+            else: r_label, r_color = "LOW", "#4ade80"
+
+            st.markdown(create_gauge_html(int(avg_risk), r_label, r_color), unsafe_allow_html=True)
+            
+            st.write("### At a Glance")
+            # Show top 3 movers
+            for row in data[:3]:
+                render_stock_card(row)
+
+# 2. PORTFOLIO TAB (Manage)
+elif nav == "Portfolio":
+    st.title("Manage Portfolio")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        new_ticker = st.text_input("Add Ticker").upper()
+    with col2:
+        st.write("") # Spacer
+        st.write("") 
+        if st.button("Add"):
+            if new_ticker and add_ticker_to_db(username, new_ticker):
+                st.success(f"Added {new_ticker}")
+                st.rerun()
+    
+    st.divider()
+    
+    my_stocks = get_user_portfolio(username)
+    if my_stocks:
+        st.write(f"You are watching **{len(my_stocks)}** stocks.")
+        for t in my_stocks:
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.markdown(f"<div style='font-size:1.2rem; font-weight:bold; color:white; padding:5px;'>{t}</div>", unsafe_allow_html=True)
+            with c2:
+                if st.button("🗑️", key=f"del_{t}"):
+                    remove_ticker_from_db(username, t)
+                    st.rerun()
+    else:
+        st.info("Portfolio is empty.")
+
+# 3. WATCHLIST / SCANNER TAB
+elif nav == "Scanner":
+    st.title("Scanner")
+    st.caption("Auto-generated based on your stocks")
+    
+    my_portfolio = get_user_portfolio(username)
+    data = get_cached_data(my_portfolio)
+    
+    if not data:
+        st.info("No data to scan.")
+    else:
+        # LOGIC SCANNER
+        found_any = False
+        
+        # Scanner 1: Oversold (RSI < 30)
+        st.subheader("📉 Oversold Bounce")
+        for row in data:
+            if float(row['rsi']) < 35: # Slightly loose for demo
+                render_stock_card(row)
+                found_any = True
+        
+        # Scanner 2: Volume Spikes
+        st.subheader("🔊 Volume Alerts")
+        for row in data:
+            if row.get('volume_status') == "SPIKE":
+                render_stock_card(row)
+                found_any = True
+
+        if not found_any:
+            st.success("No alerts found. Market is quiet.")
+
+# 4. ALERTS TAB (Placeholder)
+elif nav == "Alerts":
+    st.title("Alerts")
+    st.info("Push notifications are coming in v2.0")
+    st.markdown("""
+    <div class="card">
+        <div style="font-weight:bold;">🔔 Price Alert</div>
+        <div style="color:#94a3b8; font-size:0.9rem;">Notify when TSLA drops below $650</div>
+    </div>
+    """, unsafe_allow_html=True)
