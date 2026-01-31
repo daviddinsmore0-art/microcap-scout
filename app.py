@@ -162,7 +162,7 @@ def calculate_risk(row):
 
 # 4. UI COMPONENTS
 def create_gauge_html(score, label, color):
-    # Fixed Cutoff: Increased viewBox height to 130 and adjusted text y position
+    # Adjusted ViewBox and text position to prevent cutoff
     radius = 80
     circumference = 3.14159 * radius
     fill_amount = (score / 100) * circumference
@@ -170,7 +170,7 @@ def create_gauge_html(score, label, color):
     svg += '<defs><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" /><stop offset="50%" style="stop-color:#fbbf24;stop-opacity:1" /><stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" /></linearGradient></defs>'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round" />'
     svg += f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#grad1)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill_amount}, 1000" />'
-    svg += f'<text x="100" y="85" font-family="sans-serif" font-size="40" font-weight="bold" fill="white" text-anchor="middle">{score}</text>'
+    svg += f'<text x="100" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text>'
     svg += f'<text x="100" y="105" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     return f'<div class="card" style="padding-bottom:0; margin-bottom: 0px;">{svg}</div>'
 
@@ -196,27 +196,34 @@ st.markdown("""<style>
     .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } 
     .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } 
     .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } 
-    .block-container { padding-top: 1rem; padding-bottom: 6rem; } /* Extra padding for bottom nav */
+    .block-container { padding-top: 1rem; padding-bottom: 6rem; } 
     input { color: black !important; }
     
     header {visibility: hidden;}
     footer {visibility: hidden;}
-    
-    /* Force Bottom Nav to Stay Horizontal */
-    div[data-testid="column"] { width: 33% !important; flex: 1 1 33% !important; min-width: 33% !important; }
-    
-    /* Style the Bottom Buttons */
+
+    /* THE FIX: Force Bottom Nav Columns to stay side-by-side */
+    div[data-testid="column"] {
+        display: inline-block !important;
+        width: 33% !important;
+        flex: 1 1 33% !important;
+        min-width: 33% !important;
+    }
+
+    /* Styling for the Navigation Buttons */
     div.stButton > button {
         background-color: #1a1f2b;
         color: #94a3b8;
         border: 1px solid #2d3748;
         border-radius: 8px;
         width: 100%;
-        padding: 10px 0;
+        padding: 12px 0;
+        margin-top: 10px;
     }
-    div.stButton > button:hover {
-        border-color: #3b82f6;
+    div.stButton > button:active, div.stButton > button:focus {
+        background-color: #2d3748;
         color: white;
+        border-color: #3b82f6;
     }
 </style>""", unsafe_allow_html=True)
 
@@ -250,9 +257,7 @@ if not username:
 # --- CUSTOM NAVIGATION STATE ---
 active_tab = st.query_params.get("tab", "home")
 
-# ----------------------------
 # 1. HOME SCREEN
-# ----------------------------
 if active_tab == "home":
     st.title(f"Hi, {username}")
     
@@ -296,9 +301,7 @@ if active_tab == "home":
             for row in data[:4]:
                 render_stock_card(row)
 
-# ----------------------------
 # 2. PORTFOLIO SCREEN
-# ----------------------------
 elif active_tab == "portfolio":
     st.title("Manage Portfolio")
     
@@ -325,9 +328,7 @@ elif active_tab == "portfolio":
                     remove_ticker_from_db(username, t)
                     st.rerun()
 
-# ----------------------------
 # 3. SCANNER SCREEN
-# ----------------------------
 elif active_tab == "scanner":
     st.title("Scanner")
     st.caption("Auto-generated from your portfolio")
@@ -355,21 +356,23 @@ elif active_tab == "scanner":
             st.success("No alerts found.")
 
 # --- BOTTOM NAVIGATION BAR ---
+# Force columns to stick to bottom and span full width
 st.markdown("<br><br><br>", unsafe_allow_html=True) 
-# The CSS above forces these columns to stay 33% width each (No Stacking)
+
+# Create 3 columns for navigation
 c1, c2, c3 = st.columns(3)
 with c1:
-    if st.button("🏠\nHome"):
+    if st.button("🏠\nHome", key="nav_home"):
         st.query_params["token"] = st.query_params["token"]
         st.query_params["tab"] = "home"
         st.rerun()
 with c2:
-    if st.button("📂\nStocks"):
+    if st.button("📂\nStocks", key="nav_port"):
         st.query_params["token"] = st.query_params["token"]
         st.query_params["tab"] = "portfolio"
         st.rerun()
 with c3:
-    if st.button("📡\nScan"):
+    if st.button("📡\nScan", key="nav_scan"):
         st.query_params["token"] = st.query_params["token"]
         st.query_params["tab"] = "scanner"
         st.rerun()
