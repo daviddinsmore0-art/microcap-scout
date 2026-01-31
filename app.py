@@ -129,7 +129,6 @@ def update_stock_data(tickers, username):
                         if delta_d >= 0: days = delta_d
                 except: pass
             
-            # YF Fallback
             try:
                 io = yf.Ticker(t).info
                 debt = io.get('debtToEquity',0) or 0
@@ -303,9 +302,10 @@ def render_portfolio_row(row, market_data, current_token):
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
-        # FIX: PURE CSS Styling via f-string without nested tags to prevent visual glitches
-        c_hex = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} &nbsp;&bull;&nbsp; <span style='color:{c_hex}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
+        color_code = "green" if pl >= 0 else "red"
+        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
+        pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
     elif shares > 0:
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
@@ -355,21 +355,13 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
     
+    /* TARGETED BUTTON STYLES - FIXES WHITE EXPANDER ISSUE */
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
     
-    /* LOGO ANIMATION */
-    @keyframes pulse { 0% { opacity: 0.8; } 50% { opacity: 1; } 100% { opacity: 0.8; } }
-    
-    /* BUTTON HOVER FIX - SPECIFIC TO STBUTTON */
-    div.stButton > button:hover { opacity: 0.9; color: white !important; }
-    
-    /* EXPANDER FIX */
-    .streamlit-expanderHeader { background-color: #1a1f2b !important; color: #4ade80 !important; }
-    
+    /* SPECIFIC BUTTONS */
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
-    button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
     button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
     button[key="alert_action_btn"] { background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
     
@@ -399,16 +391,8 @@ st.markdown("""<style>
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2: 
-        if os.path.exists("logo.png"): 
-            st.image("logo.png", width=200)
-        else:
-            # SVG Fallback
-            st.markdown("""
-            <div style="text-align: center; margin-bottom: 20px;">
-                <div style="font-size: 60px; color: #4ade80; text-shadow: 0 0 10px #4ade80;">⚡</div>
-                <h1 style="color: #4ade80; margin: 0; text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);">Penny Pulse</h1>
-            </div>
-            """, unsafe_allow_html=True)
+        if os.path.exists("logo.png"): st.image("logo.png", width=200)
+        else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
     
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
@@ -475,8 +459,10 @@ if "ticker" in st.query_params:
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
+                # Yahoo Finance sometimes uses 'title' and sometimes 'headline'
                 title = item.get('title') or item.get('headline', 'No Title')
                 pub = item.get('publisher', 'Unknown')
+                link = item.get('link', '#')
                 ts = item.get('providerPublishTime', 0)
                 
                 time_str = "Recently"
@@ -486,7 +472,12 @@ if "ticker" in st.query_params:
                     elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
                     else: time_str = f"{diff.seconds//60}m ago"
                 
-                st.markdown(f"<div style='font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;'>{title}</div><div style='font-size:0.75rem; color:#64748b; margin-bottom:15px;'>{time_str} • {pub}</div>", unsafe_allow_html=True)
+                st.markdown(f"""
+                <a href="{link}" target="_blank" style="text-decoration:none;">
+                    <div style='font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;'>{title}</div>
+                    <div style='font-size:0.75rem; color:#64748b; margin-bottom:15px;'>{time_str} • {pub}</div>
+                </a>
+                """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
         
         st.write("")
