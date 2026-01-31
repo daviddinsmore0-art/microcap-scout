@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# Define token immediately to prevent NameErrors
+# Define token early to prevent NameErrors
 token = st.query_params.get("token", None)
 
 DB_CONFIG = {
@@ -37,7 +37,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations - Fully Expanded
+        # --- SAFE MIGRATIONS ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -79,8 +79,7 @@ def init_db():
 
 # 2. DATA ENGINE
 def update_stock_data(tickers, username):
-    if not tickers:
-        return
+    if not tickers: return
     try: 
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: 
@@ -98,8 +97,7 @@ def update_stock_data(tickers, username):
                 df = data
             
             df = df.dropna()
-            if df.empty:
-                continue
+            if df.empty: continue
             
             price = float(df['Close'].iloc[-1])
             prev = float(df['Close'].iloc[-2])
@@ -113,7 +111,6 @@ def update_stock_data(tickers, username):
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std()*100
-            
             high3 = df['Close'].max()
             low3 = df['Close'].min()
             r_loc = 50
@@ -138,10 +135,8 @@ def update_stock_data(tickers, username):
                         el.sort(key=lambda x: x['date'])
                         nd = datetime.strptime(el[0]['date'], '%Y-%m-%d')
                         delta_d = (nd - datetime.now()).days
-                        if delta_d >= 0:
-                            days = delta_d
-                except:
-                    pass
+                        if delta_d >= 0: days = delta_d
+                except: pass
             
             # YF Fallback
             try:
@@ -154,8 +149,7 @@ def update_stock_data(tickers, username):
                     if cal is not None:
                         if isinstance(cal, dict) and 'Earnings Date' in cal:
                             days = (cal['Earnings Date'][0] - datetime.now()).days
-            except:
-                pass
+            except: pass
 
             sql = """INSERT INTO stock_cache (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
                      VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE 
@@ -164,8 +158,7 @@ def update_stock_data(tickers, username):
             vals = (t, price, change, rsi, trend, v_stat, r_loc, vol, debt, days, mcap, eps,
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
-        except:
-            continue
+        except: continue
     
     conn.commit()
     conn.close()
@@ -305,9 +298,8 @@ def create_gauge_html(score, label, color, size="big"):
     vb = "0 0 200 120" if size == "big" else "0 0 160 100"
     fs = "38" if size == "big" else "28"
     fill = (score / 100) * (3.14159 * rad)
-    # Flattened HTML to fix rendering
-    svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
+    svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, market_data, current_token):
@@ -318,6 +310,7 @@ def render_portfolio_row(row, market_data, current_token):
     shares = float(row['shares'])
     entry = float(row['entry_price'])
     
+    # FIXED: Replaced nested tags and entities with simple Font tag
     pl_html = ""
     if shares > 0 and entry > 0:
         val = shares * p
@@ -325,13 +318,12 @@ def render_portfolio_row(row, market_data, current_token):
         pl = val - cost
         pl_pct = (pl / cost) * 100 if cost > 0 else 0
         pl_color = "#4ade80" if pl >= 0 else "#ef4444"
-        # Flattened HTML to fix code display bug
-        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <span style="color:{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</span></div>'
+        # Using bullet point and FONT tag - bulletproof
+        pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • <font color="{pl_color}">${pl:,.2f} ({pl_pct:.1f}%)</font></div>'
     elif shares > 0:
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} Shares</div>'
 
     link = f"?token={current_token}&ticker={row['ticker']}"
-    # Completely Flattened HTML
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
@@ -359,7 +351,6 @@ def get_greeting(name):
     else: return f"Good Evening, {name}"
 
 def render_navbar(active_tab, token):
-    # Flattened HTML
     nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
     st.markdown(nav_html, unsafe_allow_html=True)
 
