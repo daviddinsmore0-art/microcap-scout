@@ -5,6 +5,7 @@ import requests
 import uuid
 import os
 import pandas as pd
+import pytz
 from datetime import datetime, timedelta
 
 # 1. CONFIG & DATABASE
@@ -25,28 +26,35 @@ def init_db():
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, user_data TEXT, pin VARCHAR(50))")
+        
+        # Expanded User Profile Table
+        cursor.execute("""CREATE TABLE IF NOT EXISTS user_profiles (
+            username VARCHAR(255) PRIMARY KEY, 
+            pin VARCHAR(50),
+            display_name VARCHAR(100),
+            email VARCHAR(255),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""")
+        
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), PRIMARY KEY (id))")
         
+        # Stock Cache Table
         sql = """CREATE TABLE IF NOT EXISTS stock_cache (
             ticker VARCHAR(20) PRIMARY KEY, 
-            current_price DECIMAL(20, 4), 
-            day_change DECIMAL(10, 2), 
-            rsi DECIMAL(10, 2), 
-            trend_status VARCHAR(20), 
-            volume_status VARCHAR(20), 
-            range_loc DECIMAL(10, 2),
-            volatility DECIMAL(10, 2),
-            debt_ratio DECIMAL(10, 2),
-            days_to_earnings INT,
-            market_cap BIGINT,
-            eps DECIMAL(10, 2),
+            current_price DECIMAL(20, 4), day_change DECIMAL(10, 2), rsi DECIMAL(10, 2), 
+            trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10, 2),
+            volatility DECIMAL(10, 2), debt_ratio DECIMAL(10, 2), days_to_earnings INT,
+            market_cap BIGINT, eps DECIMAL(10, 2),
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )"""
         cursor.execute(sql)
         
-        # Silent Migrations
+        # Silent Migrations (Safe Upgrades)
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
+        except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
+        except: pass
         try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
         except: pass
         try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10, 2) DEFAULT 0")
@@ -65,10 +73,7 @@ def update_stock_data(tickers):
         data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # Try to get Finnhub key from secrets
+    conn = get_connection(); cursor = conn.cursor()
     finnhub_key = None
     if "finnhub" in st.secrets and "api_key" in st.secrets["finnhub"]:
         finnhub_key = st.secrets["finnhub"]["api_key"]
@@ -80,7 +85,6 @@ def update_stock_data(tickers):
             df = df.dropna()
             if df.empty: continue
 
-            # Technicals
             price = float(df['Close'].iloc[-1])
             prev = float(df['Close'].iloc[-2])
             change = ((price - prev) / prev) * 100
@@ -94,51 +98,31 @@ def update_stock_data(tickers):
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             
             volatility = df['Close'].pct_change().std() * 100
-
-            high_3m = df['Close'].max()
-            low_3m = df['Close'].min()
+            high_3m = df['Close'].max(); low_3m = df['Close'].min()
             range_loc = 50
-            if high_3m != low_3m:
-                range_loc = ((price - low_3m) / (high_3m - low_3m)) * 100
+            if high_3m != low_3m: range_loc = ((price - low_3m) / (high_3m - low_3m)) * 100
 
             avg_vol = df['Volume'].rolling(20).mean().iloc[-1]
             curr_vol = df['Volume'].iloc[-1]
             vol_stat = "SPIKE" if curr_vol > (avg_vol * 1.5) else "NORMAL"
 
-            # Fundamentals
-            debt_ratio = 0
-            market_cap = 0
-            eps = 0
+            debt_ratio = 0; market_cap = 0; eps = 0; days_to_earnings = 999 
             
-            # EARNINGS LOGIC
-            days_to_earnings = 999 
-            
-            # 1. Try Finnhub for Earnings (If Key Exists)
             finnhub_success = False
             if finnhub_key:
                 try:
-                    # Get upcoming earnings
                     start_date = datetime.now().strftime('%Y-%m-%d')
                     end_date = (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
                     url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={t}&token={finnhub_key}"
                     r = requests.get(url).json()
-                    
                     if "earningsCalendar" in r and len(r["earningsCalendar"]) > 0:
-                        # Find the closest future date
                         earnings_list = r["earningsCalendar"]
-                        # Sort by date
                         earnings_list.sort(key=lambda x: x['date'])
-                        next_date_str = earnings_list[0]['date']
-                        next_date = datetime.strptime(next_date_str, '%Y-%m-%d')
-                        
+                        next_date = datetime.strptime(earnings_list[0]['date'], '%Y-%m-%d')
                         delta = (next_date - datetime.now()).days
-                        if delta >= 0:
-                            days_to_earnings = delta
-                            finnhub_success = True
-                except:
-                    pass
+                        if delta >= 0: days_to_earnings = delta; finnhub_success = True
+                except: pass
 
-            # 2. Fallback to YFinance if Finnhub failed/no key
             if not finnhub_success:
                 try:
                     ticker_obj = yf.Ticker(t)
@@ -146,25 +130,16 @@ def update_stock_data(tickers):
                     debt_ratio = info.get('debtToEquity', 0) or 0
                     market_cap = info.get('marketCap', 0) or 0
                     eps = info.get('trailingEps', 0) or 0
-                    
                     cal = ticker_obj.calendar
                     if cal is not None and not cal.empty:
-                        # Handle different yfinance versions
-                        if isinstance(cal, pd.DataFrame):
-                            earnings_date = cal.iloc[0, 0]
-                        elif isinstance(cal, dict):
-                            earnings_date = cal.get('Earnings Date', [None])[0]
-                        else:
-                            earnings_date = None
-
+                        if isinstance(cal, pd.DataFrame): earnings_date = cal.iloc[0, 0]
+                        elif isinstance(cal, dict): earnings_date = cal.get('Earnings Date', [None])[0]
+                        else: earnings_date = None
                         if isinstance(earnings_date, (datetime, pd.Timestamp)):
                              delta_days = (earnings_date - datetime.now()).days
-                             if delta_days >= 0:
-                                 days_to_earnings = delta_days
-                except:
-                    pass 
+                             if delta_days >= 0: days_to_earnings = delta_days
+                except: pass 
 
-            # SMART SQL UPDATE
             sql = """INSERT INTO stock_cache 
                      (ticker, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps) 
                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
@@ -172,34 +147,54 @@ def update_stock_data(tickers):
                      current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, 
                      days_to_earnings = CASE WHEN %s < 999 THEN %s ELSE days_to_earnings END, 
                      market_cap=%s, eps=%s"""
-            
             vals = (t, price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps,
-                    price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, 
-                    days_to_earnings, days_to_earnings, # Pass twice for logic check
-                    market_cap, eps)
+                    price, change, rsi, trend, vol_stat, range_loc, volatility, debt_ratio, days_to_earnings, days_to_earnings, market_cap, eps)
             cursor.execute(sql, vals)
         except: continue
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
 def get_cached_data(tickers):
     if not tickers: return []
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
     format_strings = ','.join(['%s'] * len(tickers))
     cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers))
-    rows = cursor.fetchall()
-    conn.close()
+    rows = cursor.fetchall(); conn.close()
     return rows
 
-# 3. AUTH & RISK LOGIC
-def check_login(username, pin):
+# 3. AUTH & USER MANAGEMENT
+def login_user(username, pin):
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM user_profiles WHERE username = %s", (username,))
+        user = cursor.fetchone(); conn.close()
+        if user and user['pin'] == pin: return user
+        return None
+    except: return None
+
+def register_user(username, pin, display_name, email):
     try:
         conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("SELECT pin FROM user_profiles WHERE username = %s", (username,))
-        row = cursor.fetchone(); conn.close()
-        if row: return row[0] == pin
-        return True 
+        # Check if exists
+        cursor.execute("SELECT username FROM user_profiles WHERE username = %s", (username,))
+        if cursor.fetchone(): conn.close(); return False
+        
+        cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s, %s, %s, %s)", 
+                       (username, pin, display_name, email))
+        conn.commit(); conn.close()
+        return True
+    except: return False
+
+def update_user_settings(username, display_name, email, new_pin=None):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        if new_pin:
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", 
+                           (display_name, email, new_pin, username))
+        else:
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", 
+                           (display_name, email, username))
+        conn.commit(); conn.close()
+        return True
     except: return False
 
 def create_session(username):
@@ -210,12 +205,18 @@ def create_session(username):
 
 def get_user_from_token(token):
     try:
-        conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("SELECT username FROM user_sessions WHERE token = %s", (token,))
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        # Join with profile to get display name
+        cursor.execute("""
+            SELECT s.username, p.display_name, p.email 
+            FROM user_sessions s 
+            JOIN user_profiles p ON s.username = p.username 
+            WHERE s.token = %s""", (token,))
         row = cursor.fetchone(); conn.close()
-        return row[0] if row else None
+        return row if row else None
     except: return None
 
+# Portfolio Ops
 def add_ticker_to_db(username, ticker):
     try:
         conn = get_connection(); cursor = conn.cursor()
@@ -293,28 +294,70 @@ def render_horizontal_grid(rows):
         html_content += card
     html_content += '</div>'; st.markdown(html_content, unsafe_allow_html=True)
 
+def get_greeting(name):
+    hour = datetime.now(pytz.timezone('America/Halifax')).hour
+    if hour < 12: return f"Good Morning, {name}"
+    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
+    else: return f"Good Evening, {name}"
+
 init_db()
 st.markdown("""<style> .stApp { background-color: #0f1219; color: #e0e6ed; } .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 12px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); } .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; } .badge-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; } .badge-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; } .badge-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; } .block-container { padding-top: 1rem; padding-bottom: 5rem; } input { color: black !important; } header {visibility: hidden;} footer {visibility: hidden;} .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; padding-bottom: 10px; margin-bottom: 15px; -ms-overflow-style: none; scrollbar-width: none; } .scrolling-wrapper::-webkit-scrollbar { display: none; } .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; } </style>""", unsafe_allow_html=True)
 
+# --- LOGIN / REGISTER PAGE ---
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         if os.path.exists("logo.png"): st.image("logo.png", width=200)
         else: st.markdown("<h1 style='text-align:center;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-    with st.form("login"):
-        user = st.text_input("Username"); pin = st.text_input("PIN", type="password")
-        if st.form_submit_button("Login"):
-            if check_login(user, pin): token = create_session(user); st.query_params["token"] = token; st.rerun()
-            else: st.error("Invalid PIN")
+    
+    tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
+    
+    with tab1:
+        with st.form("login_form"):
+            user = st.text_input("Username")
+            pin = st.text_input("PIN", type="password")
+            if st.form_submit_button("Login", use_container_width=True):
+                user_data = login_user(user, pin)
+                if user_data: 
+                    token = create_session(user)
+                    st.query_params["token"] = token
+                    st.rerun()
+                else: st.error("Invalid Username or PIN")
+
+    with tab2:
+        with st.form("reg_form"):
+            new_user = st.text_input("Choose Username")
+            new_pin = st.text_input("Choose PIN", type="password")
+            disp_name = st.text_input("Your Name (e.g. Dave)")
+            email = st.text_input("Recovery Email (Optional)")
+            if st.form_submit_button("Create Account", use_container_width=True):
+                if new_user and new_pin and disp_name:
+                    if register_user(new_user, new_pin, disp_name, email):
+                        st.success("Account created! Please Login.")
+                    else: st.error("Username taken.")
+                else: st.error("Username, PIN, and Name are required.")
+
+    with tab3:
+        st.info("If you set an email, contact support to reset.")
+        lost_user = st.text_input("Username", key="lost_u")
+        if st.button("Request Reset"):
+            # Mock Reset
+            st.warning("Reset link sent (Simulation).")
+            
     st.stop()
 
-username = get_user_from_token(st.query_params["token"])
-if not username: st.error("Session Expired"); st.stop()
+# --- MAIN APP ---
+user_info = get_user_from_token(st.query_params["token"])
+if not user_info: st.error("Session Expired"); st.stop()
+
+username = user_info['username']
+display_name = user_info['display_name'] or username
 
 active_tab = st.query_params.get("tab", "home")
 
+# 1. HOME
 if active_tab == "home":
-    st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Hi, {username}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 5px;'>{get_greeting(display_name)}</div>", unsafe_allow_html=True)
     my_portfolio = get_user_portfolio(username)
     if not my_portfolio: st.info("No stocks. Go to Portfolio tab.")
     else:
@@ -332,13 +375,11 @@ if active_tab == "home":
             highest_risk_stock = max(data, key=lambda x: calculate_risk(x)[0])
             most_volatile_stock = max(data, key=lambda x: abs(float(x['day_change'])))
             
-            # Find closest earning date (Anything positive)
             earnings_candidates = [d for d in data if d.get('days_to_earnings', 999) < 999]
+            earning_ticker = "-"
             if earnings_candidates:
-                next_earnings_stock = min(earnings_candidates, key=lambda x: int(x.get('days_to_earnings', 999)))
-                earning_ticker = f"{next_earnings_stock['ticker']} ({next_earnings_stock['days_to_earnings']}d)"
-            else:
-                earning_ticker = "-"
+                next = min(earnings_candidates, key=lambda x: int(x.get('days_to_earnings', 999)))
+                earning_ticker = f"{next['ticker']} ({next['days_to_earnings']}d)"
 
             st.markdown(f"""
             <div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;">
@@ -359,6 +400,7 @@ if active_tab == "home":
             st.write("### At a Glance")
             render_horizontal_grid(data)
 
+# 2. PORTFOLIO
 elif active_tab == "portfolio":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Manage Portfolio</div>", unsafe_allow_html=True)
     col1, col2 = st.columns([2, 1]); 
@@ -375,6 +417,7 @@ elif active_tab == "portfolio":
             with c2: 
                 if st.button("🗑️", key=f"del_{t}"): remove_ticker_from_db(username, t); st.rerun()
 
+# 3. SCANNER
 elif active_tab == "scanner":
     st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 5px;'>Scanner</div>", unsafe_allow_html=True)
     st.caption("Auto-generated from your portfolio")
@@ -393,6 +436,29 @@ elif active_tab == "scanner":
             if int(row.get('days_to_earnings', 999)) < 14: render_stock_card(row); found_any = True
         if not found_any: st.success("No alerts found.")
 
+# 4. SETTINGS
+elif active_tab == "settings":
+    st.markdown(f"<div style='font-size: 24px; font-weight: 800; color: white; margin-bottom: 15px;'>Settings</div>", unsafe_allow_html=True)
+    
+    st.write("### Profile")
+    with st.form("settings_form"):
+        new_name = st.text_input("Display Name", value=display_name)
+        new_email = st.text_input("Recovery Email", value=user_info.get('email', ''))
+        new_pin = st.text_input("New PIN (Leave blank to keep current)", type="password")
+        
+        if st.form_submit_button("Save Changes"):
+            pin_to_save = new_pin if new_pin else None
+            if update_user_settings(username, new_name, new_email, pin_to_save):
+                st.success("Settings saved! Reloading...")
+                st.rerun()
+            else:
+                st.error("Error saving settings.")
+                
+    st.divider()
+    if st.button("Log Out"):
+        st.query_params.clear()
+        st.rerun()
+
 current_token = st.query_params.get("token", "")
-nav_html = f"""<style>.nav-container {{ position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background-color: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 9999; }} a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{ text-decoration: none; color: #94a3b8; font-family: sans-serif; font-size: 12px; text-align: center; width: 100%; padding: 5px 0; }} a.nav-link:hover {{ color: white; }} .nav-icon {{ font-size: 20px; display: block; margin-bottom: 2px; }} a.active, a.active:visited {{ color: #3b82f6 !important; font-weight: bold; }}</style><div class="nav-container"><a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}"><span class="nav-icon">🏠</span>Home</a><a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}"><span class="nav-icon">📡</span>Scan</a></div>"""
+nav_html = f"""<style>.nav-container {{ position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background-color: #1a1f2b; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 9999; }} a.nav-link, a.nav-link:visited, a.nav-link:hover, a.nav-link:active {{ text-decoration: none; color: #94a3b8; font-family: sans-serif; font-size: 12px; text-align: center; width: 100%; padding: 5px 0; }} a.nav-link:hover {{ color: white; }} .nav-icon {{ font-size: 20px; display: block; margin-bottom: 2px; }} a.active, a.active:visited {{ color: #3b82f6 !important; font-weight: bold; }}</style><div class="nav-container"><a href="?token={current_token}&tab=home" class="nav-link {'active' if active_tab == 'home' else ''}"><span class="nav-icon">🏠</span>Home</a><a href="?token={current_token}&tab=portfolio" class="nav-link {'active' if active_tab == 'portfolio' else ''}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={current_token}&tab=scanner" class="nav-link {'active' if active_tab == 'scanner' else ''}"><span class="nav-icon">📡</span>Scan</a><a href="?token={current_token}&tab=settings" class="nav-link {'active' if active_tab == 'settings' else ''}"><span class="nav-icon">⚙️</span>Settings</a></div>"""
 st.markdown(nav_html, unsafe_allow_html=True)
