@@ -7,10 +7,16 @@ import os
 import pandas as pd
 import pytz
 import xml.etree.ElementTree as ET
+import json
 from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
+
+# --- AI CONFIGURATION ---
+OPENAI_KEY = None
+if "openai" in st.secrets:
+    OPENAI_KEY = st.secrets["openai"]["api_key"]
 
 # Define token early
 token = st.query_params.get("token", None)
@@ -38,7 +44,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded blocks to prevent SyntaxError) ---
+        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -79,10 +85,55 @@ def init_db():
         st.error(f"DB Error: {e}")
 
 # 2. DATA ENGINE
+def get_ai_analysis(ticker, headlines):
+    """
+    Uses OpenAI to summarize headlines and rate sentiment (0-100).
+    """
+    if not OPENAI_KEY or not headlines:
+        return None, None 
+
+    try:
+        prompt = f"""
+        Analyze these headlines for {ticker}:
+        {headlines}
+        
+        Task:
+        1. Write a 1-sentence summary of the vibe.
+        2. Give a sentiment score from 0 (Bad News) to 100 (Good News).
+        
+        Return JSON format: {{"summary": "...", "score": 50}}
+        """
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENAI_KEY}"
+        }
+        
+        data = {
+            "model": "gpt-3.5-turbo",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.5
+        }
+        
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=5)
+        
+        if response.status_code == 200:
+            res_json = response.json()
+            content = res_json['choices'][0]['message']['content']
+            # Clean possible markdown
+            if "```" in content:
+                content = content.split("```")[1].replace("json", "").strip()
+            
+            parsed = json.loads(content)
+            return parsed.get('summary'), parsed.get('score')
+    except:
+        pass
+    
+    return None, None
+
 def get_news_data(ticker):
     """
     Robust news fetcher attempting yfinance first, then RSS fallback.
-    Great for penny stocks!
     """
     news_results = []
     
@@ -129,14 +180,11 @@ def get_news_data(ticker):
                         title = title_node.text
                         link = link_node.text if link_node is not None else "#"
                         
-                        # Clean title
                         if " - " in title: title = title.rsplit(" - ", 1)[0]
                         
-                        # Time parsing
-                        time_str = "Today"
+                        time_str = "Recent"
                         if pub_node is not None and pub_node.text:
                             try:
-                                # RSS Format: Tue, 03 Jun 2003 09:39:21 GMT
                                 dt = datetime.strptime(pub_node.text, "%a, %d %b %Y %H:%M:%S %Z")
                                 diff = datetime.now() - dt
                                 if diff.days > 0: time_str = f"{diff.days}d ago"
@@ -144,7 +192,7 @@ def get_news_data(ticker):
                                 else: time_str = f"{diff.seconds//60}m ago"
                             except: pass
                             
-                        news_results.append({'title': title, 'link': link, 'pub': 'Yahoo Finance', 'time': time_str})
+                        news_results.append({'title': title, 'link': link, 'pub': 'Yahoo RSS', 'time': time_str})
         except:
             pass
             
@@ -303,7 +351,7 @@ def get_user_alerts(username):
         rows = cursor.fetchall(); conn.close(); return rows
     except: return []
 
-def calculate_risk(row):
+def calculate_risk(row, ai_score=None):
     s = 50; reasons = []
     if row.get('trend_status') == 'DOWNTREND': s += 10
     else: s -= 10
@@ -316,6 +364,15 @@ def calculate_risk(row):
     if row.get('volume_status') == 'SPIKE': s += 5; reasons.append("Vol Spike")
     if 0 < float(row.get('market_cap', 0)) < 250000000: s += 15; reasons.append("Micro Cap")
     if float(row.get('eps', 0)) < 0: s += 10; reasons.append("Unprofitable")
+    
+    # AI Factor
+    if ai_score is not None:
+        # ai_score is 0-100 (100 is good). 
+        # >50 is good news (lower risk), <50 is bad news (higher risk)
+        adjustment = (50 - ai_score) * 0.5 
+        s += adjustment
+        if ai_score >= 75: reasons.append("Positive News")
+        elif ai_score <= 25: reasons.append("Negative News")
     
     final = max(0, min(100, int(s)))
     if final > 65: return final, "HIGH", "#ef4444", "badge-high", reasons
@@ -344,7 +401,7 @@ def render_portfolio_row(row, market_data, current_token):
     if shares > 0 and entry > 0:
         val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
         color_code = "green" if pl >= 0 else "red"
-        # Using Streamlit Markdown syntax for color, NO HTML tags to break mobile
+        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
         pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
     elif shares > 0:
@@ -396,16 +453,15 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
     
-    /* FIX: Button Styles Only For Main Buttons */
-    div.stButton > button {
+    div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
     
-    /* FIX: Ensure Expander Button is NOT white */
-    div[data-testid="stExpander"] { background-color: transparent !important; }
-    div[data-testid="stExpander"] details { background-color: transparent !important; }
-    div[data-testid="stExpander"] details summary { color: #4ade80 !important; background-color: transparent !important; border: none !important; }
-    div[data-testid="stExpander"] details summary:hover { color: #16a34a !important; }
+    /* LOGO ANIMATION */
+    @keyframes pulse { 0% { opacity: 0.8; } 50% { opacity: 1; } 100% { opacity: 0.8; } }
+    
+    /* EXPANDER FIX */
+    .streamlit-expanderHeader { background-color: #1a1f2b !important; color: #4ade80 !important; }
     
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
     button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
@@ -441,6 +497,7 @@ if "token" not in st.query_params:
         if os.path.exists("logo.png"): 
             st.image("logo.png", width=200)
         else:
+            # SVG Fallback
             st.markdown("""
             <div style="text-align: center; margin-bottom: 20px;">
                 <div style="font-size: 60px; color: #4ade80; text-shadow: 0 0 10px #4ade80;">⚡</div>
@@ -482,7 +539,13 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        s, l, c, _, r = calculate_risk(stock)
+        # GET HEADLINES & AI
+        news_items = get_news_data(ticker)
+        headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
+        ai_summary, ai_score = get_ai_analysis(ticker, headlines_txt)
+        
+        # CALC RISK (Pass AI score)
+        s, l, c, _, r = calculate_risk(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
@@ -503,16 +566,23 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # LIVE NEWS SECTION WITH RSS FALLBACK
-        news_items = get_news_data(ticker)
-        
+        # AI INSIGHT CARD
+        if ai_summary:
+            st.markdown(f"""
+            <div class='card' style='margin-top:15px; border:1px solid #4ade80;'>
+                <div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>AI MARKET INSIGHT (Score: {ai_score})</div>
+                <div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # NEWS
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
-                title = item['title']
-                pub = item['pub']
-                link = item['link']
-                time_str = item['time']
+                title = item.get('title') or item.get('headline', 'No Title')
+                pub = item.get('publisher', 'Unknown')
+                link = item.get('link', '#')
+                time_str = item.get('time', 'Recently')
                 
                 st.markdown(f"""
                 <a href="{link}" target="_blank" style="text-decoration:none;">
@@ -522,8 +592,6 @@ if "ticker" in st.query_params:
                 <div style="border-bottom:1px solid #2d3748; margin-bottom:15px;"></div>
                 """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#64748b; font-style:italic;'>No recent news found for {ticker}</div></div>", unsafe_allow_html=True)
         
         st.write("")
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
