@@ -140,11 +140,26 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
         # Safe Migrations
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
+        try: 
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
+        except: 
+            pass
 
         conn.close()
     except Exception as e:
@@ -186,63 +201,54 @@ def update_user_settings(username, display_name, email, new_pin=None):
 
 # --- Data Functions ---
 def get_news_data(ticker):
-    # DUAL STRATEGY: Try YFinance first, then fallback to direct RSS
+    # DIRECT RSS FETCH (More Reliable than YF)
     news_results = []
-    
-    # 1. YFinance Method
     try:
-        stock = yf.Ticker(ticker)
-        raw_news = stock.news
-        if raw_news:
-            for article in raw_news[:3]:
-                title = article.get('title', article.get('headline', ''))
-                if not title: continue
-                link = article.get('link', '#')
-                pub = article.get('publisher', 'Yahoo Finance')
-                ts = article.get('providerPublishTime', 0)
-                time_str = "Today"
-                if ts:
-                    dt = datetime.fromtimestamp(ts)
-                    time_str = dt.strftime("%Y-%m-%d")
-                news_results.append({'title': title, 'link': link, 'pub': pub, 'time': time_str})
-    except: pass
-    
-    # 2. RSS Fallback (If YFinance fails or returns empty)
-    if len(news_results) == 0:
-        try:
-            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            resp = requests.get(url, headers=headers, timeout=4)
-            if resp.status_code == 200:
-                root = ET.fromstring(resp.content)
-                for item in root.findall('.//item')[:3]:
-                    title = item.find('title').text
-                    link = item.find('link').text
-                    pub = "Yahoo RSS"
-                    news_results.append({'title': title, 'link': link, 'pub': pub, 'time': "Recent"})
-        except: pass
+        # Using a standard browser User-Agent is critical
+        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        resp = requests.get(url, headers=headers, timeout=5)
         
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.content)
+            for item in root.findall('.//item')[:4]:
+                title = item.find('title').text if item.find('title') is not None else "No Title"
+                link = item.find('link').text if item.find('link') is not None else "#"
+                pub = "Yahoo Finance"
+                news_results.append({'title': title, 'link': link, 'pub': pub, 'time': "Recent"})
+    except:
+        pass
+    
+    # Fallback to YFinance object if RSS fails
+    if not news_results:
+        try:
+            stock = yf.Ticker(ticker)
+            for n in stock.news[:3]:
+                news_results.append({
+                    'title': n.get('title', 'News'),
+                    'link': n.get('link', '#'),
+                    'pub': n.get('publisher', 'Yahoo'),
+                    'time': 'Recent'
+                })
+        except:
+            pass
+            
     return news_results
 
 def get_ai_analysis(ticker, headlines, current_data=None):
-    # Only call AI if we actually found news
     if OPENAI_KEY and headlines and len(headlines) > 10:
         try:
-            prompt = f"Analyze these headlines for {ticker}: {headlines}. Return valid JSON with two fields: 'summary' (max 20 words, concise) and 'score' (0-100 sentiment). JSON ONLY."
+            prompt = f"Analyze these headlines for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
             data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=8)
-            
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=10)
             if response.status_code == 200:
                 content = response.json()['choices'][0]['message']['content']
-                # Clean markdown code blocks if present
                 if "```" in content: content = content.split("```")[1].replace("json", "").strip()
                 parsed = json.loads(content)
                 return parsed.get('summary'), parsed.get('score'), "AI"
-        except: 
-            pass # Fall through to technical fallback
+        except: pass
 
-    # Technical Fallback (If no news or AI fails)
     if current_data:
         rsi = float(current_data.get('rsi') or 50)
         trend = current_data.get('trend_status', 'NEUTRAL')
@@ -250,7 +256,6 @@ def get_ai_analysis(ticker, headlines, current_data=None):
         elif rsi < 30: return "Technical: Oversold (RSI < 30). Potential bounce.", 80, "TECH"
         elif trend == "UPTREND": return "Technical: Strong Uptrend detected.", 75, "TECH"
         return "Market sentiment is neutral. Monitor volume.", 50, "TECH"
-            
     return "No Data Available", 50, "NONE"
 
 def calculate_risk(row, ai_score=None):
@@ -622,11 +627,11 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        # Fetch News (Direct RSS + YF Backup)
+        # 1. Fetch News (RSS Direct + YF Fallback)
         news_items = get_news_data(ticker)
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
         
-        # Get AI Analysis (or Technical Fallback)
+        # 2. Get AI Analysis (or Technical Fallback)
         ai_summary, ai_score, ai_source = get_ai_analysis(ticker, headlines_txt, stock)
         
         s, l, c, _, r = calculate_risk(stock, ai_score)
