@@ -51,61 +51,40 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Fully Expanded) ---
+        # --- SAFE MIGRATIONS (Expanded) ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-
+        except: pass
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-
+        except: pass
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except:
-            pass
-
+        except: pass
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except:
-            pass
-
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-
+        except: pass
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-
+        except: pass
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
-            
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except:
-            pass
-            
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except:
-            pass
+        except: pass
         
         conn.close()
     except Exception as e:
@@ -257,18 +236,14 @@ def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC")
     rows = cursor.fetchall()
-    
-    # Filter out Commodities/Futures (No '=' or '=F')
     filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker'] and "SI" not in r['ticker']]
-    
     if not filtered:
         cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
         rows = cursor.fetchall()
         filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker']][:3]
         for r in filtered: r['signal_tag'] = "High Volatility"
-        
     conn.close()
-    return filtered[:3] # Return top 3
+    return filtered[:3]
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -299,8 +274,6 @@ def get_paper_balance(username):
 def execute_paper_trade(username, ticker, action, quantity, price):
     conn = get_connection(); cursor = conn.cursor()
     cost = quantity * price
-    
-    # Get Balance
     cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
     bal = float(cursor.fetchone()[0])
     
@@ -308,8 +281,6 @@ def execute_paper_trade(username, ticker, action, quantity, price):
         if bal < cost: conn.close(); return False, "Insufficient funds"
         new_bal = bal - cost
         cursor.execute("UPDATE user_profiles SET paper_balance=%s WHERE username=%s", (new_bal, username))
-        
-        # Check existing pos
         cursor.execute("SELECT shares, entry_price FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
         row = cursor.fetchone()
         if row:
@@ -319,21 +290,17 @@ def execute_paper_trade(username, ticker, action, quantity, price):
             cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (total_shares, new_avg, username, ticker))
         else:
             cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type) VALUES (%s,%s,%s,%s,'PAPER')", (username, ticker, quantity, price))
-            
     elif action == "SELL":
         cursor.execute("SELECT shares FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
         row = cursor.fetchone()
         if not row or float(row[0]) < quantity: conn.close(); return False, "Not enough shares"
-        
         new_bal = bal + cost
         cursor.execute("UPDATE user_profiles SET paper_balance=%s WHERE username=%s", (new_bal, username))
-        
         new_shares = float(row[0]) - quantity
         if new_shares <= 0:
             cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
         else:
             cursor.execute("UPDATE user_portfolio SET shares=%s WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (new_shares, username, ticker))
-            
     conn.commit(); conn.close()
     return True, "Success"
 
@@ -668,14 +635,10 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # AI INSIGHT CARD
+        # AI INSIGHT CARD (FLATTENED TO ENSURE VISIBILITY)
         if ai_summary:
-            st.markdown(f"""
-            <div class='card' style='margin-top:15px; border:1px solid #4ade80;'>
-                <div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>AI MARKET INSIGHT (Score: {ai_score})</div>
-                <div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>AI MARKET INSIGHT (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
+            st.markdown(ai_html, unsafe_allow_html=True)
 
         # NEWS
         if news_items:
