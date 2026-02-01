@@ -584,13 +584,14 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        # GET HEADLINES & AI
+        # Get News & AI
         news_items = get_news_data(ticker)
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
         ai_summary, ai_score = get_ai_analysis(ticker, headlines_txt)
         
-        # CALC RISK (Pass AI score)
+        # Calculate Risk with AI
         s, l, c, _, r = calculate_risk(stock, ai_score)
+        
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
@@ -611,7 +612,7 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # AI INSIGHT CARD
+        # AI SUMMARY CARD
         if ai_summary:
             st.markdown(f"""
             <div class='card' style='margin-top:15px; border:1px solid #4ade80;'>
@@ -620,7 +621,7 @@ if "ticker" in st.query_params:
             </div>
             """, unsafe_allow_html=True)
 
-        # NEWS
+        # NEWS LIST
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
@@ -637,6 +638,8 @@ if "ticker" in st.query_params:
                 <div style="border-bottom:1px solid #2d3748; margin-bottom:15px;"></div>
                 """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#64748b; font-style:italic;'>No recent news found for {ticker}</div></div>", unsafe_allow_html=True)
         
         st.write("")
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
@@ -650,16 +653,6 @@ else:
     if tab == "home":
         st.markdown(f"<div style='font-size:24px; font-weight:800; color:white; margin-bottom:10px;'>{get_greeting(display_name)}</div>", unsafe_allow_html=True)
         
-        # --- WATCHLIST SECTION ---
-        watchlist_items = get_watchlist_candidates()
-        if watchlist_items:
-            st.write("### Tomorrow's Watchlist")
-            cols = st.columns(3)
-            for i, item in enumerate(watchlist_items):
-                with cols[i]:
-                    render_watchlist_card(item, token)
-            st.write("") # Spacer
-
         # --- PORTFOLIO OVERVIEW ---
         port_rows = get_portfolio_details(username)
         tickers = [r['ticker'] for r in port_rows]
@@ -676,6 +669,16 @@ else:
                 st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Portfolio</div><div style="color:white; font-weight:bold; font-size:1rem;">{len(tickers)} Stocks</div></div></div>""", unsafe_allow_html=True)
                 st.write("### At a Glance"); render_horizontal_grid(market_data, token)
         else: st.info("Welcome! Go to 'Stocks' to add your first ticker.")
+
+        # --- WATCHLIST SECTION (MOVED BELOW SCROLLER) ---
+        watchlist_items = get_watchlist_candidates()
+        if watchlist_items:
+            st.write("### Tomorrow's Watchlist")
+            cols = st.columns(3)
+            for i, item in enumerate(watchlist_items):
+                with cols[i]:
+                    render_watchlist_card(item, token)
+            st.write("") # Spacer
 
     elif tab == "portfolio":
         st.markdown(f"### My Stocks")
