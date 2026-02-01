@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# --- MARKET UNIVERSE (Stocks to Scan) ---
+# --- MARKET UNIVERSE (Stocks to Scan for Watchlist) ---
 MARKET_UNIVERSE = [
     "TSLA", "NVDA", "AMD", "AAPL", "PLTR", "SOFI", "MARA", "GME", "AMC", "COIN",
     "MSFT", "GOOG", "AMZN", "META", "NFLX", "RIVN", "LCID", "NIO", "DKNG", "HOOD",
@@ -52,16 +52,51 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS ---
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
+        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
+        except:
+            pass
         
         conn.close()
     except Exception as e:
@@ -74,26 +109,16 @@ def get_ai_analysis(ticker, headlines):
 
     try:
         prompt = f"""
-        Analyze these headlines for {ticker}:
-        {headlines}
-        
-        Task:
-        1. Write a 1-sentence summary.
-        2. Give a sentiment score from 0 (Bad) to 100 (Good).
-        
-        Return JSON: {{"summary": "...", "score": 50}}
+        Analyze headlines for {ticker}: {headlines}
+        Return JSON: {{"summary": "1 sentence", "score": 50}}
         """
-        
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
         data = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": prompt}], "temperature": 0.5}
         
         response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=5)
-        
         if response.status_code == 200:
-            res_json = response.json()
-            content = res_json['choices'][0]['message']['content']
-            if "```" in content:
-                content = content.split("```")[1].replace("json", "").strip()
+            content = response.json()['choices'][0]['message']['content']
+            if "```" in content: content = content.split("```")[1].replace("json", "").strip()
             parsed = json.loads(content)
             return parsed.get('summary'), parsed.get('score')
     except:
@@ -111,7 +136,7 @@ def get_news_data(ticker):
                 title = article.get('title', article.get('headline', ''))
                 if not title: continue
                 link = article.get('link', '#')
-                pub = article.get('publisher', 'Yahoo Finance')
+                publisher = article.get('publisher', 'Yahoo Finance')
                 ts = article.get('providerPublishTime', 0)
                 time_str = "Today"
                 if ts:
@@ -142,50 +167,36 @@ def get_news_data(ticker):
     return news_results
 
 def calculate_signal(df):
-    """
-    Analyzes price/volume history to find breakout signals.
-    """
+    """Detects technical signals for watchlist"""
     try:
         price = float(df['Close'].iloc[-1])
         vol = float(df['Volume'].iloc[-1])
         avg_vol = float(df['Volume'].rolling(20).mean().iloc[-1])
         high_3m = float(df['Close'].max())
         
-        # RSI
         delta = df['Close'].diff()
         up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
         rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
         rsi = 100 - (100 / (1 + rs)).iloc[-1]
 
-        # 1. NEAR BREAKOUT (Price within 3% of 3-Month High)
-        if price >= (high_3m * 0.97):
-            return "🔥 Near Breakout"
-        
-        # 2. UNUSUAL VOLUME (2x Average)
-        if vol > (avg_vol * 2.0):
-            return "📊 Unusual Volume"
-            
-        # 3. MOMENTUM (Strong Up Day + Good RSI)
-        prev_close = float(df['Close'].iloc[-2])
-        pct_change = (price - prev_close) / prev_close
-        if pct_change > 0.04 and rsi > 55:
-            return "⚡ Momentum Gainer"
-            
-        # 4. OVERSOLD BOUNCE (Low RSI but Green Day)
-        if rsi < 35 and pct_change > 0.01:
-            return "📉 Oversold Bounce"
-            
-    except:
-        return None
+        # 1. Breakout
+        if price >= (high_3m * 0.98): return "🔥 Near Breakout"
+        # 2. Volume
+        if vol > (avg_vol * 2.0): return "📊 Unusual Volume"
+        # 3. Momentum
+        prev = float(df['Close'].iloc[-2])
+        if ((price-prev)/prev > 0.04) and rsi > 55: return "⚡ Momentum Gainer"
+        # 4. Oversold
+        if rsi < 35 and ((price-prev)/prev > 0.01): return "📉 Oversold Bounce"
+    except: return None
     return None
 
 def update_stock_data(tickers, username):
-    # Combine User Portfolio with Market Universe for Scanning
+    # Scan Portfolio + Market Universe
     all_tickers = list(set(tickers + MARKET_UNIVERSE))
-    
     if not all_tickers: return
+    
     try: 
-        # Need history for Signals
         data = yf.download(" ".join(all_tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
 
@@ -199,7 +210,7 @@ def update_stock_data(tickers, username):
             df = df.dropna()
             if df.empty: continue
             
-            # --- CALCULATE METRICS ---
+            # --- REAL MATH ---
             price = float(df['Close'].iloc[-1])
             prev = float(df['Close'].iloc[-2])
             change = ((price - prev)/prev)*100
@@ -210,12 +221,12 @@ def update_stock_data(tickers, username):
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             
-            # Trend & Vol
+            # Trend/Vol
             ma50 = df['Close'].rolling(50).mean().iloc[-1] if len(df) >= 50 else df['Close'].mean()
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std() * 100
             
-            # Volume Spike
+            # Vol Spike
             avg_v = df['Volume'].rolling(20).mean().iloc[-1]
             cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
@@ -224,7 +235,7 @@ def update_stock_data(tickers, username):
             high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
             if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
 
-            # --- SIGNAL DETECTION ---
+            # Signal
             signal = calculate_signal(df)
 
             debt=0; mcap=0; eps=0; days=999; name=t
@@ -262,7 +273,6 @@ def update_stock_data(tickers, username):
     conn.commit(); conn.close()
 
 def get_watchlist_candidates():
-    """Fetch stocks with active signals from DB"""
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL ORDER BY ABS(day_change) DESC LIMIT 3")
     rows = cursor.fetchall(); conn.close()
@@ -399,7 +409,9 @@ def create_gauge_html(score, label, color, size="big"):
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, market_data, current_token):
+    # Risk Calculation
     risk_score, risk_label, risk_color, _, _ = calculate_risk(market_data)
+    
     p = float(market_data['current_price'])
     ch = float(market_data['day_change'])
     cc = "#4ade80" if ch>=0 else "#ef4444"
@@ -417,8 +429,11 @@ def render_portfolio_row(row, market_data, current_token):
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
+    
+    # FLATTENED HTML STRING (No indentation)
     bg = risk_color + "22" 
     html_str = f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; display:block;'><div class='card clickable-card' style='display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0; background: linear-gradient(90deg, {bg} 0%, #1a1f2b 100%); border-left: 4px solid {risk_color};'><div><div style='display:flex; align-items:center; gap:8px;'><div style='font-weight:bold; font-size:1.1rem; color:white;'>{row['ticker']}</div><div style='font-size:0.6rem; background:{risk_color}; color:#000; padding:2px 6px; border-radius:4px; font-weight:bold;'>RISK: {risk_score}</div></div><div style='font-size:0.8rem; color:#64748b; margin-bottom:2px;'>{company}</div>{pl_html}</div><div style='text-align:right;'><div style='color:white; font-weight:bold;'>${p:,.2f}</div><div style='color:{cc}; font-size:0.8rem;'>{arr} {ch:.2f}%</div></div></div></a>"
+
     st.markdown(html_str, unsafe_allow_html=True)
 
 def render_watchlist_card(row, current_token):
@@ -429,22 +444,7 @@ def render_watchlist_card(row, current_token):
     risk_score, _, risk_color, _, _ = calculate_risk(row)
     link = f"?token={current_token}&ticker={row['ticker']}"
     
-    # Gradient style for Watchlist
-    html = f"""
-    <a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;">
-        <div class="card clickable-card" style="padding:15px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                <div style="font-weight:bold; font-size:1.2rem; color:white;">{row['ticker']}</div>
-                <div style="color:{cc}; font-weight:bold;">{ch:+.2f}%</div>
-            </div>
-            <div style="font-size:0.85rem; color:#facc15; font-weight:bold; margin-bottom:5px;">{signal}</div>
-            <div style="display:flex; align-items:center; gap:6px;">
-                <div style="width:8px; height:8px; border-radius:50%; background-color:{risk_color};"></div>
-                <div style="font-size:0.75rem; color:#94a3b8;">Risk: {risk_score}</div>
-            </div>
-        </div>
-    </a>
-    """
+    html = f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; display:block;'><div class='card clickable-card' style='padding:15px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155;'><div style='display:flex; justify-content:space-between; margin-bottom:8px;'><div style='font-weight:bold; font-size:1.2rem; color:white;'>{row['ticker']}</div><div style='color:{cc}; font-weight:bold;'>{ch:+.2f}%</div></div><div style='font-size:0.85rem; color:#facc15; font-weight:bold; margin-bottom:5px;'>{signal}</div><div style='display:flex; align-items:center; gap:6px;'><div style='width:8px; height:8px; border-radius:50%; background-color:{risk_color};'></div><div style='font-size:0.75rem; color:#94a3b8;'>Risk: {risk_score}</div></div></div></a>"
     st.markdown(html, unsafe_allow_html=True)
 
 def render_simple_card(row, current_token):
