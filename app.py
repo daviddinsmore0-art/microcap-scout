@@ -36,11 +36,13 @@ DB_CONFIG = {
     "connect_timeout": 30,
 }
 
+# --- ALL FUNCTIONS MOVED TO TOP TO PREVENT ERRORS ---
+
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
-    # STRICTLY EXPANDED ERROR HANDLING TO PREVENT SYNTAX ERRORS
+    # STRICTLY EXPANDED ERROR HANDLING
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -102,9 +104,44 @@ def init_db():
     except Exception as e:
         st.error(f"DB Error: {e}")
 
-# 2. DATA ENGINE
+# AUTH FUNCTIONS
+def login_user(u, p):
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM user_profiles WHERE username=%s", (u,))
+    row = cursor.fetchone(); conn.close()
+    return row if row and row['pin']==p else None
+
+def register_user(u, p, d, e):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("SELECT username FROM user_profiles WHERE username=%s", (u,))
+    if cursor.fetchone(): conn.close(); return False
+    cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s,%s,%s,%s)", (u,p,d,e))
+    conn.commit(); conn.close(); return True
+
+def update_user_settings(username, display_name, email, new_pin=None):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        if new_pin:
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
+        else:
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
+        conn.commit(); conn.close()
+        return True
+    except: return False
+
+def create_session(u):
+    t = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t,u)); conn.commit(); conn.close()
+    return t
+
+def get_user_from_token(t):
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT s.username, p.display_name, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
+    row = cursor.fetchone(); conn.close()
+    return row if row else None
+
+# DATA FUNCTIONS
 def get_ai_analysis(ticker, headlines, current_data=None):
-    # 1. Attempt OpenAI
     if OPENAI_KEY and headlines:
         try:
             prompt = f"Analyze news for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
@@ -119,7 +156,6 @@ def get_ai_analysis(ticker, headlines, current_data=None):
         except:
             pass
 
-    # 2. Technical Fallback
     if current_data:
         rsi = float(current_data.get('rsi') or 50)
         trend = current_data.get('trend_status', 'NEUTRAL')
@@ -132,7 +168,6 @@ def get_ai_analysis(ticker, headlines, current_data=None):
 
 def get_news_data(ticker):
     news_results = []
-    # Try YFinance
     try:
         stock = yf.Ticker(ticker)
         raw_news = stock.news
@@ -165,7 +200,211 @@ def calculate_risk(row, ai_score=None):
     elif final > 35: color_hex = "#fbbf24"; label = "MEDIUM"
     return final, label, color_hex, "badge-mix", reasons
 
-# UI - FLATTENED HTML TO PREVENT RAW CODE
+def update_stock_data(tickers, username):
+    all_tickers = list(set(tickers + MARKET_UNIVERSE))
+    if not all_tickers: return
+    try: data = yf.download(" ".join(all_tickers), period="3mo", group_by='ticker', threads=True, progress=False)
+    except: return
+
+    conn = get_connection(); cursor = conn.cursor()
+    for t in all_tickers:
+        try:
+            if len(all_tickers) > 1: df = data[t]
+            else: df = data
+            df = df.dropna()
+            if df.empty: continue
+            
+            price = float(df['Close'].iloc[-1])
+            prev = float(df['Close'].iloc[-2])
+            change = ((price - prev)/prev)*100
+            
+            delta = df['Close'].diff()
+            up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+            rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
+            rsi = 100 - (100 / (1 + rs)).iloc[-1]
+            
+            ma50 = df['Close'].rolling(50).mean().iloc[-1] if len(df) >= 50 else df['Close'].mean()
+            trend = "UPTREND" if price > ma50 else "DOWNTREND"
+            vol = df['Close'].pct_change().std() * 100
+            
+            avg_v = df['Volume'].rolling(20).mean().iloc[-1]
+            cur_v = df['Volume'].iloc[-1]
+            v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
+            
+            high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
+            if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
+
+            signal = calculate_signal(df)
+            debt=0; mcap=0; eps=0; days=999; name=t
+            try:
+                io = yf.Ticker(t).info
+                debt = io.get('debtToEquity',0) or 0
+                mcap = io.get('marketCap',0) or 0
+                eps = io.get('trailingEps',0) or 0
+                name = io.get('shortName') or io.get('longName') or t
+                try:
+                    cal = io.get('calendar', {})
+                    if 'Earnings Date' in cal:
+                        e_date = cal['Earnings Date'][0] 
+                        days = (e_date.date() - datetime.now().date()).days
+                    else:
+                        ts = io.get('earningsTimestamp', 0)
+                        if ts: days = (datetime.fromtimestamp(ts).date() - datetime.now().date()).days
+                except: days = 999
+            except: pass
+
+            sql = """INSERT INTO stock_cache (ticker, company_name, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps, signal_tag) 
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE 
+                     company_name=%s, current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, 
+                     days_to_earnings=%s, market_cap=%s, eps=%s, signal_tag=%s"""
+            vals = (t, name, price, change, rsi, trend, v_stat, r_loc, vol, debt, days, mcap, eps, signal,
+                    name, price, change, rsi, trend, v_stat, r_loc, vol, debt, days, mcap, eps, signal)
+            cursor.execute(sql, vals)
+        except: continue
+    conn.commit(); conn.close()
+    
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
+    alerts = cursor.fetchall()
+    for a in alerts:
+        cursor.execute("SELECT day_change FROM stock_cache WHERE ticker=%s", (a['ticker'],))
+        row = cursor.fetchone()
+        if row:
+            pct = float(row['day_change'])
+            target = float(a['target_price'])
+            cond = a['condition_type']
+            hit = (cond=='UP' and pct>=target) or (cond=='DOWN' and pct<=(target*-1))
+            if hit: cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
+    conn.commit(); conn.close()
+
+def calculate_signal(df):
+    try:
+        price = float(df['Close'].iloc[-1])
+        vol = float(df['Volume'].iloc[-1])
+        avg_vol = float(df['Volume'].rolling(20).mean().iloc[-1])
+        high_3m = float(df['Close'].max())
+        delta = df['Close'].diff()
+        up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+        rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
+        rsi = 100 - (100 / (1 + rs)).iloc[-1]
+
+        if price >= (high_3m * 0.95): return "🔥 Near Breakout"
+        if vol > (avg_vol * 1.5): return "📊 Unusual Volume"
+        prev = float(df['Close'].iloc[-2])
+        if ((price-prev)/prev > 0.03) and rsi > 50: return "⚡ Momentum Gainer"
+        if rsi < 40: return "📉 Oversold Watch"
+    except: return None
+    return None
+
+def get_watchlist_candidates():
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC")
+    rows = cursor.fetchall()
+    filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker'] and "SI" not in r['ticker'] and "BTC" not in r['ticker']]
+    if not filtered:
+        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
+        rows = cursor.fetchall()
+        filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker']][:3]
+        for r in filtered: r['signal_tag'] = "High Volatility"
+    conn.close()
+    return filtered[:3]
+
+def get_cached_data_map(tickers):
+    if not tickers: return {}
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    fmt = ','.join(['%s']*len(tickers))
+    cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({fmt})", tuple(tickers))
+    rows = cursor.fetchall(); conn.close()
+    return {row['ticker']: row for row in rows}
+
+def get_single_stock(ticker):
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s", (ticker,))
+    row = cursor.fetchone(); conn.close()
+    return row
+
+def get_portfolio_details(username, ptype='REAL'):
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT ticker, shares, entry_price FROM user_portfolio WHERE username=%s AND portfolio_type=%s", (username, ptype))
+    rows = cursor.fetchall(); conn.close()
+    return rows
+
+def get_paper_balance(username):
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
+    row = cursor.fetchone(); conn.close()
+    return float(row['paper_balance']) if row else 0.0
+
+def execute_paper_trade(username, ticker, action, quantity, price):
+    conn = get_connection(); cursor = conn.cursor()
+    cost = quantity * price
+    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
+    bal = float(cursor.fetchone()[0])
+    
+    if action == "BUY":
+        if bal < cost: conn.close(); return False, "Insufficient funds"
+        new_bal = bal - cost
+        cursor.execute("UPDATE user_profiles SET paper_balance=%s WHERE username=%s", (new_bal, username))
+        cursor.execute("SELECT shares, entry_price FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
+        row = cursor.fetchone()
+        if row:
+            curr_shares = float(row[0]); curr_avg = float(row[1])
+            total_shares = curr_shares + quantity
+            new_avg = ((curr_shares * curr_avg) + cost) / total_shares
+            cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (total_shares, new_avg, username, ticker))
+        else:
+            cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type) VALUES (%s,%s,%s,%s,'PAPER')", (username, ticker, quantity, price))
+    elif action == "SELL":
+        cursor.execute("SELECT shares FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
+        row = cursor.fetchone()
+        if not row or float(row[0]) < quantity: conn.close(); return False, "Not enough shares"
+        new_bal = bal + cost
+        cursor.execute("UPDATE user_profiles SET paper_balance=%s WHERE username=%s", (new_bal, username))
+        new_shares = float(row[0]) - quantity
+        if new_shares <= 0:
+            cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
+        else:
+            cursor.execute("UPDATE user_portfolio SET shares=%s WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (new_shares, username, ticker))
+    conn.commit(); conn.close()
+    return True, "Success"
+
+def add_ticker_to_db(username, ticker, shares, price, ptype='REAL'):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("INSERT IGNORE INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type) VALUES (%s,%s,%s,%s,%s)", (username, ticker, shares, price, ptype))
+    conn.commit(); conn.close(); return True
+
+def update_ticker_in_db(username, ticker, shares, price, ptype='REAL'):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
+    conn.commit(); conn.close(); return True
+
+def remove_ticker_from_db(username, ticker, ptype='REAL'):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
+    conn.commit(); conn.close()
+
+# Alerts & Risk
+def add_alert(username, ticker, condition, price):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
+        conn.commit(); conn.close(); return True
+    except: return False
+
+def delete_alert(alert_id):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,)); conn.commit(); conn.close()
+    except: pass
+
+def get_user_alerts(username):
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
+        rows = cursor.fetchall(); conn.close(); return rows
+    except: return []
+
+# UI RENDERERS
 def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
     vb = "0 0 200 120" if size == "big" else "0 0 160 100"
@@ -222,85 +461,17 @@ def render_horizontal_grid(rows_dict, current_token):
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
-def get_greeting(name):
-    hour = datetime.now(pytz.timezone('America/Halifax')).hour
-    if hour < 12: return f"Good Morning, {name}"
-    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
-    else: return f"Good Evening, {name}"
-
-def render_navbar(active_tab, token, current_mode="REAL"):
-    mode_str = "&mode=PAPER" if current_mode == "PAPER" else ""
-    nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home{mode_str}" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio{mode_str}" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts{mode_str}" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner{mode_str}" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings{mode_str}" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
-    st.markdown(nav_html, unsafe_allow_html=True)
-
+# 3. INITIALIZATION
 init_db()
 
-# --- CSS: NEON THEME ---
-st.markdown("""<style>
-    .stApp { background-color: #0f1219; color: #e0e6ed; }
-    .block-container { padding-top: 0rem !important; padding-bottom: 7rem !important; }
-    .card { background-color: #1a1f2b; border-radius: 16px; padding: 20px; margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.1s; }
-    .clickable-card:active, .scrolling-card:active { transform: scale(0.96) !important; background-color: #262f40 !important; border-color: #4ade80 !important; }
-    
-    input[type="text"], input[type="password"], input[type="number"] { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; border-radius: 8px; padding: 10px; }
-    div[data-baseweb="input"] { background-color: #1e293b !important; border: none; }
-    div[data-baseweb="select"] > div { background-color: #1e293b !important; color: white !important; border: 1px solid #4ade80 !important; }
-    div[role="listbox"] { background-color: #1e293b !important; }
-    div[role="option"] { color: white !important; }
-    div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
-    
-    div.stButton > button {
-        background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px; }
-    
-    div[data-testid="stExpander"] { background-color: transparent !important; }
-    div[data-testid="stExpander"] details { background-color: transparent !important; }
-    div[data-testid="stExpander"] details summary { color: #4ade80 !important; background-color: transparent !important; border: none !important; }
-    div[data-testid="stExpander"] details summary:hover { color: #16a34a !important; }
-    
-    button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
-    button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
-    button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
-    button[key="alert_action_btn"] { background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
-    
-    button[data-baseweb="tab"] { color: #94a3b8 !important; }
-    button[data-baseweb="tab"][aria-selected="true"] { color: #4ade80 !important; border-bottom-color: #4ade80 !important; }
-    
-    .scrolling-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 10px; -ms-overflow-style: none; scrollbar-width: none; }
-    .scrolling-wrapper::-webkit-scrollbar { display: none; }
-    .scrolling-card { flex: 0 0 auto; width: 130px; background-color: #1a1f2b; border: 1px solid #2d3748; border-radius: 12px; padding: 15px; transition: transform 0.1s; }
-    
-    .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 8px 0; border-bottom: 1px solid #2d3748; }
-    .risk-label { color: #e0e6ed; font-size: 0.9rem; }
-    .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
-    .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-    .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-    .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-    
-    header {visibility: hidden;} footer {visibility: hidden;} 
-    
-    .nav-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background-color: #0f1219; border-top: 1px solid #2d3748; display: flex; justify-content: space-around; align-items: center; z-index: 99999; padding-bottom: 5px; }
-    a.nav-link { text-decoration: none; color: #64748b; font-family: sans-serif; font-size: 10px; text-align: center; width: 100%; }
-    a.nav-link.active { color: #4ade80; font-weight: bold; }
-    .nav-icon { font-size: 22px; display: block; margin-bottom: 2px; }
-    
-    div[role="radiogroup"] { background: #1a1f2b; padding: 5px; border-radius: 8px; border: 1px solid #2d3748; display: flex; justify-content: center;}
-    div[role="radiogroup"] label { font-size: 0.8rem; font-weight: bold; color: #94a3b8; }
-    div[role="radiogroup"] div[aria-checked="true"] label { color: #4ade80; }
-</style>""", unsafe_allow_html=True)
-
-# --- LOGIN ---
+# --- LOGIN SCREEN ---
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2: 
         if os.path.exists("logo.png"): 
             st.image("logo.png", width=200)
         else:
-            st.markdown("""
-            <div style="text-align: center; margin-bottom: 20px;">
-                <div style="font-size: 60px; color: #4ade80; text-shadow: 0 0 10px #4ade80;">⚡</div>
-                <h1 style="color: #4ade80; margin: 0; text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);">Penny Pulse</h1>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
     
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
@@ -322,12 +493,12 @@ if "token" not in st.query_params:
         st.button("Request Reset")
     st.stop()
 
-# LOGGED IN
+# --- LOGGED IN APP ---
 user_info = get_user_from_token(token)
 if not user_info: st.error("Session Expired"); st.stop()
 username = user_info['username']; display_name = user_info['display_name'] or username
 
-# --- MODE SELECTION ---
+# MODE TOGGLE
 mode_param = st.query_params.get("mode", "REAL")
 if mode_param not in ["REAL", "PAPER"]: mode_param = "REAL"
 
@@ -341,7 +512,7 @@ if current_mode == "PAPER":
     paper_bal = get_paper_balance(username)
     st.markdown(f"<div style='background:#1e293b; color:#4ade80; padding:5px 10px; border-radius:5px; text-align:center; font-weight:bold; border:1px solid #4ade80; margin-bottom:10px;'>💵 Cash: ${paper_bal:,.2f}</div>", unsafe_allow_html=True)
 
-# CHECK FOR DETAIL VIEW
+# DETAIL VIEW
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
     stock = get_single_stock(ticker)
@@ -388,7 +559,7 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # AI CARD (FLATTENED HTML)
+        # AI CARD
         title_txt = "AI MARKET INSIGHT" if ai_source == "AI" else "TECHNICAL INSIGHT"
         if ai_summary:
             ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{title_txt} (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
@@ -411,6 +582,7 @@ if "ticker" in st.query_params:
     render_navbar("portfolio", token, current_mode)
     st.stop()
 
+# MAIN TABS
 else:
     tab = st.query_params.get("tab", "home")
     if tab == "home":
@@ -427,7 +599,6 @@ else:
                 riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
                 volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
                 
-                # EARNINGS CALC
                 earnings_stock = min([r for r in valid_rows if r['days_to_earnings'] > 0], key=lambda x: x['days_to_earnings'], default=None)
                 earnings_text = f"{earnings_stock['ticker']} ({earnings_stock['days_to_earnings']}d)" if earnings_stock else "None Soon"
                 
