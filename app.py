@@ -51,43 +51,34 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded) ---
+        # --- SAFE MIGRATIONS ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
+        except: pass
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
+        except: pass
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
+        except: pass
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except:
-            pass
+        except: pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except:
-            pass
+        except: pass
         
         conn.close()
     except Exception as e:
@@ -237,12 +228,12 @@ def update_stock_data(tickers, username):
 
 def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 5")
+    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 3")
     rows = cursor.fetchall()
     if not rows:
-        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 5")
+        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 3")
         rows = cursor.fetchall()
-        for r in rows: r['signal_tag'] = "High Volatility"
+        for r in rows: r['signal_tag'] = "Active"
     conn.close()
     return rows
 
@@ -340,30 +331,22 @@ def get_user_alerts(username):
 
 def calculate_risk(row, ai_score=None):
     s = 50; reasons = []
-    # Technicals
     if row.get('trend_status') == 'DOWNTREND': s += 10
     else: s -= 10
     rsi = float(row.get('rsi', 50))
-    if rsi > 70: s += 10; reasons.append("Overbought")
-    elif rsi < 30: s -= 10; reasons.append("Oversold")
-    if float(row.get('volatility', 0)) > 3.0: s += 10; reasons.append("High Volatility")
+    if rsi > 70: s += 10
+    elif rsi < 30: s -= 10
+    if float(row.get('volatility', 0)) > 3.0: s += 10
     
-    # AI Factor
     if ai_score is not None:
         adj = (50 - ai_score) * 0.5
         s += adj
-        if ai_score >= 75: reasons.append("Positive News")
-        elif ai_score <= 25: reasons.append("Negative News")
     
     final = max(0, min(100, int(s)))
     color_hex = "#4ade80" # Green
     label = "LOW"
-    if final > 65: 
-        color_hex = "#ef4444" # Red
-        label = "HIGH"
-    elif final > 35: 
-        color_hex = "#fbbf24" # Yellow
-        label = "MEDIUM"
+    if final > 65: color_hex = "#ef4444"; label = "HIGH"
+    elif final > 35: color_hex = "#fbbf24"; label = "MEDIUM"
     return final, label, color_hex, "badge-mix", reasons
 
 # UI
@@ -399,16 +382,23 @@ def render_portfolio_row(row, market_data, current_token):
     html_str = f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; display:block;'><div class='card clickable-card' style='display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0; background: linear-gradient(90deg, {bg} 0%, #1a1f2b 100%); border-left: 4px solid {risk_color};'><div><div style='display:flex; align-items:center; gap:8px;'><div style='font-weight:bold; font-size:1.1rem; color:white;'>{row['ticker']}</div><div style='font-size:0.6rem; background:{risk_color}; color:#000; padding:2px 6px; border-radius:4px; font-weight:bold;'>RISK: {risk_score}</div></div><div style='font-size:0.8rem; color:#64748b; margin-bottom:2px;'>{company}</div>{pl_html}</div><div style='text-align:right;'><div style='color:white; font-weight:bold;'>${p:,.2f}</div><div style='color:{cc}; font-size:0.8rem;'>{arr} {ch:.2f}%</div></div></div></a>"
     st.markdown(html_str, unsafe_allow_html=True)
 
-def render_horizontal_watchlist(rows_list, current_token):
-    h = '<div class="scrolling-wrapper">'
+def render_compact_watchlist(rows_list, current_token):
+    # COMPACT HORIZONTAL ROW
+    h = '<div style="display: flex; flex-direction: row; gap: 8px; overflow-x: auto; padding-bottom: 5px;">'
     for row in rows_list:
-        p = float(row['current_price'])
-        ch = float(row['day_change'])
-        cc = "#4ade80" if ch>=0 else "#ef4444"
         signal = row.get('signal_tag') or "Active"
         risk_score, _, risk_color, _, _ = calculate_risk(row)
         link = f"?token={current_token}&ticker={row['ticker']}"
-        h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit;'><div class='scrolling-card clickable-card' style='width:160px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155;'><div style='display:flex; justify-content:space-between; margin-bottom:8px;'><div style='font-weight:bold; font-size:1.1rem; color:white;'>{row['ticker']}</div><div style='color:{cc}; font-weight:bold; font-size:0.9rem;'>{ch:+.1f}%</div></div><div style='font-size:0.75rem; color:#facc15; font-weight:bold; margin-bottom:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='display:flex; align-items:center; gap:6px;'><div style='width:8px; height:8px; border-radius:50%; background-color:{risk_color};'></div><div style='font-size:0.7rem; color:#94a3b8;'>Risk: {risk_score}</div></div></div></a>"
+        
+        h += f"""
+        <a href="{link}" target="_self" style="text-decoration:none; color:inherit; flex: 1; min-width: 0;">
+            <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;">{row['ticker']}</div>
+                <div style="font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{signal}</div>
+                <div style="font-size:0.65rem; color:#94a3b8;">Risk: <span style="color:{risk_color}">{risk_score}</span></div>
+            </div>
+        </a>
+        """
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
@@ -621,11 +611,11 @@ else:
                 st.write("### At a Glance"); render_horizontal_grid(market_data, token)
         else: st.info("Welcome! Go to 'Stocks' to add your first ticker.")
 
-        # --- WATCHLIST SECTION (SCROLLABLE) ---
+        # --- WATCHLIST SECTION (COMPACT ROW) ---
         watchlist_items = get_watchlist_candidates()
         if watchlist_items:
             st.write("### Tomorrow's Watchlist")
-            render_horizontal_watchlist(watchlist_items, token)
+            render_compact_watchlist(watchlist_items, token)
             st.write("") # Spacer
 
     elif tab == "portfolio":
