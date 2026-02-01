@@ -6,9 +6,8 @@ import uuid
 import os
 import pandas as pd
 import pytz
-import re
-from datetime import datetime, timedelta
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
@@ -342,6 +341,7 @@ def render_portfolio_row(row, market_data, current_token):
     if shares > 0 and entry > 0:
         val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
         color_code = "green" if pl >= 0 else "red"
+        # Using Streamlit Markdown syntax for color, NO HTML tags to break mobile
         pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
     elif shares > 0:
