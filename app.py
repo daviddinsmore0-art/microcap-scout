@@ -56,7 +56,8 @@ DB_CONFIG = { "host": "atlanticcanadaschoice.com", "user": "atlantic", "password
 OPENAI_KEY = st.secrets["openai"]["api_key"] if "openai" in st.secrets else None
 token = st.query_params.get("token", None)
 
-def get_connection(): return mysql.connector.connect(**DB_CONFIG)
+def get_connection():
+    return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
     try:
@@ -72,7 +73,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (id INT PRIMARY KEY, content TEXT, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS system_config (key_name VARCHAR(50) PRIMARY KEY, key_value TEXT)")
         
-        # Migrations (Expanded for syntax safety)
+        # Migrations - Fully Expanded to Prevent Syntax Errors
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
         except:
@@ -119,37 +120,57 @@ def init_db():
 
 # --- Auth Functions ---
 def login_user(u, p):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_profiles WHERE username=%s", (u,))
-    row = cursor.fetchone(); conn.close()
-    if row and str(row['pin']) == str(p): return row
+    row = cursor.fetchone()
+    conn.close()
+    if row and str(row['pin']) == str(p):
+        return row
     return None
 
 def register_user(u, p, d, e):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT username FROM user_profiles WHERE username=%s", (u,))
-    if cursor.fetchone(): conn.close(); return False
+    if cursor.fetchone():
+        conn.close()
+        return False
     cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s,%s,%s,%s)", (u, p, d, e))
-    conn.commit(); conn.close(); return True
+    conn.commit()
+    conn.close()
+    return True
 
 def create_session(u):
-    t = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
+    t = str(uuid.uuid4())
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t, u))
-    conn.commit(); conn.close(); return t
+    conn.commit()
+    conn.close()
+    return t
 
 def get_user_from_token(t):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
-    row = cursor.fetchone(); conn.close()
+    row = cursor.fetchone()
+    conn.close()
     return row
 
 def update_user_settings(username, display_name, email, new_pin=None):
     try:
-        conn = get_connection(); cursor = conn.cursor()
-        if new_pin: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
-        else: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
-        conn.commit(); conn.close(); return True
-    except: return False
+        conn = get_connection()
+        cursor = conn.cursor()
+        if new_pin:
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
+        else:
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
+        conn.commit()
+        conn.close()
+        return True
+    except:
+        return False
 
 # --- Data Functions ---
 def get_news_data(ticker):
@@ -164,13 +185,15 @@ def get_news_data(ticker):
                 title = item.find('title').text if item.find('title') is not None else "No Title"
                 link = item.find('link').text if item.find('link') is not None else "#"
                 news_results.append({'title': title, 'link': link, 'pub': 'Yahoo', 'time': "Recent"})
-    except: pass
+    except:
+        pass
     if not news_results:
         try:
             stock = yf.Ticker(ticker)
             for n in stock.news[:3]:
                 news_results.append({'title': n.get('title','News'), 'link': n.get('link','#'), 'pub': 'Yahoo', 'time': 'Recent'})
-        except: pass
+        except:
+            pass
     return news_results
 
 def get_ai_analysis(ticker, headlines, current_data=None):
@@ -185,7 +208,8 @@ def get_ai_analysis(ticker, headlines, current_data=None):
                 if "```" in content: content = content.split("```")[1].replace("json", "").strip()
                 parsed = json.loads(content)
                 return parsed.get('summary'), parsed.get('score'), "AI"
-        except: pass
+        except:
+            pass
     if current_data:
         rsi = float(current_data.get('rsi') or 50)
         trend = current_data.get('trend_status', 'NEUTRAL')
@@ -213,7 +237,8 @@ def calculate_risk(row, ai_score=None):
     return final, label, color, "badge-mix", reasons
 
 def get_watchlist_candidates():
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IN ('Near Breakout', 'Unusual Volume', 'Momentum') ORDER BY ABS(day_change) DESC LIMIT 10")
     rows = cursor.fetchall()
     if not rows:
@@ -223,46 +248,72 @@ def get_watchlist_candidates():
     for r in rows:
         t = r['ticker']
         if "GC=" not in t and "SI=" not in t and "BTC" not in t: filtered.append(r)
-    conn.close(); return filtered[:3]
+    conn.close()
+    return filtered[:3]
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     format_strings = ','.join(['%s'] * len(tickers))
     cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers))
-    rows = cursor.fetchall(); conn.close()
+    rows = cursor.fetchall()
+    conn.close()
     return {row['ticker']: row for row in rows}
 
 def get_single_stock(ticker):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s", (ticker,))
-    row = cursor.fetchone(); conn.close(); return row
+    row = cursor.fetchone()
+    conn.close()
+    return row
 
 def get_portfolio_details(username, ptype):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=TRUE", (username, ptype))
-    rows = cursor.fetchall(); conn.close(); return rows
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
 def get_portfolio_summary(username, ptype):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT SUM(realized_pl) as realized FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=FALSE", (username, ptype))
-    realized_row = cursor.fetchone(); realized = float(realized_row['realized'] or 0)
+    realized_row = cursor.fetchone()
+    realized = float(realized_row['realized'] or 0)
     cursor.execute("SELECT p.shares, p.entry_price, s.current_price, s.day_change FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.portfolio_type=%s AND p.is_active=TRUE", (username, ptype))
-    active_rows = cursor.fetchall(); unrealized = 0.0; day_pl = 0.0; active_cost_basis = 0.0; current_portfolio_value = 0.0
+    active_rows = cursor.fetchall()
+    unrealized = 0.0
+    day_pl = 0.0
+    active_cost_basis = 0.0
+    current_portfolio_value = 0.0
     for r in active_rows:
         if r['current_price']:
-            curr = float(r['current_price']); entry = float(r['entry_price']); shares = float(r['shares'])
-            val = curr * shares; cost = entry * shares
-            unrealized += (val - cost); active_cost_basis += cost; current_portfolio_value += val
-            pct = float(r['day_change'] or 0); prev = curr / (1 + (pct/100)); day_pl += (curr - prev) * shares
-    conn.close(); total_pl_dollars = realized + unrealized; total_pl_pct = 0.0
+            curr = float(r['current_price'])
+            entry = float(r['entry_price'])
+            shares = float(r['shares'])
+            val = curr * shares
+            cost = entry * shares
+            unrealized += (val - cost)
+            active_cost_basis += cost
+            current_portfolio_value += val
+            pct = float(r['day_change'] or 0)
+            prev = curr / (1 + (pct/100))
+            day_pl += (curr - prev) * shares
+    conn.close()
+    total_pl_dollars = realized + unrealized
+    total_pl_pct = 0.0
     if active_cost_basis > 0: total_pl_pct = (total_pl_dollars / active_cost_basis) * 100
-    day_pl_pct = 0.0; prev_val = current_portfolio_value - day_pl
+    day_pl_pct = 0.0
+    prev_val = current_portfolio_value - day_pl
     if prev_val > 0: day_pl_pct = (day_pl / prev_val) * 100
     return total_pl_dollars, total_pl_pct, day_pl, day_pl_pct
 
 def deactivate_stock(username, ticker, ptype):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT p.shares, p.entry_price, s.current_price FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.ticker=%s AND p.portfolio_type=%s", (username, ticker, ptype))
     row = cursor.fetchone()
     if row:
@@ -270,82 +321,154 @@ def deactivate_stock(username, ticker, ptype):
         if curr:
             final_pl = (float(curr) - float(entry)) * float(shares)
             cursor.execute("UPDATE user_portfolio SET is_active=FALSE, realized_pl=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (final_pl, username, ticker, ptype))
-        else: cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
-    conn.commit(); conn.close()
+        else:
+            cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
+    conn.commit()
+    conn.close()
 
 def add_ticker_to_db(username, ticker, shares, price, ptype):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
     existing = cursor.fetchone()
-    if existing: cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s, is_active=TRUE WHERE id=%s", (shares, price, existing[0]))
-    else: cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)", (username, ticker, shares, price, ptype))
-    conn.commit(); conn.close()
+    if existing:
+        cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s, is_active=TRUE WHERE id=%s", (shares, price, existing[0]))
+    else:
+        cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)", (username, ticker, shares, price, ptype))
+    conn.commit()
+    conn.close()
 
 def update_ticker_in_db(username, ticker, shares, price, ptype):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
 def add_alert(username, ticker, condition, price):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     if ticker == "ALL STOCKS":
         cursor.execute("SELECT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE", (username,))
         rows = cursor.fetchall()
         for r in rows:
             t = r[0]
-            try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, t, condition, price)); except: pass
+            try:
+                cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, t, condition, price))
+            except:
+                pass
     else:
-        try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price)); except: pass
-    conn.commit(); conn.close()
+        try:
+            cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
+        except:
+            pass
+    conn.commit()
+    conn.close()
 
 def delete_alert(alert_id):
-    try: conn = get_connection(); cursor = conn.cursor(); cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,)); conn.commit(); conn.close()
-    except: pass
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 def get_user_alerts(username):
-    try: conn = get_connection(); cursor = conn.cursor(dictionary=True); cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,)); rows = cursor.fetchall(); conn.close(); return rows
-    except: return []
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except:
+        return []
 
 def create_gauge_html(score, label, color, size="big"):
-    rad = 80 if size == "big" else 60; vb = "0 0 200 120" if size == "big" else "0 0 160 100"; fs = "38" if size == "big" else "28"
+    rad = 80 if size == "big" else 60
+    vb = "0 0 200 120" if size == "big" else "0 0 160 100"
+    fs = "38" if size == "big" else "28"
     fill = (score / 100) * (3.14159 * rad)
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
     svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, data, token):
-    risk, label, color, _, _ = calculate_risk(data); price = float(data['current_price']); change = float(data['day_change']); change_color = "#4ade80" if change >= 0 else "#ef4444"; arrow = "▲" if change >= 0 else "▼"; shares = float(row['shares']); entry = float(row['entry_price']); pl_html = ""
+    risk, label, color, _, _ = calculate_risk(data)
+    price = float(data['current_price'])
+    change = float(data['day_change'])
+    change_color = "#4ade80" if change >= 0 else "#ef4444"
+    arrow = "▲" if change >= 0 else "▼"
+    
+    shares = float(row['shares'])
+    entry = float(row['entry_price'])
+    
+    pl_html = ""
     if shares > 0 and entry > 0:
-        val = shares * price; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0; pl_color = "#4ade80" if pl >= 0 else "#ef4444"
+        val = shares * price
+        cost = shares * entry
+        pl = val - cost
+        pl_pct = (pl / cost) * 100 if cost > 0 else 0
+        pl_color = "#4ade80" if pl >= 0 else "#ef4444"
         pl_html = f"<div style='color:{pl_color}; font-size:0.75rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
-    elif shares > 0: pl_html = f"<div style='color:#94a3b8; font-size:0.75rem; margin-top:2px;'>{int(shares)} Shares</div>"
+    elif shares > 0:
+        pl_html = f"<div style='color:#94a3b8; font-size:0.75rem; margin-top:2px;'>{int(shares)} Shares</div>"
+
     link = f"?token={token}&ticker={row['ticker']}"
-    html = f"""<a href="{link}" target="_self" style="text-decoration:none;"><div class="card" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};"><div><div style="display:flex; align-items:center; gap:8px;"><div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:4px; font-weight:bold;">RISK: {risk}</div></div><div style="font-size:0.8rem; color:#94a3b8;">{data.get('company_name', row['ticker'])}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${price:,.2f}</div><div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div></div></div></a>"""
+    
+    html = f"""
+    <a href="{link}" target="_self" style="text-decoration:none;">
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+            <div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+                    <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:4px; font-weight:bold;">RISK: {risk}</div>
+                </div>
+                <div style="font-size:0.8rem; color:#94a3b8;">{data.get('company_name', row['ticker'])}</div>
+                {pl_html}
+            </div>
+            <div style="text-align:right;">
+                <div style="color:white; font-weight:bold;">${price:,.2f}</div>
+                <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
+            </div>
+        </div>
+    </a>
+    """
     st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
     h = '<div class="scrolling-wrapper">'
     for row in rows_list:
-        signal = row.get('signal_tag') or "Active"; risk, _, color, _, _ = calculate_risk(row); link = f"?token={current_token}&ticker={row['ticker']}"
+        signal = row.get('signal_tag') or "Active"
+        risk, _, color, _, _ = calculate_risk(row)
+        link = f"?token={current_token}&ticker={row['ticker']}"
         h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
-    h += '</div>'; st.markdown(h, unsafe_allow_html=True)
+    h += '</div>'
+    st.markdown(h, unsafe_allow_html=True)
 
 def render_simple_card(row, current_token):
-    p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"; link = f"?token={current_token}&ticker={row['ticker']}"; risk, _, _, _, _ = calculate_risk(row)
+    p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
+    link = f"?token={current_token}&ticker={row['ticker']}"
+    risk, _, _, _, _ = calculate_risk(row)
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
     h = '<div class="scrolling-wrapper">'
     for ticker, row in rows_dict.items():
-        ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"; status = row.get('trend_status', 'Move'); 
+        ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
+        status = row.get('trend_status', 'Move')
         if row.get('volume_status') == 'SPIKE': status = "VOL SPIKE"
         link = f"?token={current_token}&ticker={ticker}"
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
 def get_watchlist_header_date():
-    now = datetime.now(pytz.timezone('America/New_York')); weekday = now.weekday(); hour = now.hour
+    now = datetime.now(pytz.timezone('America/New_York'))
+    weekday = now.weekday() 
+    hour = now.hour
     if weekday == 5: target = now + timedelta(days=2); return target.strftime("%b %d")
     if weekday == 6: target = now + timedelta(days=1); return target.strftime("%b %d")
     if weekday == 4 and hour >= 16: target = now + timedelta(days=3); return target.strftime("%b %d")
