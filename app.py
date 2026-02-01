@@ -14,6 +14,48 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
+# --- FORCED DARK THEME CSS ---
+st.markdown("""
+    <style>
+        /* Force Dark Background */
+        .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
+        
+        /* Input Fields */
+        input[type="text"], input[type="password"], input[type="number"] { 
+            background-color: #1e293b !important; 
+            color: white !important; 
+            border: 1px solid #4ade80 !important; 
+            border-radius: 8px; 
+            padding: 10px; 
+        }
+        div[data-baseweb="input"] { background-color: transparent !important; }
+        
+        /* Cards */
+        .card { 
+            background-color: #1a1f2b; 
+            border-radius: 16px; 
+            padding: 20px; 
+            margin-bottom: 10px; 
+            border: 1px solid #2d3748; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
+        }
+        
+        /* Buttons */
+        div.stButton > button {
+            background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
+            color: white !important; 
+            border: none; 
+            border-radius: 8px; 
+            font-weight: bold; 
+            padding: 12px 20px;
+        }
+        
+        /* Text & Labels */
+        h1, h2, h3, p, label, span { color: #e0e6ed !important; }
+        div[data-testid="stWidgetLabel"] p { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- MARKET UNIVERSE ---
 MARKET_UNIVERSE = [
     "TSLA", "NVDA", "AMD", "AAPL", "PLTR", "SOFI", "MARA", "GME", "AMC", "COIN",
@@ -36,13 +78,14 @@ DB_CONFIG = {
     "connect_timeout": 30,
 }
 
-# --- ALL FUNCTIONS MOVED TO TOP TO PREVENT ERRORS ---
+# =========================================================
+#  CORE FUNCTIONS (DEFINED BEFORE USE)
+# =========================================================
 
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
-    # STRICTLY EXPANDED ERROR HANDLING
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -54,51 +97,18 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations (Expanded Block)
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except:
-            pass
+        # Safe Migrations
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
         
         conn.close()
     except Exception as e:
@@ -140,7 +150,7 @@ def get_user_from_token(t):
     row = cursor.fetchone(); conn.close()
     return row if row else None
 
-# DATA FUNCTIONS
+# DATA ENGINE
 def get_ai_analysis(ticker, headlines, current_data=None):
     if OPENAI_KEY and headlines:
         try:
@@ -153,8 +163,7 @@ def get_ai_analysis(ticker, headlines, current_data=None):
                 if "```" in content: content = content.split("```")[1].replace("json", "").strip()
                 parsed = json.loads(content)
                 return parsed.get('summary'), parsed.get('score'), "AI"
-        except:
-            pass
+        except: pass
 
     if current_data:
         rsi = float(current_data.get('rsi') or 50)
@@ -163,7 +172,6 @@ def get_ai_analysis(ticker, headlines, current_data=None):
         elif rsi < 30: return "Technical: Oversold (RSI < 30). Potential bounce.", 80, "TECH"
         elif trend == "UPTREND": return "Technical: Strong Uptrend detected.", 75, "TECH"
         return "Market sentiment is neutral. Monitor volume.", 50, "TECH"
-            
     return "No Data Available", 50, "NONE"
 
 def get_news_data(ticker):
@@ -383,27 +391,6 @@ def remove_ticker_from_db(username, ticker, ptype='REAL'):
     cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
     conn.commit(); conn.close()
 
-# Alerts & Risk
-def add_alert(username, ticker, condition, price):
-    try:
-        conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
-        conn.commit(); conn.close(); return True
-    except: return False
-
-def delete_alert(alert_id):
-    try:
-        conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,)); conn.commit(); conn.close()
-    except: pass
-
-def get_user_alerts(username):
-    try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
-        rows = cursor.fetchall(); conn.close(); return rows
-    except: return []
-
 # UI RENDERERS
 def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
@@ -460,6 +447,17 @@ def render_horizontal_grid(rows_dict, current_token):
         link = f"?token={current_token}&ticker={ticker}"
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
+
+def get_greeting(name):
+    hour = datetime.now(pytz.timezone('America/Halifax')).hour
+    if hour < 12: return f"Good Morning, {name}"
+    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
+    else: return f"Good Evening, {name}"
+
+def render_navbar(active_tab, token, current_mode="REAL"):
+    mode_str = "&mode=PAPER" if current_mode == "PAPER" else ""
+    nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home{mode_str}" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio{mode_str}" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts{mode_str}" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner{mode_str}" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings{mode_str}" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
+    st.markdown(nav_html, unsafe_allow_html=True)
 
 # 3. INITIALIZATION
 init_db()
@@ -559,7 +557,7 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # AI CARD
+        # AI CARD (FLATTENED HTML)
         title_txt = "AI MARKET INSIGHT" if ai_source == "AI" else "TECHNICAL INSIGHT"
         if ai_summary:
             ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{title_txt} (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
@@ -582,7 +580,6 @@ if "ticker" in st.query_params:
     render_navbar("portfolio", token, current_mode)
     st.stop()
 
-# MAIN TABS
 else:
     tab = st.query_params.get("tab", "home")
     if tab == "home":
