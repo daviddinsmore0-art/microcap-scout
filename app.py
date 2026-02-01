@@ -46,7 +46,36 @@ st.markdown("""
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
         }
         
-        /* Horizontal Scroller */
+        /* Buttons */
+        div.stButton > button {
+            background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
+            color: white !important; 
+            border: none; 
+            border-radius: 8px; 
+            font-weight: bold;
+            width: 100%;
+            padding: 12px 20px;
+        }
+        
+        /* Delete/Remove Buttons */
+        button[kind="secondary"] {
+            background: #334155 !important;
+            border: 1px solid #ef4444 !important;
+            color: #ef4444 !important;
+        }
+
+        h1, h2, h3, p, label, span, div { color: #e0e6ed; }
+        
+        /* Navigation */
+        .nav-container { 
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; 
+            background-color: #0f1219; border-top: 1px solid #2d3748; 
+            display: flex; justify-content: space-around; align-items: center; z-index: 99999; 
+        }
+        a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
+        a.nav-link:hover { transform: scale(1.1); }
+        
+        /* Scrolling Wrapper */
         .scrolling-wrapper { 
             display: flex; 
             flex-wrap: nowrap; 
@@ -66,39 +95,15 @@ st.markdown("""
             padding: 15px; 
         }
         
-        /* Buttons */
-        div.stButton > button {
-            background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
-            color: white !important; 
-            border: none; 
-            border-radius: 8px; 
-            font-weight: bold;
-            width: 100%;
-            padding: 12px 20px;
-        }
-        
-        button[kind="secondary"] {
-            background: #334155 !important;
-            border: 1px solid #ef4444 !important;
-            color: #ef4444 !important;
-        }
-
-        h1, h2, h3, p, label, span, div { color: #e0e6ed; }
-        
-        /* Navigation */
-        .nav-container { 
-            position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; 
-            background-color: #0f1219; border-top: 1px solid #2d3748; 
-            display: flex; justify-content: space-around; align-items: center; z-index: 99999; 
-        }
-        a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
-        
         /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
         .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
         .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
+        
+        /* Hide default header/footer */
+        header {visibility: hidden;} footer {visibility: hidden;} 
     </style>
 """, unsafe_allow_html=True)
 
@@ -134,11 +139,26 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
         # Safe Migrations
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
+        try: 
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
+        except: 
+            pass
 
         conn.close()
     except Exception as e:
@@ -235,6 +255,7 @@ def calculate_risk(row, ai_score=None):
     label = "LOW"
     if final > 65: color = "#ef4444"; label="HIGH"
     elif final > 35: color = "#fbbf24"; label="MEDIUM"
+    # Ensure we return 5 values to match the unpack sequence
     return final, label, color, "badge-mix", reasons
 
 def calculate_signal(df):
@@ -480,7 +501,7 @@ def render_simple_card(row, current_token):
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
     link = f"?token={current_token}&ticker={row['ticker']}"
     risk, _, _, _, _ = calculate_risk(row)
-    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
+    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
