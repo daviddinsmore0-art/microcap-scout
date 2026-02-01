@@ -51,34 +51,43 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS ---
+        # --- SAFE MIGRATIONS (Expanded) ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except: pass
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except: pass
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except: pass
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except: pass
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: pass
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except: pass
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except: pass
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except: pass
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except: pass
+        except:
+            pass
         
         conn.close()
     except Exception as e:
@@ -233,7 +242,7 @@ def get_watchlist_candidates():
     if not rows:
         cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 3")
         rows = cursor.fetchall()
-        for r in rows: r['signal_tag'] = "Active"
+        for r in rows: r['signal_tag'] = "High Volatility"
     conn.close()
     return rows
 
@@ -384,21 +393,15 @@ def render_portfolio_row(row, market_data, current_token):
 
 def render_compact_watchlist(rows_list, current_token):
     # COMPACT HORIZONTAL ROW
-    h = '<div style="display: flex; flex-direction: row; gap: 8px; overflow-x: auto; padding-bottom: 5px;">'
+    h = '<div style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px;">'
     for row in rows_list:
         signal = row.get('signal_tag') or "Active"
         risk_score, _, risk_color, _, _ = calculate_risk(row)
         link = f"?token={current_token}&ticker={row['ticker']}"
         
-        h += f"""
-        <a href="{link}" target="_self" style="text-decoration:none; color:inherit; flex: 1; min-width: 0;">
-            <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;">
-                <div style="font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;">{row['ticker']}</div>
-                <div style="font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{signal}</div>
-                <div style="font-size:0.65rem; color:#94a3b8;">Risk: <span style="color:{risk_color}">{risk_score}</span></div>
-            </div>
-        </a>
-        """
+        # Flattened HTML to prevent markdown code block error
+        h += f"""<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{risk_color}'>{risk_score}</span></div></div></a>"""
+        
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
