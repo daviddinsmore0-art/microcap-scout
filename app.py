@@ -13,8 +13,11 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# --- AI CONFIGURATION (SAFE LOAD) ---
-OPENAI_KEY = None
+# --- AI CONFIGURATION ---
+# OPTION 1: Paste key here for testing (e.g. "sk-...")
+OPENAI_KEY = None 
+
+# OPTION 2: Load from secrets (Best practice)
 if "openai" in st.secrets:
     OPENAI_KEY = st.secrets["openai"]["api_key"]
 
@@ -44,27 +47,54 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS ---
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        # --- SAFE MIGRATIONS (Expanded blocks to prevent SyntaxError) ---
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
+        except:
+            pass
         
         conn.close()
     except Exception as e:
         st.error(f"DB Error: {e}")
 
-# 2. DATA ENGINE (AI + NEWS)
+# 2. DATA ENGINE (AI + News)
 
 def get_ai_analysis(ticker, headlines):
     """
-    SAFE AI WRAPPER: Returns None if anything fails, so it won't break the app.
+    Uses OpenAI to summarize headlines and rate sentiment (0-100).
     """
     if not OPENAI_KEY or not headlines:
-        return None, None
+        return None, None # No AI available
 
     try:
         prompt = f"""
@@ -72,8 +102,8 @@ def get_ai_analysis(ticker, headlines):
         {headlines}
         
         Task:
-        1. Summarize the news in 1 very short sentence.
-        2. Rate sentiment 0 (Bad) to 100 (Good).
+        1. Write a 1-sentence summary of the vibe.
+        2. Give a sentiment score from 0 (Disaster) to 100 (Amazing).
         
         Return JSON: {{"summary": "...", "score": 50}}
         """
@@ -90,7 +120,7 @@ def get_ai_analysis(ticker, headlines):
             "max_tokens": 100
         }
         
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=5)
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=6)
         
         if response.status_code == 200:
             res_json = response.json()
@@ -104,17 +134,17 @@ def get_ai_analysis(ticker, headlines):
             parsed = json.loads(content)
             return parsed.get('summary'), parsed.get('score')
     except:
-        return None, None # Fail silently, don't crash news
+        pass
     
     return None, None
 
 def get_news_data(ticker):
     """
-    THE WORKING NEWS ENGINE (Restored)
+    Robust news fetcher: yfinance -> RSS Fallback
     """
     news_results = []
     
-    # Method 1: YFinance
+    # Method 1: YFinance Library
     try:
         stock = yf.Ticker(ticker)
         raw_news = stock.news
@@ -125,6 +155,7 @@ def get_news_data(ticker):
                 link = article.get('link', '#')
                 publisher = article.get('publisher', 'Yahoo Finance')
                 ts = article.get('providerPublishTime', 0)
+                
                 time_str = "Today"
                 if ts:
                     dt = datetime.fromtimestamp(ts)
@@ -132,10 +163,11 @@ def get_news_data(ticker):
                     if diff.days > 0: time_str = f"{diff.days}d ago"
                     elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
                     else: time_str = f"{diff.seconds//60}m ago"
+                
                 news_results.append({'title': title, 'link': link, 'pub': publisher, 'time': time_str})
     except: pass
 
-    # Method 2: RSS Fallback (The one that worked for Penny Stocks!)
+    # Method 2: RSS Fallback
     if not news_results:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -500,13 +532,7 @@ if "ticker" in st.query_params:
     if stock:
         # Get News & AI
         news_items = get_news_data(ticker)
-        
-        # Prepare text for AI (Safe check)
-        headlines_txt = ""
-        if news_items:
-            headlines_txt = "\n".join([f"- {n['title']}" for n in news_items])
-            
-        # Call AI (Safely)
+        headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
         ai_summary, ai_score = get_ai_analysis(ticker, headlines_txt)
         
         # Calculate Risk with AI
