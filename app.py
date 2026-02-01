@@ -53,50 +53,15 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
         # --- SAFE MIGRATIONS ---
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except:
-            pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
         
         conn.close()
     except Exception as e:
@@ -109,7 +74,8 @@ def get_ai_analysis(ticker, headlines):
 
     try:
         prompt = f"""
-        Analyze headlines for {ticker}: {headlines}
+        Analyze these headlines for {ticker}:
+        {headlines}
         Return JSON: {{"summary": "1 sentence", "score": 50}}
         """
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
@@ -127,7 +93,6 @@ def get_ai_analysis(ticker, headlines):
 
 def get_news_data(ticker):
     news_results = []
-    # 1. YFinance
     try:
         stock = yf.Ticker(ticker)
         raw_news = stock.news
@@ -148,7 +113,6 @@ def get_news_data(ticker):
                 news_results.append({'title': title, 'link': link, 'pub': publisher, 'time': time_str})
     except: pass
 
-    # 2. RSS Backup
     if not news_results:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -159,15 +123,12 @@ def get_news_data(ticker):
                 for item in root.findall('.//item')[:2]:
                     title = item.find('title').text
                     link = item.find('link').text
-                    pub_date = item.find('pubDate').text
                     if " - " in title: title = title.rsplit(" - ", 1)[0]
                     news_results.append({'title': title, 'link': link, 'pub': 'Yahoo RSS', 'time': 'Recent'})
         except: pass
-            
     return news_results
 
 def calculate_signal(df):
-    """Detects technical signals for watchlist (Relaxed Criteria)"""
     try:
         price = float(df['Close'].iloc[-1])
         vol = float(df['Volume'].iloc[-1])
@@ -179,30 +140,22 @@ def calculate_signal(df):
         rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
         rsi = 100 - (100 / (1 + rs)).iloc[-1]
 
-        # 1. Breakout (Within 5% of High)
         if price >= (high_3m * 0.95): return "🔥 Near Breakout"
-        # 2. Volume (1.5x Avg)
         if vol > (avg_vol * 1.5): return "📊 Unusual Volume"
-        # 3. Momentum
         prev = float(df['Close'].iloc[-2])
         if ((price-prev)/prev > 0.03) and rsi > 50: return "⚡ Momentum Gainer"
-        # 4. Oversold
         if rsi < 40: return "📉 Oversold Watch"
     except: return None
     return None
 
 def update_stock_data(tickers, username):
-    # Scan Portfolio + Market Universe
     all_tickers = list(set(tickers + MARKET_UNIVERSE))
     if not all_tickers: return
-    
     try: 
         data = yf.download(" ".join(all_tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    
+    conn = get_connection(); cursor = conn.cursor()
     for t in all_tickers:
         try:
             if len(all_tickers) > 1: df = data[t]
@@ -210,34 +163,27 @@ def update_stock_data(tickers, username):
             df = df.dropna()
             if df.empty: continue
             
-            # --- REAL MATH ---
             price = float(df['Close'].iloc[-1])
             prev = float(df['Close'].iloc[-2])
             change = ((price - prev)/prev)*100
             
-            # RSI
             delta = df['Close'].diff()
             up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             
-            # Trend/Vol
             ma50 = df['Close'].rolling(50).mean().iloc[-1] if len(df) >= 50 else df['Close'].mean()
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std() * 100
             
-            # Vol Spike
             avg_v = df['Volume'].rolling(20).mean().iloc[-1]
             cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
-            # Range
             high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
             if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
 
-            # Signal
             signal = calculate_signal(df)
-
             debt=0; mcap=0; eps=0; days=999; name=t
             try:
                 io = yf.Ticker(t).info
@@ -257,7 +203,6 @@ def update_stock_data(tickers, username):
         except: continue
     conn.commit(); conn.close()
     
-    # Check Alerts
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
     alerts = cursor.fetchall()
@@ -274,18 +219,12 @@ def update_stock_data(tickers, username):
 
 def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    
-    # 1. Try to get stocks with specific signals
-    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 3")
+    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 5")
     rows = cursor.fetchall()
-    
-    # 2. FALLBACK: If no signals, just get Top 3 Volatile Movers
     if not rows:
-        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 3")
+        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 5")
         rows = cursor.fetchall()
-        for r in rows:
-            r['signal_tag'] = "High Volatility" # Force a tag
-            
+        for r in rows: r['signal_tag'] = "High Volatility"
     conn.close()
     return rows
 
@@ -383,7 +322,6 @@ def get_user_alerts(username):
 
 def calculate_risk(row, ai_score=None):
     s = 50; reasons = []
-    # Technicals
     if row.get('trend_status') == 'DOWNTREND': s += 10
     else: s -= 10
     rsi = float(row.get('rsi', 50))
@@ -391,7 +329,6 @@ def calculate_risk(row, ai_score=None):
     elif rsi < 30: s -= 10; reasons.append("Oversold")
     if float(row.get('volatility', 0)) > 3.0: s += 10; reasons.append("High Volatility")
     
-    # AI Factor
     if ai_score is not None:
         adj = (50 - ai_score) * 0.5
         s += adj
@@ -420,9 +357,7 @@ def create_gauge_html(score, label, color, size="big"):
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, market_data, current_token):
-    # Risk Calculation
     risk_score, risk_label, risk_color, _, _ = calculate_risk(market_data)
-    
     p = float(market_data['current_price'])
     ch = float(market_data['day_change'])
     cc = "#4ade80" if ch>=0 else "#ef4444"
@@ -440,23 +375,38 @@ def render_portfolio_row(row, market_data, current_token):
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
     link = f"?token={current_token}&ticker={row['ticker']}"
-    
-    # FLATTENED HTML STRING (No indentation)
     bg = risk_color + "22" 
     html_str = f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; display:block;'><div class='card clickable-card' style='display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0; background: linear-gradient(90deg, {bg} 0%, #1a1f2b 100%); border-left: 4px solid {risk_color};'><div><div style='display:flex; align-items:center; gap:8px;'><div style='font-weight:bold; font-size:1.1rem; color:white;'>{row['ticker']}</div><div style='font-size:0.6rem; background:{risk_color}; color:#000; padding:2px 6px; border-radius:4px; font-weight:bold;'>RISK: {risk_score}</div></div><div style='font-size:0.8rem; color:#64748b; margin-bottom:2px;'>{company}</div>{pl_html}</div><div style='text-align:right;'><div style='color:white; font-weight:bold;'>${p:,.2f}</div><div style='color:{cc}; font-size:0.8rem;'>{arr} {ch:.2f}%</div></div></div></a>"
-
     st.markdown(html_str, unsafe_allow_html=True)
 
-def render_watchlist_card(row, current_token):
-    p = float(row['current_price'])
-    ch = float(row['day_change'])
-    cc = "#4ade80" if ch>=0 else "#ef4444"
-    signal = row.get('signal_tag') or "Active Mover"
-    risk_score, _, risk_color, _, _ = calculate_risk(row)
-    link = f"?token={current_token}&ticker={row['ticker']}"
-    
-    html = f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; display:block;'><div class='card clickable-card' style='padding:15px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155;'><div style='display:flex; justify-content:space-between; margin-bottom:8px;'><div style='font-weight:bold; font-size:1.2rem; color:white;'>{row['ticker']}</div><div style='color:{cc}; font-weight:bold;'>{ch:+.2f}%</div></div><div style='font-size:0.85rem; color:#facc15; font-weight:bold; margin-bottom:5px;'>{signal}</div><div style='display:flex; align-items:center; gap:6px;'><div style='width:8px; height:8px; border-radius:50%; background-color:{risk_color};'></div><div style='font-size:0.75rem; color:#94a3b8;'>Risk: {risk_score}</div></div></div></a>"
-    st.markdown(html, unsafe_allow_html=True)
+def render_horizontal_watchlist(rows_list, current_token):
+    h = '<div class="scrolling-wrapper">'
+    for row in rows_list:
+        p = float(row['current_price'])
+        ch = float(row['day_change'])
+        cc = "#4ade80" if ch>=0 else "#ef4444"
+        signal = row.get('signal_tag') or "Active"
+        risk_score, _, risk_color, _, _ = calculate_risk(row)
+        link = f"?token={current_token}&ticker={row['ticker']}"
+        
+        # CARD HTML
+        h += f"""
+        <a href="{link}" target="_self" style="text-decoration:none; color:inherit;">
+            <div class="scrolling-card clickable-card" style="width:160px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+                    <div style="color:{cc}; font-weight:bold; font-size:0.9rem;">{ch:+.1f}%</div>
+                </div>
+                <div style="font-size:0.75rem; color:#facc15; font-weight:bold; margin-bottom:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{signal}</div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <div style="width:8px; height:8px; border-radius:50%; background-color:{risk_color};"></div>
+                    <div style="font-size:0.7rem; color:#94a3b8;">Risk: {risk_score}</div>
+                </div>
+            </div>
+        </a>
+        """
+    h += '</div>'
+    st.markdown(h, unsafe_allow_html=True)
 
 def render_simple_card(row, current_token):
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
@@ -667,14 +617,11 @@ else:
                 st.write("### At a Glance"); render_horizontal_grid(market_data, token)
         else: st.info("Welcome! Go to 'Stocks' to add your first ticker.")
 
-        # --- WATCHLIST SECTION (MOVED BELOW SCROLLER) ---
+        # --- WATCHLIST SECTION (SCROLLABLE) ---
         watchlist_items = get_watchlist_candidates()
         if watchlist_items:
             st.write("### Tomorrow's Watchlist")
-            cols = st.columns(3)
-            for i, item in enumerate(watchlist_items):
-                with cols[i]:
-                    render_watchlist_card(item, token)
+            render_horizontal_watchlist(watchlist_items, token)
             st.write("") # Spacer
 
     elif tab == "portfolio":
