@@ -158,48 +158,57 @@ def init_db():
         conn = get_connection()
         cursor = conn.cursor()
         
-        # Base Tables
+        # 1. Base Tables
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), paper_balance DECIMAL(20,2) DEFAULT 10000.00)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, portfolio_type VARCHAR(20) DEFAULT 'REAL', is_active BOOLEAN DEFAULT TRUE, realized_pl DECIMAL(20,2) DEFAULT 0.00, PRIMARY KEY (id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations (STRICTLY EXPANDED FOR SYNTAX SAFETY)
-        try: 
+        # 2. NEW TABLES (Briefing & Key Sync)
+        cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (id INT PRIMARY KEY, content TEXT, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS system_config (key_name VARCHAR(50) PRIMARY KEY, key_value TEXT)")
+
+        # 3. Safe Migrations (Fully expanded to prevent SyntaxError)
+        try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except: 
+        except:
             pass
             
-        try: 
+        try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except: 
+        except:
             pass
             
-        try: 
+        try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-        except: 
+        except:
             pass
             
-        try: 
+        try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00")
-        except: 
+        except:
             pass
             
-        try: 
+        try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: 
+        except:
             pass
             
-        try: 
+        try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except: 
+        except:
             pass
             
-        try: 
+        try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except: 
+        except:
             pass
+
+        # 4. Save API Key to DB (So PHP can see it)
+        if OPENAI_KEY:
+            cursor.execute("REPLACE INTO system_config (key_name, key_value) VALUES ('openai_key', %s)", (OPENAI_KEY,))
+            conn.commit()
 
         conn.close()
     except Exception as e:
@@ -779,6 +788,28 @@ if "ticker" in st.query_params:
 tab = st.query_params.get("tab", "home")
 
 if tab == "home":
+    # --- MORNING BRIEFING SECTION ---
+    conn = get_connection(); cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT content, last_updated FROM daily_briefing WHERE id=1")
+        row = cursor.fetchone()
+        if row:
+            briefing_text = row[0]
+            briefing_time = row[1].strftime("%b %d, %I:%M %p") if row[1] else ""
+            
+            st.markdown(f"""
+                <div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
+                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
+                        AI MORNING BRIEFING <span style="color:#64748b; font-weight:normal;">• {briefing_time}</span>
+                    </div>
+                    <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">
+                        {briefing_text}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+    except: pass
+    conn.close()
+    
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
     
@@ -908,7 +939,7 @@ elif tab == "scanner":
 elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
-        new_name = st.text_input("Display Name", value=display_name)
+        new_name = st.text_input("Display Name", value=user['display_name'])
         new_email = st.text_input("Recovery Email", value=user.get('email', ''))
         new_pin = st.text_input("New PIN", type="password")
         if st.form_submit_button("Save Changes"):
