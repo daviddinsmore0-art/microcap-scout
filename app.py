@@ -6,6 +6,7 @@ import uuid
 import os
 import pandas as pd
 import pytz
+import altair as alt
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
@@ -39,40 +40,13 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
         # --- SAFE MIGRATIONS ---
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
         
         conn.close()
     except Exception as e:
@@ -81,51 +55,48 @@ def init_db():
 # 2. DATA ENGINE
 def get_rss_news(ticker):
     """
-    Robust News Fetcher with User-Agent spoofing to bypass Yahoo blocks.
+    Robust RSS Parser that handles namespaces and finding title tags correctly.
     """
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
     try:
-        # Try Yahoo RSS
         url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
         response = requests.get(url, headers=headers, timeout=4)
-        
         if response.status_code == 200:
             root = ET.fromstring(response.content)
             items = []
+            # Find all 'item' tags anywhere in the tree
             for item in root.findall('.//item')[:2]:
-                title = item.find('title').text
-                link = item.find('link').text
-                pub_date = item.find('pubDate').text
+                title_obj = item.find('title')
+                link_obj = item.find('link')
+                pub_obj = item.find('pubDate')
                 
-                # Clean up title (remove ' - Yahoo Finance' etc)
-                if " - " in title:
-                    title = title.rsplit(" - ", 1)[0]
+                title = title_obj.text if title_obj is not None else "News Story"
+                link = link_obj.text if link_obj is not None else "#"
+                pub_date = pub_obj.text if pub_obj is not None else ""
                 
-                # Format simple date
-                try:
-                    # RFC 822 format used by RSS: 'Tue, 30 Jan 2026 14:00:00 GMT'
-                    dt = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
-                    diff = datetime.now() - dt
-                    if diff.days > 0: time_str = f"{diff.days}d ago"
-                    elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
-                    else: time_str = f"{diff.seconds//60}m ago"
-                except:
-                    time_str = "Recently"
+                # Format time
+                time_str = "Recently"
+                if pub_date:
+                    try:
+                        # RSS date format: Tue, 03 Jun 2003 09:39:21 GMT
+                        dt = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
+                        diff = datetime.now() - dt
+                        if diff.days > 0: time_str = f"{diff.days}d ago"
+                        elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
+                        else: time_str = f"{diff.seconds//60}m ago"
+                    except: pass
 
                 items.append({'title': title, 'link': link, 'publisher': 'Yahoo Finance', 'time': time_str})
             return items
-    except Exception:
-        pass
+    except:
+        return []
     return []
 
 def update_stock_data(tickers, username):
     if not tickers: return
     try: 
         data = yf.download(" ".join(tickers), period="1d", group_by='ticker', threads=True, progress=False)
-    except: 
-        return
+    except: return
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -315,7 +286,6 @@ def render_portfolio_row(row, market_data, current_token):
     if shares > 0 and entry > 0:
         val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
         color_code = "green" if pl >= 0 else "red"
-        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags to break mobile
         pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
     elif shares > 0:
