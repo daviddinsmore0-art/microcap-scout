@@ -60,7 +60,10 @@ def get_connection(): return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
     try:
-        conn = get_connection(); cursor = conn.cursor()
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Create Tables
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), paper_balance DECIMAL(20,2) DEFAULT 10000.00)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, portfolio_type VARCHAR(20) DEFAULT 'REAL', is_active BOOLEAN DEFAULT TRUE, realized_pl DECIMAL(20,2) DEFAULT 0.00, PRIMARY KEY (id))")
@@ -69,14 +72,41 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (id INT PRIMARY KEY, content TEXT, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS system_config (key_name VARCHAR(50) PRIMARY KEY, key_value TEXT)")
         
-        # Migrations
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
+        # Migrations (Expanded for syntax safety)
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
+        except:
+            pass
         
         # SYNC KEY
         if OPENAI_KEY:
@@ -84,7 +114,8 @@ def init_db():
             conn.commit()
             
         conn.close()
-    except Exception as e: st.error(f"DB Init Error: {e}")
+    except Exception as e:
+        st.error(f"DB Init Error: {e}")
 
 # --- Auth Functions ---
 def login_user(u, p):
@@ -313,12 +344,6 @@ def render_horizontal_grid(rows_dict, current_token):
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
-def get_greeting(name):
-    hour = datetime.now(pytz.timezone('America/Halifax')).hour
-    if hour < 12: return f"Good Morning, {name}"
-    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
-    else: return f"Good Evening, {name}"
-
 def get_watchlist_header_date():
     now = datetime.now(pytz.timezone('America/New_York')); weekday = now.weekday(); hour = now.hour
     if weekday == 5: target = now + timedelta(days=2); return target.strftime("%b %d")
@@ -437,6 +462,18 @@ elif tab == "portfolio":
     for r in port: 
         if r['ticker'] in dm: render_portfolio_row(r, dm[r['ticker']], token)
 
+elif tab == "scanner":
+    st.markdown("### Scanner")
+    port = get_portfolio_details(user['username'], mode)
+    dm = get_cached_data_map([r['ticker'] for r in port])
+    if dm:
+        st.markdown("**📉 Oversold (RSI < 40)**")
+        for t, d in dm.items(): 
+            if d['rsi'] and float(d['rsi']) < 40: render_simple_card(d, token)
+        st.markdown("**📅 Earnings Soon**")
+        for t, d in dm.items():
+            if int(d.get('days_to_earnings', 999)) < 14: render_simple_card(d, token)
+
 elif tab == "alerts":
     st.markdown("### Volatility Alerts")
     with st.expander("New Alert", expanded=True):
@@ -454,18 +491,6 @@ elif tab == "alerts":
         bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"; border = "#ef4444" if a['is_triggered'] else "#2d3748"
         st.markdown(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;"><div><div style="font-weight:bold; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div></div></div>""", unsafe_allow_html=True)
         if st.button("Clear", key=f"del_al_{a['id']}"): delete_alert(a['id']); st.rerun()
-
-elif tab == "scanner":
-    st.markdown("### Scanner")
-    port = get_portfolio_details(user['username'], mode)
-    dm = get_cached_data_map([r['ticker'] for r in port])
-    if dm:
-        st.markdown("**📉 Oversold (RSI < 40)**")
-        for t, d in dm.items(): 
-            if d['rsi'] and float(d['rsi']) < 40: render_simple_card(d, token)
-        st.markdown("**📅 Earnings Soon**")
-        for t, d in dm.items():
-            if int(d.get('days_to_earnings', 999)) < 14: render_simple_card(d, token)
 
 elif tab == "settings":
     st.markdown("### Settings")
