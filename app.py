@@ -65,7 +65,8 @@ st.markdown("""
             margin-bottom: 10px;
         }
         .metric-label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
-        .metric-value { font-size: 1.4rem; font-weight: bold; color: white; }
+        .metric-value { font-size: 1.4rem; font-weight: bold; color: white; margin-bottom: 0px; line-height: 1.2; }
+        .metric-sub { font-size: 1rem; font-weight: bold; margin-top: 0px; }
         
         /* Buttons */
         div.stButton > button {
@@ -164,33 +165,39 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
         # Safe Migrations (EXPANDED TO PREVENT SYNTAX ERRORS)
-        try: 
+        try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except: 
+        except:
             pass
-        try: 
+            
+        try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except: 
+        except:
             pass
-        try: 
+            
+        try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-        except: 
+        except:
             pass
-        try: 
+            
+        try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00")
-        except: 
+        except:
             pass
-        try: 
+            
+        try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: 
+        except:
             pass
-        try: 
+            
+        try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except: 
+        except:
             pass
-        try: 
+            
+        try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except: 
+        except:
             pass
 
         conn.close()
@@ -199,46 +206,62 @@ def init_db():
 
 # --- Auth Functions ---
 def login_user(u, p):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_profiles WHERE username=%s", (u,))
-    row = cursor.fetchone(); conn.close()
-    if row and str(row['pin']) == str(p): return row
+    row = cursor.fetchone()
+    conn.close()
+    if row and str(row['pin']) == str(p):
+        return row
     return None
 
 def register_user(u, p, d, e):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT username FROM user_profiles WHERE username=%s", (u,))
-    if cursor.fetchone(): conn.close(); return False
+    if cursor.fetchone():
+        conn.close()
+        return False
     cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s,%s,%s,%s)", (u, p, d, e))
-    conn.commit(); conn.close(); return True
+    conn.commit()
+    conn.close()
+    return True
 
 def create_session(u):
-    t = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
+    t = str(uuid.uuid4())
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t, u))
-    conn.commit(); conn.close(); return t
+    conn.commit()
+    conn.close()
+    return t
 
 def get_user_from_token(t):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
-    row = cursor.fetchone(); conn.close()
+    row = cursor.fetchone()
+    conn.close()
     return row
 
 def update_user_settings(username, display_name, email, new_pin=None):
     try:
-        conn = get_connection(); cursor = conn.cursor()
-        if new_pin: 
+        conn = get_connection()
+        cursor = conn.cursor()
+        if new_pin:
             cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
-        else: 
+        else:
             cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
-        conn.commit(); conn.close(); return True
-    except: return False
+        conn.commit()
+        conn.close()
+        return True
+    except:
+        return False
 
 # --- Data Functions ---
 def get_news_data(ticker):
-    # DIRECT RSS FETCH (More Reliable than YF)
     news_results = []
     try:
-        # Using a standard browser User-Agent is critical
         url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         resp = requests.get(url, headers=headers, timeout=5)
@@ -253,7 +276,6 @@ def get_news_data(ticker):
     except:
         pass
     
-    # Fallback to YFinance object if RSS fails
     if not news_results:
         try:
             stock = yf.Ticker(ticker)
@@ -281,7 +303,8 @@ def get_ai_analysis(ticker, headlines, current_data=None):
                 if "```" in content: content = content.split("```")[1].replace("json", "").strip()
                 parsed = json.loads(content)
                 return parsed.get('summary'), parsed.get('score'), "AI"
-        except: pass
+        except:
+            pass
 
     if current_data:
         rsi = float(current_data.get('rsi') or 50)
@@ -325,16 +348,20 @@ def calculate_signal(df):
         if vol > (avg_vol * 1.5): return "📊 Unusual Volume"
         if ((price-prev)/prev > 0.03) and rsi > 50: return "⚡ Momentum Gainer"
         if rsi < 40: return "📉 Oversold Watch"
-    except: return None
+    except:
+        return None
     return None
 
 def update_stock_data(tickers, username):
     all_tickers = list(set(tickers + MARKET_UNIVERSE))
     if not all_tickers: return
-    try: data = yf.download(" ".join(all_tickers), period="3mo", group_by='ticker', threads=True, progress=False)
-    except: return
+    try:
+        data = yf.download(" ".join(all_tickers), period="3mo", group_by='ticker', threads=True, progress=False)
+    except:
+        return
 
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     for t in all_tickers:
         try:
             if len(all_tickers) > 1: df = data[t]
@@ -342,10 +369,12 @@ def update_stock_data(tickers, username):
             df = df.dropna()
             if df.empty: continue
             
-            price = float(df['Close'].iloc[-1]); prev = float(df['Close'].iloc[-2])
+            price = float(df['Close'].iloc[-1])
+            prev = float(df['Close'].iloc[-2])
             change = ((price - prev)/prev)*100
             
-            delta = df['Close'].diff(); up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+            delta = df['Close'].diff()
+            up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
             rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
             rsi = 100 - (100 / (1 + rs)).iloc[-1]
             
@@ -353,10 +382,13 @@ def update_stock_data(tickers, username):
             trend = "UPTREND" if price > ma50 else "DOWNTREND"
             vol = df['Close'].pct_change().std() * 100
             
-            avg_v = df['Volume'].rolling(20).mean().iloc[-1]; cur_v = df['Volume'].iloc[-1]
+            avg_v = df['Volume'].rolling(20).mean().iloc[-1]
+            cur_v = df['Volume'].iloc[-1]
             v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
             
-            high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
+            high3 = df['Close'].max()
+            low3 = df['Close'].min()
+            r_loc = 50
             if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
 
             signal = calculate_signal(df)
@@ -369,8 +401,10 @@ def update_stock_data(tickers, username):
                     if 'Earnings Date' in cal:
                         e_date = cal['Earnings Date'][0] 
                         days = (e_date.date() - datetime.now().date()).days
-                except: pass
-            except: pass
+                except:
+                    pass
+            except:
+                pass
 
             sql = """INSERT INTO stock_cache (ticker, company_name, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps, signal_tag) 
                      VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE 
@@ -379,11 +413,14 @@ def update_stock_data(tickers, username):
             vals = (t, name, price, change, rsi, trend, v_stat, r_loc, vol, debt, days, mcap, eps, signal,
                     name, price, change, rsi, trend, v_stat, r_loc, vol, debt, days, mcap, eps, signal)
             cursor.execute(sql, vals)
-        except: continue
-    conn.commit(); conn.close()
+        except:
+            continue
+    conn.commit()
+    conn.close()
 
 def get_watchlist_candidates():
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     # 1. Try strict signal
     cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 10")
     rows = cursor.fetchall()
@@ -401,27 +438,34 @@ def get_watchlist_candidates():
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     format_strings = ','.join(['%s'] * len(tickers))
     cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers))
-    rows = cursor.fetchall(); conn.close()
+    rows = cursor.fetchall()
+    conn.close()
     return {row['ticker']: row for row in rows}
 
 def get_single_stock(ticker):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s", (ticker,))
-    row = cursor.fetchone(); conn.close()
+    row = cursor.fetchone()
+    conn.close()
     return row
 
 def get_portfolio_details(username, ptype):
     # Only ACTIVE stocks
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=TRUE", (username, ptype))
-    rows = cursor.fetchall(); conn.close()
+    rows = cursor.fetchall()
+    conn.close()
     return rows
 
 def get_portfolio_summary(username, ptype):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     
     # 1. Realized P/L (Closed Trades)
     cursor.execute("SELECT SUM(realized_pl) as realized FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=FALSE", (username, ptype))
@@ -472,7 +516,8 @@ def get_portfolio_summary(username, ptype):
     return total_pl_dollars, total_pl_pct, day_pl, day_pl_pct
 
 def deactivate_stock(username, ticker, ptype):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT p.shares, p.entry_price, s.current_price FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.ticker=%s AND p.portfolio_type=%s", (username, ticker, ptype))
     row = cursor.fetchone()
     if row:
@@ -482,30 +527,38 @@ def deactivate_stock(username, ticker, ptype):
             cursor.execute("UPDATE user_portfolio SET is_active=FALSE, realized_pl=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (final_pl, username, ticker, ptype))
         else:
             cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
 def add_ticker_to_db(username, ticker, shares, price, ptype):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
     existing = cursor.fetchone()
     if existing:
         cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s, is_active=TRUE WHERE id=%s", (shares, price, existing[0]))
     else:
         cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)", (username, ticker, shares, price, ptype))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
 def update_ticker_in_db(username, ticker, shares, price, ptype):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
-    conn.commit(); conn.close(); return True
+    conn.commit()
+    conn.close()
 
 def remove_ticker_from_db(username, ticker, ptype):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
 def add_alert(username, ticker, condition, price):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     if ticker == "ALL STOCKS":
         cursor.execute("SELECT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE", (username,))
         rows = cursor.fetchall()
@@ -520,20 +573,29 @@ def add_alert(username, ticker, condition, price):
             cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
         except: 
             pass
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
 def delete_alert(alert_id):
     try:
-        conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,)); conn.commit(); conn.close()
-    except: pass
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 def get_user_alerts(username):
     try:
-        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
-        rows = cursor.fetchall(); conn.close(); return rows
-    except: return []
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except:
+        return []
 
 # --- UI Functions ---
 def render_navbar(token, mode):
@@ -818,11 +880,13 @@ elif tab == "portfolio":
         <div style="display:flex; gap:10px; margin-bottom:20px;">
             <div class="metric-box" style="flex:1;">
                 <div class="metric-label">Total P/L</div>
-                <div class="metric-value" style="color:{c_pl}">${total_pl:,.2f} <span style="font-size:0.9rem;">({total_pct:+.2f}%)</span></div>
+                <div class="metric-value" style="color:{c_pl}">${total_pl:,.2f}</div>
+                <div class="metric-sub" style="color:{c_pl}">({total_pct:+.2f}%)</div>
             </div>
             <div class="metric-box" style="flex:1;">
                 <div class="metric-label">Today's P/L</div>
-                <div class="metric-value" style="color:{c_day}">${day_pl:,.2f} <span style="font-size:0.9rem;">({day_pct:+.2f}%)</span></div>
+                <div class="metric-value" style="color:{c_day}">${day_pl:,.2f}</div>
+                <div class="metric-sub" style="color:{c_day}">({day_pct:+.2f}%)</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
