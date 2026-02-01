@@ -138,23 +138,27 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations
+        # Safe Migrations (Fully Expanded for Compatibility)
         try: 
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
         except: 
             pass
+        
         try: 
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
         except: 
             pass
+            
         try: 
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
         except: 
             pass
+            
         try: 
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
         except: 
             pass
+            
         try: 
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
         except: 
@@ -255,7 +259,6 @@ def calculate_risk(row, ai_score=None):
     label = "LOW"
     if final > 65: color = "#ef4444"; label="HIGH"
     elif final > 35: color = "#fbbf24"; label="MEDIUM"
-    # Ensure we return 5 values to match the unpack sequence
     return final, label, color, "badge-mix", reasons
 
 def calculate_signal(df):
