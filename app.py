@@ -73,7 +73,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (id INT PRIMARY KEY, content TEXT, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS system_config (key_name VARCHAR(50) PRIMARY KEY, key_value TEXT)")
         
-        # Migrations - Fully Expanded to Prevent Syntax Errors
+        # Migrations (Expanded for syntax safety)
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
         except:
@@ -387,9 +387,7 @@ def get_user_alerts(username):
         return []
 
 def create_gauge_html(score, label, color, size="big"):
-    rad = 80 if size == "big" else 60
-    vb = "0 0 200 120" if size == "big" else "0 0 160 100"
-    fs = "38" if size == "big" else "28"
+    rad = 80 if size == "big" else 60; vb = "0 0 200 120" if size == "big" else "0 0 160 100"; fs = "38" if size == "big" else "28"
     fill = (score / 100) * (3.14159 * rad)
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
     svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
@@ -487,27 +485,44 @@ def render_navbar(token, mode):
     </div>
     """, unsafe_allow_html=True)
 
+# =========================================================
+# 3. MAIN EXECUTION
+# =========================================================
+
 init_db()
 
 components.html("""<script>setTimeout(function(){window.parent.location.reload();}, 120000);</script>""", height=0)
 
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
-    with col2: st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-    tab1, tab2 = st.tabs(["Login", "Register"])
+    with col2:
+        if os.path.exists("logo.png"):
+            st.image("logo.png", width=200)
+        else:
+            st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+            
+    tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
+    
     with tab1:
-        with st.form("login"):
-            u = st.text_input("Username"); p = st.text_input("PIN", type="password")
+        with st.form("login_form"):
+            u = st.text_input("Username")
+            p = st.text_input("PIN", type="password")
             if st.form_submit_button("Login"):
                 ur = login_user(u, p)
                 if ur: st.query_params["token"] = create_session(u); st.rerun()
                 else: st.error("Invalid")
     with tab2:
-        with st.form("reg"):
-            u = st.text_input("New User"); p = st.text_input("New PIN", type="password"); d = st.text_input("Display Name")
+        with st.form("reg_form"):
+            u = st.text_input("New Username")
+            p = st.text_input("New PIN", type="password")
+            d = st.text_input("Display Name")
             if st.form_submit_button("Register"):
                 if register_user(u, p, d, ""): st.success("Created! Login.")
                 else: st.error("Taken")
+    with tab3:
+        st.info("Contact support to reset PIN.")
+        st.text_input("Username", key="forgot_u")
+        st.button("Request Reset")
     st.stop()
 
 user = get_user_from_token(token)
@@ -540,6 +555,9 @@ if "ticker" in st.query_params:
             st.markdown("<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold;'>NEWS</div>", unsafe_allow_html=True)
             for n in news: st.markdown(f"<a href='{n['link']}' target='_blank' style='text-decoration:none;'><div style='font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;'>{n['title']}</div></a><div style='border-bottom:1px solid #2d3748; margin-bottom:15px;'></div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
+        st.write("")
+        if st.button(f"🔔 Set Alert for {t}"):
+            st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
     else: st.error("No Data")
     render_navbar(token, mode); st.stop()
 
@@ -585,6 +603,24 @@ elif tab == "portfolio":
     for r in port: 
         if r['ticker'] in dm: render_portfolio_row(r, dm[r['ticker']], token)
 
+elif tab == "alerts":
+    st.markdown("### Volatility Alerts")
+    with st.expander("New Alert", expanded=True):
+        port_rows = get_portfolio_details(user['username'], mode)
+        options = ["ALL STOCKS"] + [r['ticker'] for r in port_rows]
+        if port_rows:
+            t = st.selectbox("Ticker", options)
+            c = st.selectbox("Trigger", ["DOWN", "UP"])
+            v = st.number_input("Target Price (or % if ALL)", 0.0)
+            if st.button("Set Alert"): add_alert(user['username'], t, c, v); st.rerun()
+        else: st.info("Add stocks first.")
+    st.divider()
+    alerts = get_user_alerts(user['username'])
+    for a in alerts:
+        bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"; border = "#ef4444" if a['is_triggered'] else "#2d3748"
+        st.markdown(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;"><div><div style="font-weight:bold; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div></div></div>""", unsafe_allow_html=True)
+        if st.button("Clear", key=f"del_al_{a['id']}"): delete_alert(a['id']); st.rerun()
+
 elif tab == "scanner":
     st.markdown("### Scanner")
     port = get_portfolio_details(user['username'], mode)
@@ -596,6 +632,135 @@ elif tab == "scanner":
         st.markdown("**📅 Earnings Soon**")
         for t, d in dm.items():
             if int(d.get('days_to_earnings', 999)) < 14: render_simple_card(d, token)
+
+elif tab == "settings":
+    st.markdown("### Settings")
+    with st.form("settings_form"):
+        new_name = st.text_input("Display Name", value=user['display_name'])
+        new_email = st.text_input("Recovery Email", value=user.get('email', ''))
+        new_pin = st.text_input("New PIN", type="password")
+        if st.form_submit_button("Save Changes"):
+            if update_user_settings(user['username'], new_name, new_email, new_pin if new_pin else None): st.success("Saved!"); st.rerun()
+    if st.button("Log Out"): st.query_params.clear(); st.rerun()
+
+render_navbar(token, mode)
+# =========================================================
+# 3. MAIN EXECUTION
+# =========================================================
+
+init_db()
+
+components.html("""<script>setTimeout(function(){window.parent.location.reload();}, 120000);</script>""", height=0)
+
+if "token" not in st.query_params:
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        if os.path.exists("logo.png"):
+            st.image("logo.png", width=200)
+        else:
+            st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+            
+    tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
+    
+    with tab1:
+        with st.form("login_form"):
+            u = st.text_input("Username")
+            p = st.text_input("PIN", type="password")
+            if st.form_submit_button("Login"):
+                ur = login_user(u, p)
+                if ur: st.query_params["token"] = create_session(u); st.rerun()
+                else: st.error("Invalid")
+    with tab2:
+        with st.form("reg_form"):
+            u = st.text_input("New Username")
+            p = st.text_input("New PIN", type="password")
+            d = st.text_input("Display Name")
+            if st.form_submit_button("Register"):
+                if register_user(u, p, d, ""): st.success("Created! Login.")
+                else: st.error("Taken")
+    with tab3:
+        st.info("Contact support to reset PIN.")
+        st.text_input("Username", key="forgot_u")
+        st.button("Request Reset")
+    st.stop()
+
+user = get_user_from_token(token)
+if not user: st.error("Expired"); st.stop()
+
+mode = st.query_params.get("mode", "REAL")
+if mode not in ["REAL", "PAPER"]: mode = "REAL"
+
+c1, c2 = st.columns([2, 1])
+with c1: st.markdown(f"### Hello, {user['display_name']}")
+with c2: 
+    is_paper = st.checkbox("Paper Trading", value=(mode=="PAPER"))
+    if is_paper and mode=="REAL": st.query_params["mode"]="PAPER"; st.rerun()
+    if not is_paper and mode=="PAPER": st.query_params["mode"]="REAL"; st.rerun()
+
+if mode == "PAPER": st.markdown(f"<div style='background:#1e293b; padding:10px; border-radius:8px; color:#4ade80; font-weight:bold; text-align:center;'>💵 Balance: ${float(user['paper_balance']):,.2f}</div>", unsafe_allow_html=True)
+
+if "ticker" in st.query_params:
+    t = st.query_params["ticker"]; stock = get_single_stock(t)
+    if st.button("← Back"): del st.query_params["ticker"]; st.rerun()
+    if stock:
+        news = get_news_data(t); headlines = "\n".join([f"- {n['title']}" for n in news]) if news else ""
+        ai_sum, ai_score, ai_src = get_ai_analysis(t, headlines, stock)
+        s, l, c, _, _ = calculate_risk(stock, ai_score)
+        p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
+        st.markdown(f"<h1 style='margin:0; font-size:2.5rem;'>{t}</h1><h2 style='margin:0; color:{cc}; font-size:1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%)</span></h2>", unsafe_allow_html=True)
+        st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
+        if ai_sum: st.markdown(f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold;'>AI INSIGHT ({ai_score})</div><div style='font-size:0.9rem; color:white;'>{ai_sum}</div></div>", unsafe_allow_html=True)
+        if news:
+            st.markdown("<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold;'>NEWS</div>", unsafe_allow_html=True)
+            for n in news: st.markdown(f"<a href='{n['link']}' target='_blank' style='text-decoration:none;'><div style='font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;'>{n['title']}</div></a><div style='border-bottom:1px solid #2d3748; margin-bottom:15px;'></div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        st.write("")
+        if st.button(f"🔔 Set Alert for {t}"):
+            st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
+    else: st.error("No Data")
+    render_navbar(token, mode); st.stop()
+
+tab = st.query_params.get("tab", "home")
+
+if tab == "home":
+    conn = get_connection(); cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT content, last_updated FROM daily_briefing WHERE id=1")
+        row = cursor.fetchone()
+        if row:
+            bt = row[1].strftime("%b %d, %I:%M %p") if row[1] else ""
+            st.markdown(f"""<div class="card" style="border-left:4px solid #facc15; margin-bottom:20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; margin-bottom:10px;">AI MORNING BRIEFING • {bt}</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{row[0]}</div></div>""", unsafe_allow_html=True)
+    except: pass
+    conn.close()
+    
+    st.markdown("### Portfolio")
+    port = get_portfolio_details(user['username'], mode)
+    if not port: st.info("Empty")
+    else:
+        dm = get_cached_data_map([r['ticker'] for r in port]); valid = [dm[t] for t in [r['ticker'] for r in port] if t in dm]
+        if valid:
+            avg = sum([calculate_risk(x)[0] for x in valid])/len(valid)
+            st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
+            render_horizontal_grid(dm, token)
+    
+    st.markdown(f"### {get_watchlist_header_date()} Watchlist")
+    render_compact_watchlist(get_watchlist_candidates(), token)
+
+elif tab == "portfolio":
+    st.markdown(f"### My Stocks ({mode})")
+    tpl, tpct, dpl, dpct = get_portfolio_summary(user['username'], mode)
+    c1 = "#4ade80" if tpl>=0 else "#ef4444"; c2 = "#4ade80" if dpl>=0 else "#ef4444"
+    st.markdown(f"""<div style="display:flex; gap:10px; margin-bottom:20px;"><div class="metric-box" style="flex:1;"><div class="metric-label">Total P/L</div><div class="metric-value" style="color:{c1}">${tpl:,.2f}</div><div class="metric-sub" style="color:{c1}">({tpct:+.2f}%)</div></div><div class="metric-box" style="flex:1;"><div class="metric-label">Today</div><div class="metric-value" style="color:{c2}">${dpl:,.2f}</div><div class="metric-sub" style="color:{c2}">({dpct:+.2f}%)</div></div></div>""", unsafe_allow_html=True)
+    if mode == "REAL":
+        with st.expander("Manage"):
+            t = st.text_input("Ticker").upper(); s = st.number_input("Shares", step=1.0); p = st.number_input("Price", step=0.01)
+            if st.button("Add/Update"): add_ticker_to_db(user['username'], t, s, p, 'REAL'); st.rerun()
+            if st.button("Remove"): deactivate_stock(user['username'], t, 'REAL'); st.rerun()
+    st.divider()
+    port = get_portfolio_details(user['username'], mode)
+    dm = get_cached_data_map([r['ticker'] for r in port])
+    for r in port: 
+        if r['ticker'] in dm: render_portfolio_row(r, dm[r['ticker']], token)
 
 elif tab == "alerts":
     st.markdown("### Volatility Alerts")
@@ -614,6 +779,18 @@ elif tab == "alerts":
         bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"; border = "#ef4444" if a['is_triggered'] else "#2d3748"
         st.markdown(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;"><div><div style="font-weight:bold; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div></div></div>""", unsafe_allow_html=True)
         if st.button("Clear", key=f"del_al_{a['id']}"): delete_alert(a['id']); st.rerun()
+
+elif tab == "scanner":
+    st.markdown("### Scanner")
+    port = get_portfolio_details(user['username'], mode)
+    dm = get_cached_data_map([r['ticker'] for r in port])
+    if dm:
+        st.markdown("**📉 Oversold (RSI < 40)**")
+        for t, d in dm.items(): 
+            if d['rsi'] and float(d['rsi']) < 40: render_simple_card(d, token)
+        st.markdown("**📅 Earnings Soon**")
+        for t, d in dm.items():
+            if int(d.get('days_to_earnings', 999)) < 14: render_simple_card(d, token)
 
 elif tab == "settings":
     st.markdown("### Settings")
