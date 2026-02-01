@@ -52,7 +52,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
+        # --- SAFE MIGRATIONS ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -167,7 +167,7 @@ def get_news_data(ticker):
     return news_results
 
 def calculate_signal(df):
-    """Detects technical signals for watchlist"""
+    """Detects technical signals for watchlist (Relaxed Criteria)"""
     try:
         price = float(df['Close'].iloc[-1])
         vol = float(df['Volume'].iloc[-1])
@@ -179,15 +179,15 @@ def calculate_signal(df):
         rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
         rsi = 100 - (100 / (1 + rs)).iloc[-1]
 
-        # 1. Breakout
-        if price >= (high_3m * 0.98): return "🔥 Near Breakout"
-        # 2. Volume
-        if vol > (avg_vol * 2.0): return "📊 Unusual Volume"
+        # 1. Breakout (Within 5% of High)
+        if price >= (high_3m * 0.95): return "🔥 Near Breakout"
+        # 2. Volume (1.5x Avg)
+        if vol > (avg_vol * 1.5): return "📊 Unusual Volume"
         # 3. Momentum
         prev = float(df['Close'].iloc[-2])
-        if ((price-prev)/prev > 0.04) and rsi > 55: return "⚡ Momentum Gainer"
+        if ((price-prev)/prev > 0.03) and rsi > 50: return "⚡ Momentum Gainer"
         # 4. Oversold
-        if rsi < 35 and ((price-prev)/prev > 0.01): return "📉 Oversold Bounce"
+        if rsi < 40: return "📉 Oversold Watch"
     except: return None
     return None
 
@@ -274,8 +274,19 @@ def update_stock_data(tickers, username):
 
 def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL ORDER BY ABS(day_change) DESC LIMIT 3")
-    rows = cursor.fetchall(); conn.close()
+    
+    # 1. Try to get stocks with specific signals
+    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 3")
+    rows = cursor.fetchall()
+    
+    # 2. FALLBACK: If no signals, just get Top 3 Volatile Movers
+    if not rows:
+        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 3")
+        rows = cursor.fetchall()
+        for r in rows:
+            r['signal_tag'] = "High Volatility" # Force a tag
+            
+    conn.close()
     return rows
 
 def get_cached_data_map(tickers):
@@ -440,7 +451,7 @@ def render_watchlist_card(row, current_token):
     p = float(row['current_price'])
     ch = float(row['day_change'])
     cc = "#4ade80" if ch>=0 else "#ef4444"
-    signal = row.get('signal_tag')
+    signal = row.get('signal_tag') or "Active Mover"
     risk_score, _, risk_color, _, _ = calculate_risk(row)
     link = f"?token={current_token}&ticker={row['ticker']}"
     
