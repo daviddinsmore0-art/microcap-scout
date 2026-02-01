@@ -584,14 +584,13 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        # Get News & AI
+        # GET HEADLINES & AI
         news_items = get_news_data(ticker)
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
         ai_summary, ai_score = get_ai_analysis(ticker, headlines_txt)
         
-        # Calculate Risk with AI
+        # CALC RISK (Pass AI score)
         s, l, c, _, r = calculate_risk(stock, ai_score)
-        
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
@@ -612,7 +611,7 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # AI SUMMARY CARD
+        # AI INSIGHT CARD
         if ai_summary:
             st.markdown(f"""
             <div class='card' style='margin-top:15px; border:1px solid #4ade80;'>
@@ -621,7 +620,7 @@ if "ticker" in st.query_params:
             </div>
             """, unsafe_allow_html=True)
 
-        # NEWS LIST
+        # NEWS
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
@@ -638,8 +637,6 @@ if "ticker" in st.query_params:
                 <div style="border-bottom:1px solid #2d3748; margin-bottom:15px;"></div>
                 """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#64748b; font-style:italic;'>No recent news found for {ticker}</div></div>", unsafe_allow_html=True)
         
         st.write("")
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
