@@ -15,14 +15,16 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# STRICT CSS: Dark Theme + Dropdown Fixes + Clean UI
+# STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
-        /* 1. Reset & Layout */
+        /* REMOVE DEFAULT PADDING */
         .block-container { padding-top: 0rem !important; padding-bottom: 5rem !important; }
+        
+        /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
         
-        /* 2. Form Inputs (Text, Number, Password) */
+        /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
             background-color: #1e293b !important; 
             color: white !important; 
@@ -32,7 +34,7 @@ st.markdown("""
         }
         div[data-baseweb="input"] { background-color: transparent !important; border: none; }
         
-        /* 3. Dropdowns & Select Boxes (The Fix) */
+        /* Dropdowns & Select Boxes (FIXED) */
         div[data-baseweb="select"] > div { 
             background-color: #1e293b !important; 
             color: white !important; 
@@ -43,7 +45,7 @@ st.markdown("""
         li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
         div[data-baseweb="popover"] { background-color: #1e293b !important; }
         
-        /* 4. Cards */
+        /* Cards */
         .card { 
             background-color: #1a1f2b; 
             border-radius: 16px; 
@@ -53,7 +55,7 @@ st.markdown("""
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
         }
         
-        /* 5. Metrics Badge */
+        /* Metric Boxes */
         .metric-box {
             background-color: #1e293b;
             border: 1px solid #2d3748;
@@ -62,11 +64,10 @@ st.markdown("""
             text-align: center;
             margin-bottom: 10px;
         }
-        .metric-label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+        .metric-label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
         .metric-value { font-size: 1.4rem; font-weight: bold; color: white; }
-        .metric-sub { font-size: 0.85rem; }
         
-        /* 6. Buttons */
+        /* Buttons */
         div.stButton > button {
             background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
             color: white !important; 
@@ -76,6 +77,8 @@ st.markdown("""
             width: 100%;
             padding: 12px 20px;
         }
+        
+        /* Delete/Remove Buttons */
         button[kind="secondary"] {
             background: #334155 !important;
             border: 1px solid #ef4444 !important;
@@ -83,12 +86,12 @@ st.markdown("""
         }
 
         h1, h2, h3, p, label, span, div { color: #e0e6ed; }
-        
-        /* 7. Links */
+
+        /* HEADLINE COLOR FIX */
         a { color: #ffffff !important; text-decoration: none !important; }
         a:hover { color: #4ade80 !important; }
         
-        /* 8. Navigation */
+        /* Navigation */
         .nav-container { 
             position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; 
             background-color: #0f1219; border-top: 1px solid #2d3748; 
@@ -97,14 +100,34 @@ st.markdown("""
         a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
         a.nav-link:hover { transform: scale(1.1); }
         
-        /* 9. Scroller */
+        /* Scrolling Wrapper */
         .scrolling-wrapper { 
-            display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 10px; 
-            -ms-overflow-style: none; scrollbar-width: none; 
+            display: flex; 
+            flex-wrap: nowrap; 
+            overflow-x: auto; 
+            gap: 12px; 
+            padding-bottom: 10px; 
+            -ms-overflow-style: none; 
+            scrollbar-width: none; 
         }
         .scrolling-wrapper::-webkit-scrollbar { display: none; }
+        .scrolling-card { 
+            flex: 0 0 auto; 
+            width: 130px; 
+            background-color: #1a1f2b; 
+            border: 1px solid #2d3748; 
+            border-radius: 12px; 
+            padding: 15px; 
+        }
         
-        /* Hide Default Header */
+        /* Risk Pills */
+        .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+        .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
+        
+        /* Hide default header/footer */
         header {visibility: hidden;} footer {visibility: hidden;} 
     </style>
 """, unsafe_allow_html=True)
@@ -140,28 +163,14 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations (EXPANDED TO PREVENT SYNTAX ERRORS)
-        try: 
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except: pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except: pass
+        # Safe Migrations
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
 
         conn.close()
     except Exception as e:
@@ -205,7 +214,6 @@ def update_user_settings(username, display_name, email, new_pin=None):
 def get_news_data(ticker):
     news_results = []
     try:
-        # RSS Direct Fetch
         url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         resp = requests.get(url, headers=headers, timeout=5)
@@ -367,69 +375,80 @@ def get_single_stock(ticker):
     return row
 
 def get_portfolio_details(username, ptype):
-    # Only return ACTIVE stocks for the list
+    # Only ACTIVE stocks
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=TRUE", (username, ptype))
     rows = cursor.fetchall(); conn.close()
     return rows
 
 def get_portfolio_summary(username, ptype):
-    # Calculate Total Unrealized + Realized P/L
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     
-    # 1. Get Realized P/L from inactive stocks
+    # 1. Realized P/L (Closed Trades)
     cursor.execute("SELECT SUM(realized_pl) as realized FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=FALSE", (username, ptype))
     realized_row = cursor.fetchone()
     realized = float(realized_row['realized'] or 0)
     
-    # 2. Get Unrealized P/L from active stocks
-    cursor.execute("SELECT p.ticker, p.shares, p.entry_price, s.current_price, s.day_change FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.portfolio_type=%s AND p.is_active=TRUE", (username, ptype))
+    # 2. Active P/L Calculation
+    cursor.execute("SELECT p.shares, p.entry_price, s.current_price, s.day_change FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.portfolio_type=%s AND p.is_active=TRUE", (username, ptype))
     active_rows = cursor.fetchall()
     
     unrealized = 0.0
     day_pl = 0.0
+    active_cost_basis = 0.0
+    current_portfolio_value = 0.0
     
     for r in active_rows:
         if r['current_price']:
             curr = float(r['current_price'])
             entry = float(r['entry_price'])
             shares = float(r['shares'])
-            unrealized += (curr - entry) * shares
             
-            # Day P/L approximation
-            pct = float(r['day_change'])
-            prev_close = curr / (1 + (pct/100))
-            day_pl += (curr - prev_close) * shares
+            val = curr * shares
+            cost = entry * shares
+            
+            unrealized += (val - cost)
+            active_cost_basis += cost
+            current_portfolio_value += val
+            
+            # Today's P/L
+            pct = float(r['day_change'] or 0)
+            prev = curr / (1 + (pct/100))
+            day_pl += (curr - prev) * shares
             
     conn.close()
-    total_pl = realized + unrealized
-    return total_pl, day_pl
+    
+    total_pl_dollars = realized + unrealized
+    
+    # Percentages
+    total_pl_pct = 0.0
+    if active_cost_basis > 0:
+        total_pl_pct = (total_pl_dollars / active_cost_basis) * 100
+        
+    day_pl_pct = 0.0
+    prev_val = current_portfolio_value - day_pl
+    if prev_val > 0:
+        day_pl_pct = (day_pl / prev_val) * 100
+        
+    return total_pl_dollars, total_pl_pct, day_pl, day_pl_pct
 
 def deactivate_stock(username, ticker, ptype):
-    # "Soft Delete": Mark inactive and calculate final P/L
     conn = get_connection(); cursor = conn.cursor()
-    
-    # Get current details to freeze P/L
     cursor.execute("SELECT p.shares, p.entry_price, s.current_price FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.ticker=%s AND p.portfolio_type=%s", (username, ticker, ptype))
     row = cursor.fetchone()
-    
     if row:
         shares, entry, curr = row
         if curr:
             final_pl = (float(curr) - float(entry)) * float(shares)
             cursor.execute("UPDATE user_portfolio SET is_active=FALSE, realized_pl=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (final_pl, username, ticker, ptype))
         else:
-            # Fallback if no price available, just mark inactive
             cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
-            
     conn.commit(); conn.close()
 
 def add_ticker_to_db(username, ticker, shares, price, ptype):
     conn = get_connection(); cursor = conn.cursor()
-    # Check if exists (reactivate if so)
     cursor.execute("SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
     existing = cursor.fetchone()
-    
     if existing:
         cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s, is_active=TRUE WHERE id=%s", (shares, price, existing[0]))
     else:
@@ -439,27 +458,22 @@ def add_ticker_to_db(username, ticker, shares, price, ptype):
 def update_ticker_in_db(username, ticker, shares, price, ptype):
     conn = get_connection(); cursor = conn.cursor()
     cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
+    conn.commit(); conn.close(); return True
+
+def remove_ticker_from_db(username, ticker, ptype):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
     conn.commit(); conn.close()
 
 def add_alert(username, ticker, condition, price):
     conn = get_connection(); cursor = conn.cursor()
     if ticker == "ALL STOCKS":
-        # Add alert for ALL active stocks
         cursor.execute("SELECT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE", (username,))
         rows = cursor.fetchall()
         for r in rows:
             t = r[0]
-            # Get current price to calculate target
-            cursor.execute("SELECT current_price FROM stock_cache WHERE ticker=%s", (t,))
-            p_row = cursor.fetchone()
-            if p_row and p_row[0]:
-                curr = float(p_row[0])
-                # Calculate target based on % movement logic if input is small (e.g. 5 means 5%)
-                # Assuming user input is % move if < 50, else explicit price. 
-                # Simplification: If Price < 100, treat as Target Price.
-                target = price 
-                try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, t, condition, target))
-                except: pass
+            try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, t, condition, price))
+            except: pass
     else:
         try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
         except: pass
@@ -752,8 +766,8 @@ if tab == "home":
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
     
-    # 1. Total Metrics Header
-    total_pl, day_pl = get_portfolio_summary(user['username'], current_mode)
+    # METRICS HEADER (WITH PERCENTAGES)
+    total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
     c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
     c_day = "#4ade80" if day_pl >= 0 else "#ef4444"
     
@@ -761,11 +775,11 @@ elif tab == "portfolio":
         <div style="display:flex; gap:10px; margin-bottom:20px;">
             <div class="metric-box" style="flex:1;">
                 <div class="metric-label">Total P/L</div>
-                <div class="metric-value" style="color:{c_pl}">${total_pl:,.2f}</div>
+                <div class="metric-value" style="color:{c_pl}">${total_pl:,.2f} <span style="font-size:0.9rem;">({total_pct:+.2f}%)</span></div>
             </div>
             <div class="metric-box" style="flex:1;">
                 <div class="metric-label">Today's P/L</div>
-                <div class="metric-value" style="color:{c_day}">${day_pl:,.2f}</div>
+                <div class="metric-value" style="color:{c_day}">${day_pl:,.2f} <span style="font-size:0.9rem;">({day_pct:+.2f}%)</span></div>
             </div>
         </div>
     """, unsafe_allow_html=True)
