@@ -7,16 +7,10 @@ import os
 import pandas as pd
 import pytz
 import xml.etree.ElementTree as ET
-import json
 from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-
-# --- AI CONFIGURATION ---
-OPENAI_KEY = None
-if "openai" in st.secrets:
-    OPENAI_KEY = st.secrets["openai"]["api_key"]
 
 # Define token early
 token = st.query_params.get("token", None)
@@ -44,7 +38,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
+        # --- SAFE MIGRATIONS (Expanded blocks to prevent SyntaxError) ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -84,60 +78,11 @@ def init_db():
     except Exception as e:
         st.error(f"DB Error: {e}")
 
-# 2. DATA ENGINE (AI + News)
-
-def get_ai_analysis(ticker, headlines):
-    """
-    Uses OpenAI to summarize headlines and rate sentiment (0-100).
-    """
-    if not OPENAI_KEY or not headlines:
-        return None, None # No AI available
-
-    try:
-        prompt = f"""
-        Analyze these headlines for {ticker}:
-        {headlines}
-        
-        Task:
-        1. Write a 1-sentence summary of the vibe.
-        2. Give a sentiment score from 0 (Disaster) to 100 (Amazing).
-        
-        Return JSON: {{"summary": "...", "score": 50}}
-        """
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENAI_KEY}"
-        }
-        
-        data = {
-            "model": "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.5,
-            "max_tokens": 100
-        }
-        
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=6)
-        
-        if response.status_code == 200:
-            res_json = response.json()
-            content = res_json['choices'][0]['message']['content']
-            # Clean possible markdown wrapping
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].strip()
-                
-            parsed = json.loads(content)
-            return parsed.get('summary'), parsed.get('score')
-    except:
-        pass
-    
-    return None, None
-
+# 2. DATA ENGINE
 def get_news_data(ticker):
     """
-    Robust news fetcher: yfinance -> RSS Fallback
+    Robust news fetcher attempting yfinance first, then RSS fallback.
+    Great for penny stocks!
     """
     news_results = []
     
@@ -149,10 +94,12 @@ def get_news_data(ticker):
             for article in raw_news[:2]:
                 title = article.get('title', article.get('headline', ''))
                 if not title: continue
+                
                 link = article.get('link', '#')
                 publisher = article.get('publisher', 'Yahoo Finance')
-                ts = article.get('providerPublishTime', 0)
                 
+                # Time handling
+                ts = article.get('providerPublishTime', 0)
                 time_str = "Today"
                 if ts:
                     dt = datetime.fromtimestamp(ts)
@@ -162,13 +109,14 @@ def get_news_data(ticker):
                     else: time_str = f"{diff.seconds//60}m ago"
                 
                 news_results.append({'title': title, 'link': link, 'pub': publisher, 'time': time_str})
-    except: pass
+    except:
+        pass
 
-    # Method 2: RSS Fallback
+    # Method 2: RSS Fallback (If Method 1 found nothing)
     if not news_results:
         try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"[https://feeds.finance.yahoo.com/rss/2.0/headline?s=](https://feeds.finance.yahoo.com/rss/2.0/headline?s=){ticker}&region=US&lang=en-US"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
             resp = requests.get(url, headers=headers, timeout=4)
             if resp.status_code == 200:
                 root = ET.fromstring(resp.content)
@@ -181,20 +129,24 @@ def get_news_data(ticker):
                         title = title_node.text
                         link = link_node.text if link_node is not None else "#"
                         
+                        # Clean title
                         if " - " in title: title = title.rsplit(" - ", 1)[0]
                         
-                        time_str = "Recent"
+                        # Time parsing
+                        time_str = "Today"
                         if pub_node is not None and pub_node.text:
                             try:
+                                # RSS Format: Tue, 03 Jun 2003 09:39:21 GMT
                                 dt = datetime.strptime(pub_node.text, "%a, %d %b %Y %H:%M:%S %Z")
                                 diff = datetime.now() - dt
                                 if diff.days > 0: time_str = f"{diff.days}d ago"
                                 elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
                                 else: time_str = f"{diff.seconds//60}m ago"
                             except: pass
-
-                        news_results.append({'title': title, 'link': link, 'pub': 'Yahoo RSS', 'time': time_str})
-        except: pass
+                            
+                        news_results.append({'title': title, 'link': link, 'pub': 'Yahoo Finance', 'time': time_str})
+        except:
+            pass
             
     return news_results
 
@@ -238,7 +190,9 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
-    conn.commit(); conn.close()
+    
+    conn.commit()
+    conn.close()
     
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -349,23 +303,19 @@ def get_user_alerts(username):
         rows = cursor.fetchall(); conn.close(); return rows
     except: return []
 
-def calculate_risk(row, ai_score=None):
+def calculate_risk(row):
     s = 50; reasons = []
-    # Technical
     if row.get('trend_status') == 'DOWNTREND': s += 10
     else: s -= 10
     rsi = float(row.get('rsi', 50))
     if rsi > 70: s += 10; reasons.append("Overbought")
     elif rsi < 30: s -= 10; reasons.append("Oversold")
     if float(row.get('volatility', 0)) > 3.0: s += 10; reasons.append("High Volatility")
-    
-    # AI Adjustment (0-100 score)
-    if ai_score is not None:
-        # Score > 50 reduces risk, Score < 50 increases risk
-        adjustment = (50 - ai_score) * 0.5 
-        s += adjustment
-        if ai_score >= 70: reasons.append("Good News")
-        elif ai_score <= 30: reasons.append("Bad News")
+    if float(row.get('debt_ratio', 0)) > 150: s += 5; reasons.append("High Debt")
+    if int(row.get('days_to_earnings', 999)) < 10: s += 15; reasons.append("Earnings Soon")
+    if row.get('volume_status') == 'SPIKE': s += 5; reasons.append("Vol Spike")
+    if 0 < float(row.get('market_cap', 0)) < 250000000: s += 15; reasons.append("Micro Cap")
+    if float(row.get('eps', 0)) < 0: s += 10; reasons.append("Unprofitable")
     
     final = max(0, min(100, int(s)))
     if final > 65: return final, "HIGH", "#ef4444", "badge-high", reasons
@@ -532,14 +482,7 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        # Get News & AI
-        news_items = get_news_data(ticker)
-        headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
-        ai_summary, ai_score = get_ai_analysis(ticker, headlines_txt)
-        
-        # Calculate Risk with AI
-        s, l, c, _, r = calculate_risk(stock, ai_score)
-        
+        s, l, c, _, r = calculate_risk(stock)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
@@ -560,16 +503,9 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # AI SUMMARY CARD (Only shows if it works!)
-        if ai_summary:
-            st.markdown(f"""
-            <div class='card' style='margin-top:15px; border:1px solid #4ade80;'>
-                <div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>AI MARKET INSIGHT (Score: {ai_score})</div>
-                <div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # NEWS LIST (Always shows)
+        # LIVE NEWS SECTION WITH RSS FALLBACK
+        news_items = get_news_data(ticker)
+        
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
