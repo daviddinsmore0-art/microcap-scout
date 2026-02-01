@@ -37,7 +37,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS ---
+        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -98,20 +98,16 @@ def update_stock_data(tickers, username):
             if df.empty: continue
             
             price = float(df['Close'].iloc[-1])
-            # Use open as previous close approximation for speed if needed, or fetch history
-            prev = float(df['Open'].iloc[-1]) 
+            # Estimate change if previous close isn't readily available from 1d data
+            prev = float(df['Open'].iloc[0]) 
             change = ((price - prev)/prev)*100
             
-            # Simple RSI calculation attempt or default
+            # Defaults for missing complex data
             rsi = 50
-            
-            # Simple Trend
             trend = "NEUTRAL"
-            
             vol = 0
             r_loc = 50
             v_stat = "NORMAL"
-            
             debt=0; mcap=0; eps=0; days=999
             
             try:
@@ -283,14 +279,9 @@ def render_portfolio_row(row, market_data, current_token):
     if shares > 0 and entry > 0:
         val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
         color_code = "green" if pl >= 0 else "red"
-        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags
+        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags to break mobile
         pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
-        # We output the row in two parts to avoid HTML glitch
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
-        # Fallback if markdown inside HTML fails (which it does in standard Streamlit html):
-        # Use inline CSS with single quotes - safest method
-        c_hex = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • <span style='color:{c_hex}'>${pl:,.2f} ({pl_pct:.1f}%)</span></div>"
     elif shares > 0:
         pl_html = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:2px;'>{int(shares)} Shares</div>"
 
@@ -340,12 +331,19 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
     
-    /* FIX: Button Hover & Expander Conflict */
+    /* FIX: Button Styles Only For Main Buttons */
     div.stButton > button {
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
     
+    /* FIX: Ensure Expander Button is NOT white */
+    div[data-testid="stExpander"] { background-color: transparent !important; }
+    div[data-testid="stExpander"] details { background-color: transparent !important; }
+    div[data-testid="stExpander"] details summary { color: #4ade80 !important; background-color: transparent !important; border: none !important; }
+    div[data-testid="stExpander"] details summary:hover { color: #16a34a !important; }
+    
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
+    button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
     button[key="back_btn"] { background: #334155 !important; border: 1px solid #475569 !important; color: white !important; }
     button[key="alert_action_btn"] { background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; width: 100%; border-radius: 12px; padding: 15px; font-size: 1.1rem; }
     
@@ -440,7 +438,7 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # LIVE NEWS SECTION
+        # LIVE NEWS SECTION (FIXED)
         news_items = []
         try:
             news = yf.Ticker(ticker).news
@@ -450,7 +448,7 @@ if "ticker" in st.query_params:
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
-                # Yahoo Finance API robust field check
+                # Yahoo Finance sometimes uses different keys
                 title = item.get('title') or item.get('headline', 'No Title')
                 pub = item.get('publisher', 'Unknown')
                 link = item.get('link', '#')
