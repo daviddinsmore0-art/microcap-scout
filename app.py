@@ -141,7 +141,8 @@ def create_session(u):
 def get_user_from_token(t):
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.paper_balance FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
-    row = cursor.fetchone(); conn.close(); return row
+    row = cursor.fetchone(); conn.close()
+    return row
 
 def update_user_settings(username, display_name, email, new_pin=None):
     try:
