@@ -6,7 +6,6 @@ import uuid
 import os
 import pandas as pd
 import pytz
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 # 1. CONFIG & GLOBALS
@@ -38,45 +37,53 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS ---
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
+        except:
+            pass
         
         conn.close()
     except Exception as e:
         st.error(f"DB Error: {e}")
 
 # 2. DATA ENGINE
-def get_rss_news(ticker):
-    """Fallback method to get news from Yahoo RSS if yfinance fails"""
-    try:
-        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-        response = requests.get(url, timeout=3)
-        if response.status_code == 200:
-            root = ET.fromstring(response.content)
-            items = []
-            for item in root.findall('.//item')[:2]:
-                title = item.find('title').text
-                link = item.find('link').text
-                pub_date = item.find('pubDate').text
-                # Simple clean up of pub_date to just show first few parts if it's long
-                if len(pub_date) > 16: pub_date = pub_date[:16]
-                items.append({'title': title, 'link': link, 'publisher': 'Yahoo Finance', 'time': pub_date})
-            return items
-    except:
-        return []
-    return []
-
 def update_stock_data(tickers, username):
     if not tickers: return
     try: 
         data = yf.download(" ".join(tickers), period="1d", group_by='ticker', threads=True, progress=False)
-    except: return
+    except: 
+        return
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -91,10 +98,16 @@ def update_stock_data(tickers, username):
             if df.empty: continue
             
             price = float(df['Close'].iloc[-1])
+            # Estimate change if previous close isn't readily available from 1d data
             prev = float(df['Open'].iloc[0]) 
             change = ((price - prev)/prev)*100
             
-            rsi = 50; trend = "NEUTRAL"; vol = 0; r_loc = 50; v_stat = "NORMAL"
+            # Defaults for missing complex data
+            rsi = 50
+            trend = "NEUTRAL"
+            vol = 0
+            r_loc = 50
+            v_stat = "NORMAL"
             debt=0; mcap=0; eps=0; days=999
             
             try:
@@ -112,9 +125,12 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
-    conn.commit(); conn.close()
     
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn.commit()
+    conn.close()
+    
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_alerts WHERE username=%s AND is_triggered=FALSE", (username,))
     alerts = cursor.fetchall()
     for a in alerts:
@@ -125,8 +141,10 @@ def update_stock_data(tickers, username):
             target = float(a['target_price'])
             cond = a['condition_type']
             hit = (cond=='UP' and pct>=target) or (cond=='DOWN' and pct<=(target*-1))
-            if hit: cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
-    conn.commit(); conn.close()
+            if hit:
+                cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
+    conn.commit()
+    conn.close()
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -261,7 +279,7 @@ def render_portfolio_row(row, market_data, current_token):
     if shares > 0 and entry > 0:
         val = shares * p; cost = shares * entry; pl = val - cost; pl_pct = (pl / cost) * 100 if cost > 0 else 0
         color_code = "green" if pl >= 0 else "red"
-        # Streamlit Markdown color syntax :color[text]
+        # FIX: Using Streamlit Markdown syntax for color, NO HTML tags to break mobile
         pl_str = f":{color_code}[${pl:,.2f} ({pl_pct:.1f}%)]"
         pl_html = f'<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">{int(shares)} @ ${entry:.2f} • {pl_str}</div>'
     elif shares > 0:
@@ -313,13 +331,16 @@ st.markdown("""<style>
     div[role="option"] { color: white !important; }
     div[data-testid="stWidgetLabel"] p, label { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
     
-    /* RESET BUTTON STYLES (Fixes White Button Issue) */
-    button { background-color: transparent; }
-    
-    /* ONLY STYLE MAIN ACTION BUTTONS */
+    /* FIX: Button Styles Only For Main Buttons */
     div.stButton > button {
         background: linear-gradient(135deg, #4ade80, #16a34a) !important; color: white !important; border: none; border-radius: 8px; font-weight: bold; padding: 12px 20px;
     }
+    
+    /* FIX: Ensure Expander Button is NOT white */
+    div[data-testid="stExpander"] { background-color: transparent !important; }
+    div[data-testid="stExpander"] details { background-color: transparent !important; }
+    div[data-testid="stExpander"] details summary { color: #4ade80 !important; background-color: transparent !important; border: none !important; }
+    div[data-testid="stExpander"] details summary:hover { color: #16a34a !important; }
     
     button[key*="del_"] { background: #1e293b !important; border: 1px solid #334155 !important; color: #94a3b8 !important; padding: 0px 8px !important; margin-top: 5px; font-size: 14px; }
     button[key*="del_"]:hover { color: #ef4444 !important; border-color: #ef4444 !important; }
@@ -417,39 +438,28 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # LIVE NEWS SECTION WITH RSS FALLBACK
+        # LIVE NEWS SECTION (FIXED)
         news_items = []
         try:
-            # 1. Try yfinance
             news = yf.Ticker(ticker).news
-            if news: 
-                news_items = news[:2]
-            else:
-                # 2. Try RSS Fallback
-                news_items = get_rss_news(ticker)
-        except: 
-            # 3. Last resort RSS
-            news_items = get_rss_news(ticker)
+            if news: news_items = news[:3]
+        except: pass
         
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
-                # Handle both yf dictionary and RSS dictionary formats
+                # Yahoo Finance sometimes uses different keys
                 title = item.get('title') or item.get('headline', 'No Title')
-                pub = item.get('publisher', 'Yahoo Finance')
+                pub = item.get('publisher', 'Unknown')
                 link = item.get('link', '#')
+                ts = item.get('providerPublishTime', 0)
                 
-                # Handle time
                 time_str = "Recently"
-                if 'providerPublishTime' in item:
-                    ts = item.get('providerPublishTime', 0)
-                    if ts:
-                        diff = datetime.now() - datetime.fromtimestamp(ts)
-                        if diff.days > 0: time_str = f"{diff.days}d ago"
-                        elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
-                        else: time_str = f"{diff.seconds//60}m ago"
-                elif 'time' in item:
-                    time_str = item['time'] # Use pre-formatted string from RSS
+                if ts:
+                    diff = datetime.now() - datetime.fromtimestamp(ts)
+                    if diff.days > 0: time_str = f"{diff.days}d ago"
+                    elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
+                    else: time_str = f"{diff.seconds//60}m ago"
                 
                 st.markdown(f"""
                 <a href="{link}" target="_blank" style="text-decoration:none;">
