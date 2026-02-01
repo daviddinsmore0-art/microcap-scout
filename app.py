@@ -14,12 +14,16 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# Force Dark Theme & clean UI elements
+# STRICT CSS: 0 Padding + Dark Theme + Clean UI
 st.markdown("""
     <style>
+        /* REMOVE DEFAULT PADDING */
+        .block-container { padding-top: 0rem !important; padding-bottom: 5rem !important; }
+        
+        /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
         
-        /* Form Inputs */
+        /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
             background-color: #1e293b !important; 
             color: white !important; 
@@ -42,6 +46,26 @@ st.markdown("""
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
         }
         
+        /* Horizontal Scroller */
+        .scrolling-wrapper { 
+            display: flex; 
+            flex-wrap: nowrap; 
+            overflow-x: auto; 
+            gap: 12px; 
+            padding-bottom: 10px; 
+            -ms-overflow-style: none; 
+            scrollbar-width: none; 
+        }
+        .scrolling-wrapper::-webkit-scrollbar { display: none; }
+        .scrolling-card { 
+            flex: 0 0 auto; 
+            width: 130px; 
+            background-color: #1a1f2b; 
+            border: 1px solid #2d3748; 
+            border-radius: 12px; 
+            padding: 15px; 
+        }
+        
         /* Buttons */
         div.stButton > button {
             background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
@@ -53,7 +77,6 @@ st.markdown("""
             padding: 12px 20px;
         }
         
-        /* Delete/Remove Buttons */
         button[kind="secondary"] {
             background: #334155 !important;
             border: 1px solid #ef4444 !important;
@@ -69,10 +92,13 @@ st.markdown("""
             display: flex; justify-content: space-around; align-items: center; z-index: 99999; 
         }
         a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
-        a.nav-link:hover { transform: scale(1.1); }
         
-        /* Hide default header/footer */
-        header {visibility: hidden;} footer {visibility: hidden;} 
+        /* Risk Pills */
+        .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+        .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -107,31 +133,12 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations (EXPANDED TO PREVENT SYNTAX ERRORS)
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except:
-            pass
+        # Safe Migrations
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
 
         conn.close()
     except Exception as e:
@@ -159,7 +166,7 @@ def create_session(u):
 
 def get_user_from_token(t):
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT s.username, p.display_name, p.paper_balance FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
+    cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
     row = cursor.fetchone(); conn.close()
     return row
 
@@ -225,9 +232,10 @@ def calculate_risk(row, ai_score=None):
         s += adj
     final = max(0, min(100, int(s)))
     color = "#4ade80" 
-    if final > 65: color = "#ef4444"
-    elif final > 35: color = "#fbbf24"
-    return final, color
+    label = "LOW"
+    if final > 65: color = "#ef4444"; label="HIGH"
+    elif final > 35: color = "#fbbf24"; label="MEDIUM"
+    return final, label, color, "badge-mix", reasons
 
 def calculate_signal(df):
     try:
@@ -416,7 +424,7 @@ def create_gauge_html(score, label, color, size="big"):
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
 
 def render_portfolio_row(row, data, token):
-    risk, color = calculate_risk(data)
+    risk, label, color, _, _ = calculate_risk(data)
     price = float(data['current_price'])
     change = float(data['day_change'])
     change_color = "#4ade80" if change >= 0 else "#ef4444"
@@ -459,10 +467,10 @@ def render_portfolio_row(row, data, token):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
-    h = '<div style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px;">'
+    h = '<div class="scrolling-wrapper">'
     for row in rows_list:
         signal = row.get('signal_tag') or "Active"
-        risk, color = calculate_risk(row)
+        risk, _, color, _, _ = calculate_risk(row)
         link = f"?token={current_token}&ticker={row['ticker']}"
         h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
     h += '</div>'
@@ -471,8 +479,8 @@ def render_compact_watchlist(rows_list, current_token):
 def render_simple_card(row, current_token):
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
     link = f"?token={current_token}&ticker={row['ticker']}"
-    risk, _ = calculate_risk(row)
-    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
+    risk, _, _, _, _ = calculate_risk(row)
+    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
@@ -482,7 +490,7 @@ def render_horizontal_grid(rows_dict, current_token):
         status = row.get('trend_status', 'Move')
         if row.get('volume_status') == 'SPIKE': status = "VOL SPIKE"
         link = f"?token={current_token}&ticker={ticker}"
-        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card clickable-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
+        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
 def get_greeting(name):
@@ -506,7 +514,7 @@ if "token" not in st.query_params:
         else:
             st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
             
-    tab1, tab2 = st.tabs(["Login", "Register"])
+    tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     
     with tab1:
         with st.form("login_form"):
@@ -531,6 +539,10 @@ if "token" not in st.query_params:
                     st.success("Account created! Please login.")
                 else:
                     st.error("Username taken.")
+    with tab3:
+        st.info("Contact support to reset PIN.")
+        st.text_input("Username", key="forgot_u")
+        st.button("Request Reset")
     st.stop()
 
 # --- APP LOGIC (LOGGED IN) ---
@@ -650,6 +662,7 @@ if tab == "home":
             
             st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
             st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{earnings_text}</div></div></div>""", unsafe_allow_html=True)
+            render_horizontal_grid(data_map, token)
             
         for row in portfolio:
             if row['ticker'] in data_map:
@@ -731,7 +744,7 @@ elif tab == "scanner":
     if market_data:
         st.markdown("**📉 Oversold (RSI < 40)**")
         for t, data in market_data.items(): 
-            if float(data['rsi']) < 40: render_simple_card(data, token)
+            if data['rsi'] is not None and float(data['rsi']) < 40: render_simple_card(data, token)
         st.markdown("**📅 Earnings Soon**")
         for t, data in market_data.items():
             if int(data.get('days_to_earnings', 999)) < 14: render_simple_card(data, token)
