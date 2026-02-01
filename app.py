@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# --- MARKET UNIVERSE ---
+# --- MARKET UNIVERSE (Stocks Only - No Gold/Silver) ---
 MARKET_UNIVERSE = [
     "TSLA", "NVDA", "AMD", "AAPL", "PLTR", "SOFI", "MARA", "GME", "AMC", "COIN",
     "MSFT", "GOOG", "AMZN", "META", "NFLX", "RIVN", "LCID", "NIO", "DKNG", "HOOD",
@@ -51,61 +51,102 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded) ---
+        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except: pass
+        except:
+            pass
+
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except: pass
+        except:
+            pass
+
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except: pass
+        except:
+            pass
+
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except: pass
+        except:
+            pass
+
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except: pass
+        except:
+            pass
+
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except: pass
+        except:
+            pass
+
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: pass
+        except:
+            pass
+
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except: pass
+        except:
+            pass
+
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except: pass
+        except:
+            pass
+            
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except: pass
+        except:
+            pass
+            
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except: pass
+        except:
+            pass
         
         conn.close()
     except Exception as e:
         st.error(f"DB Error: {e}")
 
 # 2. DATA ENGINE
-def get_ai_analysis(ticker, headlines):
-    if not OPENAI_KEY or not headlines:
-        return None, None 
-    try:
-        prompt = f"Analyze headlines for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
-        data = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": prompt}], "temperature": 0.5}
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=5)
-        if response.status_code == 200:
-            content = response.json()['choices'][0]['message']['content']
-            if "```" in content: content = content.split("```")[1].replace("json", "").strip()
-            parsed = json.loads(content)
-            return parsed.get('summary'), parsed.get('score')
-    except: pass
-    return None, None
+def get_ai_analysis(ticker, headlines, current_data=None):
+    """
+    Tries OpenAI first. If it fails (key missing/timeout), falls back to 
+    'Technical Insight' so the card ALWAYS appears.
+    """
+    # 1. Attempt OpenAI
+    if OPENAI_KEY and headlines:
+        try:
+            prompt = f"Analyze headlines for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
+            data = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": prompt}], "temperature": 0.5}
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=3) # Short timeout
+            if response.status_code == 200:
+                content = response.json()['choices'][0]['message']['content']
+                if "```" in content: content = content.split("```")[1].replace("json", "").strip()
+                parsed = json.loads(content)
+                return parsed.get('summary'), parsed.get('score'), "AI"
+        except:
+            pass
+
+    # 2. Fallback: Technical Analysis (If AI fails)
+    if current_data:
+        rsi = float(current_data.get('rsi', 50))
+        trend = current_data.get('trend_status', 'NEUTRAL')
+        
+        if rsi > 70:
+            return "Technical: Stock is Overbought (RSI > 70). Risk of pullback high.", 30, "TECH"
+        elif rsi < 30:
+            return "Technical: Stock is Oversold (RSI < 30). Potential bounce area.", 80, "TECH"
+        elif trend == "UPTREND":
+            return "Technical: Strong Uptrend detected. Bullish momentum active.", 75, "TECH"
+        else:
+            return "Technical: Market sentiment is neutral. Monitor volume for breakout.", 50, "TECH"
+            
+    return None, 50, "NONE"
 
 def get_news_data(ticker):
     news_results = []
@@ -236,12 +277,16 @@ def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC")
     rows = cursor.fetchall()
-    filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker'] and "SI" not in r['ticker']]
+    
+    # Filter out Commodities/Futures/Forex (Simple check)
+    filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker'] and "SI" not in r['ticker'] and "BTC" not in r['ticker']]
+    
     if not filtered:
         cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
         rows = cursor.fetchall()
         filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker']][:3]
         for r in filtered: r['signal_tag'] = "High Volatility"
+        
     conn.close()
     return filtered[:3]
 
@@ -385,6 +430,7 @@ def calculate_risk(row, ai_score=None):
     elif rsi < 30: s -= 10
     if float(row.get('volatility', 0)) > 3.0: s += 10
     
+    # AI Factor Adjustment
     if ai_score is not None:
         adj = (50 - ai_score) * 0.5
         s += adj
@@ -595,7 +641,9 @@ if "ticker" in st.query_params:
         # GET HEADLINES & AI
         news_items = get_news_data(ticker)
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
-        ai_summary, ai_score = get_ai_analysis(ticker, headlines_txt)
+        
+        # 1. Try AI, 2. If Fail, Use Technical Fallback
+        ai_summary, ai_score, ai_source = get_ai_analysis(ticker, headlines_txt, stock)
         
         # CALC RISK
         s, l, c, _, r = calculate_risk(stock, ai_score)
@@ -635,9 +683,12 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # AI INSIGHT CARD (FLATTENED TO ENSURE VISIBILITY)
+        # INSIGHT CARD (FLATTENED HTML)
+        # Determine Title based on source
+        title_txt = "AI MARKET INSIGHT" if ai_source == "AI" else "TECHNICAL INSIGHT"
+        
         if ai_summary:
-            ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>AI MARKET INSIGHT (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
+            ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{title_txt} (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
             st.markdown(ai_html, unsafe_allow_html=True)
 
         # NEWS
