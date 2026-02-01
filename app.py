@@ -8,6 +8,7 @@ import pandas as pd
 import pytz
 import json
 import xml.etree.ElementTree as ET
+import streamlit.components.v1 as components
 from datetime import datetime, timedelta
 
 # =========================================================
@@ -345,16 +346,14 @@ def get_watchlist_candidates():
     if not rows:
         cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
         rows = cursor.fetchall()
-    
+        
     # 3. FILTER OUT COMMODITIES (Gold/Silver/Crypto)
     filtered = []
     for r in rows:
         t = r['ticker']
-        # Filter logic: exclude future contracts and generic commodities
         if "GC=" not in t and "SI=" not in t and "BTC" not in t:
             filtered.append(r)
             
-    # Return top 3
     conn.close()
     return filtered[:3]
 
@@ -633,6 +632,18 @@ def get_watchlist_header_date():
 
 init_db()
 
+# --- AUTO-REFRESH INJECTION (2 Minutes) ---
+components.html(
+    """
+    <script>
+        setTimeout(function(){
+            window.parent.location.reload();
+        }, 120000);
+    </script>
+    """,
+    height=0
+)
+
 # --- LOGIN SCREEN ---
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
@@ -704,13 +715,9 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
-        # 1. Fetch News (RSS Direct + YF Fallback)
         news_items = get_news_data(ticker)
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
-        
-        # 2. Get AI Analysis (or Technical Fallback)
         ai_summary, ai_score, ai_source = get_ai_analysis(ticker, headlines_txt, stock)
-        
         s, l, c, _, r = calculate_risk(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
