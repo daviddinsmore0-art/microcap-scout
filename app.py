@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# --- MARKET UNIVERSE ---
+# --- MARKET UNIVERSE (Stocks Only) ---
 MARKET_UNIVERSE = [
     "TSLA", "NVDA", "AMD", "AAPL", "PLTR", "SOFI", "MARA", "GME", "AMC", "COIN",
     "MSFT", "GOOG", "AMZN", "META", "NFLX", "RIVN", "LCID", "NIO", "DKNG", "HOOD",
@@ -45,49 +45,24 @@ def init_db():
         cursor = conn.cursor()
         
         # Base Tables
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), paper_balance DECIMAL(20,2) DEFAULT 10000.00, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, PRIMARY KEY (id))")
+        cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, portfolio_type VARCHAR(20) DEFAULT 'REAL', PRIMARY KEY (id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded) ---
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except:
-            pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except:
-            pass
+        # --- SAFE MIGRATIONS ---
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
         
         conn.close()
     except Exception as e:
@@ -237,14 +212,20 @@ def update_stock_data(tickers, username):
 
 def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 3")
+    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC")
     rows = cursor.fetchall()
-    if not rows:
-        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 3")
+    
+    # Filter out Commodities/Futures (No '=' or '=F')
+    filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker'] and "SI" not in r['ticker']]
+    
+    if not filtered:
+        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
         rows = cursor.fetchall()
-        for r in rows: r['signal_tag'] = "High Volatility"
+        filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker']][:3]
+        for r in filtered: r['signal_tag'] = "High Volatility"
+        
     conn.close()
-    return rows
+    return filtered[:3] # Return top 3
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -260,25 +241,72 @@ def get_single_stock(ticker):
     row = cursor.fetchone(); conn.close()
     return row
 
-def get_portfolio_details(username):
+def get_portfolio_details(username, ptype='REAL'):
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT ticker, shares, entry_price FROM user_portfolio WHERE username=%s", (username,))
+    cursor.execute("SELECT ticker, shares, entry_price FROM user_portfolio WHERE username=%s AND portfolio_type=%s", (username, ptype))
     rows = cursor.fetchall(); conn.close()
     return rows
 
-def add_ticker_to_db(username, ticker, shares, price):
+def get_paper_balance(username):
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
+    row = cursor.fetchone(); conn.close()
+    return float(row['paper_balance']) if row else 0.0
+
+def execute_paper_trade(username, ticker, action, quantity, price):
     conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("INSERT IGNORE INTO user_portfolio (username, ticker, shares, entry_price) VALUES (%s,%s,%s,%s)", (username, ticker, shares, price))
+    cost = quantity * price
+    
+    # Get Balance
+    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
+    bal = float(cursor.fetchone()[0])
+    
+    if action == "BUY":
+        if bal < cost: conn.close(); return False, "Insufficient funds"
+        new_bal = bal - cost
+        cursor.execute("UPDATE user_profiles SET paper_balance=%s WHERE username=%s", (new_bal, username))
+        
+        # Check existing pos
+        cursor.execute("SELECT shares, entry_price FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
+        row = cursor.fetchone()
+        if row:
+            curr_shares = float(row[0]); curr_avg = float(row[1])
+            total_shares = curr_shares + quantity
+            new_avg = ((curr_shares * curr_avg) + cost) / total_shares
+            cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (total_shares, new_avg, username, ticker))
+        else:
+            cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type) VALUES (%s,%s,%s,%s,'PAPER')", (username, ticker, quantity, price))
+            
+    elif action == "SELL":
+        cursor.execute("SELECT shares FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
+        row = cursor.fetchone()
+        if not row or float(row[0]) < quantity: conn.close(); return False, "Not enough shares"
+        
+        new_bal = bal + cost
+        cursor.execute("UPDATE user_profiles SET paper_balance=%s WHERE username=%s", (new_bal, username))
+        
+        new_shares = float(row[0]) - quantity
+        if new_shares <= 0:
+            cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (username, ticker))
+        else:
+            cursor.execute("UPDATE user_portfolio SET shares=%s WHERE username=%s AND ticker=%s AND portfolio_type='PAPER'", (new_shares, username, ticker))
+            
+    conn.commit(); conn.close()
+    return True, "Success"
+
+def add_ticker_to_db(username, ticker, shares, price, ptype='REAL'):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("INSERT IGNORE INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type) VALUES (%s,%s,%s,%s,%s)", (username, ticker, shares, price, ptype))
     conn.commit(); conn.close(); return True
 
-def update_ticker_in_db(username, ticker, shares, price):
+def update_ticker_in_db(username, ticker, shares, price, ptype='REAL'):
     conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s", (shares, price, username, ticker))
+    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
     conn.commit(); conn.close(); return True
 
-def remove_ticker_from_db(username, ticker):
+def remove_ticker_from_db(username, ticker, ptype='REAL'):
     conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s", (username, ticker))
+    cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
     conn.commit(); conn.close()
 
 # Auth
@@ -427,8 +455,10 @@ def get_greeting(name):
     elif 12 <= hour < 18: return f"Good Afternoon, {name}"
     else: return f"Good Evening, {name}"
 
-def render_navbar(active_tab, token):
-    nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
+def render_navbar(active_tab, token, current_mode="REAL"):
+    # Add mode param to links to persist state
+    mode_str = "&mode=PAPER" if current_mode == "PAPER" else ""
+    nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home{mode_str}" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio{mode_str}" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts{mode_str}" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner{mode_str}" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings{mode_str}" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
     st.markdown(nav_html, unsafe_allow_html=True)
 
 init_db()
@@ -481,6 +511,11 @@ st.markdown("""<style>
     a.nav-link { text-decoration: none; color: #64748b; font-family: sans-serif; font-size: 10px; text-align: center; width: 100%; }
     a.nav-link.active { color: #4ade80; font-weight: bold; }
     .nav-icon { font-size: 22px; display: block; margin-bottom: 2px; }
+    
+    /* Radio Button Styling for Mode */
+    div[role="radiogroup"] { background: #1a1f2b; padding: 5px; border-radius: 8px; border: 1px solid #2d3748; display: flex; justify-content: center;}
+    div[role="radiogroup"] label { font-size: 0.8rem; font-weight: bold; color: #94a3b8; }
+    div[role="radiogroup"] div[aria-checked="true"] label { color: #4ade80; }
 </style>""", unsafe_allow_html=True)
 
 # --- LOGIN ---
@@ -522,6 +557,26 @@ user_info = get_user_from_token(token)
 if not user_info: st.error("Session Expired"); st.stop()
 username = user_info['username']; display_name = user_info['display_name'] or username
 
+# --- MODE SELECTION (PERSISTENT) ---
+# Check query params for mode, default to REAL
+mode_param = st.query_params.get("mode", "REAL")
+if mode_param not in ["REAL", "PAPER"]: mode_param = "REAL"
+
+# Layout for top bar
+c1, c2 = st.columns([2,1])
+with c1:
+    st.markdown(f"<div style='font-size:18px; font-weight:800; color:white; margin-top:10px;'>{get_greeting(display_name)}</div>", unsafe_allow_html=True)
+with c2:
+    # Mode Toggle
+    is_paper = st.checkbox("🎮 Paper", value=(mode_param=="PAPER"))
+    current_mode = "PAPER" if is_paper else "REAL"
+
+# Get Paper Balance if needed
+paper_bal = 0.0
+if current_mode == "PAPER":
+    paper_bal = get_paper_balance(username)
+    st.markdown(f"<div style='background:#1e293b; color:#4ade80; padding:5px 10px; border-radius:5px; text-align:center; font-weight:bold; border:1px solid #4ade80; margin-bottom:10px;'>💵 Cash: ${paper_bal:,.2f}</div>", unsafe_allow_html=True)
+
 # CHECK FOR DETAIL VIEW
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
@@ -536,13 +591,29 @@ if "ticker" in st.query_params:
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
         ai_summary, ai_score = get_ai_analysis(ticker, headlines_txt)
         
-        # CALC RISK (Pass AI score)
+        # CALC RISK
         s, l, c, _, r = calculate_risk(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='margin:0; color:{cc}; font-size: 1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%) Today</span></h2>", unsafe_allow_html=True)
         
+        # PAPER TRADING ACTIONS
+        if current_mode == "PAPER":
+            st.markdown("---")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Buy 10", use_container_width=True):
+                    ok, msg = execute_paper_trade(username, ticker, "BUY", 10, p)
+                    if ok: st.success("Bought 10!"); st.rerun()
+                    else: st.error(msg)
+            with c2:
+                if st.button("Sell 10", use_container_width=True):
+                    ok, msg = execute_paper_trade(username, ticker, "SELL", 10, p)
+                    if ok: st.success("Sold 10!"); st.rerun()
+                    else: st.error(msg)
+            st.markdown("---")
+
         st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
         
         st.markdown(f"<div class='card' style='margin-top:15px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
@@ -589,17 +660,16 @@ if "ticker" in st.query_params:
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
             st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
     else: st.error("Data missing. Refresh portfolio.")
-    render_navbar("portfolio", token)
+    render_navbar("portfolio", token, current_mode)
     st.stop()
 
 else:
     tab = st.query_params.get("tab", "home")
     if tab == "home":
-        st.markdown(f"<div style='font-size:24px; font-weight:800; color:white; margin-bottom:10px;'>{get_greeting(display_name)}</div>", unsafe_allow_html=True)
-        
         # --- PORTFOLIO OVERVIEW ---
-        port_rows = get_portfolio_details(username)
+        port_rows = get_portfolio_details(username, current_mode)
         tickers = [r['ticker'] for r in port_rows]
+        
         if tickers:
             if st.button("🔄 Refresh Data", key="ref_home"):
                 with st.spinner("Scanning market & portfolio..."): update_stock_data(tickers, username)
@@ -612,7 +682,8 @@ else:
                 st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
                 st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Portfolio</div><div style="color:white; font-weight:bold; font-size:1rem;">{len(tickers)} Stocks</div></div></div>""", unsafe_allow_html=True)
                 st.write("### At a Glance"); render_horizontal_grid(market_data, token)
-        else: st.info("Welcome! Go to 'Stocks' to add your first ticker.")
+        else: 
+            st.info(f"Your {current_mode} portfolio is empty. Go to 'Stocks' to add/buy.")
 
         # --- WATCHLIST SECTION (COMPACT ROW) ---
         watchlist_items = get_watchlist_candidates()
@@ -622,37 +693,41 @@ else:
             st.write("") # Spacer
 
     elif tab == "portfolio":
-        st.markdown(f"### My Stocks")
-        with st.expander("Manage Holdings", expanded=False):
-            t1, t2, t3 = st.tabs(["Add Stock", "Edit Position", "Remove Stock"])
-            with t1:
-                with st.form("add_stock"):
-                    c1, c2, c3 = st.columns([2, 1, 1])
-                    new_t = c1.text_input("Ticker", placeholder="e.g. AAPL")
-                    shares = c2.number_input("Shares", min_value=0.0, step=1.0)
-                    price = c3.number_input("Avg Price", min_value=0.0, step=0.01)
-                    if st.form_submit_button("Add to Portfolio", use_container_width=True):
-                        if new_t: add_ticker_to_db(username, new_t.upper(), shares, price); st.rerun()
-            with t2:
-                port_rows = get_portfolio_details(username)
-                if port_rows:
-                    with st.form("edit_pos"):
-                        edit_t = st.selectbox("Select Stock", [r['ticker'] for r in port_rows])
-                        c1, c2 = st.columns(2)
-                        new_s = c1.number_input("New Shares", min_value=0.0, step=1.0)
-                        new_p = c2.number_input("New Avg Price", min_value=0.0, step=0.01)
-                        if st.form_submit_button("Update Position", use_container_width=True):
-                            update_ticker_in_db(username, edit_t, new_s, new_p); st.rerun()
-                else: st.info("Empty Portfolio")
-            with t3:
-                port_rows = get_portfolio_details(username)
-                if port_rows:
-                    to_remove = st.selectbox("Select Stock to Remove", [r['ticker'] for r in port_rows])
-                    if st.button("Remove Selected", type="primary", use_container_width=True):
-                        remove_ticker_from_db(username, to_remove); st.rerun()
-                else: st.info("Portfolio is empty.")
+        st.markdown(f"### My Stocks ({current_mode})")
+        if current_mode == "REAL":
+            with st.expander("Manage Holdings", expanded=False):
+                t1, t2, t3 = st.tabs(["Add Stock", "Edit Position", "Remove Stock"])
+                with t1:
+                    with st.form("add_stock"):
+                        c1, c2, c3 = st.columns([2, 1, 1])
+                        new_t = c1.text_input("Ticker", placeholder="e.g. AAPL")
+                        shares = c2.number_input("Shares", min_value=0.0, step=1.0)
+                        price = c3.number_input("Avg Price", min_value=0.0, step=0.01)
+                        if st.form_submit_button("Add to Portfolio", use_container_width=True):
+                            if new_t: add_ticker_to_db(username, new_t.upper(), shares, price, 'REAL'); st.rerun()
+                with t2:
+                    port_rows = get_portfolio_details(username, 'REAL')
+                    if port_rows:
+                        with st.form("edit_pos"):
+                            edit_t = st.selectbox("Select Stock", [r['ticker'] for r in port_rows])
+                            c1, c2 = st.columns(2)
+                            new_s = c1.number_input("New Shares", min_value=0.0, step=1.0)
+                            new_p = c2.number_input("New Avg Price", min_value=0.0, step=0.01)
+                            if st.form_submit_button("Update Position", use_container_width=True):
+                                update_ticker_in_db(username, edit_t, new_s, new_p, 'REAL'); st.rerun()
+                    else: st.info("Empty Portfolio")
+                with t3:
+                    port_rows = get_portfolio_details(username, 'REAL')
+                    if port_rows:
+                        to_remove = st.selectbox("Select Stock to Remove", [r['ticker'] for r in port_rows])
+                        if st.button("Remove Selected", type="primary", use_container_width=True):
+                            remove_ticker_from_db(username, to_remove, 'REAL'); st.rerun()
+                    else: st.info("Portfolio is empty.")
+        else:
+            st.info("To add stocks in Paper Trading, search or select a stock and use the Buy/Sell buttons on the detail page.")
+            
         st.divider()
-        port_rows = get_portfolio_details(username)
+        port_rows = get_portfolio_details(username, current_mode)
         if port_rows:
             tickers = [r['ticker'] for r in port_rows]
             market_data = get_cached_data_map(tickers)
@@ -664,7 +739,7 @@ else:
     elif tab == "alerts":
         st.markdown("### Volatility Alerts")
         with st.expander("New Alert", expanded=True):
-            port_rows = get_portfolio_details(username)
+            port_rows = get_portfolio_details(username, current_mode)
             options = [r['ticker'] for r in port_rows]
             if options:
                 t = st.selectbox("Ticker", options)
@@ -682,7 +757,7 @@ else:
 
     elif tab == "scanner":
         st.markdown("### Market Scanner")
-        port_rows = get_portfolio_details(username)
+        port_rows = get_portfolio_details(username, current_mode)
         tickers = [r['ticker'] for r in port_rows]
         market_data = get_cached_data_map(tickers)
         if market_data:
@@ -703,4 +778,4 @@ else:
                 if update_user_settings(username, new_name, new_email, new_pin if new_pin else None): st.success("Saved!"); st.rerun()
         if st.button("Log Out", use_container_width=True): st.query_params.clear(); st.rerun()
 
-    render_navbar(tab, token)
+    render_navbar(tab, token, current_mode)
