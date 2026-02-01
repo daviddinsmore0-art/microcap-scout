@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# --- MARKET UNIVERSE (Stocks Only - No Commodities) ---
+# --- MARKET UNIVERSE (Stocks Only) ---
 MARKET_UNIVERSE = [
     "TSLA", "NVDA", "AMD", "AAPL", "PLTR", "SOFI", "MARA", "GME", "AMC", "COIN",
     "MSFT", "GOOG", "AMZN", "META", "NFLX", "RIVN", "LCID", "NIO", "DKNG", "HOOD",
@@ -40,6 +40,7 @@ def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
+    # STRICT MULTI-LINE ERROR HANDLING TO PREVENT SYNTAX ERRORS
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -51,47 +52,57 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Fully Expanded) ---
+        # Safe Migrations - One by One
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
         except:
             pass
+            
         try:
             cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
         except:
@@ -103,13 +114,14 @@ def init_db():
 
 # 2. DATA ENGINE
 def get_ai_analysis(ticker, headlines, current_data=None):
-    # 1. Attempt OpenAI (gpt-4o-mini)
+    # 1. Attempt OpenAI
     if OPENAI_KEY and headlines:
         try:
             prompt = f"Analyze news for {ticker}: {headlines} Ignore other stocks. Return JSON: {{'summary': '1 sentence', 'score': 50}}"
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
             data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=10)
+            # 12 Second Timeout
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=12)
             if response.status_code == 200:
                 content = response.json()['choices'][0]['message']['content']
                 if "```" in content: content = content.split("```")[1].replace("json", "").strip()
@@ -118,7 +130,7 @@ def get_ai_analysis(ticker, headlines, current_data=None):
         except:
             pass
 
-    # 2. Technical Fallback
+    # 2. Technical Fallback (If AI fails or no news)
     if current_data:
         rsi = float(current_data.get('rsi', 50))
         trend = current_data.get('trend_status', 'NEUTRAL')
@@ -134,42 +146,43 @@ def get_ai_analysis(ticker, headlines, current_data=None):
 
 def get_news_data(ticker):
     news_results = []
-    try:
-        stock = yf.Ticker(ticker)
-        raw_news = stock.news
-        if raw_news:
-            for article in raw_news[:3]:
-                title = article.get('title', article.get('headline', ''))
-                if not title or ticker not in title: continue # Filter noise
-                link = article.get('link', '#')
-                publisher = article.get('publisher', 'Yahoo Finance')
-                ts = article.get('providerPublishTime', 0)
-                time_str = "Today"
-                if ts:
-                    dt = datetime.fromtimestamp(ts)
-                    diff = datetime.now() - dt
-                    if diff.days > 0: time_str = f"{diff.days}d ago"
-                    elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
-                    else: time_str = f"{diff.seconds//60}m ago"
-                news_results.append({'title': title, 'link': link, 'pub': publisher, 'time': time_str})
-    except: pass
     
-    # RSS Backup
+    # 1. Try RSS First (Better for Canadian Stocks)
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+        resp = requests.get(url, headers=headers, timeout=4)
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.content)
+            for item in root.findall('.//item')[:3]:
+                title = item.find('title').text
+                # Simple filter
+                if not title: continue
+                link = item.find('link').text
+                if " - " in title: title = title.rsplit(" - ", 1)[0]
+                news_results.append({'title': title, 'link': link, 'pub': 'Yahoo RSS', 'time': 'Recent'})
+    except: pass
+
+    # 2. YFinance Backup
     if len(news_results) < 2:
         try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-            resp = requests.get(url, headers=headers, timeout=4)
-            if resp.status_code == 200:
-                root = ET.fromstring(resp.content)
-                for item in root.findall('.//item')[:3]:
-                    title = item.find('title').text
-                    if not title or ticker not in title: continue
-                    link = item.find('link').text
-                    if " - " in title: title = title.rsplit(" - ", 1)[0]
-                    news_results.append({'title': title, 'link': link, 'pub': 'Yahoo RSS', 'time': 'Recent'})
+            stock = yf.Ticker(ticker)
+            raw_news = stock.news
+            if raw_news:
+                for article in raw_news[:3]:
+                    title = article.get('title', article.get('headline', ''))
+                    if not title: continue
+                    link = article.get('link', '#')
+                    pub = article.get('publisher', 'Yahoo Finance')
+                    ts = article.get('providerPublishTime', 0)
+                    time_str = "Today"
+                    if ts:
+                        dt = datetime.fromtimestamp(ts)
+                        if (datetime.now() - dt).days < 3: # Only recent
+                            news_results.append({'title': title, 'link': link, 'pub': pub, 'time': time_str})
         except: pass
-    return news_results
+            
+    return news_results[:4]
 
 def calculate_signal(df):
     try:
@@ -177,6 +190,7 @@ def calculate_signal(df):
         vol = float(df['Volume'].iloc[-1])
         avg_vol = float(df['Volume'].rolling(20).mean().iloc[-1])
         high_3m = float(df['Close'].max())
+        
         delta = df['Close'].diff()
         up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
         rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
@@ -191,7 +205,10 @@ def calculate_signal(df):
     return None
 
 def update_stock_data(tickers, username):
-    all_tickers = list(set(tickers + MARKET_UNIVERSE))
+    # Filter Universe for Scanning
+    universe = [t for t in MARKET_UNIVERSE if "=" not in t and "GC" not in t and "SI" not in t]
+    all_tickers = list(set(tickers + universe))
+    
     if not all_tickers: return
     try: data = yf.download(" ".join(all_tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
@@ -233,18 +250,15 @@ def update_stock_data(tickers, username):
                 eps = io.get('trailingEps',0) or 0
                 name = io.get('shortName') or io.get('longName') or t
                 
-                # Earnings calculation
+                # Earnings
                 try:
                     cal = io.get('calendar', {})
                     if 'Earnings Date' in cal:
-                        # Yahoo sometimes returns a list of dates
                         e_date = cal['Earnings Date'][0] 
                         days = (e_date.date() - datetime.now().date()).days
                     else:
-                        # Try explicit key if available
                         ts = io.get('earningsTimestamp', 0)
-                        if ts:
-                            days = (datetime.fromtimestamp(ts).date() - datetime.now().date()).days
+                        if ts: days = (datetime.fromtimestamp(ts).date() - datetime.now().date()).days
                 except: days = 999
             except: pass
 
@@ -277,7 +291,7 @@ def get_watchlist_candidates():
     cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC")
     rows = cursor.fetchall()
     
-    # Filter out Commodities (=F) and Crypto (BTC)
+    # Aggressive Filter: No Futures (=), No Gold (GC), No Silver (SI), No Crypto (BTC)
     filtered = [r for r in rows if "=" not in r['ticker'] and "GC" not in r['ticker'] and "SI" not in r['ticker'] and "BTC" not in r['ticker']]
     
     if not filtered:
