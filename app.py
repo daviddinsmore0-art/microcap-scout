@@ -164,7 +164,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations (EXPANDED TO PREVENT SYNTAX ERRORS)
+        # Safe Migrations (STRICTLY EXPANDED FOR SYNTAX SAFETY)
         try: 
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
         except: 
@@ -334,91 +334,6 @@ def calculate_risk(row, ai_score=None):
     elif final > 35: color = "#fbbf24"; label="MEDIUM"
     return final, label, color, "badge-mix", reasons
 
-def calculate_signal(df):
-    try:
-        price = float(df['Close'].iloc[-1]); vol = float(df['Volume'].iloc[-1])
-        avg_vol = float(df['Volume'].rolling(20).mean().iloc[-1]); high_3m = float(df['Close'].max())
-        prev = float(df['Close'].iloc[-2])
-        
-        delta = df['Close'].diff(); up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
-        rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
-        rsi = 100 - (100 / (1 + rs)).iloc[-1]
-
-        if price >= (high_3m * 0.95): return "🔥 Near Breakout"
-        if vol > (avg_vol * 1.5): return "📊 Unusual Volume"
-        if ((price-prev)/prev > 0.03) and rsi > 50: return "⚡ Momentum Gainer"
-        if rsi < 40: return "📉 Oversold Watch"
-    except:
-        return None
-    return None
-
-def update_stock_data(tickers, username):
-    # This is kept as a fallback, though we rely on Cron mostly
-    all_tickers = list(set(tickers + MARKET_UNIVERSE))
-    if not all_tickers: return
-    try:
-        data = yf.download(" ".join(all_tickers), period="3mo", group_by='ticker', threads=True, progress=False)
-    except:
-        return
-
-    conn = get_connection()
-    cursor = conn.cursor()
-    for t in all_tickers:
-        try:
-            if len(all_tickers) > 1: df = data[t]
-            else: df = data
-            df = df.dropna()
-            if df.empty: continue
-            
-            price = float(df['Close'].iloc[-1])
-            prev = float(df['Close'].iloc[-2])
-            change = ((price - prev)/prev)*100
-            
-            delta = df['Close'].diff()
-            up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
-            rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
-            rsi = 100 - (100 / (1 + rs)).iloc[-1]
-            
-            ma50 = df['Close'].rolling(50).mean().iloc[-1] if len(df) >= 50 else df['Close'].mean()
-            trend = "UPTREND" if price > ma50 else "DOWNTREND"
-            vol = df['Close'].pct_change().std() * 100
-            
-            avg_v = df['Volume'].rolling(20).mean().iloc[-1]
-            cur_v = df['Volume'].iloc[-1]
-            v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
-            
-            high3 = df['Close'].max()
-            low3 = df['Close'].min()
-            r_loc = 50
-            if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
-
-            signal = calculate_signal(df)
-            debt=0; mcap=0; eps=0; days=999; name=t
-            try:
-                io = yf.Ticker(t).info
-                name = io.get('shortName') or t
-                try:
-                    cal = io.get('calendar', {})
-                    if 'Earnings Date' in cal:
-                        e_date = cal['Earnings Date'][0] 
-                        days = (e_date.date() - datetime.now().date()).days
-                except:
-                    pass
-            except:
-                pass
-
-            sql = """INSERT INTO stock_cache (ticker, company_name, current_price, day_change, rsi, trend_status, volume_status, range_loc, volatility, debt_ratio, days_to_earnings, market_cap, eps, signal_tag) 
-                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE 
-                     company_name=%s, current_price=%s, day_change=%s, rsi=%s, trend_status=%s, volume_status=%s, range_loc=%s, volatility=%s, debt_ratio=%s, 
-                     days_to_earnings=%s, market_cap=%s, eps=%s, signal_tag=%s"""
-            vals = (t, name, price, change, rsi, trend, v_stat, r_loc, vol, debt, days, mcap, eps, signal,
-                    name, price, change, rsi, trend, v_stat, r_loc, vol, debt, days, mcap, eps, signal)
-            cursor.execute(sql, vals)
-        except:
-            continue
-    conn.commit()
-    conn.close()
-
 def get_watchlist_candidates():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -430,10 +345,18 @@ def get_watchlist_candidates():
     if not rows:
         cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
         rows = cursor.fetchall()
-        
-    filtered = rows[:3]
+    
+    # 3. FILTER OUT COMMODITIES (Gold/Silver/Crypto)
+    filtered = []
+    for r in rows:
+        t = r['ticker']
+        # Filter logic: exclude future contracts and generic commodities
+        if "GC=" not in t and "SI=" not in t and "BTC" not in t:
+            filtered.append(r)
+            
+    # Return top 3
     conn.close()
-    return filtered
+    return filtered[:3]
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -781,9 +704,13 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
+        # 1. Fetch News (RSS Direct + YF Fallback)
         news_items = get_news_data(ticker)
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
+        
+        # 2. Get AI Analysis (or Technical Fallback)
         ai_summary, ai_score, ai_source = get_ai_analysis(ticker, headlines_txt, stock)
+        
         s, l, c, _, r = calculate_risk(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
