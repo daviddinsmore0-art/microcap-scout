@@ -44,31 +44,15 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded) ---
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except: pass
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except: pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except: pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except: pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: pass
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except: pass
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except: pass
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except: pass
+        # --- SAFE MIGRATIONS ---
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
         
         conn.close()
     except Exception as e:
@@ -118,7 +102,7 @@ def get_news_data(ticker):
                 title = article.get('title', article.get('headline', ''))
                 if not title: continue
                 link = article.get('link', '#')
-                pub = article.get('publisher', 'Yahoo Finance')
+                publisher = article.get('publisher', 'Yahoo Finance')
                 ts = article.get('providerPublishTime', 0)
                 time_str = "Today"
                 if ts:
@@ -151,7 +135,8 @@ def get_news_data(ticker):
 def update_stock_data(tickers, username):
     if not tickers: return
     try: 
-        data = yf.download(" ".join(tickers), period="1d", group_by='ticker', threads=True, progress=False)
+        # Need history for RSI/Volatility
+        data = yf.download(" ".join(tickers), period="3mo", group_by='ticker', threads=True, progress=False)
     except: return
 
     conn = get_connection()
@@ -164,11 +149,33 @@ def update_stock_data(tickers, username):
             df = df.dropna()
             if df.empty: continue
             
+            # --- CALCULATE REAL METRICS ---
             price = float(df['Close'].iloc[-1])
-            prev = float(df['Open'].iloc[0]) 
+            prev = float(df['Close'].iloc[-2])
             change = ((price - prev)/prev)*100
             
-            rsi = 50; trend = "NEUTRAL"; vol = 0; r_loc = 50; v_stat = "NORMAL"
+            # RSI
+            delta = df['Close'].diff()
+            up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+            rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
+            rsi = 100 - (100 / (1 + rs)).iloc[-1]
+            
+            # Trend
+            ma50 = df['Close'].rolling(50).mean().iloc[-1] if len(df) >= 50 else df['Close'].mean()
+            trend = "UPTREND" if price > ma50 else "DOWNTREND"
+            
+            # Volatility
+            vol = df['Close'].pct_change().std() * 100
+            
+            # Volume Spike
+            avg_v = df['Volume'].rolling(20).mean().iloc[-1]
+            cur_v = df['Volume'].iloc[-1]
+            v_stat = "SPIKE" if cur_v > (avg_v * 1.5) else "NORMAL"
+            
+            # Range Location
+            high3 = df['Close'].max(); low3 = df['Close'].min(); r_loc = 50
+            if high3 != low3: r_loc = ((price-low3)/(high3-low3))*100
+
             debt=0; mcap=0; eps=0; days=999; name=t
             
             try:
@@ -299,6 +306,7 @@ def get_user_alerts(username):
 
 def calculate_risk(row, ai_score=None):
     s = 50; reasons = []
+    # Technicals
     if row.get('trend_status') == 'DOWNTREND': s += 10
     else: s -= 10
     rsi = float(row.get('rsi', 50))
@@ -306,6 +314,7 @@ def calculate_risk(row, ai_score=None):
     elif rsi < 30: s -= 10; reasons.append("Oversold")
     if float(row.get('volatility', 0)) > 3.0: s += 10; reasons.append("High Volatility")
     
+    # AI Factor
     if ai_score is not None:
         adj = (50 - ai_score) * 0.5
         s += adj
@@ -355,25 +364,9 @@ def render_portfolio_row(row, market_data, current_token):
 
     link = f"?token={current_token}&ticker={row['ticker']}"
     
-    # HTML CONSTRUCTION (FLATTENED TO PREVENT MARKDOWN ISSUES)
-    # The background opacity is handled by adding '22' to the hex color (approx 13%)
+    # FLATTENED HTML STRING (No indentation)
     bg = risk_color + "22" 
-    
-    html_str = ""
-    html_str += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; display:block;'>"
-    html_str += f"<div class='card clickable-card' style='display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0; background: linear-gradient(90deg, {bg} 0%, #1a1f2b 100%); border-left: 4px solid {risk_color};'>"
-    html_str += f"<div>"
-    html_str += f"<div style='display:flex; align-items:center; gap:8px;'>"
-    html_str += f"<div style='font-weight:bold; font-size:1.1rem; color:white;'>{row['ticker']}</div>"
-    html_str += f"<div style='font-size:0.6rem; background:{risk_color}; color:#000; padding:2px 6px; border-radius:4px; font-weight:bold;'>RISK: {risk_score}</div>"
-    html_str += f"</div>"
-    html_str += f"<div style='font-size:0.8rem; color:#64748b; margin-bottom:2px;'>{company}</div>"
-    html_str += pl_html
-    html_str += f"</div>"
-    html_str += f"<div style='text-align:right;'>"
-    html_str += f"<div style='color:white; font-weight:bold;'>${p:,.2f}</div>"
-    html_str += f"<div style='color:{cc}; font-size:0.8rem;'>{arr} {ch:.2f}%</div>"
-    html_str += f"</div></div></a>"
+    html_str = f"""<a href='{link}' target='_self' style='text-decoration:none; color:inherit; display:block;'><div class='card clickable-card' style='display:flex; justify-content:space-between; align-items:center; padding:15px; margin-bottom:0; background: linear-gradient(90deg, {bg} 0%, #1a1f2b 100%); border-left: 4px solid {risk_color};'><div><div style='display:flex; align-items:center; gap:8px;'><div style='font-weight:bold; font-size:1.1rem; color:white;'>{row['ticker']}</div><div style='font-size:0.6rem; background:{risk_color}; color:#000; padding:2px 6px; border-radius:4px; font-weight:bold;'>RISK: {risk_score}</div></div><div style='font-size:0.8rem; color:#64748b; margin-bottom:2px;'>{company}</div>{pl_html}</div><div style='text-align:right;'><div style='color:white; font-weight:bold;'>${p:,.2f}</div><div style='color:{cc}; font-size:0.8rem;'>{arr} {ch:.2f}%</div></div></div></a>"""
 
     st.markdown(html_str, unsafe_allow_html=True)
 
