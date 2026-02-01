@@ -11,16 +11,14 @@ import json
 import random
 from datetime import datetime, timedelta
 
-# 1. CONFIG & GLOBALS
+# =========================================================
+# 1. CONFIG & CSS (MUST BE FIRST)
+# =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# --- FORCED DARK THEME CSS ---
 st.markdown("""
     <style>
-        /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
-        
-        /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
             background-color: #1e293b !important; 
             color: white !important; 
@@ -29,8 +27,6 @@ st.markdown("""
             padding: 10px; 
         }
         div[data-baseweb="input"] { background-color: transparent !important; }
-        
-        /* Cards */
         .card { 
             background-color: #1a1f2b; 
             border-radius: 16px; 
@@ -39,8 +35,6 @@ st.markdown("""
             border: 1px solid #2d3748; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
         }
-        
-        /* Buttons */
         div.stButton > button {
             background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
             color: white !important; 
@@ -49,21 +43,17 @@ st.markdown("""
             font-weight: bold; 
             padding: 12px 20px;
         }
-        
-        /* Text & Labels */
         h1, h2, h3, p, label, span { color: #e0e6ed !important; }
-        div[data-testid="stWidgetLabel"] p { color: #e0e6ed !important; font-weight: 600; font-size: 0.8rem; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- MARKET UNIVERSE ---
+# --- GLOBALS ---
 MARKET_UNIVERSE = [
     "TSLA", "NVDA", "AMD", "AAPL", "PLTR", "SOFI", "MARA", "GME", "AMC", "COIN",
     "MSFT", "GOOG", "AMZN", "META", "NFLX", "RIVN", "LCID", "NIO", "DKNG", "HOOD",
     "PYPL", "SQ", "ROKU", "SHOP", "SPOT", "UBER", "ABNB", "RIOT", "CLSK", "HUT"
 ]
 
-# --- AI CONFIGURATION ---
 OPENAI_KEY = None
 if "openai" in st.secrets:
     OPENAI_KEY = st.secrets["openai"]["api_key"]
@@ -79,13 +69,14 @@ DB_CONFIG = {
 }
 
 # =========================================================
-#  CORE FUNCTIONS (DEFINED BEFORE USE)
+# 2. DATABASE FUNCTIONS (DEFINED FIRST)
 # =========================================================
 
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
+    """Initializes DB with strict error handling blocks to prevent SyntaxError"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -97,67 +88,141 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
+        # --- SAFE MIGRATIONS (Indented Block Style) ---
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
+        except:
+            pass
         
         conn.close()
     except Exception as e:
-        st.error(f"DB Error: {e}")
+        st.error(f"DB Connection Error: {e}")
 
-# AUTH FUNCTIONS
+# =========================================================
+# 3. AUTH & UTILITY FUNCTIONS
+# =========================================================
+
 def login_user(u, p):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_profiles WHERE username=%s", (u,))
-    row = cursor.fetchone(); conn.close()
-    return row if row and row['pin']==p else None
+    row = cursor.fetchone()
+    conn.close()
+    if row and str(row['pin']) == str(p):
+        return row
+    return None
 
 def register_user(u, p, d, e):
-    conn = get_connection(); cursor = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT username FROM user_profiles WHERE username=%s", (u,))
-    if cursor.fetchone(): conn.close(); return False
+    if cursor.fetchone(): 
+        conn.close()
+        return False
     cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s,%s,%s,%s)", (u,p,d,e))
-    conn.commit(); conn.close(); return True
+    conn.commit()
+    conn.close()
+    return True
+
+def create_session(u):
+    t = str(uuid.uuid4())
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t,u))
+    conn.commit()
+    conn.close()
+    return t
+
+def get_user_from_token(t):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT s.username, p.display_name, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
+    row = cursor.fetchone()
+    conn.close()
+    return row if row else None
+
+def get_paper_balance(username):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
+    row = cursor.fetchone()
+    conn.close()
+    return float(row['paper_balance']) if row else 0.0
 
 def update_user_settings(username, display_name, email, new_pin=None):
     try:
-        conn = get_connection(); cursor = conn.cursor()
+        conn = get_connection()
+        cursor = conn.cursor()
         if new_pin:
             cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
         else:
             cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
         return True
     except: return False
 
-def create_session(u):
-    t = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t,u)); conn.commit(); conn.close()
-    return t
+# =========================================================
+# 4. DATA ENGINE FUNCTIONS
+# =========================================================
 
-def get_user_from_token(t):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT s.username, p.display_name, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
-    row = cursor.fetchone(); conn.close()
-    return row if row else None
-
-# DATA ENGINE
 def get_ai_analysis(ticker, headlines, current_data=None):
     if OPENAI_KEY and headlines:
         try:
             prompt = f"Analyze news for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
             data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=10)
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=8)
             if response.status_code == 200:
                 content = response.json()['choices'][0]['message']['content']
                 if "```" in content: content = content.split("```")[1].replace("json", "").strip()
@@ -172,6 +237,7 @@ def get_ai_analysis(ticker, headlines, current_data=None):
         elif rsi < 30: return "Technical: Oversold (RSI < 30). Potential bounce.", 80, "TECH"
         elif trend == "UPTREND": return "Technical: Strong Uptrend detected.", 75, "TECH"
         return "Market sentiment is neutral. Monitor volume.", 50, "TECH"
+            
     return "No Data Available", 50, "NONE"
 
 def get_news_data(ticker):
@@ -207,6 +273,26 @@ def calculate_risk(row, ai_score=None):
     if final > 65: color_hex = "#ef4444"; label = "HIGH"
     elif final > 35: color_hex = "#fbbf24"; label = "MEDIUM"
     return final, label, color_hex, "badge-mix", reasons
+
+def calculate_signal(df):
+    try:
+        price = float(df['Close'].iloc[-1])
+        vol = float(df['Volume'].iloc[-1])
+        avg_vol = float(df['Volume'].rolling(20).mean().iloc[-1])
+        high_3m = float(df['Close'].max())
+        
+        delta = df['Close'].diff()
+        up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+        rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
+        rsi = 100 - (100 / (1 + rs)).iloc[-1]
+
+        if price >= (high_3m * 0.95): return "🔥 Near Breakout"
+        if vol > (avg_vol * 1.5): return "📊 Unusual Volume"
+        prev = float(df['Close'].iloc[-2])
+        if ((price-prev)/prev > 0.03) and rsi > 50: return "⚡ Momentum Gainer"
+        if rsi < 40: return "📉 Oversold Watch"
+    except: return None
+    return None
 
 def update_stock_data(tickers, username):
     all_tickers = list(set(tickers + MARKET_UNIVERSE))
@@ -285,25 +371,6 @@ def update_stock_data(tickers, username):
             if hit: cursor.execute("UPDATE user_alerts SET is_triggered=TRUE WHERE id=%s", (a['id'],))
     conn.commit(); conn.close()
 
-def calculate_signal(df):
-    try:
-        price = float(df['Close'].iloc[-1])
-        vol = float(df['Volume'].iloc[-1])
-        avg_vol = float(df['Volume'].rolling(20).mean().iloc[-1])
-        high_3m = float(df['Close'].max())
-        delta = df['Close'].diff()
-        up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
-        rs = up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean()
-        rsi = 100 - (100 / (1 + rs)).iloc[-1]
-
-        if price >= (high_3m * 0.95): return "🔥 Near Breakout"
-        if vol > (avg_vol * 1.5): return "📊 Unusual Volume"
-        prev = float(df['Close'].iloc[-2])
-        if ((price-prev)/prev > 0.03) and rsi > 50: return "⚡ Momentum Gainer"
-        if rsi < 40: return "📉 Oversold Watch"
-    except: return None
-    return None
-
 def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC")
@@ -336,12 +403,6 @@ def get_portfolio_details(username, ptype='REAL'):
     cursor.execute("SELECT ticker, shares, entry_price FROM user_portfolio WHERE username=%s AND portfolio_type=%s", (username, ptype))
     rows = cursor.fetchall(); conn.close()
     return rows
-
-def get_paper_balance(username):
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
-    row = cursor.fetchone(); conn.close()
-    return float(row['paper_balance']) if row else 0.0
 
 def execute_paper_trade(username, ticker, action, quantity, price):
     conn = get_connection(); cursor = conn.cursor()
@@ -391,7 +452,30 @@ def remove_ticker_from_db(username, ticker, ptype='REAL'):
     cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
     conn.commit(); conn.close()
 
-# UI RENDERERS
+def add_alert(username, ticker, condition, price):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
+        conn.commit(); conn.close(); return True
+    except: return False
+
+def delete_alert(alert_id):
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,)); conn.commit(); conn.close()
+    except: pass
+
+def get_user_alerts(username):
+    try:
+        conn = get_connection(); cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
+        rows = cursor.fetchall(); conn.close(); return rows
+    except: return []
+
+# =========================================================
+# 5. UI COMPONENTS
+# =========================================================
+
 def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
     vb = "0 0 200 120" if size == "big" else "0 0 160 100"
@@ -459,7 +543,10 @@ def render_navbar(active_tab, token, current_mode="REAL"):
     nav_html = f'<div class="nav-container"><a href="?token={token}&tab=home{mode_str}" class="nav-link {"active" if active_tab=="home" else ""}"><span class="nav-icon">🏠</span>Home</a><a href="?token={token}&tab=portfolio{mode_str}" class="nav-link {"active" if active_tab=="portfolio" else ""}"><span class="nav-icon">📂</span>Stocks</a><a href="?token={token}&tab=alerts{mode_str}" class="nav-link {"active" if active_tab=="alerts" else ""}"><span class="nav-icon">🔔</span>Alerts</a><a href="?token={token}&tab=scanner{mode_str}" class="nav-link {"active" if active_tab=="scanner" else ""}"><span class="nav-icon">📡</span>Scan</a><a href="?token={token}&tab=settings{mode_str}" class="nav-link {"active" if active_tab=="settings" else ""}"><span class="nav-icon">⚙️</span>Set</a></div>'
     st.markdown(nav_html, unsafe_allow_html=True)
 
-# 3. INITIALIZATION
+# =========================================================
+# 6. MAIN EXECUTION (MUST BE LAST)
+# =========================================================
+
 init_db()
 
 # --- LOGIN SCREEN ---
@@ -557,7 +644,6 @@ if "ticker" in st.query_params:
         r_cls, r_txt = get_pill(float(stock['rsi']), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
-        # AI CARD (FLATTENED HTML)
         title_txt = "AI MARKET INSIGHT" if ai_source == "AI" else "TECHNICAL INSIGHT"
         if ai_summary:
             ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{title_txt} (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
@@ -580,6 +666,7 @@ if "ticker" in st.query_params:
     render_navbar("portfolio", token, current_mode)
     st.stop()
 
+# MAIN TABS
 else:
     tab = st.query_params.get("tab", "home")
     if tab == "home":
