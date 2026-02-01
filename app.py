@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# STRICT CSS: 0 Padding + Dark Theme + Clean UI
+# STRICT CSS: 0 Padding + Dark Theme + Clean UI + LINK COLOR FIX
 st.markdown("""
     <style>
         /* REMOVE DEFAULT PADDING */
@@ -66,6 +66,10 @@ st.markdown("""
         }
 
         h1, h2, h3, p, label, span, div { color: #e0e6ed; }
+        
+        /* FIX HEADLINE COLORS (LINKS) */
+        a { color: #e0e6ed !important; text-decoration: none !important; }
+        a:hover { color: #4ade80 !important; }
         
         /* Navigation */
         .nav-container { 
@@ -140,26 +144,11 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
         # Safe Migrations
-        try: 
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except: 
-            pass
-        try: 
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except: 
-            pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: 
-            pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except: 
-            pass
-        try: 
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except: 
-            pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
 
         conn.close()
     except Exception as e:
@@ -201,10 +190,8 @@ def update_user_settings(username, display_name, email, new_pin=None):
 
 # --- Data Functions ---
 def get_news_data(ticker):
-    # DIRECT RSS FETCH (More Reliable than YF)
     news_results = []
     try:
-        # Using a standard browser User-Agent is critical
         url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         resp = requests.get(url, headers=headers, timeout=5)
@@ -216,10 +203,8 @@ def get_news_data(ticker):
                 link = item.find('link').text if item.find('link') is not None else "#"
                 pub = "Yahoo Finance"
                 news_results.append({'title': title, 'link': link, 'pub': pub, 'time': "Recent"})
-    except:
-        pass
+    except: pass
     
-    # Fallback to YFinance object if RSS fails
     if not news_results:
         try:
             stock = yf.Ticker(ticker)
@@ -230,9 +215,7 @@ def get_news_data(ticker):
                     'pub': n.get('publisher', 'Yahoo'),
                     'time': 'Recent'
                 })
-        except:
-            pass
-            
+        except: pass
     return news_results
 
 def get_ai_analysis(ticker, headlines, current_data=None):
@@ -681,7 +664,7 @@ if "ticker" in st.query_params:
                 pub = item.get('publisher', 'Unknown')
                 link = item.get('link', '#')
                 time_str = item.get('time', 'Recently')
-                st.markdown(f"<a href='{link}' target='_blank' style='text-decoration:none;'><div style='font-size:0.95rem; font-weight:bold; color:white; margin-bottom:5px;'>{title}</div><div style='font-size:0.75rem; color:#64748b; margin-bottom:15px;'>{time_str} • {pub}</div></a><div style='border-bottom:1px solid #2d3748; margin-bottom:15px;'></div>", unsafe_allow_html=True)
+                st.markdown(f"<a href='{link}' target='_blank' style='text-decoration:none;'><div style='font-size:0.95rem; font-weight:bold; color:#e0e6ed; margin-bottom:5px;'>{title}</div><div style='font-size:0.75rem; color:#64748b; margin-bottom:15px;'>{time_str} • {pub}</div></a><div style='border-bottom:1px solid #2d3748; margin-bottom:15px;'></div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
         
         st.write("")
