@@ -6,9 +6,9 @@ import uuid
 import os
 import pandas as pd
 import pytz
-import altair as alt
-import xml.etree.ElementTree as ET
+import re
 from datetime import datetime, timedelta
+import xml.etree.ElementTree as ET
 
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
@@ -39,58 +39,116 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS ---
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        # --- SAFE MIGRATIONS (Strict Multi-line to prevent SyntaxError) ---
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
+        except:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
+        except:
+            pass
         
         conn.close()
     except Exception as e:
         st.error(f"DB Error: {e}")
 
 # 2. DATA ENGINE
-def get_rss_news(ticker):
+def get_news_data(ticker):
     """
-    Robust RSS Parser that handles namespaces and finding title tags correctly.
+    Robust news fetcher attempting yfinance first, then RSS fallback.
     """
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
+    news_results = []
+    
+    # Method 1: YFinance Library
     try:
-        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-        response = requests.get(url, headers=headers, timeout=4)
-        if response.status_code == 200:
-            root = ET.fromstring(response.content)
-            items = []
-            # Find all 'item' tags anywhere in the tree
-            for item in root.findall('.//item')[:2]:
-                title_obj = item.find('title')
-                link_obj = item.find('link')
-                pub_obj = item.find('pubDate')
+        stock = yf.Ticker(ticker)
+        raw_news = stock.news
+        if raw_news:
+            for article in raw_news[:2]:
+                title = article.get('title', article.get('headline', ''))
+                if not title: continue
                 
-                title = title_obj.text if title_obj is not None else "News Story"
-                link = link_obj.text if link_obj is not None else "#"
-                pub_date = pub_obj.text if pub_obj is not None else ""
+                link = article.get('link', '#')
+                publisher = article.get('publisher', 'Yahoo Finance')
                 
-                # Format time
-                time_str = "Recently"
-                if pub_date:
-                    try:
-                        # RSS date format: Tue, 03 Jun 2003 09:39:21 GMT
-                        dt = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
-                        diff = datetime.now() - dt
-                        if diff.days > 0: time_str = f"{diff.days}d ago"
-                        elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
-                        else: time_str = f"{diff.seconds//60}m ago"
-                    except: pass
-
-                items.append({'title': title, 'link': link, 'publisher': 'Yahoo Finance', 'time': time_str})
-            return items
+                # Time handling
+                ts = article.get('providerPublishTime', 0)
+                time_str = "Today"
+                if ts:
+                    dt = datetime.fromtimestamp(ts)
+                    diff = datetime.now() - dt
+                    if diff.days > 0: time_str = f"{diff.days}d ago"
+                    elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
+                    else: time_str = f"{diff.seconds//60}m ago"
+                
+                news_results.append({'title': title, 'link': link, 'pub': publisher, 'time': time_str})
     except:
-        return []
-    return []
+        pass
+
+    # Method 2: RSS Fallback (If Method 1 found nothing)
+    if not news_results:
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+            resp = requests.get(url, headers=headers, timeout=4)
+            if resp.status_code == 200:
+                root = ET.fromstring(resp.content)
+                for item in root.findall('.//item')[:2]:
+                    title_node = item.find('title')
+                    link_node = item.find('link')
+                    pub_node = item.find('pubDate')
+                    
+                    if title_node is not None and title_node.text:
+                        title = title_node.text
+                        link = link_node.text if link_node is not None else "#"
+                        
+                        # Clean title
+                        if " - " in title: title = title.rsplit(" - ", 1)[0]
+                        
+                        # Time parsing
+                        time_str = "Today"
+                        if pub_node is not None and pub_node.text:
+                            try:
+                                # RSS Format: Tue, 03 Jun 2003 09:39:21 GMT
+                                dt = datetime.strptime(pub_node.text, "%a, %d %b %Y %H:%M:%S %Z")
+                                diff = datetime.now() - dt
+                                if diff.days > 0: time_str = f"{diff.days}d ago"
+                                elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
+                                else: time_str = f"{diff.seconds//60}m ago"
+                            except: pass
+                            
+                        news_results.append({'title': title, 'link': link, 'pub': 'Yahoo Finance', 'time': time_str})
+        except:
+            pass
+            
+    return news_results
 
 def update_stock_data(tickers, username):
     if not tickers: return
@@ -132,9 +190,7 @@ def update_stock_data(tickers, username):
                     price, change, rsi, trend, v_stat, r_loc, vol, debt, days, days, mcap, eps)
             cursor.execute(sql, vals)
         except: continue
-    
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
     
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -445,38 +501,15 @@ if "ticker" in st.query_params:
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
         # LIVE NEWS SECTION WITH RSS FALLBACK
-        news_items = []
-        try:
-            # 1. Try yfinance
-            news = yf.Ticker(ticker).news
-            if news: 
-                news_items = news[:2]
-            else:
-                # 2. Try RSS Fallback
-                news_items = get_rss_news(ticker)
-        except: 
-            # 3. Last resort RSS
-            news_items = get_rss_news(ticker)
+        news_items = get_news_data(ticker)
         
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
             for item in news_items:
-                # Handle both yf dictionary and RSS dictionary formats
-                title = item.get('title') or item.get('headline', 'No Title')
-                pub = item.get('publisher', 'Yahoo Finance')
-                link = item.get('link', '#')
-                
-                # Handle time
-                time_str = "Recently"
-                if 'providerPublishTime' in item:
-                    ts = item.get('providerPublishTime', 0)
-                    if ts:
-                        diff = datetime.now() - datetime.fromtimestamp(ts)
-                        if diff.days > 0: time_str = f"{diff.days}d ago"
-                        elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
-                        else: time_str = f"{diff.seconds//60}m ago"
-                elif 'time' in item:
-                    time_str = item['time'] # Use pre-formatted string from RSS
+                title = item['title']
+                pub = item['pub']
+                link = item['link']
+                time_str = item['time']
                 
                 st.markdown(f"""
                 <a href="{link}" target="_blank" style="text-decoration:none;">
@@ -486,6 +519,8 @@ if "ticker" in st.query_params:
                 <div style="border-bottom:1px solid #2d3748; margin-bottom:15px;"></div>
                 """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#64748b; font-style:italic;'>No recent news found for {ticker}</div></div>", unsafe_allow_html=True)
         
         st.write("")
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
