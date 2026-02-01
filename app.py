@@ -119,54 +119,37 @@ def init_db():
 
 # --- Auth Functions ---
 def login_user(u, p):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM user_profiles WHERE username=%s", (u,))
-    row = cursor.fetchone()
-    conn.close()
+    row = cursor.fetchone(); conn.close()
     if row and str(row['pin']) == str(p): return row
     return None
 
 def register_user(u, p, d, e):
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn = get_connection(); cursor = conn.cursor()
     cursor.execute("SELECT username FROM user_profiles WHERE username=%s", (u,))
     if cursor.fetchone(): conn.close(); return False
     cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s,%s,%s,%s)", (u, p, d, e))
-    conn.commit()
-    conn.close()
-    return True
+    conn.commit(); conn.close(); return True
 
 def create_session(u):
-    t = str(uuid.uuid4())
-    conn = get_connection()
-    cursor = conn.cursor()
+    t = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
     cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t, u))
-    conn.commit()
-    conn.close()
-    return t
+    conn.commit(); conn.close(); return t
 
 def get_user_from_token(t):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
-    row = cursor.fetchone()
-    conn.close()
+    row = cursor.fetchone(); conn.close()
     return row
 
 def update_user_settings(username, display_name, email, new_pin=None):
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        if new_pin:
-            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
-        else:
-            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
-        conn.commit()
-        conn.close()
-        return True
-    except:
-        return False
+        conn = get_connection(); cursor = conn.cursor()
+        if new_pin: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
+        else: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
+        conn.commit(); conn.close(); return True
+    except: return False
 
 # --- Data Functions ---
 def get_news_data(ticker):
@@ -279,8 +262,7 @@ def get_portfolio_summary(username, ptype):
     return total_pl_dollars, total_pl_pct, day_pl, day_pl_pct
 
 def deactivate_stock(username, ticker, ptype):
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn = get_connection(); cursor = conn.cursor()
     cursor.execute("SELECT p.shares, p.entry_price, s.current_price FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.ticker=%s AND p.portfolio_type=%s", (username, ticker, ptype))
     row = cursor.fetchone()
     if row:
@@ -289,8 +271,7 @@ def deactivate_stock(username, ticker, ptype):
             final_pl = (float(curr) - float(entry)) * float(shares)
             cursor.execute("UPDATE user_portfolio SET is_active=FALSE, realized_pl=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (final_pl, username, ticker, ptype))
         else: cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
 def add_ticker_to_db(username, ticker, shares, price, ptype):
     conn = get_connection(); cursor = conn.cursor()
@@ -481,6 +462,18 @@ elif tab == "portfolio":
     for r in port: 
         if r['ticker'] in dm: render_portfolio_row(r, dm[r['ticker']], token)
 
+elif tab == "scanner":
+    st.markdown("### Scanner")
+    port = get_portfolio_details(user['username'], mode)
+    dm = get_cached_data_map([r['ticker'] for r in port])
+    if dm:
+        st.markdown("**📉 Oversold (RSI < 40)**")
+        for t, d in dm.items(): 
+            if d['rsi'] and float(d['rsi']) < 40: render_simple_card(d, token)
+        st.markdown("**📅 Earnings Soon**")
+        for t, d in dm.items():
+            if int(d.get('days_to_earnings', 999)) < 14: render_simple_card(d, token)
+
 elif tab == "alerts":
     st.markdown("### Volatility Alerts")
     with st.expander("New Alert", expanded=True):
@@ -498,18 +491,6 @@ elif tab == "alerts":
         bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"; border = "#ef4444" if a['is_triggered'] else "#2d3748"
         st.markdown(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;"><div><div style="font-weight:bold; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div></div></div>""", unsafe_allow_html=True)
         if st.button("Clear", key=f"del_al_{a['id']}"): delete_alert(a['id']); st.rerun()
-
-elif tab == "scanner":
-    st.markdown("### Scanner")
-    port = get_portfolio_details(user['username'], mode)
-    dm = get_cached_data_map([r['ticker'] for r in port])
-    if dm:
-        st.markdown("**📉 Oversold (RSI < 40)**")
-        for t, d in dm.items(): 
-            if d['rsi'] and float(d['rsi']) < 40: render_simple_card(d, token)
-        st.markdown("**📅 Earnings Soon**")
-        for t, d in dm.items():
-            if int(d.get('days_to_earnings', 999)) < 14: render_simple_card(d, token)
 
 elif tab == "settings":
     st.markdown("### Settings")
