@@ -7,6 +7,7 @@ import os
 import pandas as pd
 import pytz
 import json
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 # =========================================================
@@ -138,31 +139,12 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations (EXPANDED TO PREVENT SYNTAX ERRORS)
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except:
-            pass
+        # Safe Migrations
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
 
         conn.close()
     except Exception as e:
@@ -203,20 +185,64 @@ def update_user_settings(username, display_name, email, new_pin=None):
     except: return False
 
 # --- Data Functions ---
-def get_ai_analysis(ticker, headlines, current_data=None):
-    if OPENAI_KEY and headlines:
+def get_news_data(ticker):
+    # DUAL STRATEGY: Try YFinance first, then fallback to direct RSS
+    news_results = []
+    
+    # 1. YFinance Method
+    try:
+        stock = yf.Ticker(ticker)
+        raw_news = stock.news
+        if raw_news:
+            for article in raw_news[:3]:
+                title = article.get('title', article.get('headline', ''))
+                if not title: continue
+                link = article.get('link', '#')
+                pub = article.get('publisher', 'Yahoo Finance')
+                ts = article.get('providerPublishTime', 0)
+                time_str = "Today"
+                if ts:
+                    dt = datetime.fromtimestamp(ts)
+                    time_str = dt.strftime("%Y-%m-%d")
+                news_results.append({'title': title, 'link': link, 'pub': pub, 'time': time_str})
+    except: pass
+    
+    # 2. RSS Fallback (If YFinance fails or returns empty)
+    if len(news_results) == 0:
         try:
-            prompt = f"Analyze news for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
+            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            resp = requests.get(url, headers=headers, timeout=4)
+            if resp.status_code == 200:
+                root = ET.fromstring(resp.content)
+                for item in root.findall('.//item')[:3]:
+                    title = item.find('title').text
+                    link = item.find('link').text
+                    pub = "Yahoo RSS"
+                    news_results.append({'title': title, 'link': link, 'pub': pub, 'time': "Recent"})
+        except: pass
+        
+    return news_results
+
+def get_ai_analysis(ticker, headlines, current_data=None):
+    # Only call AI if we actually found news
+    if OPENAI_KEY and headlines and len(headlines) > 10:
+        try:
+            prompt = f"Analyze these headlines for {ticker}: {headlines}. Return valid JSON with two fields: 'summary' (max 20 words, concise) and 'score' (0-100 sentiment). JSON ONLY."
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
             data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=10)
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=8)
+            
             if response.status_code == 200:
                 content = response.json()['choices'][0]['message']['content']
+                # Clean markdown code blocks if present
                 if "```" in content: content = content.split("```")[1].replace("json", "").strip()
                 parsed = json.loads(content)
                 return parsed.get('summary'), parsed.get('score'), "AI"
-        except: pass
+        except: 
+            pass # Fall through to technical fallback
 
+    # Technical Fallback (If no news or AI fails)
     if current_data:
         rsi = float(current_data.get('rsi') or 50)
         trend = current_data.get('trend_status', 'NEUTRAL')
@@ -224,23 +250,8 @@ def get_ai_analysis(ticker, headlines, current_data=None):
         elif rsi < 30: return "Technical: Oversold (RSI < 30). Potential bounce.", 80, "TECH"
         elif trend == "UPTREND": return "Technical: Strong Uptrend detected.", 75, "TECH"
         return "Market sentiment is neutral. Monitor volume.", 50, "TECH"
+            
     return "No Data Available", 50, "NONE"
-
-def get_news_data(ticker):
-    news_results = []
-    try:
-        stock = yf.Ticker(ticker)
-        raw_news = stock.news
-        if raw_news:
-            for article in raw_news[:3]:
-                title = article.get('title', article.get('headline', ''))
-                if not title or ticker not in title: continue
-                link = article.get('link', '#')
-                pub = article.get('publisher', 'Yahoo Finance')
-                time_str = "Today"
-                news_results.append({'title': title, 'link': link, 'pub': pub, 'time': time_str})
-    except: pass
-    return news_results
 
 def calculate_risk(row, ai_score=None):
     s = 50; reasons = []
@@ -334,10 +345,12 @@ def update_stock_data(tickers, username):
 
 def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL ORDER BY ABS(day_change) DESC LIMIT 10")
+    # 1. Try strict signal
+    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 10")
     rows = cursor.fetchall()
     filtered = [r for r in rows if "GC" not in r['ticker'] and "SI" not in r['ticker']][:3]
     
+    # 2. Fallback to volatility if empty
     if not filtered:
         cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
         rows = cursor.fetchall()
@@ -609,9 +622,13 @@ if "ticker" in st.query_params:
         del st.query_params["ticker"]; st.rerun()
         
     if stock:
+        # Fetch News (Direct RSS + YF Backup)
         news_items = get_news_data(ticker)
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
+        
+        # Get AI Analysis (or Technical Fallback)
         ai_summary, ai_score, ai_source = get_ai_analysis(ticker, headlines_txt, stock)
+        
         s, l, c, _, r = calculate_risk(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
