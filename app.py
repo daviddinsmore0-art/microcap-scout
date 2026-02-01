@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 # 1. CONFIG & GLOBALS
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# --- MARKET UNIVERSE (Stocks Only - No Gold/Silver) ---
+# --- MARKET UNIVERSE (Stocks Only - No Gold/Silver/Crypto) ---
 MARKET_UNIVERSE = [
     "TSLA", "NVDA", "AMD", "AAPL", "PLTR", "SOFI", "MARA", "GME", "AMC", "COIN",
     "MSFT", "GOOG", "AMZN", "META", "NFLX", "RIVN", "LCID", "NIO", "DKNG", "HOOD",
@@ -51,61 +51,18 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0")
-        except:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except:
-            pass
-            
-        try:
-            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except:
-            pass
+        # --- SAFE MIGRATIONS (Expanded) ---
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN email VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN market_cap BIGINT DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN eps DECIMAL(10,2) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN shares DECIMAL(10,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN entry_price DECIMAL(20,4) DEFAULT 0"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
+        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
         
         conn.close()
     except Exception as e:
@@ -114,49 +71,83 @@ def init_db():
 # 2. DATA ENGINE
 def get_ai_analysis(ticker, headlines, current_data=None):
     """
-    Tries OpenAI first. If it fails (key missing/timeout), falls back to 
-    'Technical Insight' so the card ALWAYS appears.
+    1. Tries OpenAI (gpt-4o-mini) with 10s timeout.
+    2. Falls back to Technical Insight if AI fails.
     """
     # 1. Attempt OpenAI
     if OPENAI_KEY and headlines:
         try:
-            prompt = f"Analyze headlines for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
-            data = {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": prompt}], "temperature": 0.5}
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=3) # Short timeout
+            prompt = f"""
+            Analyze these news headlines for {ticker}:
+            {headlines}
+            
+            Strictly ignore headlines NOT about {ticker}.
+            Provide a concise, data-driven summary (max 1 sentence).
+            Rate sentiment 0 (Bearish) to 100 (Bullish).
+            
+            Return JSON: {{"summary": "...", "score": 50}}
+            """
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {OPENAI_KEY}"
+            }
+            # Using gpt-4o-mini for speed and intelligence
+            data = {
+                "model": "gpt-4o-mini", 
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3
+            }
+            
+            # Increased timeout to 10 seconds to prevent "disappearing card"
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=10)
+            
             if response.status_code == 200:
                 content = response.json()['choices'][0]['message']['content']
-                if "```" in content: content = content.split("```")[1].replace("json", "").strip()
+                if "```" in content: 
+                    content = content.split("```")[1].replace("json", "").strip()
                 parsed = json.loads(content)
                 return parsed.get('summary'), parsed.get('score'), "AI"
         except:
-            pass
+            pass # Fail silently to fallback
 
-    # 2. Fallback: Technical Analysis (If AI fails)
+    # 2. Fallback: Technical Analysis
     if current_data:
         rsi = float(current_data.get('rsi', 50))
         trend = current_data.get('trend_status', 'NEUTRAL')
         
+        summary = "Market sentiment is neutral. Monitor volume."
+        score = 50
+        
         if rsi > 70:
-            return "Technical: Stock is Overbought (RSI > 70). Risk of pullback high.", 30, "TECH"
+            summary = "Technical: Stock is Overbought (RSI > 70). Risk of pullback."
+            score = 30
         elif rsi < 30:
-            return "Technical: Stock is Oversold (RSI < 30). Potential bounce area.", 80, "TECH"
+            summary = "Technical: Stock is Oversold (RSI < 30). Potential bounce area."
+            score = 80
         elif trend == "UPTREND":
-            return "Technical: Strong Uptrend detected. Bullish momentum active.", 75, "TECH"
-        else:
-            return "Technical: Market sentiment is neutral. Monitor volume for breakout.", 50, "TECH"
+            summary = "Technical: Strong Uptrend detected with bullish momentum."
+            score = 75
+        elif trend == "DOWNTREND":
+            summary = "Technical: Downtrend detected. Caution advised."
+            score = 25
+            
+        return summary, score, "TECH"
             
     return None, 50, "NONE"
 
 def get_news_data(ticker):
     news_results = []
+    # 1. YFinance
     try:
         stock = yf.Ticker(ticker)
         raw_news = stock.news
         if raw_news:
-            for article in raw_news[:2]:
+            for article in raw_news[:3]: # Get top 3
                 title = article.get('title', article.get('headline', ''))
-                if not title: continue
+                # STRICT FILTER: Ticker must be in title to avoid "Broadcom" noise
+                if not title or ticker not in title: continue 
+                
                 link = article.get('link', '#')
                 publisher = article.get('publisher', 'Yahoo Finance')
                 ts = article.get('providerPublishTime', 0)
@@ -170,19 +161,24 @@ def get_news_data(ticker):
                 news_results.append({'title': title, 'link': link, 'pub': publisher, 'time': time_str})
     except: pass
 
-    if not news_results:
+    # 2. RSS Backup
+    if len(news_results) < 2:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
             resp = requests.get(url, headers=headers, timeout=4)
             if resp.status_code == 200:
                 root = ET.fromstring(resp.content)
-                for item in root.findall('.//item')[:2]:
+                for item in root.findall('.//item')[:3]:
                     title = item.find('title').text
+                    # STRICT FILTER
+                    if not title or ticker not in title: continue
+                    
                     link = item.find('link').text
                     if " - " in title: title = title.rsplit(" - ", 1)[0]
                     news_results.append({'title': title, 'link': link, 'pub': 'Yahoo RSS', 'time': 'Recent'})
         except: pass
+            
     return news_results
 
 def calculate_signal(df):
