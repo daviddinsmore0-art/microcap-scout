@@ -14,10 +14,7 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
 # --- AI CONFIGURATION ---
-# OPTION 1: Paste key here for testing (e.g. "sk-...")
-OPENAI_KEY = None 
-
-# OPTION 2: Load from secrets (Best practice)
+OPENAI_KEY = None
 if "openai" in st.secrets:
     OPENAI_KEY = st.secrets["openai"]["api_key"]
 
@@ -47,7 +44,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- SAFE MIGRATIONS (Expanded blocks to prevent SyntaxError) ---
+        # --- SAFE MIGRATIONS (Expanded to prevent SyntaxError) ---
         try:
             cursor.execute("ALTER TABLE user_profiles ADD COLUMN display_name VARCHAR(100)")
         except:
@@ -176,22 +173,27 @@ def get_news_data(ticker):
             if resp.status_code == 200:
                 root = ET.fromstring(resp.content)
                 for item in root.findall('.//item')[:2]:
-                    title = item.find('title').text
-                    link = item.find('link').text
-                    pub_date = item.find('pubDate').text
+                    title_node = item.find('title')
+                    link_node = item.find('link')
+                    pub_node = item.find('pubDate')
                     
-                    if " - " in title: title = title.rsplit(" - ", 1)[0]
-                    
-                    time_str = "Recent"
-                    try:
-                        dt = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
-                        diff = datetime.now() - dt
-                        if diff.days > 0: time_str = f"{diff.days}d ago"
-                        elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
-                        else: time_str = f"{diff.seconds//60}m ago"
-                    except: pass
+                    if title_node is not None and title_node.text:
+                        title = title_node.text
+                        link = link_node.text if link_node is not None else "#"
+                        
+                        if " - " in title: title = title.rsplit(" - ", 1)[0]
+                        
+                        time_str = "Recent"
+                        if pub_node is not None and pub_node.text:
+                            try:
+                                dt = datetime.strptime(pub_node.text, "%a, %d %b %Y %H:%M:%S %Z")
+                                diff = datetime.now() - dt
+                                if diff.days > 0: time_str = f"{diff.days}d ago"
+                                elif diff.seconds > 3600: time_str = f"{diff.seconds//3600}h ago"
+                                else: time_str = f"{diff.seconds//60}m ago"
+                            except: pass
 
-                    news_results.append({'title': title, 'link': link, 'pub': 'Yahoo RSS', 'time': time_str})
+                        news_results.append({'title': title, 'link': link, 'pub': 'Yahoo RSS', 'time': time_str})
         except: pass
             
     return news_results
