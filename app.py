@@ -163,14 +163,35 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # Safe Migrations
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE"); except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)"); except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)"); except: pass
+        # Safe Migrations (EXPANDED TO PREVENT SYNTAX ERRORS)
+        try: 
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
+        except: 
+            pass
+        try: 
+            cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
+        except: 
+            pass
 
         conn.close()
     except Exception as e:
@@ -205,18 +226,23 @@ def get_user_from_token(t):
 def update_user_settings(username, display_name, email, new_pin=None):
     try:
         conn = get_connection(); cursor = conn.cursor()
-        if new_pin: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
-        else: cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
+        if new_pin: 
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
+        else: 
+            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
         conn.commit(); conn.close(); return True
     except: return False
 
 # --- Data Functions ---
 def get_news_data(ticker):
+    # DIRECT RSS FETCH (More Reliable than YF)
     news_results = []
     try:
+        # Using a standard browser User-Agent is critical
         url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         resp = requests.get(url, headers=headers, timeout=5)
+        
         if resp.status_code == 200:
             root = ET.fromstring(resp.content)
             for item in root.findall('.//item')[:4]:
@@ -224,14 +250,23 @@ def get_news_data(ticker):
                 link = item.find('link').text if item.find('link') is not None else "#"
                 pub = "Yahoo Finance"
                 news_results.append({'title': title, 'link': link, 'pub': pub, 'time': "Recent"})
-    except: pass
+    except:
+        pass
     
+    # Fallback to YFinance object if RSS fails
     if not news_results:
         try:
             stock = yf.Ticker(ticker)
             for n in stock.news[:3]:
-                news_results.append({'title': n.get('title', 'News'), 'link': n.get('link', '#'), 'pub': n.get('publisher', 'Yahoo'), 'time': 'Recent'})
-        except: pass
+                news_results.append({
+                    'title': n.get('title', 'News'),
+                    'link': n.get('link', '#'),
+                    'pub': n.get('publisher', 'Yahoo'),
+                    'time': 'Recent'
+                })
+        except:
+            pass
+            
     return news_results
 
 def get_ai_analysis(ticker, headlines, current_data=None):
@@ -349,14 +384,18 @@ def update_stock_data(tickers, username):
 
 def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    # 1. Try strict signal
     cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IS NOT NULL AND signal_tag != 'None' ORDER BY ABS(day_change) DESC LIMIT 10")
     rows = cursor.fetchall()
     filtered = [r for r in rows if "GC" not in r['ticker'] and "SI" not in r['ticker']][:3]
+    
+    # 2. Fallback to volatility if empty
     if not filtered:
         cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
         rows = cursor.fetchall()
         filtered = [r for r in rows if "GC" not in r['ticker'] and "SI" not in r['ticker']][:3]
         for r in filtered: r['signal_tag'] = "High Volatility" 
+        
     conn.close()
     return filtered
 
@@ -472,11 +511,15 @@ def add_alert(username, ticker, condition, price):
         rows = cursor.fetchall()
         for r in rows:
             t = r[0]
-            try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, t, condition, price))
-            except: pass
+            try: 
+                cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, t, condition, price))
+            except: 
+                pass
     else:
-        try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
-        except: pass
+        try: 
+            cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
+        except: 
+            pass
     conn.commit(); conn.close()
 
 def delete_alert(alert_id):
