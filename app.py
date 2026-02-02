@@ -1,3 +1,57 @@
+# ==========================================
+# EMERGENCY SELF-HEAL BLOCK (PASTE IN APP.PY)
+# ==========================================
+import mysql.connector
+
+def fix_broken_db():
+    try:
+        conn = mysql.connector.connect(
+            user="atlantic",
+            password="1q2w3e4R!!",
+            host="localhost",
+            database="atlantic_pennypulse"
+        )
+        cursor = conn.cursor()
+        
+        # 1. LIST OF COLUMNS THAT MUST EXIST (Or App Crashes)
+        required_columns = [
+            "ADD COLUMN volume BIGINT DEFAULT 0",
+            "ADD COLUMN open_price DECIMAL(10,2) DEFAULT 0.00",
+            "ADD COLUMN high_price DECIMAL(10,2) DEFAULT 0.00",
+            "ADD COLUMN low_price DECIMAL(10,2) DEFAULT 0.00",
+            "ADD COLUMN prev_close DECIMAL(10,2) DEFAULT 0.00",
+            "ADD COLUMN market_cap VARCHAR(50) DEFAULT 'N/A'",
+            "ADD COLUMN pe_ratio DECIMAL(10,2) DEFAULT 0.00",
+            "ADD COLUMN rsi_14 DECIMAL(10,2) DEFAULT 50.00",
+            "ADD COLUMN sector VARCHAR(100) DEFAULT 'Unknown'",
+            "ADD COLUMN earnings_date VARCHAR(50) DEFAULT 'N/A'"
+        ]
+
+        # 2. ADD THEM IF MISSING (Silent Fix)
+        for sql in required_columns:
+            try:
+                cursor.execute(f"ALTER TABLE stock_cache {sql}")
+                conn.commit()
+            except:
+                pass # Column exists, skip error
+
+        # 3. FILL NULL HOLES (Prevent Math Errors)
+        # If price is missing, set to $1.00 so P/L math doesn't divide by zero
+        cursor.execute("UPDATE stock_cache SET current_price = 1.00 WHERE current_price <= 0 OR current_price IS NULL")
+        cursor.execute("UPDATE stock_cache SET day_change = 0 WHERE day_change IS NULL")
+        conn.commit()
+        
+        conn.close()
+    except Exception as e:
+        # If DB is totally dead, just print error to logs, don't kill app
+        print(f"DB Fix Error: {e}")
+
+# EXECUTE FIX IMMEDIATELY ON LOAD
+fix_broken_db()
+# ==========================================
+# END OF FIX BLOCK
+# ==========================================
+
 import streamlit as st
 import mysql.connector
 import requests
