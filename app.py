@@ -12,7 +12,7 @@ import streamlit.components.v1 as components
 from datetime import datetime, timedelta
 
 # =========================================================
-# 1. CONFIGURATION & CSS (MUST BE FIRST)
+# 1. CONFIGURATION & CSS (SURGICALLY UPDATED)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
@@ -35,7 +35,7 @@ st.markdown("""
         }
         div[data-baseweb="input"] { background-color: transparent !important; border: none; }
         
-        /* Dropdowns & Select Boxes (FIXED) */
+        /* Dropdowns & Select Boxes */
         div[data-baseweb="select"] > div { 
             background-color: #1e293b !important; 
             color: white !important; 
@@ -46,8 +46,8 @@ st.markdown("""
         li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
         div[data-baseweb="popover"] { background-color: #1e293b !important; }
         
-        /* Cards WITH CLICK EFFECT ADDED */
-        .card { 
+        /* Cards WITH CLICK EFFECT (FIXED) */
+        .card, .scrolling-card, .clickable-card { 
             background-color: #1a1f2b; 
             border-radius: 16px; 
             padding: 20px; 
@@ -56,7 +56,8 @@ st.markdown("""
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
             transition: transform 0.1s ease, border-color 0.1s ease;
         }
-        .card:active {
+        /* Dashboard Button Effect */
+        .card:active, .scrolling-card:active, .clickable-card:active {
             transform: scale(0.97);
             border-color: #4ade80 !important;
         }
@@ -501,7 +502,7 @@ def render_compact_watchlist(rows_list, current_token):
         signal = row.get('signal_tag') or "Active"
         risk, label, color, badge, reasons = calculate_risk(row)
         link = f"?token={current_token}&ticker={row['ticker']}"
-        h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
+        h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div class='scrolling-card' style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
@@ -539,7 +540,13 @@ components.html("""<script>setTimeout(function(){window.parent.location.reload()
 
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
-    with col2: st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+    with col2: 
+        # LOGO ON LOGIN PAGE FIX
+        if os.path.exists("logo.png"):
+            st.image("logo.png", use_container_width=True)
+        else:
+            st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+            
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
         with st.form("login_form"):
@@ -610,7 +617,7 @@ if "ticker" in st.query_params:
             if type=="rsi": return "pill-med" if val > 70 or val < 30 else "pill-low", "EXTREME" if val > 70 or val < 30 else "NORMAL"
             return "pill-low", "LOW"
         
-        # SURGICAL FIX 1: HANDLE EMPTY RSI/FACTORS (PREVENT CRASH)
+        # SURGICAL FIX: RSI ERROR PREVENTION
         v_cls, v_txt = get_pill(float(stock.get('volatility', 0)), "vol")
         st.markdown(f"<div class='risk-row'><div class='risk-label'>Volatility</div><div class='risk-pill {v_cls}'>{v_txt}</div></div>", unsafe_allow_html=True)
         r_cls, r_txt = get_pill(float(stock.get('rsi', 0)), "rsi")
