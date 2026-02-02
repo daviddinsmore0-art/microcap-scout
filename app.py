@@ -32,7 +32,7 @@ st.markdown("""
         }
         li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
         
-        /* THE BUTTON EFFECT */
+        /* UNIVERSAL BUTTON EFFECT */
         .card, .scrolling-card, .clickable-card { 
             background-color: #1a1f2b; border-radius: 16px; padding: 20px; 
             margin-bottom: 10px; border: 1px solid #2d3748; box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
@@ -139,6 +139,34 @@ def get_user_from_token(t):
     cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
     row = cursor.fetchone(); conn.close(); return row
 
+def get_news_data(ticker):
+    news = []
+    try:
+        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.content)
+            for item in root.findall('.//item')[:2]:
+                news.append({'title': item.find('title').text, 'link': item.find('link').text, 'pub': "Yahoo", 'time': "Recent"})
+    except: pass
+    return news
+
+def get_ai_analysis(ticker, headlines, current_data=None):
+    if OPENAI_KEY and headlines and len(headlines) > 10:
+        try:
+            prompt = f"Analyze these headlines for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
+            data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=10)
+            if response.status_code == 200:
+                content = response.json()['choices'][0]['message']['content']
+                if "```" in content: content = content.split("```")[1].replace("json", "").strip()
+                parsed = json.loads(content)
+                return parsed.get('summary'), parsed.get('score'), "AI"
+        except: pass
+    return "Market sentiment is neutral.", 50, "TECH"
+
 def calculate_risk(row, ai_score=None):
     s = 50
     rsi = float(row.get('rsi') or 50)
@@ -150,6 +178,11 @@ def calculate_risk(row, ai_score=None):
     color = "#4ade80" if final < 35 else "#fbbf24" if final < 65 else "#ef4444"
     label = "LOW" if final < 35 else "MEDIUM" if final < 65 else "HIGH"
     return final, label, color, "badge", []
+
+def get_watchlist_candidates():
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
+    rows = cursor.fetchall(); conn.close(); return rows[:3]
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -168,10 +201,60 @@ def get_portfolio_details(username, ptype):
     cursor.execute("SELECT * FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=TRUE", (username, ptype))
     rows = cursor.fetchall(); conn.close(); return rows
 
-def get_watchlist_candidates():
+def get_portfolio_summary(username, ptype):
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
-    rows = cursor.fetchall(); conn.close(); return rows[:3]
+    cursor.execute("SELECT SUM(realized_pl) as realized FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=FALSE", (username, ptype))
+    realized = float(cursor.fetchone()['realized'] or 0)
+    cursor.execute("SELECT p.shares, p.entry_price, s.current_price, s.day_change FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.portfolio_type=%s AND p.is_active=TRUE", (username, ptype))
+    active_rows = cursor.fetchall(); conn.close()
+    unrealized = 0.0; day_pl = 0.0; cost_basis = 0.0; curr_val = 0.0
+    for r in active_rows:
+        if r['current_price']:
+            c = float(r['current_price']); e = float(r['entry_price']); s = float(r['shares'])
+            unrealized += (c - e) * s; cost_basis += (e * s); curr_val += (c * s)
+            pct = float(r['day_change'] or 0); prev = c / (1 + (pct/100)); day_pl += (c - prev) * s
+    total_pl = realized + unrealized
+    total_pct = (total_pl / cost_basis) * 100 if cost_basis > 0 else 0
+    day_pct = (day_pl / (curr_val - day_pl)) * 100 if (curr_val - day_pl) > 0 else 0
+    return total_pl, total_pct, day_pl, day_pct
+
+def execute_paper_trade(username, ticker, action, qty, price):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
+    bal = float(cursor.fetchone()[0]); cost = float(qty) * float(price)
+    if action == "BUY" and bal >= cost:
+        cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance - %s WHERE username=%s", (cost, username))
+        cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s, %s, %s, %s, 'PAPER', 1)", (username, ticker, qty, price))
+        conn.commit(); conn.close(); return True, "Trade Success"
+    conn.close(); return False, "Insufficient Balance"
+
+def deactivate_stock(username, ticker, ptype):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("SELECT shares, entry_price FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
+    row = cursor.fetchone()
+    if row: cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
+    conn.commit(); conn.close()
+
+def add_ticker_to_db(username, ticker, shares, price, ptype):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)", (username, ticker, shares, price, ptype))
+    conn.commit(); conn.close()
+
+def update_ticker_in_db(username, ticker, shares, price, ptype):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
+    conn.commit(); conn.close()
+
+def add_alert(username, ticker, condition, price):
+    conn = get_connection(); cursor = conn.cursor()
+    try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
+    except: pass
+    conn.commit(); conn.close()
+
+def get_user_alerts(username):
+    conn = get_connection(); cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY created_at DESC", (username,))
+    rows = cursor.fetchall(); conn.close(); return rows
 
 # --- UI COMPONENTS ---
 
@@ -186,8 +269,16 @@ def create_gauge_html(score, label, color, size="big"):
     vb = "0 0 200 120"
     fill = (score / 100) * (3.14159 * rad)
     header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
-    svg = f"""<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g"><stop offset="0%" stop-color="#4ade80"/><stop offset="50%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>"""
+    svg = f"""<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="80" font-family="sans-serif" font-size="38" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>"""
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>'
+
+def render_portfolio_row(row, data, token):
+    risk, label, color, _, _ = calculate_risk(data)
+    p = float(data['current_price']); ch = float(data['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
+    s = float(row['shares']); e = float(row['entry_price'])
+    pl_html = f"<div style='color:{'#4ade80' if p>=e else '#ef4444'}; font-size:0.75rem;'>{int(s)} @ ${e:.2f} • ${ (p-e)*s:,.2f} ({((p-e)/e)*100 if e>0 else 0:.1f}%)</div>"
+    html = f'<a href="?token={token}&ticker={row["ticker"]}" target="_self" style="text-decoration:none;"><div class="card" style="display:flex; justify-content:space-between; align-items:center; border-left:4px solid {color};"><div><div style="font-weight:bold; color:white;">{row["ticker"]}</div>{pl_html}</div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{ch:.2f}%</div></div></div></a>'
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
     h = '<div class="scrolling-wrapper">'
@@ -212,6 +303,7 @@ def render_navbar(token, mode):
 # 3. EXECUTION
 # =========================================================
 init_db()
+components.html("""<script>setTimeout(function(){window.parent.location.reload();}, 120000);</script>""", height=0)
 
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
@@ -269,6 +361,14 @@ if "ticker" in st.query_params:
     st.stop()
 
 if tab == "home":
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT content FROM daily_briefing WHERE id=1")
+        row = cursor.fetchone(); conn.close()
+        if row: st.markdown(f'<div class="card" style="border-left:4px solid #facc15;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold;">AI BRIEFING</div>{row[0]}</div>', unsafe_allow_html=True)
+    except: pass
+
+    st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
     if portfolio:
         ticks = [r['ticker'] for r in portfolio]; d_map = get_cached_data_map(ticks)
@@ -281,5 +381,17 @@ if tab == "home":
             st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:50%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem;">RISKIEST</div><div style="color:white; font-weight:bold;">{risk_t}</div></div><div style="text-align:center; width:50%;"><div style="color:#94a3b8; font-size:0.6rem;">VOLATILE</div><div style="color:white; font-weight:bold;">{vol_t}</div></div></div>""", unsafe_allow_html=True)
             render_horizontal_grid(d_map, token)
     render_compact_watchlist(get_watchlist_candidates(), token)
+
+elif tab == "portfolio":
+    st.markdown(f"### My Stocks ({current_mode})")
+    total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
+    c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
+    st.markdown(f'<div style="display:flex; gap:10px; margin-bottom:20px;"><div class="metric-box" style="flex:1;"><div class="metric-label">Total P/L</div><div class="metric-value" style="color:{c_pl}">${total_pl:,.2f}</div><div class="metric-sub" style="color:{c_pl}">({total_pct:+.2f}%)</div></div><div class="metric-box" style="flex:1;"><div class="metric-label">Today</div><div class="metric-value">${day_pl:,.2f}</div></div></div>', unsafe_allow_html=True)
+    
+    port_rows = get_portfolio_details(user['username'], current_mode)
+    if port_rows:
+        market_data = get_cached_data_map([r['ticker'] for r in port_rows])
+        for row in port_rows:
+            if row['ticker'] in market_data: render_portfolio_row(row, market_data[row['ticker']], token)
 
 render_navbar(token, current_mode)
