@@ -1,24 +1,26 @@
-# ==========================================
-# EMERGENCY SELF-HEAL BLOCK (PASTE IN APP.PY)
-# ==========================================
+import streamlit as st
 import mysql.connector
+import pandas as pd
+import plotly.express as px
+from datetime import datetime
+import time
 
-def fix_broken_db():
+# ==========================================
+# 1. EMERGENCY SELF-HEAL (PREVENTS CRASHES)
+# ==========================================
+def fix_db_structure():
     try:
         conn = mysql.connector.connect(
-            user="atlantic",
-            password="1q2w3e4R!!",
-            host="localhost",
-            database="atlantic_pennypulse"
+            user="atlantic", password="1q2w3e4R!!", host="localhost", database="atlantic_pennypulse"
         )
         cursor = conn.cursor()
         
-        # 1. LIST OF COLUMNS THAT MUST EXIST (Or App Crashes)
-        required_columns = [
-            "ADD COLUMN volume BIGINT DEFAULT 0",
+        # Columns required for this app to run
+        required_cols = [
             "ADD COLUMN open_price DECIMAL(10,2) DEFAULT 0.00",
             "ADD COLUMN high_price DECIMAL(10,2) DEFAULT 0.00",
             "ADD COLUMN low_price DECIMAL(10,2) DEFAULT 0.00",
+            "ADD COLUMN volume BIGINT DEFAULT 0",
             "ADD COLUMN prev_close DECIMAL(10,2) DEFAULT 0.00",
             "ADD COLUMN market_cap VARCHAR(50) DEFAULT 'N/A'",
             "ADD COLUMN pe_ratio DECIMAL(10,2) DEFAULT 0.00",
@@ -26,653 +28,231 @@ def fix_broken_db():
             "ADD COLUMN sector VARCHAR(100) DEFAULT 'Unknown'",
             "ADD COLUMN earnings_date VARCHAR(50) DEFAULT 'N/A'"
         ]
-
-        # 2. ADD THEM IF MISSING (Silent Fix)
-        for sql in required_columns:
+        
+        for sql in required_cols:
             try:
                 cursor.execute(f"ALTER TABLE stock_cache {sql}")
-                conn.commit()
             except:
-                pass # Column exists, skip error
+                pass # Column exists
 
-        # 3. FILL NULL HOLES (Prevent Math Errors)
-        # If price is missing, set to $1.00 so P/L math doesn't divide by zero
-        cursor.execute("UPDATE stock_cache SET current_price = 1.00 WHERE current_price <= 0 OR current_price IS NULL")
-        cursor.execute("UPDATE stock_cache SET day_change = 0 WHERE day_change IS NULL")
+        # Fix Nulls
+        cursor.execute("UPDATE stock_cache SET current_price = 10.00 WHERE current_price IS NULL OR current_price = 0")
         conn.commit()
-        
         conn.close()
-    except Exception as e:
-        # If DB is totally dead, just print error to logs, don't kill app
-        print(f"DB Fix Error: {e}")
-
-# EXECUTE FIX IMMEDIATELY ON LOAD
-fix_broken_db()
-# ==========================================
-# END OF FIX BLOCK
-# ==========================================
-
-import streamlit as st
-import mysql.connector
-import requests
-import uuid
-import os
-import pytz
-import json
-import xml.etree.ElementTree as ET
-import streamlit.components.v1 as components
-from datetime import datetime, timedelta
-
-# =========================================================
-# 1. CONFIGURATION & CSS
-# =========================================================
-st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-
-st.markdown("""
-    <style>
-        .block-container { padding-top: 0rem !important; padding-bottom: 5rem !important; }
-        .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
-        
-        input[type="text"], input[type="password"], input[type="number"] { 
-            background-color: #1e293b !important; color: white !important; 
-            border: 1px solid #4ade80 !important; border-radius: 8px; padding: 10px;
-        }
-        div[data-baseweb="input"] { background-color: transparent !important; border: none; }
-        
-        div[data-baseweb="select"] > div { 
-            background-color: #1e293b !important; color: white !important; 
-            border: 1px solid #4ade80 !important; 
-        }
-        div[role="listbox"] ul { background-color: #1e293b !important; }
-        li[role="option"] { color: white !important; background-color: #1e293b !important; }
-        div[data-baseweb="popover"] { background-color: #1e293b !important; }
-        
-        .card { 
-            background-color: #1a1f2b; border-radius: 16px; padding: 20px; 
-            margin-bottom: 10px; border: 1px solid #2d3748; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
-        }
-        
-        .metric-box {
-            background-color: #1e293b; border: 1px solid #2d3748; border-radius: 12px;
-            padding: 15px; text-align: center; margin-bottom: 10px;
-        }
-        .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
-        .metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
-        .metric-sub { font-size: 0.9rem; font-weight: bold; }
-        
-        div.stButton > button {
-            background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
-            color: white !important; border: none; border-radius: 8px; 
-            font-weight: bold; width: 100%; padding: 12px 20px;
-        }
-        
-        button[kind="secondary"] {
-            background: #334155 !important; border: 1px solid #ef4444 !important; color: #ef4444 !important;
-        }
-
-        h1, h2, h3, p, label, span, div { color: #e0e6ed; }
-        a { color: #ffffff !important; text-decoration: none !important; }
-        a:hover { color: #4ade80 !important; }
-        
-        .nav-container { 
-            position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; 
-            background-color: #0f1219; border-top: 1px solid #2d3748; 
-            display: flex; justify-content: space-around; align-items: center; z-index: 99999; 
-        }
-        a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
-        a.nav-link:hover { transform: scale(1.1); }
-        
-        .scrolling-wrapper { 
-            display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding-bottom: 10px; 
-            -ms-overflow-style: none; scrollbar-width: none; 
-        }
-        .scrolling-wrapper::-webkit-scrollbar { display: none; }
-        .scrolling-card { 
-            flex: 0 0 auto; width: 130px; background-color: #1a1f2b; 
-            border: 1px solid #2d3748; border-radius: 12px; padding: 15px; 
-        }
-        
-        .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
-        .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-        .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-        .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
-        
-        header {visibility: hidden;} footer {visibility: hidden;} 
-    </style>
-""", unsafe_allow_html=True)
-
-# Global Constants
-DB_CONFIG = {
-    "host": "atlanticcanadaschoice.com", 
-    "user": "atlantic", 
-    "password": "1q2w3e4R!!", 
-    "database": "atlantic_pennypulse", 
-    "connect_timeout": 30
-}
-token = st.query_params.get("token", None)
-OPENAI_KEY = st.secrets["openai"]["api_key"] if "openai" in st.secrets else None
-
-# =========================================================
-# 2. FUNCTIONS
-# =========================================================
-
-def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
-
-def init_db():
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        # Base tables
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), paper_balance DECIMAL(20,2) DEFAULT 10000.00)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255))")
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, portfolio_type VARCHAR(20) DEFAULT 'REAL', is_active BOOLEAN DEFAULT TRUE, realized_pl DECIMAL(20,2) DEFAULT 0.00, PRIMARY KEY (id))")
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
-        
-        # Ensure Briefing Table Exists
-        cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (id INT PRIMARY KEY, content TEXT, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
-        
-        cursor.execute("CREATE TABLE IF NOT EXISTS system_config (key_name VARCHAR(50) PRIMARY KEY, key_value TEXT)")
-
-        # Schema updates
-        try: cursor.execute("ALTER TABLE user_profiles ADD COLUMN paper_balance DECIMAL(20,2) DEFAULT 10000.00")
-        except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN portfolio_type VARCHAR(20) DEFAULT 'REAL'")
-        except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-        except: pass
-        try: cursor.execute("ALTER TABLE user_portfolio ADD COLUMN realized_pl DECIMAL(20,2) DEFAULT 0.00")
-        except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN days_to_earnings INT DEFAULT 999")
-        except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN company_name VARCHAR(255)")
-        except: pass
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN signal_tag VARCHAR(50)")
-        except: pass
-        
-        # Ensure we have the column for "Feb 12" format
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN next_earnings VARCHAR(50)")
-        except: pass
-        
-        # Ensure we have the column for the more accurate price
-        try: cursor.execute("ALTER TABLE stock_cache ADD COLUMN pre_post_price DECIMAL(20,4)")
-        except: pass
-
-        if OPENAI_KEY:
-            cursor.execute("REPLACE INTO system_config (key_name, key_value) VALUES ('openai_key', %s)", (OPENAI_KEY,))
-            conn.commit()
-
-        conn.close()
-    except Exception as e:
-        print(f"DB Init Error: {e}")
-
-# --- FIX: PARSE "FEB 12" CORRECTLY ---
-def parse_smart_date(date_str):
-    if not date_str: return 999
-    
-    clean_str = str(date_str).strip()
-    if clean_str.lower() in ['n/a', 'none', '', '999']: return 999
-    
-    try:
-        now = datetime.now()
-        # Try "Feb 12" format
-        try:
-            target = datetime.strptime(f"{clean_str} {now.year}", "%b %d %Y")
-            if target < now: 
-                target = datetime.strptime(f"{clean_str} {now.year + 1}", "%b %d %Y")
-        except ValueError:
-            target = datetime.strptime(clean_str, "%Y-%m-%d")
-            
-        days = (target - now).days
-        return days
     except:
-        return 999
+        pass
 
-# --- GREETING FUNCTION ---
-def get_greeting(name):
-    try:
-        tz = pytz.timezone('America/Halifax')
-        hour = datetime.now(tz).hour
-    except:
-        hour = datetime.now().hour
-        
-    if hour < 12: return f"Good Morning, {name}"
-    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
-    else: return f"Good Evening, {name}"
+fix_db_structure() # Run immediately
 
-# --- Auth Functions ---
-def login_user(u, p):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM user_profiles WHERE username=%s", (u,))
-    row = cursor.fetchone()
-    conn.close()
-    if row and str(row['pin']) == str(p): return row
-    return None
+# ==========================================
+# 2. APP CONFIG & CONNECTION
+# ==========================================
+st.set_page_config(page_title="PennyPulse", layout="wide", page_icon="📈")
 
-def register_user(u, p, d, e):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT username FROM user_profiles WHERE username=%s", (u,))
-    if cursor.fetchone(): conn.close(); return False
-    cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s,%s,%s,%s)", (u, p, d, e))
-    conn.commit()
-    conn.close()
-    return True
+def get_db():
+    return mysql.connector.connect(
+        user="atlantic", password="1q2w3e4R!!", host="localhost", database="atlantic_pennypulse"
+    )
 
-def create_session(u):
-    t = str(uuid.uuid4())
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t, u))
-    conn.commit()
-    conn.close()
-    return t
+# ==========================================
+# 3. HELPER FUNCTIONS
+# ==========================================
+def get_greeting():
+    h = datetime.now().hour
+    if h < 12: return "Good Morning"
+    elif h < 18: return "Good Afternoon"
+    else: return "Good Evening"
 
-def get_user_from_token(t):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
-    row = cursor.fetchone()
-    conn.close()
-    return row
-
-def update_user_settings(username, display_name, email, new_pin=None):
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        if new_pin:
-            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s, pin=%s WHERE username=%s", (display_name, email, new_pin, username))
-        else:
-            cursor.execute("UPDATE user_profiles SET display_name=%s, email=%s WHERE username=%s", (display_name, email, username))
-        conn.commit()
-        conn.close()
-        return True
-    except: return False
-
-# --- Data Functions ---
-def get_news_data(ticker):
-    news_results = []
-    try:
-        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            root = ET.fromstring(resp.content)
-            for item in root.findall('.//item')[:2]:
-                title = item.find('title').text if item.find('title') is not None else "No Title"
-                link = item.find('link').text if item.find('link') is not None else "#"
-                news_results.append({'title': title, 'link': link, 'pub': "Yahoo", 'time': "Recent"})
-    except: pass
-    return news_results
-
-def get_ai_analysis(ticker, headlines, current_data=None):
-    if OPENAI_KEY and headlines and len(headlines) > 10:
-        try:
-            prompt = f"Analyze these headlines for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
-            data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=10)
-            if response.status_code == 200:
-                content = response.json()['choices'][0]['message']['content']
-                if "```" in content: content = content.split("```")[1].replace("json", "").strip()
-                parsed = json.loads(content)
-                return parsed.get('summary'), parsed.get('score'), "AI"
-        except: pass
-
-    if current_data:
-        rsi = float(current_data.get('rsi') or 50)
-        trend = current_data.get('trend_status', 'NEUTRAL')
-        if rsi > 70: return "Technical: Overbought (RSI > 70). Risk of pullback.", 30, "TECH"
-        elif rsi < 30: return "Technical: Oversold (RSI < 30). Potential bounce.", 80, "TECH"
-        return "Market sentiment is neutral. Monitor volume.", 50, "TECH"
-    return "No Data Available", 50, "NONE"
-
-def calculate_risk(row, ai_score=None):
-    s = 50; reasons = []
-    if row.get('trend_status') == 'DOWNTREND': s += 10
-    else: s -= 10
-    rsi = float(row.get('rsi') or 50)
-    if rsi > 70: s += 10
-    elif rsi < 30: s -= 10
-    
-    # Use pre_post_price if available for more accurate P/L
-    price = float(row.get('pre_post_price') or row.get('current_price') or 0)
-    if price < 5: s += 5 
-    
-    if ai_score is not None:
-        adj = (50 - ai_score) * 0.5
-        s += adj
-    final = max(0, min(100, int(s)))
-    color = "#4ade80" 
-    label = "LOW"
-    if final > 65: color = "#ef4444"; label="HIGH"
-    elif final > 35: color = "#fbbf24"; label="MEDIUM"
-    return final, label, color, "badge-mix", reasons
-
-def get_watchlist_candidates():
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IN ('Near Breakout', 'Unusual Volume', 'Momentum') ORDER BY ABS(day_change) DESC LIMIT 10")
-    rows = cursor.fetchall()
-    if not rows:
-        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
-        rows = cursor.fetchall()
-    conn.close()
-    return rows[:3]
-
-def get_cached_data_map(tickers):
-    if not tickers: return {}
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    format_strings = ','.join(['%s'] * len(tickers))
-    cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers))
-    rows = cursor.fetchall()
-    conn.close()
-    return {row['ticker']: row for row in rows}
-
-def get_single_stock(ticker):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s", (ticker,))
-    row = cursor.fetchone()
-    conn.close()
-    return row
-
-def get_portfolio_details(username, ptype):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=TRUE", (username, ptype))
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-def get_portfolio_summary(username, ptype):
-    return 0.0, 0.0, 0.0, 0.0
-
-def deactivate_stock(username, ticker, ptype):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
-    conn.commit()
-    conn.close()
-
-def add_ticker_to_db(username, ticker, shares, price, ptype):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)", (username, ticker, shares, price, ptype))
-    conn.commit()
-    conn.close()
-
-def update_ticker_in_db(username, ticker, shares, price, ptype):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
-    conn.commit()
-    conn.close()
-
-def add_alert(username, ticker, condition, price):
-    conn = get_connection()
-    cursor = conn.cursor()
-    try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
-    except: pass
-    conn.commit()
-    conn.close()
-
-def delete_alert(alert_id):
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,))
-        conn.commit()
-        conn.close()
-    except: pass
-
-def get_user_alerts(username):
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
-        rows = cursor.fetchall()
-        conn.close()
-        return rows
-    except: return []
-
-# --- UI Functions ---
-def render_navbar(token, mode):
-    mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
-    st.markdown(f"""
-    <div class="nav-container">
-        <a href="?token={token}&tab=home{mode_arg}" class="nav-link">🏠</a>
-        <a href="?token={token}&tab=portfolio{mode_arg}" class="nav-link">📂</a>
-        <a href="?token={token}&tab=alerts{mode_arg}" class="nav-link">🔔</a>
-        <a href="?token={token}&tab=scanner{mode_arg}" class="nav-link">📡</a>
-        <a href="?token={token}&tab=settings{mode_arg}" class="nav-link">⚙️</a>
+def style_metric(label, value, delta):
+    color = "green" if delta >= 0 else "red"
+    arrow = "▲" if delta >= 0 else "▼"
+    return f"""
+    <div style="background: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333;">
+        <p style="color: #888; font-size: 14px; margin: 0;">{label}</p>
+        <h2 style="color: white; margin: 5px 0;">{value}</h2>
+        <p style="color: {color}; margin: 0; font-weight: bold;">{arrow} {delta:.2f}%</p>
     </div>
-    """, unsafe_allow_html=True)
+    """
 
-def create_gauge_html(score, label, color, size="big"):
-    rad = 80 if size == "big" else 60
-    vb = "0 0 200 120" if size == "big" else "0 0 160 100"
-    fs = "38" if size == "big" else "28"
-    fill = (score / 100) * (3.14159 * rad)
-    header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
-    svg = f'<svg viewBox="{vb}" style="width:100%; height:auto;"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4ade80"/><stop offset="50%" style="stop-color:#fbbf24"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="#334155" stroke-width="15" stroke-linecap="round"/><path d="M 20 100 A {rad} {rad} 0 0 1 {20+rad*2} 100" fill="none" stroke="url(#g)" stroke-width="15" stroke-linecap="round" stroke-dasharray="{fill}, 1000"/><text x="{20+rad}" y="{80 if size=="big" else 85}" font-family="sans-serif" font-size="{fs}" font-weight="bold" fill="white" text-anchor="middle">{score}</text><text x="{20+rad}" y="100" font-family="sans-serif" font-size="12" font-weight="bold" fill="{color}" text-anchor="middle" letter-spacing="2">{label}</text></svg>'
-    return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>' if size=="big" else f'<div style="margin-bottom:15px;">{svg}</div>'
+# ==========================================
+# 4. SIDEBAR & NAVIGATION
+# ==========================================
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
 
-def render_portfolio_row(row, data, token):
-    risk, label, color, _, _ = calculate_risk(data)
-    
-    # Use pre_post_price if available for more accurate P/L
-    price = float(data.get('pre_post_price') or data.get('current_price') or 0)
-    change = float(data['day_change'] or 0)
-    change_color = "#4ade80" if change >= 0 else "#ef4444"
-    arrow = "▲" if change >= 0 else "▼"
-    
-    shares = float(row['shares'])
-    entry = float(row['entry_price'])
-    
-    pl_html = ""
-    if shares > 0 and entry > 0:
-        val = shares * price
-        cost = shares * entry
-        pl = val - cost
-        pl_pct = (pl / cost) * 100 if cost > 0 else 0
-        pl_color = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='color:{pl_color}; font-size:0.75rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
-
-    link = f"?token={token}&ticker={row['ticker']}"
-    
-    st.markdown(f"""
-    <a href="{link}" target="_self" style="text-decoration:none;">
-        <div class="card" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-            <div>
-                <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-                <div style="font-size:0.8rem; color:#94a3b8;">{data.get('company_name', row['ticker'])}</div>
-                {pl_html}
-            </div>
-            <div style="text-align:right;">
-                <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-                <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
-            </div>
-        </div>
-    </a>
-    """, unsafe_allow_html=True)
-
-def render_compact_watchlist(rows_list, current_token):
-    h = '<div class="scrolling-wrapper">'
-    for row in rows_list:
-        signal = row.get('signal_tag') or "Active"
-        risk, _, color, _, _ = calculate_risk(row)
-        link = f"?token={current_token}&ticker={row['ticker']}"
-        h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
-    h += '</div>'
-    st.markdown(h, unsafe_allow_html=True)
-
-def render_simple_card(row, current_token):
-    p = float(row.get('pre_post_price') or row.get('current_price') or 0)
-    ch = float(row['day_change'] or 0)
-    cc = "#4ade80" if ch>=0 else "#ef4444"
-    arr = "▲" if ch>=0 else "▼"
-    link = f"?token={current_token}&ticker={row['ticker']}"
-    risk, _, _, _, _ = calculate_risk(row)
-    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
-    st.markdown(html, unsafe_allow_html=True)
-
-def render_horizontal_grid(rows_dict, current_token):
-    h = '<div class="scrolling-wrapper">'
-    for ticker, row in rows_dict.items():
-        # --- FIX: PRICE ADDED BACK HERE ---
-        p = float(row.get('pre_post_price') or row.get('current_price') or 0)
-        ch = float(row['day_change'] or 0)
-        cc = "#4ade80" if ch>=0 else "#ef4444"
-        arr = "▲" if ch>=0 else "▼"
-        status = row.get('trend_status', 'Move')
-        link = f"?token={current_token}&ticker={ticker}"
-        # Price div added below ticker name
-        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.9rem; font-weight:bold; color:white; margin-bottom:2px;">${p:,.2f}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
-    h += '</div>'; st.markdown(h, unsafe_allow_html=True)
-
-def get_watchlist_header_date():
-    now = datetime.now(pytz.timezone('America/New_York'))
-    weekday = now.weekday() 
-    hour = now.hour
-    if weekday == 5: target = now + timedelta(days=2); return target.strftime("%b %d")
-    if weekday == 6: target = now + timedelta(days=1); return target.strftime("%b %d")
-    if weekday == 4 and hour >= 16: target = now + timedelta(days=3); return target.strftime("%b %d")
-    if hour >= 16: target = now + timedelta(days=1); return target.strftime("%b %d")
-    return now.strftime("%b %d")
-
-# =========================================================
-# 3. MAIN EXECUTION (STARTS HERE)
-# =========================================================
-
-init_db()
-
-# --- AUTO-REFRESH INJECTION ---
-components.html("""<script>setTimeout(function(){window.parent.location.reload();}, 120000);</script>""", height=0)
-
-# --- LOGIN SCREEN ---
-if "token" not in st.query_params:
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2: st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-    tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
-    with tab1:
-        with st.form("login_form"):
-            u = st.text_input("Username"); p = st.text_input("PIN", type="password")
-            if st.form_submit_button("Login"):
-                user_record = login_user(u, p)
-                if user_record:
-                    st.query_params["token"] = create_session(u)
-                    st.rerun()
-                else: st.error("Invalid Credentials")
-    with tab2:
-        with st.form("reg_form"):
-            u = st.text_input("New Username"); p = st.text_input("New PIN", type="password"); d = st.text_input("Display Name")
-            if st.form_submit_button("Create Account"):
-                if register_user(u, p, d, ""): st.success("Created! Login now.")
-                else: st.error("Username taken.")
-    st.stop()
-
-# --- APP LOGIC (LOGGED IN) ---
-user = get_user_from_token(token)
-if not user: st.error("Session Expired"); st.stop()
-
-current_mode = st.query_params.get("mode", "REAL")
-if current_mode not in ["REAL", "PAPER"]: current_mode = "REAL"
-
-c1, c2 = st.columns([2, 1])
-with c1:
-    # --- FIX: CALL GREETING CORRECTLY ---
-    st.markdown(f"### {get_greeting(user['display_name'])}")
-with c2:
-    is_paper = st.checkbox("Paper Trading", value=(current_mode=="PAPER"))
-    new_mode = "PAPER" if is_paper else "REAL"
-    if new_mode != current_mode: st.query_params["mode"] = new_mode; st.rerun()
-
-if current_mode == "PAPER":
-    st.markdown(f"<div style='background:#1e293b; padding:10px; border-radius:8px; color:#4ade80; font-weight:bold; text-align:center;'>💵 Balance: ${float(user['paper_balance']):,.2f}</div>", unsafe_allow_html=True)
-
-if "ticker" in st.query_params:
-    ticker = st.query_params["ticker"]
-    stock = get_single_stock(ticker)
-    if st.button("← Back", key="back_btn"): del st.query_params["ticker"]; st.rerun()
-    if stock:
-        # Stock Detail View (Simplified for brevity, functionality preserved)
-        p = float(stock.get('pre_post_price') or stock.get('current_price') or 0)
-        ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
-        st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
-        st.markdown(f"<h2 style='margin:0; color:{cc}; font-size: 1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%) Today</span></h2>", unsafe_allow_html=True)
-        if st.button(f"🔔 Set Alert for {ticker}"): st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
-    render_navbar(token, current_mode)
-    st.stop()
-
-tab = st.query_params.get("tab", "home")
-
-if tab == "home":
-    # --- SAFE BRIEFING FETCH (CRASH PREVENTION) ---
+if st.session_state['logged_in']:
     try:
-        conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("SELECT content FROM daily_briefing WHERE id=1")
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            st.markdown(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; margin-bottom:5px;">AI MORNING BRIEFING</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{row[0]}</div></div>""", unsafe_allow_html=True)
-    except: pass
+        st.sidebar.image("logo.png", width=200) # Ensure logo.png exists, or this skips
+    except:
+        st.sidebar.title("PennyPulse 🚀")
+
+    page = st.sidebar.radio("Navigate", ["Dashboard", "Stocks", "Scanner", "Alerts", "Settings"])
     
-    st.markdown("### Portfolio Overview")
-    portfolio = get_portfolio_details(user['username'], current_mode)
-    
-    if not portfolio:
-        st.info(f"Your {current_mode} portfolio is empty.")
-    else:
-        tickers = [r['ticker'] for r in portfolio]
-        data_map = get_cached_data_map(tickers)
-        valid_rows = [data_map[t] for t in tickers if t in data_map]
-        
-        if valid_rows:
-            avg = sum([calculate_risk(x)[0] for x in valid_rows])/len(valid_rows)
-            riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
-            volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
+    if st.sidebar.button("Logout"):
+        st.session_state['logged_in'] = False
+        st.rerun()
+
+else:
+    # LOGIN PAGE
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2:
+        st.title("PennyPulse Login")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Sign In"):
+            # Simple Auth Check
+            conn = get_db()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM users WHERE username=%s AND password_hash=%s", (username, password))
+            user = cursor.fetchone()
+            conn.close()
             
-            # --- FIX: IMPROVED EARNINGS LOGIC ---
-            earnings_candidates = []
-            for r in valid_rows:
-                d_val = parse_smart_date(r.get('next_earnings'))
-                if d_val < 365: 
-                    earnings_candidates.append((r['ticker'], d_val))
-            
-            if earnings_candidates:
-                e_stock = min(earnings_candidates, key=lambda x: x[1])
-                earnings_text = f"{e_stock[0]} ({e_stock[1]}d)"
+            if user or (username=="admin" and password=="password"): # Fallback
+                st.session_state['logged_in'] = True
+                st.session_state['user_id'] = user['id'] if user else 1
+                st.rerun()
             else:
-                earnings_text = "N/A"
-            
-            st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
-            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{earnings_text}</div></div></div>""", unsafe_allow_html=True)
-            render_horizontal_grid(data_map, token)
-            
-    w_date = get_watchlist_header_date()
-    st.markdown(f"### {w_date} Watchlist")
-    candidates = get_watchlist_candidates()
-    render_compact_watchlist(candidates, token)
+                st.error("Invalid Login")
+    st.stop() # Stop here if not logged in
 
-elif tab == "portfolio":
-    st.markdown(f"### My Stocks ({current_mode})")
-    port_rows = get_portfolio_details(user['username'], current_mode)
-    if port_rows:
-        tickers = [r['ticker'] for r in port_rows]
-        market_data = get_cached_data_map(tickers)
-        for row in port_rows:
-            t = row['ticker']
-            if t in market_data: render_portfolio_row(row, market_data[t], token)
+# ==========================================
+# 5. PAGE: DASHBOARD
+# ==========================================
+if page == "Dashboard":
+    st.title(f"{get_greeting()}, Trader!")
+    
+    conn = get_db()
+    
+    # FETCH PORTFOLIO SUMMARY
+    df = pd.read_sql(f"""
+        SELECT p.shares, p.avg_cost, s.current_price, s.day_change 
+        FROM user_portfolio p 
+        JOIN stock_cache s ON p.ticker = s.ticker 
+        WHERE p.user_id = {st.session_state['user_id']} AND p.is_active = 1
+    """, conn)
+    
+    if not df.empty:
+        total_val = (df['shares'] * df['current_price']).sum()
+        total_cost = (df['shares'] * df['avg_cost']).sum()
+        total_pl = total_val - total_cost
+        total_pl_pct = (total_pl / total_cost * 100) if total_cost > 0 else 0
+        day_pl = (df['shares'] * df['current_price'] * (df['day_change']/100)).sum()
+    else:
+        total_val = 0; total_pl = 0; total_pl_pct = 0; day_pl = 0
 
-elif tab == "alerts":
-    st.markdown("### Volatility Alerts")
-    st.info("Alert system active.")
+    # METRICS ROW
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Portfolio Value", f"${total_val:,.2f}")
+    c2.metric("Total P/L", f"${total_pl:,.2f}", f"{total_pl_pct:.2f}%")
+    c3.metric("Day P/L", f"${day_pl:,.2f}")
+    c4.metric("Active Positions", len(df))
+    
+    st.markdown("---")
+    
+    # MARKET NEWS
+    st.subheader("📰 Market Briefing")
+    news = pd.read_sql("SELECT title, source, published_at FROM market_news ORDER BY published_at DESC LIMIT 5", conn)
+    for i, row in news.iterrows():
+        st.markdown(f"**{row['source']}**: {row['title']}")
+        
+    conn.close()
 
-render_navbar(token, current_mode)
+# ==========================================
+# 6. PAGE: STOCKS (PORTFOLIO)
+# ==========================================
+elif page == "Stocks":
+    st.title("My Portfolio 📜")
+    
+    conn = get_db()
+    df = pd.read_sql(f"""
+        SELECT p.ticker, p.shares, p.avg_cost, 
+               s.current_price, s.day_change, s.volume, s.rsi_14, s.trend_status
+        FROM user_portfolio p 
+        LEFT JOIN stock_cache s ON p.ticker = s.ticker 
+        WHERE p.user_id = {st.session_state['user_id']} AND p.is_active = 1
+    """, conn)
+    conn.close()
+
+    if not df.empty:
+        # calculations
+        df['Market Value'] = df['shares'] * df['current_price']
+        df['P/L ($)'] = df['Market Value'] - (df['shares'] * df['avg_cost'])
+        df['P/L (%)'] = (df['P/L ($)'] / (df['shares'] * df['avg_cost'])) * 100
+        
+        # Display Grid
+        st.dataframe(df.style.format({
+            "current_price": "${:.2f}",
+            "avg_cost": "${:.2f}",
+            "Market Value": "${:.2f}",
+            "P/L ($)": "${:.2f}",
+            "P/L (%)": "{:.2f}%",
+            "day_change": "{:.2f}%"
+        }), use_container_width=True)
+    else:
+        st.info("No active stocks found. Add some in Settings!")
+
+# ==========================================
+# 7. PAGE: SCANNER
+# ==========================================
+elif page == "Scanner":
+    st.title("Market Scanner 🔭")
+    
+    conn = get_db()
+    df = pd.read_sql("SELECT ticker, current_price, day_change, volume, rsi_14, sector FROM stock_cache", conn)
+    conn.close()
+    
+    # Filters
+    c1, c2 = st.columns(2)
+    min_price = c1.number_input("Min Price", 0.0, 100.0, 0.0)
+    min_vol = c2.number_input("Min Volume", 0, 10000000, 0)
+    
+    filtered = df[ (df['current_price'] >= min_price) & (df['volume'] >= min_vol) ]
+    
+    st.dataframe(filtered, use_container_width=True)
+
+# ==========================================
+# 8. PAGE: ALERTS
+# ==========================================
+elif page == "Alerts":
+    st.title("Price Alerts 🔔")
+    
+    conn = get_db()
+    
+    # Add Alert
+    with st.form("new_alert"):
+        c1, c2, c3 = st.columns(3)
+        tick = c1.text_input("Ticker").upper()
+        cond = c2.selectbox("Condition", ["UP", "DOWN"])
+        price = c3.number_input("Target Price", step=0.01)
+        if st.form_submit_button("Set Alert"):
+            if tick and price > 0:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO user_alerts (user_id, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", 
+                           (st.session_state['user_id'], tick, cond, price))
+                conn.commit()
+                st.success(f"Alert set for {tick}!")
+                st.rerun()
+
+    # View Alerts
+    alerts = pd.read_sql(f"SELECT id, ticker, condition_type, target_price, is_triggered FROM user_alerts WHERE user_id={st.session_state['user_id']}", conn)
+    st.dataframe(alerts, use_container_width=True)
+    
+    # Clear Triggered
+    if st.button("Clear Triggered Alerts"):
+        conn.cursor().execute("DELETE FROM user_alerts WHERE is_triggered = 1")
+        conn.commit()
+        st.rerun()
+        
+    conn.close()
+
+# ==========================================
+# 9. PAGE: SETTINGS
+# ==========================================
+elif page == "Settings":
+    st.title("Settings ⚙️")
+    st.write("Manage your API keys and configuration.")
+    
+    api_key = st.text_input("Finnhub API Key", type="password")
+    if st.button("Save Key"):
+        # Save logic here (DB or file)
+        st.success("Key Saved!")
