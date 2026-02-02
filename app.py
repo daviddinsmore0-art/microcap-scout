@@ -88,6 +88,10 @@ DB_CONFIG = {"host": "atlanticcanadaschoice.com", "user": "atlantic", "password"
 OPENAI_KEY = st.secrets["openai"]["api_key"] if "openai" in st.secrets else None
 token = st.query_params.get("token", None)
 
+# =========================================================
+# 2. FUNCTIONS
+# =========================================================
+
 def get_connection(): return mysql.connector.connect(**DB_CONFIG)
 
 def init_db():
@@ -118,6 +122,13 @@ def login_user(u, p):
     if row and str(row['pin']) == str(p): return row
     return None
 
+def register_user(u, p, d, e):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("SELECT username FROM user_profiles WHERE username=%s", (u,))
+    if cursor.fetchone(): conn.close(); return False
+    cursor.execute("INSERT INTO user_profiles (username, pin, display_name, email) VALUES (%s,%s,%s,%s)", (u, p, d, e))
+    conn.commit(); conn.close(); return True
+
 def create_session(u):
     t = str(uuid.uuid4()); conn = get_connection(); cursor = conn.cursor()
     cursor.execute("INSERT INTO user_sessions (token, username) VALUES (%s,%s)", (t, u))
@@ -127,32 +138,6 @@ def get_user_from_token(t):
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
     row = cursor.fetchone(); conn.close(); return row
-
-def get_news_data(ticker):
-    news = []
-    try:
-        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            root = ET.fromstring(resp.content)
-            for item in root.findall('.//item')[:2]:
-                news.append({'title': item.find('title').text, 'link': item.find('link').text, 'pub': "Yahoo", 'time': "Recent"})
-    except: pass
-    return news
-
-def get_ai_analysis(ticker, headlines, current_data=None):
-    if OPENAI_KEY and headlines and len(headlines) > 10:
-        try:
-            prompt = f"Analyze these headlines for {ticker}: {headlines} Return JSON: {{'summary': '1 sentence', 'score': 50}}"
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
-            data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=10)
-            if response.status_code == 200:
-                parsed = json.loads(response.json()['choices'][0]['message']['content'].strip('`json'))
-                return parsed.get('summary'), parsed.get('score'), "AI"
-        except: pass
-    return "Market sentiment is neutral.", 50, "TECH"
 
 def calculate_risk(row, ai_score=None):
     s = 50
@@ -165,11 +150,6 @@ def calculate_risk(row, ai_score=None):
     color = "#4ade80" if final < 35 else "#fbbf24" if final < 65 else "#ef4444"
     label = "LOW" if final < 35 else "MEDIUM" if final < 65 else "HIGH"
     return final, label, color, "badge", []
-
-def get_watchlist_candidates():
-    conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
-    rows = cursor.fetchall(); conn.close(); return rows[:3]
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -188,32 +168,11 @@ def get_portfolio_details(username, ptype):
     cursor.execute("SELECT * FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=TRUE", (username, ptype))
     rows = cursor.fetchall(); conn.close(); return rows
 
-def get_portfolio_summary(username, ptype):
+def get_watchlist_candidates():
     conn = get_connection(); cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT SUM(realized_pl) as realized FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=FALSE", (username, ptype))
-    realized = float(cursor.fetchone()['realized'] or 0)
-    cursor.execute("SELECT p.shares, p.entry_price, s.current_price, s.day_change FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.portfolio_type=%s AND p.is_active=TRUE", (username, ptype))
-    active_rows = cursor.fetchall(); conn.close()
-    unrealized = 0.0; day_pl = 0.0; cost_basis = 0.0; curr_val = 0.0
-    for r in active_rows:
-        if r['current_price']:
-            c = float(r['current_price']); e = float(r['entry_price']); s = float(r['shares'])
-            unrealized += (c - e) * s; cost_basis += (e * s); curr_val += (c * s)
-            pct = float(r['day_change'] or 0); prev = c / (1 + (pct/100)); day_pl += (c - prev) * s
-    total_pl = realized + unrealized
-    total_pct = (total_pl / cost_basis) * 100 if cost_basis > 0 else 0
-    day_pct = (day_pl / (curr_val - day_pl)) * 100 if (curr_val - day_pl) > 0 else 0
-    return total_pl, total_pct, day_pl, day_pct
+    cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
+    rows = cursor.fetchall(); conn.close(); return rows[:3]
 
-def execute_paper_trade(username, ticker, action, qty, price):
-    conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
-    bal = float(cursor.fetchone()[0]); cost = float(qty) * float(price)
-    if action == "BUY" and bal >= cost:
-        cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance - %s WHERE username=%s", (cost, username))
-        cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s, %s, %s, %s, 'PAPER', 1)", (username, ticker, qty, price))
-        conn.commit(); conn.close(); return True, "Success"
-    conn.close(); return False, "Insufficient Funds"
 # --- UI COMPONENTS ---
 
 def get_greeting(name):
@@ -253,18 +212,29 @@ def render_navbar(token, mode):
 # 3. EXECUTION
 # =========================================================
 init_db()
-components.html("""<script>setTimeout(function(){window.parent.location.reload();}, 120000);</script>""", height=0)
 
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         if os.path.exists("logo.png"): st.image("logo.png", width=150)
         else: st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
-    with st.form("login"):
-        u = st.text_input("Username"); p = st.text_input("PIN", type="password")
-        if st.form_submit_button("Login"):
-            user = login_user(u, p)
-            if user: st.query_params["token"] = create_session(u); st.rerun()
+            
+    tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
+    with tab1:
+        with st.form("login_form"):
+            u = st.text_input("Username"); p = st.text_input("PIN", type="password")
+            if st.form_submit_button("Login"):
+                user_rec = login_user(u, p)
+                if user_rec: st.query_params["token"] = create_session(u); st.rerun()
+                else: st.error("Invalid Login")
+    with tab2:
+        with st.form("reg_form"):
+            u = st.text_input("New Username"); p = st.text_input("New PIN", type="password"); d = st.text_input("Display Name")
+            if st.form_submit_button("Create Account"):
+                if register_user(u, p, d, ""): st.success("Created! Please login.")
+                else: st.error("Taken.")
+    with tab3:
+        st.info("Request a PIN reset via support.")
     st.stop()
 
 user = get_user_from_token(token)
@@ -277,21 +247,19 @@ if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]; stock = get_single_stock(ticker)
     if st.button("← Back"): del st.query_params["ticker"]; st.rerun()
     if stock:
+        # SURGICAL FIX: ALL 3 FACTORS RESTORED + CRASH PREVENTION
         rsi_val = float(stock.get('rsi') or 50)
         vol_val = float(stock.get('volatility') or 0)
         debt_val = float(stock.get('debt_ratio') or 0)
-        
         s, l, c, _, _ = calculate_risk(stock)
         st.markdown(f"<h1>{ticker}</h1>", unsafe_allow_html=True)
         st.markdown(create_gauge_html(s, l, c), unsafe_allow_html=True)
-        
         st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return ("pill-high", "HIGH") if val > 3 else ("pill-low", "LOW")
             if type=="debt": return ("pill-high", "HIGH") if val > 150 else ("pill-low", "LOW")
             if type=="rsi": return ("pill-med", "EXTREME") if val > 70 or val < 30 else ("pill-low", "NORMAL")
             return ("pill-low", "LOW")
-        
         v_cls, v_txt = get_pill(vol_val, "vol")
         st.markdown(f"<div class='risk-row'><div>Volatility</div><div class='risk-pill {v_cls}'>{v_txt}</div></div>", unsafe_allow_html=True)
         d_cls, d_txt = get_pill(debt_val, "debt")
@@ -308,15 +276,10 @@ if tab == "home":
         if valid:
             avg = sum([calculate_risk(x)[0] for x in valid])/len(valid)
             st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24"), unsafe_allow_html=True)
-            
             risk_t = max(valid, key=lambda x: calculate_risk(x)[0])['ticker']
             vol_t = max(valid, key=lambda x: abs(float(x['day_change'])))['ticker']
-            e_stock = min([(r['ticker'], parse_smart_date(r.get('next_earnings'))) for r in valid], key=lambda x: x[1])[0]
-            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem;">RISKIEST</div><div style="color:white; font-weight:bold;">{risk_t}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem;">VOLATILE</div><div style="color:white; font-weight:bold;">{vol_t}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem;">EARNINGS</div><div style="color:white; font-weight:bold;">{e_stock}</div></div></div>""", unsafe_allow_html=True)
-            
+            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:50%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem;">RISKIEST</div><div style="color:white; font-weight:bold;">{risk_t}</div></div><div style="text-align:center; width:50%;"><div style="color:#94a3b8; font-size:0.6rem;">VOLATILE</div><div style="color:white; font-weight:bold;">{vol_t}</div></div></div>""", unsafe_allow_html=True)
             render_horizontal_grid(d_map, token)
-    
-    st.markdown(f"### {datetime.now().strftime('%b %d')} Watchlist")
     render_compact_watchlist(get_watchlist_candidates(), token)
 
 render_navbar(token, current_mode)
