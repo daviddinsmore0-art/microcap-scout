@@ -278,7 +278,7 @@ def get_news_data(ticker):
         
         if resp.status_code == 200:
             root = ET.fromstring(resp.content)
-            for item in root.findall('.//item')[:4]:
+            for item in root.findall('.//item')[:2]:
                 title = item.find('title').text if item.find('title') is not None else "No Title"
                 link = item.find('link').text if item.find('link') is not None else "#"
                 pub = "Yahoo Finance"
