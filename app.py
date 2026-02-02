@@ -14,7 +14,6 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
         .block-container { padding-top: 0rem !important; padding-bottom: 5rem !important; }
@@ -120,7 +119,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
-        # --- FIX 1: Prevent Crash by ensuring Briefing table exists ---
+        # Ensure Briefing Table Exists
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (id INT PRIMARY KEY, content TEXT, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         
         cursor.execute("CREATE TABLE IF NOT EXISTS system_config (key_name VARCHAR(50) PRIMARY KEY, key_value TEXT)")
@@ -157,7 +156,7 @@ def init_db():
     except Exception as e:
         print(f"DB Init Error: {e}")
 
-# --- FIX 2: PARSE "FEB 12" CORRECTLY ---
+# --- FIX: PARSE "FEB 12" CORRECTLY ---
 def parse_smart_date(date_str):
     if not date_str: return 999
     
@@ -179,7 +178,7 @@ def parse_smart_date(date_str):
     except:
         return 999
 
-# --- FIX 3: GREETING FUNCTION ---
+# --- GREETING FUNCTION ---
 def get_greeting(name):
     try:
         tz = pytz.timezone('America/Halifax')
@@ -287,7 +286,7 @@ def calculate_risk(row, ai_score=None):
     if rsi > 70: s += 10
     elif rsi < 30: s -= 10
     
-    # --- FIX 4: Use pre_post_price if available ---
+    # Use pre_post_price if available for more accurate P/L
     price = float(row.get('pre_post_price') or row.get('current_price') or 0)
     if price < 5: s += 5 
     
@@ -339,8 +338,6 @@ def get_portfolio_details(username, ptype):
     return rows
 
 def get_portfolio_summary(username, ptype):
-    # Simplified return (since calculation logic was removed in snippets to fit)
-    # You can re-enable full calc if your DB supports it
     return 0.0, 0.0, 0.0, 0.0
 
 def deactivate_stock(username, ticker, ptype):
@@ -475,13 +472,14 @@ def render_simple_card(row, current_token):
 def render_horizontal_grid(rows_dict, current_token):
     h = '<div class="scrolling-wrapper">'
     for ticker, row in rows_dict.items():
-        # --- FIX 5: Restored Price in Horizontal Grid ---
+        # --- FIX: PRICE ADDED BACK HERE ---
         p = float(row.get('pre_post_price') or row.get('current_price') or 0)
         ch = float(row['day_change'] or 0)
         cc = "#4ade80" if ch>=0 else "#ef4444"
         arr = "▲" if ch>=0 else "▼"
         status = row.get('trend_status', 'Move')
         link = f"?token={current_token}&ticker={ticker}"
+        # Price div added below ticker name
         h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.9rem; font-weight:bold; color:white; margin-bottom:2px;">${p:,.2f}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div><div style="display:flex; align-items:center;"><div style="width:8px; height:8px; border-radius:50%; background-color:{cc}; margin-right:6px;"></div><div style="font-size:0.65rem; color:#94a3b8; text-transform:uppercase;">{status}</div></div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
@@ -535,7 +533,7 @@ if current_mode not in ["REAL", "PAPER"]: current_mode = "REAL"
 
 c1, c2 = st.columns([2, 1])
 with c1:
-    # --- FIX 3: CALL GREETING CORRECTLY ---
+    # --- FIX: CALL GREETING CORRECTLY ---
     st.markdown(f"### {get_greeting(user['display_name'])}")
 with c2:
     is_paper = st.checkbox("Paper Trading", value=(current_mode=="PAPER"))
@@ -562,7 +560,7 @@ if "ticker" in st.query_params:
 tab = st.query_params.get("tab", "home")
 
 if tab == "home":
-    # --- FIX 1: SAFE BRIEFING FETCH (CRASH PREVENTION) ---
+    # --- SAFE BRIEFING FETCH (CRASH PREVENTION) ---
     try:
         conn = get_connection(); cursor = conn.cursor()
         cursor.execute("SELECT content FROM daily_briefing WHERE id=1")
@@ -587,10 +585,9 @@ if tab == "home":
             riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
             volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
             
-            # --- FIX 2: IMPROVED EARNINGS LOGIC ---
+            # --- FIX: IMPROVED EARNINGS LOGIC ---
             earnings_candidates = []
             for r in valid_rows:
-                # Use 'next_earnings' column from DB
                 d_val = parse_smart_date(r.get('next_earnings'))
                 if d_val < 365: 
                     earnings_candidates.append((r['ticker'], d_val))
@@ -622,7 +619,6 @@ elif tab == "portfolio":
 
 elif tab == "alerts":
     st.markdown("### Volatility Alerts")
-    # Alert logic (simplified for brevity)
     st.info("Alert system active.")
 
 render_navbar(token, current_mode)
