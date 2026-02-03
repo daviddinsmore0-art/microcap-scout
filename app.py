@@ -780,106 +780,58 @@ def render_portfolio_row(row, data, token):
     """
     st.markdown(html, unsafe_allow_html=True)
 
-def render_compact_watchlist(picks):
+def render_compact_watchlist(rows_list, current_token):
+    """Small horizontal tiles for the 3 daily_watchlist picks.
+
+    Shows: Ticker, label, price (if available), and % score (fallback to day_change).
     """
-    Renders 3 compact watchlist tiles (PP Pick / Highest Score / AI Pick).
-    IMPORTANT: Tiles are NOT clickable (no links) per request.
-    """
-    st.markdown(
-        """
-        <style>
-        .pp-watchlist-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 16px;
-            width: 100%;
-        }
-        .pp-watchlist-tile {
-            background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 18px;
-            padding: 16px 16px 14px 16px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-        }
-        .pp-watchlist-sym {
-            font-size: 26px;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            color: #EDEFF4;
-            margin-bottom: 10px;
-        }
-        .pp-watchlist-label {
-            font-size: 15px;
-            font-weight: 700;
-            color: #E7B84A;
-            margin-bottom: 10px;
-        }
-        .pp-watchlist-metrics {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            align-items: flex-end;
-            min-height: 44px;
-        }
-        .pp-watchlist-price {
-            font-size: 18px;
-            font-weight: 800;
-            color: #EDEFF4;
-            line-height: 1.0;
-            white-space: nowrap;
-        }
-        .pp-watchlist-chg {
-            font-size: 16px;
-            font-weight: 800;
-            line-height: 1.0;
-            white-space: nowrap;
-        }
-        @media (max-width: 500px) {
-            .pp-watchlist-grid { gap: 12px; }
-            .pp-watchlist-tile { padding: 14px 14px 12px 14px; border-radius: 16px; }
-            .pp-watchlist-sym { font-size: 24px; }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    if not rows_list:
+        st.info("No watchlist yet. The nightly job will populate it after market close.")
+        return
 
-    html_tiles = []
-    for p in picks:
-        sym = p.get("ticker", "")
-        label = p.get("label", "")
-        price = p.get("price")
-        chg = p.get("change_pct")
+    h = '<div class="scrolling-wrapper">'
+    for row in rows_list:
+        t = row.get("ticker")
+        label = row.get("signal_tag") or "Momentum"
 
-        price_str = f"${price:,.2f}" if isinstance(price, (int, float)) and price is not None else "--"
-        if isinstance(chg, (int, float)) and chg is not None:
-            chg_str = f"{chg:+.2f}%"
-            chg_color = "#4CD964" if chg >= 0 else "#FF3B30"
-        else:
-            chg_str = "--"
-            chg_color = "#A7B0C0"
+        price = row.get("current_price")
+        score = row.get("_watchlist_score")
+        if score is None:
+            try:
+                score = float(row.get("day_change") or 0)
+            except Exception:
+                score = 0
 
-        html_tiles.append(
-            f"""
-            <div class="pp-watchlist-tile">
-                <div class="pp-watchlist-sym">{sym}</div>
-                <div class="pp-watchlist-label">{label}</div>
-                <div class="pp-watchlist-metrics">
-                    <div class="pp-watchlist-price">{price_str}</div>
-                    <div class="pp-watchlist-chg" style="color:{chg_color};">{chg_str}</div>
-                </div>
-            </div>
-            """
+        # Format display
+        price_txt = ""
+        if price is not None:
+            try:
+                price_txt = f"${float(price):,.2f}"
+            except Exception:
+                price_txt = ""
+
+        ch = float(score or 0)
+        ch_txt = f"{ch:+.2f}%"
+        ch_color = "#4ade80" if ch >= 0 else "#ef4444"
+
+        link = f"?token={current_token}&ticker={t}"
+        h += (
+            f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex:1; min-width:0;'>"
+            f"<div class='click-tile' style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); "
+            f"border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; "
+            f"display:flex; flex-direction:column; justify-content:space-between;'>"
+            f"<div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:2px;'>{t}</div>"
+            f"<div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:6px; "
+            f"white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{label}</div>"
+            f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
+            f"<div style='font-size:0.85rem; color:white; font-weight:bold;'>{price_txt}</div>"
+            f"<div style='font-size:0.85rem; font-weight:bold; color:{ch_color};'>{ch_txt}</div>"
+            f"</div>"
+            f"</div></a>"
         )
+    h += '</div>'
+    st.markdown(h, unsafe_allow_html=True)
 
-    st.markdown(
-        f"""
-        <div class="pp-watchlist-grid">
-            {''.join(html_tiles)}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 def render_simple_card(row, current_token):
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
     link = f"?token={current_token}&ticker={row['ticker']}"
@@ -896,27 +848,30 @@ def render_horizontal_grid(rows_dict, current_token):
         except Exception:
             price = 0.0
         try:
-            pct = float(row.get('change_percent') or 0)
+            ch = float(row.get('day_change') or 0)
         except Exception:
-            pct = 0.0
+            ch = 0.0
 
-        pct_text = f"{pct:+.2f}%"
-        pct_class = "green" if pct >= 0 else "red"
+        cc = "#4ade80" if ch >= 0 else "#ef4444"
+        arr = "▲" if ch >= 0 else "▼"
+        link = f"?token={current_token}&ticker={ticker}"
 
-        # Make it more mobile-friendly: put % on its own line under the price
-        h += f"""
-            <a href='?token={current_token}&tab=portfolio&ticker={ticker}' style='text-decoration:none;'>
-                <div class='scroll-tile'>
-                    <div class='scroll-title'>{ticker}</div>
-                    <div style='display:flex; flex-direction:column; align-items:flex-end; gap:6px;'>
-                        <div class='scroll-price'>${price:,.2f}</div>
-                        <div class='scroll-change {pct_class}'>{pct_text}</div>
-                    </div>
-                </div>
-            </a>
-        """
+        price_txt = f"${price:,.2f}" if price > 0 else "—"
+
+        h += (
+            f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;">'
+            f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between;">'
+            f'    <div style="font-weight:bold; font-size:1.05rem; color:white; margin-bottom:6px;">{ticker}</div>'
+            f'    <div style="display:flex; justify-content:space-between; align-items:baseline;">'
+            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}</div>'
+            f'      <div style="font-size:0.9rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'
+            f'    </div>'
+            f'  </div>'
+            f'</a>'
+        )
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
+
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
     if hour < 12: return f"Good Morning, {name}"
