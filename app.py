@@ -840,44 +840,54 @@ def render_simple_card(row, current_token):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
-    # Small scroller tiles for your portfolio list: ticker + price + %.
     h = '<div class="scrolling-wrapper">'
     for ticker, row in rows_dict.items():
-        try:
-            price = float(row.get('current_price') or 0)
-        except Exception:
-            price = 0.0
-        try:
-            ch = float(row.get('day_change') or 0)
-        except Exception:
-            ch = 0.0
-
-        cc = "#4ade80" if ch >= 0 else "#ef4444"
-        arr = "▲" if ch >= 0 else "▼"
+        ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
         link = f"?token={current_token}&ticker={ticker}"
-
-        price_txt = f"${price:,.2f}" if price > 0 else "—"
-
-        h += (
-            f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;">'
-            f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between;">'
-            f'    <div style="font-weight:bold; font-size:1.05rem; color:white; margin-bottom:6px;">{ticker}</div>'
-            f'    <div style="display:flex; justify-content:space-between; align-items:baseline;">'
-            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}</div>'
-            f'      <div style="font-size:0.9rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'
-            f'    </div>'
-            f'  </div>'
-            f'</a>'
-        )
-    h += '</div>'
-    st.markdown(h, unsafe_allow_html=True)
-
+        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card click-tile"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div></div></a>'
+    h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
     if hour < 12: return f"Good Morning, {name}"
     elif 12 <= hour < 18: return f"Good Afternoon, {name}"
     else: return f"Good Evening, {name}"
+
+
+def get_daily_watchlist_latest():
+    """Return (watch_date_str, rows) from MySQL table daily_watchlist.
+    Expected schema: watch_date, rank_num, ticker, label, score, created_at.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT watch_date, rank_num, ticker, label, score "
+            "FROM daily_watchlist "
+            "ORDER BY watch_date DESC, rank_num ASC "
+            "LIMIT 3"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows:
+            return None, []
+        wd = rows[0].get("watch_date")
+        try:
+            wd_str = wd.strftime("%b %d")
+        except Exception:
+            wd_str = str(wd)
+
+        out = []
+        for r in rows:
+            out.append({
+                "rank": int(r.get("rank_num") or 0),
+                "ticker": (r.get("ticker") or "").upper(),
+                "label": (r.get("label") or "").strip() or "Pick",
+                "score": float(r.get("score") or 0),
+            })
+        return wd_str, out
+    except Exception:
+        return None, []
 
 
 # =========================================================
@@ -1098,9 +1108,54 @@ if tab == "home":
             
             render_horizontal_grid(data_map, token)
             
+    
+# --- Daily Watchlist (from nightly script) ---
+wl_date, wl_rows = get_daily_watchlist_latest()
+if wl_rows:
+    st.markdown(f"### {wl_date} Watchlist")
+    h = '<div class="scrolling-wrapper">'
+    for r in sorted(wl_rows, key=lambda x: x["rank"]):
+        tkr = r["ticker"]
+        lbl = r["label"]
+        sc = r["score"]
+
+        cached = get_single_stock(tkr) or {}
+        try:
+            price = float(cached.get("current_price") or 0)
+        except Exception:
+            price = 0.0
+        try:
+            ch = float(cached.get("day_change") or 0)
+        except Exception:
+            ch = 0.0
+
+        cc = "#4ade80" if ch >= 0 else "#ef4444"
+        arr = "▲" if ch >= 0 else "▼"
+
+        price_txt = f"${price:,.2f}" if price > 0 else ""
+        ch_txt = f"{arr} {ch:.2f}%" if price > 0 else f"{sc:+.2f}%"
+
+        link = f"?token={token}&ticker={tkr}"
+        h += (
+            f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'>"
+            f"<div class='click-tile' style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); "
+            f"border: 1px solid #334155; border-radius: 10px; padding: 12px; height: 100%; "
+            f"display:flex; flex-direction:column; justify-content:space-between;'>"
+            f"<div style='font-weight:bold; font-size:1.05rem; color:white; margin-bottom:4px;'>{tkr}</div>"
+            f"<div style='font-size:0.72rem; color:#facc15; font-weight:bold; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{lbl}</div>"
+            f"<div style='display:flex; justify-content:space-between; align-items:baseline;'>"
+            f"<div style='font-size:0.9rem; color:white; font-weight:bold;'>{price_txt}</div>"
+            f"<div style='font-size:0.85rem; color:{cc}; font-weight:bold;'>{ch_txt}</div>"
+            f"</div>"
+            f"</div></a>"
+        )
+    h += "</div>"
+    st.markdown(h, unsafe_allow_html=True)
+else:
+    # Fallback (only if nightly hasn't run yet)
     w_date = get_watchlist_header_date()
     st.markdown(f"### {w_date} Watchlist")
-    candidates = get_watchlist_rows_for_home()
+    candidates = get_watchlist_candidates()
     render_compact_watchlist(candidates, token)
 
 elif tab == "portfolio":
