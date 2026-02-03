@@ -288,23 +288,137 @@ def get_ai_analysis(ticker, headlines, current_data=None):
     return "No Data Available", 50, "NONE"
 
 def calculate_risk(row, ai_score=None):
-    s = 50; reasons = []
-    if row.get('trend_status') == 'DOWNTREND': s += 10
-    else: s -= 10
-    rsi = float(row.get('rsi') or 50)
-    if rsi > 70: s += 10
-    elif rsi < 30: s -= 10
-    vol = float(row.get('volatility') or 0)
-    if vol > 3.0: s += 10
+    """Return (risk_score, label, color, badge, breakdown).
+
+    breakdown is a list of tuples: (factor, points) where points are the
+    contribution to the final risk score before clamping.
+    """
+    risk = 50.0
+    breakdown = []
+
+    # Trend
+    trend = (row.get("trend_status") or "NEUTRAL").upper()
+    if trend == "DOWNTREND":
+        risk += 15
+        breakdown.append(("Trend (Downtrend)", +15))
+    elif trend == "UPTREND":
+        risk -= 12
+        breakdown.append(("Trend (Uptrend)", -12))
+    else:
+        risk += 3
+        breakdown.append(("Trend (Neutral)", +3))
+
+    # RSI (gradient)
+    rsi = float(row.get("rsi") or 50)
+    if rsi >= 80:
+        risk += 15
+        breakdown.append(("RSI (>=80 overbought)", +15))
+    elif rsi >= 70:
+        risk += 8
+        breakdown.append(("RSI (70-79 overbought)", +8))
+    elif rsi <= 20:
+        risk += 12
+        breakdown.append(("RSI (<=20 extreme)", +12))
+    elif rsi <= 30:
+        risk += 5
+        breakdown.append(("RSI (21-30 oversold)", +5))
+    else:
+        breakdown.append(("RSI (normal)", 0))
+
+    # Volatility (gradient)
+    vol = float(row.get("volatility") or 0)
+    if vol >= 6:
+        risk += 18
+        breakdown.append(("Volatility (>=6)", +18))
+    elif vol >= 4:
+        risk += 12
+        breakdown.append(("Volatility (4-5.9)", +12))
+    elif vol >= 2:
+        risk += 6
+        breakdown.append(("Volatility (2-3.9)", +6))
+    else:
+        breakdown.append(("Volatility (<2)", 0))
+
+    # Debt / Equity (debt_ratio)
+    debt = float(row.get("debt_ratio") or 0)
+    if debt >= 200:
+        risk += 15
+        breakdown.append(("Debt/Equity (>=200)", +15))
+    elif debt >= 120:
+        risk += 8
+        breakdown.append(("Debt/Equity (120-199)", +8))
+    else:
+        breakdown.append(("Debt/Equity (<120)", 0))
+
+    # AI sentiment (small nudge)
     if ai_score is not None:
-        adj = (50 - ai_score) * 0.5
-        s += adj
-    final = max(0, min(100, int(s)))
-    color = "#4ade80" 
+        adj = (50 - float(ai_score)) * 0.25
+        risk += adj
+        breakdown.append(("AI sentiment adjust", round(adj, 1)))
+    else:
+        breakdown.append(("AI sentiment adjust", 0))
+
+    final = max(0, min(100, int(round(risk))))
+
+    color = "#4ade80"
     label = "LOW"
-    if final > 65: color = "#ef4444"; label="HIGH"
-    elif final > 35: color = "#fbbf24"; label="MEDIUM"
-    return final, label, color, "badge-mix", reasons
+    if final >= 70:
+        color = "#ef4444"
+        label = "HIGH"
+    elif final >= 40:
+        color = "#fbbf24"
+        label = "MEDIUM"
+
+    return final, label, color, "badge-mix", breakdown
+
+
+def calculate_confidence(row, ai_score=None):
+    """Confidence is 'opportunity / setup quality' (0-100)."""
+    conf = 50.0
+
+    trend = (row.get("trend_status") or "NEUTRAL").upper()
+    if trend == "UPTREND":
+        conf += 15
+    elif trend == "DOWNTREND":
+        conf -= 10
+
+    rsi = float(row.get("rsi") or 50)
+    # Prefer RSI in the middle (room to run, not extreme)
+    if 40 <= rsi <= 60:
+        conf += 8
+    elif 30 <= rsi < 40 or 60 < rsi <= 70:
+        conf += 4
+    elif rsi >= 80 or rsi <= 20:
+        conf -= 8
+
+    vol = float(row.get("volatility") or 0)
+    if vol < 2:
+        conf += 6
+    elif vol >= 6:
+        conf -= 12
+    elif vol >= 4:
+        conf -= 8
+
+    # Volume status (if present in cache)
+    vs = (row.get("volume_status") or "").lower()
+    if "unusual" in vs or "surge" in vs:
+        conf += 6
+    elif "low" in vs:
+        conf -= 3
+
+    # Range location (if 0-100): higher can be good *if* trend is up
+    try:
+        rl = float(row.get("range_loc") or 0)
+        if trend == "UPTREND" and rl >= 70:
+            conf += 4
+    except:
+        pass
+
+    if ai_score is not None:
+        conf += (float(ai_score) - 50) * 0.2
+
+    final = max(0, min(100, int(round(conf))))
+    return final
 
 def get_watchlist_candidates():
     conn = get_connection()
@@ -603,6 +717,7 @@ if "ticker" in st.query_params:
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
         ai_summary, ai_score, ai_source = get_ai_analysis(ticker, headlines_txt, stock)
         s, l, c, _, r = calculate_risk(stock, ai_score)
+        confidence = calculate_confidence(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
@@ -624,6 +739,15 @@ if "ticker" in st.query_params:
             st.markdown("---")
 
         st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
+        st.markdown(f"""<div class='card' style='margin-top:12px; padding:18px;'>
+            <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:6px;'>CONFIDENCE</div>
+            <div style='display:flex; align-items:center; gap:14px;'>
+                <div style='font-size:2rem; font-weight:bold; color:white; line-height:1;'>{confidence}</div>
+                <div style='flex:1; height:10px; background:#334155; border-radius:999px; overflow:hidden;'>
+                    <div style='width:{confidence}%; height:100%; background:linear-gradient(90deg, #ef4444 0%, #fbbf24 50%, #4ade80 100%);'></div>
+                </div>
+            </div>
+        </div>""", unsafe_allow_html=True)
         st.markdown(f"<div class='card' style='margin-top:15px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
@@ -640,6 +764,30 @@ if "ticker" in st.query_params:
 
         r_cls, r_txt = get_pill(float(stock.get('rsi') or 0), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
+        # Risk breakdown (why the score moved)
+        bd_rows = []
+        for name, pts in r:
+            try:
+                pts_f = float(pts)
+            except:
+                pts_f = 0
+            if abs(pts_f) < 0.1:
+                continue
+            sign = "+" if pts_f > 0 else ""
+            bd_rows.append(
+                f"<div style='display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #2d3748;'>"
+                f"<div style='color:#e0e6ed; font-size:0.9rem;'>{name}</div>"
+                f"<div style='color:#94a3b8; font-weight:bold;'>{sign}{pts_f:g}</div>"
+                f"</div>"
+            )
+        if bd_rows:
+            st.markdown(
+                "<div class='card' style='margin-top:12px; padding:18px;'>"
+                "<div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:8px;'>RISK BREAKDOWN</div>"
+                + "".join(bd_rows) +
+                "</div>",
+                unsafe_allow_html=True
+            )
         
         if ai_summary:
             ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{ai_source} INSIGHT (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
