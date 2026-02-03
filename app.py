@@ -1,6 +1,5 @@
 import streamlit as st
 import mysql.connector
-import yfinance as yf
 import requests
 import uuid
 import os
@@ -841,12 +840,38 @@ def render_simple_card(row, current_token):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
+    # Small scroller tiles for your portfolio list: ticker + price + %.
     h = '<div class="scrolling-wrapper">'
     for ticker, row in rows_dict.items():
-        ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
+        try:
+            price = float(row.get('current_price') or 0)
+        except Exception:
+            price = 0.0
+        try:
+            ch = float(row.get('day_change') or 0)
+        except Exception:
+            ch = 0.0
+
+        cc = "#4ade80" if ch >= 0 else "#ef4444"
+        arr = "▲" if ch >= 0 else "▼"
         link = f"?token={current_token}&ticker={ticker}"
-        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card click-tile"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div></div></a>'
-    h += '</div>'; st.markdown(h, unsafe_allow_html=True)
+
+        price_txt = f"${price:,.2f}" if price > 0 else "—"
+
+        h += (
+            f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;">'
+            f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between;">'
+            f'    <div style="font-weight:bold; font-size:1.05rem; color:white; margin-bottom:6px;">{ticker}</div>'
+            f'    <div style="display:flex; justify-content:space-between; align-items:baseline;">'
+            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}</div>'
+            f'      <div style="font-size:0.9rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'
+            f'    </div>'
+            f'  </div>'
+            f'</a>'
+        )
+    h += '</div>'
+    st.markdown(h, unsafe_allow_html=True)
+
 
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
