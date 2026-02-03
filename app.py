@@ -1130,10 +1130,7 @@ elif tab == "alerts":
                 "rsi_min": int(rsi_min),
                 "rsi_max": int(rsi_max),
             }
-            st.markdown(
-                "<div class='card' style='border-left:4px solid #4ade80;'>✅ Smart Alert saved</div>",
-                unsafe_allow_html=True
-            )
+            st.success("✅ Smart Alert saved")
 
     sa = st.session_state.get("smart_alert")
 
@@ -1146,13 +1143,10 @@ elif tab == "alerts":
             rule_bits.append(f"RSI {sa['rsi_min']}–{sa['rsi_max']}")
         rule_txt = " • ".join(rule_bits)
 
-        st.markdown(
-            f"<div class='card' style='border-left:4px solid #ef4444;'>"
-            f"<div style='font-weight:bold; color:white; margin-bottom:4px;'>{sa['scope']}</div>"
-            f"<div style='color:#94a3b8; font-size:0.9rem;'>{rule_txt}</div>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
+        st.markdown("---")
+        st.subheader("Active Smart Alert")
+        st.write(f"**Scope:** {sa['scope']}")
+        st.write(rule_txt)
 
         if st.button("Clear Smart Alert"):
             st.session_state["smart_alert"] = None
