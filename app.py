@@ -472,14 +472,14 @@ def get_watchlist_header_date():
     return datetime(d.year, d.month, d.day).strftime("%b %d")
 
 def get_daily_watchlist(date_obj):
-    """Return up to 3 rows for the given date from daily_watchlist.
+    """Return up to 4 rows for the given date from daily_watchlist.
     Expects table: daily_watchlist(watch_date DATE, rank_num INT, ticker VARCHAR, label VARCHAR, score DECIMAL, created_at TIMESTAMP)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT rank_num AS rank, ticker, label, score FROM daily_watchlist WHERE watch_date=%s ORDER BY rank_num ASC LIMIT 3",
+            "SELECT rank_num AS rank, ticker, label, score FROM daily_watchlist WHERE watch_date=%s ORDER BY rank_num ASC LIMIT 4",
             (date_obj.strftime("%Y-%m-%d"),)
         )
         rows = cursor.fetchall()
@@ -518,7 +518,7 @@ def get_watchlist_rows_for_home():
                 "day_change": float(score or 0),
                 "_watchlist_score": score
             })
-    return out[:3]
+    return out[:4]
 
 
 def get_cached_data_map(tickers):
