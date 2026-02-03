@@ -60,6 +60,17 @@ st.markdown("""
             transform: scale(0.97);
             border-color: #4ade80 !important;
         }
+
+        /* Clickable tiles (button-like press feedback) */
+        .click-tile {
+            transition: transform 0.1s ease, border-color 0.1s ease;
+        }
+        .click-tile:active {
+            transform: scale(0.97);
+            border-color: #4ade80 !important;
+        }
+        a.nav-link:active { transform: scale(0.92); }
+
         
         /* Metric Boxes */
         .metric-box {
@@ -164,7 +175,12 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_profiles (username VARCHAR(255) PRIMARY KEY, pin VARCHAR(50), display_name VARCHAR(100), email VARCHAR(255), paper_balance DECIMAL(20,2) DEFAULT 10000.00)")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, portfolio_type VARCHAR(20) DEFAULT 'REAL', is_active BOOLEAN DEFAULT TRUE, realized_pl DECIMAL(20,2) DEFAULT 0.00, PRIMARY KEY (id))")
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        # Ensure created_at exists for ordering (safe if column already exists)
+        try:
+            cursor.execute("ALTER TABLE user_alerts ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        except:
+            pass
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (id INT PRIMARY KEY, content TEXT, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         if OPENAI_KEY:
@@ -501,7 +517,7 @@ def render_compact_watchlist(rows_list, current_token):
         signal = row.get('signal_tag') or "Active"
         risk, label, color, badge, reasons = calculate_risk(row)
         link = f"?token={current_token}&ticker={row['ticker']}"
-        h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
+        h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div class='click-tile' style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
@@ -517,7 +533,7 @@ def render_horizontal_grid(rows_dict, current_token):
     for ticker, row in rows_dict.items():
         ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
         link = f"?token={current_token}&ticker={ticker}"
-        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div></div></a>'
+        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card click-tile"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div></div></a>'
     h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
 def get_greeting(name):
@@ -539,7 +555,9 @@ components.html("""<script>setTimeout(function(){window.parent.location.reload()
 
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
-    with col2: st.markdown("<h1 style='text-align:center; color:#4ade80;'>⚡ Penny Pulse</h1>", unsafe_allow_html=True)
+    with col2:
+        st.image("logo.png", use_container_width=True)
+        st.markdown("<h1 style='text-align:center; color:#4ade80; margin-top:10px;'>Penny Pulse</h1>", unsafe_allow_html=True)
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
         with st.form("login_form"):
@@ -610,10 +628,14 @@ if "ticker" in st.query_params:
             if type=="rsi": return "pill-med" if val > 70 or val < 30 else "pill-low", "EXTREME" if val > 70 or val < 30 else "NORMAL"
             return "pill-low", "LOW"
         
-        # SURGICAL FIX 1: HANDLE EMPTY RSI/FACTORS (PREVENT CRASH)
-        v_cls, v_txt = get_pill(float(stock.get('volatility', 0)), "vol")
+        # RISK FACTORS (Debt/Equity + Volatility + RSI)
+        d_cls, d_txt = get_pill(float(stock.get('debt_ratio') or 0), "debt")
+        st.markdown(f"<div class='risk-row'><div class='risk-label'>Debt/Equity</div><div class='risk-pill {d_cls}'>{d_txt}</div></div>", unsafe_allow_html=True)
+
+        v_cls, v_txt = get_pill(float(stock.get('volatility') or 0), "vol")
         st.markdown(f"<div class='risk-row'><div class='risk-label'>Volatility</div><div class='risk-pill {v_cls}'>{v_txt}</div></div>", unsafe_allow_html=True)
-        r_cls, r_txt = get_pill(float(stock.get('rsi', 0)), "rsi")
+
+        r_cls, r_txt = get_pill(float(stock.get('rsi') or 0), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
         
         if ai_summary:
