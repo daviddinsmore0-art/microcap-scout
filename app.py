@@ -151,18 +151,7 @@ st.markdown("""
         
         /* Hide default header/footer */
         header {visibility: hidden;} footer {visibility: hidden;} 
-    
-        /* Streamlit alert banners (st.success / st.error / st.warning / st.info) - make them dark */
-        div[data-testid="stAlert"] {
-            background-color: #1a1f2b !important;
-            color: #e0e6ed !important;
-            border: 1px solid #2d3748 !important;
-            border-radius: 12px !important;
-        }
-        div[data-testid="stAlert"] * {
-            color: #e0e6ed !important;
-        }
-</style>
+    </style>
 """, unsafe_allow_html=True)
 
 # Global Constants
@@ -482,6 +471,46 @@ def get_watchlist_candidates():
     conn.close()
     return rows[:3]
 
+
+def get_daily_watchlist(date_obj):
+    """Return up to 3 rows for the given date from daily_watchlist.
+    Expects table: daily_watchlist(watch_date DATE, rank INT, ticker VARCHAR, label, reason)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT rank, ticker, label, reason FROM daily_watchlist WHERE watch_date=%s ORDER BY rank ASC LIMIT 3",
+            (date_obj.strftime("%Y-%m-%d"),)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return rows or []
+    except Exception:
+        return []
+
+def get_watchlist_rows_for_home():
+    """Home watchlist is 'today' in New York time (matches your Watchlist date label)."""
+    today_ny = datetime.now(pytz.timezone('America/New_York')).date()
+    rows = get_daily_watchlist(today_ny)
+    if rows:
+        # Convert to stock_cache rows so existing render_compact_watchlist works
+        tickers = [r["ticker"] for r in rows]
+        cache_map = get_cached_data_map(tickers)
+        out = []
+        for r in rows:
+            t = r["ticker"]
+            if t in cache_map:
+                row = cache_map[t]
+                # Use the nightly label if present (optional)
+                if r.get("label"):
+                    row["signal_tag"] = r["label"]
+                out.append(row)
+        return out[:3]
+    # Fallback: old behavior (dynamic picks)
+    return get_watchlist_candidates()
+
+
 def get_cached_data_map(tickers):
     if not tickers: return {}
     conn = get_connection()
@@ -758,73 +787,13 @@ def render_simple_card(row, current_token):
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
-
-def render_match_card(row):
-    """Render a compact, mobile-safe match card.
-
-    Uses components.html (iframe) so HTML never 'leaks' as text on some mobile browsers.
-    """
-    try:
-        price = float(row.get("current_price") or 0)
-    except:
-        price = 0.0
-    try:
-        ch = float(row.get("day_change") or 0)
-    except:
-        ch = 0.0
-
-    risk, _, _, _, _ = calculate_risk(row)
-    arrow = "▲" if ch >= 0 else "▼"
-    ch_txt = f"{arrow} {ch:.2f}%"
-    price_txt = f"${price:,.2f}" if price > 0 else "N/A"
-    ticker = row.get("ticker", "") or ""
-
-    # Use an iframe so the HTML can't show up as raw tags in Streamlit.
-    html = f"""
-    <div style="
-        background: #1a1f2b;
-        border: 1px solid #2d3748;
-        border-radius: 16px;
-        padding: 18px 18px;
-        margin: 0 0 12px 0;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        color: #e0e6ed;
-    ">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="min-width:0;">
-          <div style="font-size:22px; font-weight:800; letter-spacing:0.5px;">{ticker}</div>
-          <div style="margin-top:6px; font-size:14px; color:#94a3b8;">Risk: {risk}</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:22px; font-weight:800;">{price_txt}</div>
-          <div style="margin-top:6px; font-size:14px; color:#94a3b8;">{ch_txt}</div>
-        </div>
-      </div>
-    </div>
-    """
-    components.html(html, height=105)
-
 def render_horizontal_grid(rows_dict, current_token):
     h = '<div class="scrolling-wrapper">'
     for ticker, row in rows_dict.items():
-        ch = float(row.get('day_change') or 0)
-        cc = "#4ade80" if ch >= 0 else "#ef4444"
-        arr = "▲" if ch >= 0 else "▼"
+        ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
         link = f"?token={current_token}&ticker={ticker}"
-
-        # Show price on the scroller tiles
-        try:
-            price = float(row.get("current_price") or 0)
-            price_txt = f"${price:,.2f}" if price > 0 else "N/A"
-        except:
-            price_txt = "N/A"
-
-        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;">'              f'<div class="scrolling-card click-tile">'              f'<div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div>'              f'<div style="font-size:0.95rem; color:white; font-weight:bold; margin-bottom:6px;">{price_txt}</div>'              f'<div style="font-size:0.85rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'              f'</div></a>'
-
-    h += '</div>'
-    st.markdown(h, unsafe_allow_html=True)
-
+        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card click-tile"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div></div></a>'
+    h += '</div>'; st.markdown(h, unsafe_allow_html=True)
 
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
@@ -1056,7 +1025,7 @@ if tab == "home":
             
     w_date = get_watchlist_header_date()
     st.markdown(f"### {w_date} Watchlist")
-    candidates = get_watchlist_candidates()
+    candidates = get_watchlist_rows_for_home()
     render_compact_watchlist(candidates, token)
 
 elif tab == "portfolio":
@@ -1145,153 +1114,20 @@ elif tab == "portfolio":
         components.html(_flip_js, height=0)
 
 elif tab == "alerts":
-    st.markdown("### Smart Alerts")
-
-    # --- Smart Alert Builder (rule-based scanner) ---
-    if "smart_alert" not in st.session_state:
-        st.session_state["smart_alert"] = None
-
-    with st.expander("Create Smart Alert", expanded=True):
-        port_rows = get_portfolio_details(user['username'], current_mode)
-        tick_options = ["ALL STOCKS"] + [r['ticker'] for r in port_rows]
-
-        scope = st.selectbox("Scope", tick_options, index=0)
-        c1, c2 = st.columns(2)
-        with c1:
-            min_conf = st.slider("Min Confidence", 0, 100, 80)
-            require_uptrend = st.checkbox("Require Uptrend", value=True)
-        with c2:
-            max_risk = st.slider("Max Risk", 0, 100, 55)
-            require_rsi = st.checkbox("Require Healthy RSI (35–65)", value=True)
-
-        rsi_min, rsi_max = (35, 65)
-        if not require_rsi:
-            rsi_min, rsi_max = (0, 100)
-
-        if st.button("Create Smart Alert"):
-            st.session_state["smart_alert"] = {
-                "scope": scope,
-                "min_conf": int(min_conf),
-                "max_risk": int(max_risk),
-                "require_uptrend": bool(require_uptrend),
-                "rsi_min": int(rsi_min),
-                "rsi_max": int(rsi_max),
-            }
-            st.success("✅ Smart Alert saved")
-
-    sa = st.session_state.get("smart_alert")
-
-    if sa:
-        # Summary card + clear
-        rule_bits = [f"Conf ≥ {sa['min_conf']}", f"Risk ≤ {sa['max_risk']}"]
-        if sa.get("require_uptrend"):
-            rule_bits.append("Uptrend")
-        if sa.get("rsi_min", 0) != 0 or sa.get("rsi_max", 100) != 100:
-            rule_bits.append(f"RSI {sa['rsi_min']}–{sa['rsi_max']}")
-        rule_txt = " • ".join(rule_bits)
-
-        st.markdown("---")
-        st.subheader("Active Smart Alert")
-        st.write(f"**Scope:** {sa['scope']}")
-        st.write(rule_txt)
-
-        if st.button("Clear Smart Alert"):
-            st.session_state["smart_alert"] = None
-            st.rerun()
-
-        # Run scan
-        conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
-
-        if sa["scope"] == "ALL STOCKS":
-            cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 250")
-        else:
-            cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s LIMIT 1", (sa["scope"],))
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        matches = []
-        for row in rows:
-            # Trend filter
-            if sa.get("require_uptrend") and (row.get("trend_status") or "").upper() != "UPTREND":
-                continue
-
-            # RSI filter
-            rsi_val = row.get("rsi")
-            if rsi_val is None:
-                # Some DBs store rsi_14; try that too
-                rsi_val = row.get("rsi_14")
-            try:
-                rsi_f = float(rsi_val) if rsi_val is not None else None
-            except:
-                rsi_f = None
-
-            if rsi_f is None:
-                continue
-            if not (sa["rsi_min"] <= rsi_f <= sa["rsi_max"]):
-                continue
-
-            risk = calculate_risk(row)[0]
-            conf = calculate_confidence(row)
-
-            if conf < sa["min_conf"]:
-                continue
-            if risk > sa["max_risk"]:
-                continue
-
-            row["_risk"] = risk
-            row["_conf"] = conf
-            matches.append(row)
-
-        # Sort: highest confidence first, then lowest risk
-        matches.sort(key=lambda r: (-int(r.get("_conf", 0)), int(r.get("_risk", 100))))
-
-        st.markdown("### Matches")
-        if not matches:
-            st.info("No matches right now. Try lowering Confidence or raising Max Risk.")
-        else:
-            for row in matches[:10]:
-                render_match_card(row)
-
-    st.divider()
-    st.markdown("### Price Alerts")
-
-    # --- Existing price alerts (stored in DB and triggered by up.php) ---
+    st.markdown("### Volatility Alerts")
     with st.expander("New Alert", expanded=True):
         port_rows = get_portfolio_details(user['username'], current_mode)
         options = ["ALL STOCKS"] + [r['ticker'] for r in port_rows]
         if port_rows:
-            t = st.selectbox("Ticker", options)
-            c = st.selectbox("Trigger", ["DOWN", "UP"])
-            v = st.number_input("Target Price")
-            if st.button("Set Alert"):
-                add_alert(user['username'], t, c, v)
-                st.markdown(
-                    "<div class='card' style='border-left:4px solid #4ade80;'>✅ Alert saved</div>",
-                    unsafe_allow_html=True
-                )
-                st.rerun()
-        else:
-            st.info("Add stocks first.")
-
+            t = st.selectbox("Ticker", options); c = st.selectbox("Trigger", ["DOWN", "UP"]); v = st.number_input("Target Price")
+            if st.button("Set Alert"): add_alert(user['username'], t, c, v); st.rerun()
+        else: st.info("Add stocks first.")
     st.divider()
     alerts = get_user_alerts(user['username'])
     for a in alerts:
-        bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"
-        border = "#ef4444" if a['is_triggered'] else "#2d3748"
-        st.markdown(
-            f"<div style='background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;'>"
-            f"<div>"
-            f"<div style='font-weight:bold; color:white;'>{a['ticker']}</div>"
-            f"<div style='font-size:0.85rem; color:#94a3b8;'>{a['condition_type']} {a['target_price']}</div>"
-            f"</div>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-        if st.button("Clear", key=f"del_al_{a['id']}"):
-            delete_alert(a['id'])
-            st.rerun()
+        bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"; border = "#ef4444" if a['is_triggered'] else "#2d3748"
+        st.markdown(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;"><div><div style="font-weight:bold; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div></div></div>""", unsafe_allow_html=True)
+        if st.button("Clear", key=f"del_al_{a['id']}"): delete_alert(a['id']); st.rerun()
 
 elif tab == "scanner":
     st.markdown("### Market Scanner")
