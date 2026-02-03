@@ -1274,8 +1274,7 @@ elif tab == "alerts":
         if fired and a.get("triggered_ticker"):
             trig_line = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:6px;'>Triggered: <b style='color:white;'>{a.get('triggered_ticker')}</b> • Conf {a.get('triggered_conf')} • Risk {a.get('triggered_risk')}" + (f" • {a.get('triggered_playbook')}" if a.get('triggered_playbook') else "") + "</div>"
 
-        st.markdown(
-            f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px;">
+        st.markdown(textwrap.dedent(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <div style="font-weight:bold; color:white;">{tfilter}</div>
@@ -1284,7 +1283,7 @@ elif tab == "alerts":
                         </div>
                         <div style="font-size:0.7rem; font-weight:bold; color:{status_color};">{status}</div>
                     </div>
-                </div>""", unsafe_allow_html=True
+                </div>"""), unsafe_allow_html=True
         )
         if st.button("Clear", key=f"del_sa_{a['id']}"):
             delete_smart_alert(a['id'])
