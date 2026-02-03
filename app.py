@@ -9,6 +9,7 @@ import pytz
 import json
 import xml.etree.ElementTree as ET
 import streamlit.components.v1 as components
+import textwrap
 from datetime import datetime, timedelta
 
 # =========================================================
@@ -853,46 +854,45 @@ if "ticker" in st.query_params:
         play = generate_playbook(stock)
         if play:
             st.markdown(
-                f"""
-                <div class='card' style='margin-top:15px;'>
-                    <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;'>
-                        SMART PLAYBOOK
-                    </div>
-                    <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;'>
-                        <div style='font-size:1.05rem; font-weight:bold; color:white;'>{play["name"]}</div>
-                        <div style='font-size:0.75rem; color:#94a3b8;'>Est. move: ${play["move"]}</div>
-                    </div>
+                textwrap.dedent(f"""
+<div class='card' style='margin-top:15px;'>
+  <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;'>
+    SMART PLAYBOOK
+  </div>
 
-                    <div style='display:flex; gap:10px;'>
-                        <div class='metric-box' style='flex:1; padding:12px;'>
-                            <div class='metric-label'>Entry</div>
-                            <div class='metric-value'>${play["entry"]}</div>
-                        </div>
-                        <div class='metric-box' style='flex:1; padding:12px; border:1px solid #ef4444;'>
-                            <div class='metric-label'>Stop</div>
-                            <div class='metric-value' style='color:#ef4444;'>${play["stop"]}</div>
-                        </div>
-                    </div>
+  <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:10px;'>
+    <div style='font-size:1.05rem; font-weight:bold; color:white;'>{play["name"]}</div>
+    <div style='font-size:0.75rem; color:#94a3b8; white-space:nowrap;'>Est. move: ${play["move"]}</div>
+  </div>
 
-                    <div style='display:flex; gap:10px; margin-top:10px;'>
-                        <div class='metric-box' style='flex:1; padding:12px; border:1px solid #4ade80;'>
-                            <div class='metric-label'>Target 1</div>
-                            <div class='metric-value' style='color:#4ade80;'>${play["t1"]}</div>
-                        </div>
-                        <div class='metric-box' style='flex:1; padding:12px; border:1px solid #4ade80;'>
-                            <div class='metric-label'>Target 2</div>
-                            <div class='metric-value' style='color:#4ade80;'>${play["t2"]}</div>
-                        </div>
-                    </div>
+  <div style='display:flex; gap:10px;'>
+    <div class='metric-box' style='flex:1; padding:12px;'>
+      <div class='metric-label'>Entry</div>
+      <div class='metric-value'>${play["entry"]}</div>
+    </div>
+    <div class='metric-box' style='flex:1; padding:12px; border:1px solid #ef4444;'>
+      <div class='metric-label'>Stop</div>
+      <div class='metric-value' style='color:#ef4444;'>${play["stop"]}</div>
+    </div>
+  </div>
 
-                    <div style='margin-top:10px; font-size:0.9rem; color:#e0e6ed; line-height:1.4;'>
-                        {play["rationale"]}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
+  <div style='display:flex; gap:10px; margin-top:10px;'>
+    <div class='metric-box' style='flex:1; padding:12px; border:1px solid #4ade80;'>
+      <div class='metric-label'>Target 1</div>
+      <div class='metric-value' style='color:#4ade80;'>${play["t1"]}</div>
+    </div>
+    <div class='metric-box' style='flex:1; padding:12px; border:1px solid #4ade80;'>
+      <div class='metric-label'>Target 2</div>
+      <div class='metric-value' style='color:#4ade80;'>${play["t2"]}</div>
+    </div>
+  </div>
+
+  <div style='margin-top:10px; font-size:0.9rem; color:#e0e6ed; line-height:1.4;'>
+    {play["rationale"]}
+  </div>
+</div>
+"""), unsafe_allow_html=True
             )
-
         st.markdown(f"<div class='card' style='margin-top:15px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
