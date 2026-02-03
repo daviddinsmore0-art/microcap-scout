@@ -185,27 +185,6 @@ def init_db():
             cursor.execute("ALTER TABLE user_alerts ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         except:
             pass
-        cursor.execute("CREATE TABLE IF NOT EXISTS user_smart_alerts ("
-                       "id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, "
-                       "username VARCHAR(255), "
-                       "ticker_filter VARCHAR(20) DEFAULT 'ALL STOCKS', "
-                       "min_conf INT DEFAULT 75, "
-                       "max_risk INT DEFAULT 45, "
-                       "require_uptrend BOOLEAN DEFAULT TRUE, "
-                       "require_healthy_rsi BOOLEAN DEFAULT FALSE, "
-                       "is_triggered BOOLEAN DEFAULT FALSE, "
-                       "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
-                       "triggered_at TIMESTAMP NULL, "
-                       "triggered_ticker VARCHAR(20) NULL, "
-                       "triggered_conf INT NULL, "
-                       "triggered_risk INT NULL, "
-                       "triggered_playbook VARCHAR(60) NULL"
-                       ")")
-        # Ensure columns exist (safe if already exist)
-        try:
-            cursor.execute("ALTER TABLE user_smart_alerts ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-        except:
-            pass
         cursor.execute("CREATE TABLE IF NOT EXISTS stock_cache (ticker VARCHAR(20) PRIMARY KEY, company_name VARCHAR(255), current_price DECIMAL(20,4), day_change DECIMAL(10,2), rsi DECIMAL(10,2), trend_status VARCHAR(20), volume_status VARCHAR(20), range_loc DECIMAL(10,2), volatility DECIMAL(10,2), debt_ratio DECIMAL(10,2), days_to_earnings INT, market_cap BIGINT, eps DECIMAL(10,2), signal_tag VARCHAR(50), last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS daily_briefing (id INT PRIMARY KEY, content TEXT, last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
         if OPENAI_KEY:
@@ -620,141 +599,6 @@ def get_user_alerts(username):
     conn.close()
     return rows
 
-def add_smart_alert(username, ticker_filter, min_conf, max_risk, require_uptrend=True, require_healthy_rsi=False):
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "INSERT INTO user_smart_alerts (username, ticker_filter, min_conf, max_risk, require_uptrend, require_healthy_rsi) VALUES (%s,%s,%s,%s,%s,%s)",
-            (username, ticker_filter, int(min_conf), int(max_risk), bool(require_uptrend), bool(require_healthy_rsi))
-        )
-    except:
-        pass
-    conn.commit()
-    conn.close()
-
-def delete_smart_alert(alert_id):
-    conn = get_connection()
-    conn.cursor().execute("DELETE FROM user_smart_alerts WHERE id=%s", (alert_id,))
-    conn.commit()
-    conn.close()
-
-def get_user_smart_alerts(username):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM user_smart_alerts WHERE username=%s ORDER BY is_triggered ASC, created_at DESC", (username,))
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-def _toast(msg):
-    try:
-        if hasattr(st, "toast"):
-            st.toast(msg)
-        else:
-            st.info(msg)
-    except:
-        pass
-
-def check_smart_alerts_and_trigger(username, portfolio_tickers=None):
-    """Evaluate active smart alerts and trigger when conditions are met."""
-    alerts = [a for a in get_user_smart_alerts(username) if not a.get("is_triggered")]
-    if not alerts:
-        return
-
-    portfolio_tickers = portfolio_tickers or []
-
-    # Pull a reasonable universe for ALL STOCKS alerts to avoid heavy queries
-    # Include portfolio tickers always + top movers snapshot
-    universe_rows = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 200")
-        universe_rows = cursor.fetchall()
-        conn.close()
-    except:
-        universe_rows = []
-
-    # Index cache by ticker for quick lookup
-    cache_map = {r.get("ticker"): r for r in (universe_rows or []) if r.get("ticker")}
-    # Ensure portfolio tickers included
-    if portfolio_tickers:
-        missing = [t for t in portfolio_tickers if t not in cache_map]
-        if missing:
-            try:
-                conn = get_connection()
-                cursor = conn.cursor(dictionary=True)
-                fmt = ",".join(["%s"] * len(missing))
-                cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({fmt})", tuple(missing))
-                extra = cursor.fetchall()
-                conn.close()
-                for r in extra:
-                    if r.get("ticker"):
-                        cache_map[r["ticker"]] = r
-            except:
-                pass
-
-    now = datetime.utcnow()
-
-    for a in alerts:
-        ticker_filter = (a.get("ticker_filter") or "ALL STOCKS").upper()
-        min_conf = int(a.get("min_conf") or 75)
-        max_risk = int(a.get("max_risk") or 45)
-        require_uptrend = bool(a.get("require_uptrend"))
-        require_healthy_rsi = bool(a.get("require_healthy_rsi"))
-
-        candidates = []
-        if ticker_filter == "ALL STOCKS":
-            candidates = list(cache_map.values())
-        else:
-            row = cache_map.get(ticker_filter) or get_single_stock(ticker_filter)
-            if row:
-                candidates = [row]
-
-        triggered = None
-        for row in candidates:
-            try:
-                rsi = float(row.get("rsi") or 50)
-                trend = (row.get("trend_status") or "NEUTRAL").upper()
-                risk_score, _, _, _, _ = calculate_risk(row, None)
-                conf_score = calculate_confidence(row, None)
-
-                if conf_score < min_conf:
-                    continue
-                if risk_score > max_risk:
-                    continue
-                if require_uptrend and trend != "UPTREND":
-                    continue
-                if require_healthy_rsi and not (35 <= rsi <= 65):
-                    continue
-
-                pb = generate_playbook(row)
-                pb_name = pb["name"] if pb else None
-
-                triggered = (row.get("ticker"), conf_score, risk_score, pb_name)
-                break
-            except:
-                continue
-
-        if triggered:
-            tkr, conf_score, risk_score, pb_name = triggered
-            # mark triggered in DB
-            try:
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE user_smart_alerts SET is_triggered=TRUE, triggered_at=UTC_TIMESTAMP(), triggered_ticker=%s, triggered_conf=%s, triggered_risk=%s, triggered_playbook=%s WHERE id=%s",
-                    (tkr, int(conf_score), int(risk_score), pb_name, a["id"])
-                )
-                conn.commit()
-                conn.close()
-            except:
-                pass
-
-            msg = f"SMART SETUP: {tkr} • Conf {conf_score} • Risk {risk_score}" + (f" • {pb_name}" if pb_name else "")
-            _toast(msg)
-
 # --- UI Functions ---
 def render_navbar(token, mode):
     mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
@@ -965,14 +809,6 @@ with c2:
 
 if current_mode == "PAPER":
     st.markdown(f"<div style='background:#1e293b; padding:10px; border-radius:8px; color:#4ade80; font-weight:bold; text-align:center;'>💵 Balance: ${float(user['paper_balance']):,.2f}</div>", unsafe_allow_html=True)
-
-
-# Smart alerts: evaluate on each refresh (lightweight scan)
-try:
-    _pt = [r['ticker'] for r in get_portfolio_details(user['username'], current_mode)]
-    check_smart_alerts_and_trigger(user['username'], _pt)
-except:
-    pass
 
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
@@ -1238,86 +1074,22 @@ elif tab == "portfolio":
         components.html(_flip_js, height=0)
 
 elif tab == "alerts":
-    st.markdown("### Smart Alerts")
-
-    port_rows = get_portfolio_details(user['username'], current_mode)
-    ticker_options = ["ALL STOCKS"] + [r['ticker'] for r in port_rows]
-
-    with st.expander("New Smart Alert", expanded=True):
+    st.markdown("### Volatility Alerts")
+    with st.expander("New Alert", expanded=True):
+        port_rows = get_portfolio_details(user['username'], current_mode)
+        options = ["ALL STOCKS"] + [r['ticker'] for r in port_rows]
         if port_rows:
-            tkr = st.selectbox("Ticker", ticker_options, key="sa_ticker")
-            c_min = st.slider("Min Confidence", min_value=40, max_value=95, value=75, step=1, key="sa_minconf")
-            r_max = st.slider("Max Risk", min_value=10, max_value=90, value=45, step=1, key="sa_maxrisk")
-            req_up = st.checkbox("Require Uptrend", value=True, key="sa_uptrend")
-            req_rsi = st.checkbox("Require Healthy RSI (35–65)", value=False, key="sa_rsi")
-            if st.button("Create Smart Alert", key="sa_create"):
-                add_smart_alert(user['username'], tkr, c_min, r_max, req_up, req_rsi)
-                st.rerun()
-        else:
-            st.info("Add stocks first to enable Smart Alerts.")
-
-    smart_alerts = get_user_smart_alerts(user['username'])
-    for a in smart_alerts:
-        fired = bool(a.get("is_triggered"))
-        bg = "#3d1111" if fired else "#1a1f2b"
-        border = "#ef4444" if fired else "#2d3748"
-        status = "TRIGGERED" if fired else "ACTIVE"
-        status_color = "#ef4444" if fired else "#4ade80"
-        rule = f"Conf ≥ {a.get('min_conf')} • Risk ≤ {a.get('max_risk')}"
-        extras = []
-        if a.get("require_uptrend"): extras.append("Uptrend")
-        if a.get("require_healthy_rsi"): extras.append("RSI 35–65")
-        extra_txt = (" • " + " • ".join(extras)) if extras else ""
-        tfilter = a.get("ticker_filter") or "ALL STOCKS"
-
-        trig_line = ""
-        if fired and a.get("triggered_ticker"):
-            trig_line = f"<div style='font-size:0.75rem; color:#94a3b8; margin-top:6px;'>Triggered: <b style='color:white;'>{a.get('triggered_ticker')}</b> • Conf {a.get('triggered_conf')} • Risk {a.get('triggered_risk')}" + (f" • {a.get('triggered_playbook')}" if a.get('triggered_playbook') else "") + "</div>"
-
-        st.markdown(textwrap.dedent(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <div style="font-weight:bold; color:white;">{tfilter}</div>
-                            <div style="font-size:0.85rem; color:#94a3b8;">{rule}{extra_txt}</div>
-                            {trig_line}
-                        </div>
-                        <div style="font-size:0.7rem; font-weight:bold; color:{status_color};">{status}</div>
-                    </div>
-                </div>"""), unsafe_allow_html=True
-        )
-        if st.button("Clear", key=f"del_sa_{a['id']}"):
-            delete_smart_alert(a['id'])
-            st.rerun()
-
-    st.divider()
-    st.markdown("### Price Alerts")
-    with st.expander("New Price Alert", expanded=False):
-        if port_rows:
-            t = st.selectbox("Ticker", ticker_options, key="pa_ticker")
-            c = st.selectbox("Trigger", ["DOWN", "UP"], key="pa_trig")
-            v = st.number_input("Target Price", key="pa_price")
-            if st.button("Set Price Alert", key="pa_set"):
-                add_alert(user['username'], t, c, v)
-                st.rerun()
-        else:
-            st.info("Add stocks first.")
-
+            t = st.selectbox("Ticker", options); c = st.selectbox("Trigger", ["DOWN", "UP"]); v = st.number_input("Target Price")
+            if st.button("Set Alert"): add_alert(user['username'], t, c, v); st.rerun()
+        else: st.info("Add stocks first.")
     st.divider()
     alerts = get_user_alerts(user['username'])
     for a in alerts:
-        bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"
-        border = "#ef4444" if a['is_triggered'] else "#2d3748"
-        st.markdown(
-            f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;">
-                    <div>
-                        <div style="font-weight:bold; color:white;">{a['ticker']}</div>
-                        <div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div>
-                    </div>
-                </div>""", unsafe_allow_html=True
-        )
-        if st.button("Clear", key=f"del_al_{a['id']}"):
-            delete_alert(a['id'])
-            st.rerun()
+        bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"; border = "#ef4444" if a['is_triggered'] else "#2d3748"
+        st.markdown(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;"><div><div style="font-weight:bold; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div></div></div>""", unsafe_allow_html=True)
+        if st.button("Clear", key=f"del_al_{a['id']}"): delete_alert(a['id']); st.rerun()
+
+elif tab == "scanner":
     st.markdown("### Market Scanner")
     port_rows = get_portfolio_details(user['username'], current_mode)
     tickers = [r['ticker'] for r in port_rows]
