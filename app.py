@@ -760,8 +760,10 @@ def render_simple_card(row, current_token):
 
 
 def render_match_card(row):
-    """Match card rendered with Streamlit-native components (no raw HTML),
-    to avoid any '<div>' tags showing up on some mobile browsers."""
+    """Render a compact, mobile-safe match card.
+
+    Uses components.html (iframe) so HTML never 'leaks' as text on some mobile browsers.
+    """
     try:
         price = float(row.get("current_price") or 0)
     except:
@@ -775,18 +777,33 @@ def render_match_card(row):
     arrow = "▲" if ch >= 0 else "▼"
     ch_txt = f"{arrow} {ch:.2f}%"
     price_txt = f"${price:,.2f}" if price > 0 else "N/A"
+    ticker = row.get("ticker", "") or ""
 
-    # Card-like container
-    with st.container():
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            st.markdown(f"**{row.get('ticker','')}**")
-            st.caption(f"Risk: {risk}")
-        with c2:
-            st.markdown(f"**{price_txt}**")
-            st.caption(ch_txt)
-        st.divider()
-
+    # Use an iframe so the HTML can't show up as raw tags in Streamlit.
+    html = f"""
+    <div style="
+        background: #1a1f2b;
+        border: 1px solid #2d3748;
+        border-radius: 16px;
+        padding: 18px 18px;
+        margin: 0 0 12px 0;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #e0e6ed;
+    ">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="min-width:0;">
+          <div style="font-size:22px; font-weight:800; letter-spacing:0.5px;">{ticker}</div>
+          <div style="margin-top:6px; font-size:14px; color:#94a3b8;">Risk: {risk}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:22px; font-weight:800;">{price_txt}</div>
+          <div style="margin-top:6px; font-size:14px; color:#94a3b8;">{ch_txt}</div>
+        </div>
+      </div>
+    </div>
+    """
+    components.html(html, height=105)
 
 def render_horizontal_grid(rows_dict, current_token):
     h = '<div class="scrolling-wrapper">'
