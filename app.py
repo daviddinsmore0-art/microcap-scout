@@ -46,6 +46,14 @@ st.markdown("""
         li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
         div[data-baseweb="popover"] { background-color: #1e293b !important; }
         
+        
+        /* Portfolio row stability + FLIP animation */
+        .port-row .pl-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .port-row .right-col { min-width: 110px; text-align: right; }
+        .port-row, .port-row * { font-variant-numeric: tabular-nums; }
+
+        .flip-item { will-change: transform; transition: transform 350ms ease; }
+
         /* Cards WITH CLICK EFFECT ADDED */
         .card { 
             background-color: #1a1f2b; 
@@ -489,12 +497,12 @@ def render_portfolio_row(row, data, token):
         pl = (shares * price) - (shares * entry)
         pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='color:{pl_c}; font-size:0.75rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
+        pl_html = f"<div class='pl-line' style='color:{pl_c}; font-size:0.75rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
 
     link = f"?token={token}&ticker={row['ticker']}"
     html = f"""
     <a href="{link}" target="_self" style="text-decoration:none;">
-        <div class="card" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+        <div class="card flip-item port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
             <div>
                 <div style="display:flex; align-items:center; gap:8px;">
                     <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
@@ -502,7 +510,7 @@ def render_portfolio_row(row, data, token):
                 </div>
                 {pl_html}
             </div>
-            <div style="text-align:right;">
+            <div class="right-col">
                 <div style="color:white; font-weight:bold;">${price:,.2f}</div>
                 <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
             </div>
@@ -525,7 +533,7 @@ def render_simple_card(row, current_token):
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
     link = f"?token={current_token}&ticker={row['ticker']}"
     risk, _, _, _, _ = calculate_risk(row)
-    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
+    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div class="right-col"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
@@ -730,8 +738,68 @@ elif tab == "portfolio":
     if port_rows:
         tickers = [r['ticker'] for r in port_rows]
         market_data = get_cached_data_map(tickers)
-        for row in port_rows:
-            if row['ticker'] in market_data: render_portfolio_row(row, market_data[row['ticker']], token)
+
+        pairs = [(row, market_data[row['ticker']]) 
+                 for row in port_rows 
+                 if row['ticker'] in market_data]
+
+        pairs.sort(
+            key=lambda x: float(x[1].get('day_change') or 0),
+            reverse=True
+        )
+
+        for row, data in pairs:
+            render_portfolio_row(row, data, token)
+
+
+        # Animate re-order (FLIP) on the portfolio list
+        storage_key = f"pp_flip_{user['username']}_{current_mode}"
+        components.html(f"""
+        <script>
+        (function() {{
+          const key = "{'{'}storage_key{'}'}";
+          const items = Array.from(document.querySelectorAll('[data-flip-id]'));
+          if (!items.length) return;
+
+          // Measure new positions
+          const newRects = {{}};
+          items.forEach(el => {{
+            const id = el.getAttribute('data-flip-id');
+            const r = el.getBoundingClientRect();
+            newRects[id] = {{top: r.top, left: r.left}};
+          }});
+
+          // Load previous positions
+          let prevRects = null;
+          try {{
+            prevRects = JSON.parse(localStorage.getItem(key) || "null");
+          }} catch(e) {{ prevRects = null; }}
+
+          if (prevRects) {{
+            // Invert + play
+            items.forEach(el => {{
+              const id = el.getAttribute('data-flip-id');
+              if (!prevRects[id] || !newRects[id]) return;
+              const dy = prevRects[id].top - newRects[id].top;
+              const dx = prevRects[id].left - newRects[id].left;
+              if (dx === 0 && dy === 0) return;
+              el.style.transition = "none";
+              el.style.transform = `translate(${dx}px, ${dy}px)`;
+              el.getBoundingClientRect(); // force reflow
+              requestAnimationFrame(() => {{
+                el.style.transition = "";
+                el.style.transform = "translate(0px, 0px)";
+              }});
+            }});
+          }}
+
+          // Save for next refresh
+          try {{
+            localStorage.setItem(key, JSON.stringify(newRects));
+          }} catch(e) {{}}
+        }})();
+        </script>
+        """, height=0)
 
 elif tab == "alerts":
     st.markdown("### Volatility Alerts")
