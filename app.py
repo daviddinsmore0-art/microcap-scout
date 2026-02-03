@@ -460,27 +460,27 @@ def calculate_confidence(row, ai_score=None):
     final = max(0, min(100, int(round(conf))))
     return final
 
-def get_watchlist_candidates():
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IN ('Near Breakout', 'Unusual Volume', 'Momentum') ORDER BY ABS(day_change) DESC LIMIT 10")
-    rows = cursor.fetchall()
-    if not rows:
-        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
-        rows = cursor.fetchall()
-    conn.close()
-    return rows[:3]
 
+def get_watchlist_date_for_home():
+    """Show NEXT day's watchlist after market close (4pm NY)."""
+    now_ny = datetime.now(pytz.timezone("America/New_York"))
+    if now_ny.hour >= 16:
+        return (now_ny + timedelta(days=1)).date()
+    return now_ny.date()
+
+def get_watchlist_header_date():
+    d = get_watchlist_date_for_home()
+    return datetime(d.year, d.month, d.day).strftime("%b %d")
 
 def get_daily_watchlist(date_obj):
     """Return up to 3 rows for the given date from daily_watchlist.
-    Expects table: daily_watchlist(watch_date DATE, rank INT, ticker VARCHAR, label, reason)
+    Expects table: daily_watchlist(watch_date DATE, rank_num INT, ticker VARCHAR, label VARCHAR, score DECIMAL, created_at TIMESTAMP)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT rank, ticker, label, reason FROM daily_watchlist WHERE watch_date=%s ORDER BY rank ASC LIMIT 3",
+            "SELECT rank_num AS rank, ticker, label, score FROM daily_watchlist WHERE watch_date=%s ORDER BY rank_num ASC LIMIT 3",
             (date_obj.strftime("%Y-%m-%d"),)
         )
         rows = cursor.fetchall()
@@ -490,25 +490,36 @@ def get_daily_watchlist(date_obj):
         return []
 
 def get_watchlist_rows_for_home():
-    """Home watchlist is 'today' in New York time (matches your Watchlist date label)."""
-    today_ny = datetime.now(pytz.timezone('America/New_York')).date()
-    rows = get_daily_watchlist(today_ny)
-    if rows:
-        # Convert to stock_cache rows so existing render_compact_watchlist works
-        tickers = [r["ticker"] for r in rows]
-        cache_map = get_cached_data_map(tickers)
-        out = []
-        for r in rows:
-            t = r["ticker"]
-            if t in cache_map:
-                row = cache_map[t]
-                # Use the nightly label if present (optional)
-                if r.get("label"):
-                    row["signal_tag"] = r["label"]
-                out.append(row)
-        return out[:3]
-    # Fallback: old behavior (dynamic picks)
-    return get_watchlist_candidates()
+    """Home watchlist comes from daily_watchlist only (no dynamic fallback)."""
+    d = get_watchlist_date_for_home()
+    rows = get_daily_watchlist(d)
+
+    if not rows:
+        return []
+
+    # Try to enrich with stock_cache price/change for nicer tiles
+    tickers = [r["ticker"] for r in rows]
+    cache_map = get_cached_data_map(tickers)
+
+    out = []
+    for r in rows:
+        t = r["ticker"]
+        label = (r.get("label") or "Momentum")
+        score = r.get("score")
+        if t in cache_map:
+            row = cache_map[t]
+            row["signal_tag"] = label
+            row["_watchlist_score"] = score
+            out.append(row)
+        else:
+            out.append({
+                "ticker": t,
+                "signal_tag": label,
+                "current_price": None,
+                "day_change": float(score or 0),
+                "_watchlist_score": score
+            })
+    return out[:3]
 
 
 def get_cached_data_map(tickers):
@@ -771,12 +782,54 @@ def render_portfolio_row(row, data, token):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
+    """Small horizontal tiles for the 3 daily_watchlist picks.
+
+    Shows: Ticker, label, price (if available), and % score (fallback to day_change).
+    """
+    if not rows_list:
+        st.info("No watchlist yet. The nightly job will populate it after market close.")
+        return
+
     h = '<div class="scrolling-wrapper">'
     for row in rows_list:
-        signal = row.get('signal_tag') or "Active"
-        risk, label, color, badge, reasons = calculate_risk(row)
-        link = f"?token={current_token}&ticker={row['ticker']}"
-        h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div class='click-tile' style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
+        t = row.get("ticker")
+        label = row.get("signal_tag") or "Momentum"
+
+        price = row.get("current_price")
+        score = row.get("_watchlist_score")
+        if score is None:
+            try:
+                score = float(row.get("day_change") or 0)
+            except Exception:
+                score = 0
+
+        # Format display
+        price_txt = ""
+        if price is not None:
+            try:
+                price_txt = f"${float(price):,.2f}"
+            except Exception:
+                price_txt = ""
+
+        ch = float(score or 0)
+        ch_txt = f"{ch:+.2f}%"
+        ch_color = "#4ade80" if ch >= 0 else "#ef4444"
+
+        link = f"?token={current_token}&ticker={t}"
+        h += (
+            f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex:1; min-width:0;'>"
+            f"<div class='click-tile' style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); "
+            f"border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; "
+            f"display:flex; flex-direction:column; justify-content:space-between;'>"
+            f"<div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:2px;'>{t}</div>"
+            f"<div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:6px; "
+            f"white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{label}</div>"
+            f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
+            f"<div style='font-size:0.85rem; color:white; font-weight:bold;'>{price_txt}</div>"
+            f"<div style='font-size:0.85rem; font-weight:bold; color:{ch_color};'>{ch_txt}</div>"
+            f"</div>"
+            f"</div></a>"
+        )
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
@@ -801,9 +854,6 @@ def get_greeting(name):
     elif 12 <= hour < 18: return f"Good Afternoon, {name}"
     else: return f"Good Evening, {name}"
 
-def get_watchlist_header_date():
-    now = datetime.now(pytz.timezone('America/New_York'))
-    return now.strftime("%b %d")
 
 # =========================================================
 # 3. MAIN EXECUTION
