@@ -758,6 +758,36 @@ def render_simple_card(row, current_token):
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
     st.markdown(html, unsafe_allow_html=True)
 
+
+def render_match_card(row):
+    """Match card rendered with Streamlit-native components (no raw HTML),
+    to avoid any '<div>' tags showing up on some mobile browsers."""
+    try:
+        price = float(row.get("current_price") or 0)
+    except:
+        price = 0.0
+    try:
+        ch = float(row.get("day_change") or 0)
+    except:
+        ch = 0.0
+
+    risk, _, _, _, _ = calculate_risk(row)
+    arrow = "▲" if ch >= 0 else "▼"
+    ch_txt = f"{arrow} {ch:.2f}%"
+    price_txt = f"${price:,.2f}" if price > 0 else "N/A"
+
+    # Card-like container
+    with st.container():
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            st.markdown(f"**{row.get('ticker','')}**")
+            st.caption(f"Risk: {risk}")
+        with c2:
+            st.markdown(f"**{price_txt}**")
+            st.caption(ch_txt)
+        st.divider()
+
+
 def render_horizontal_grid(rows_dict, current_token):
     h = '<div class="scrolling-wrapper">'
     for ticker, row in rows_dict.items():
@@ -1205,7 +1235,7 @@ elif tab == "alerts":
             st.info("No matches right now. Try lowering Confidence or raising Max Risk.")
         else:
             for row in matches[:10]:
-                render_simple_card(row, token)
+                render_match_card(row)
 
     st.divider()
     st.markdown("### Price Alerts")
