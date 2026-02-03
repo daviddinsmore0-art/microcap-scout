@@ -20,7 +20,7 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered",
 st.markdown("""
     <style>
         /* REMOVE DEFAULT PADDING */
-        .block-container { padding-top: 0rem !important; padding-bottom: 5rem !important; }
+        .block-container { padding-top: 0rem !important; padding-bottom: calc(8rem + env(safe-area-inset-bottom)) !important; }
         
         /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
@@ -556,8 +556,8 @@ components.html("""<script>setTimeout(function(){window.parent.location.reload()
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.image("logo.png", use_container_width=True)
-        st.markdown("<h1 style='text-align:center; color:#4ade80; margin-top:10px;'>Penny Pulse</h1>", unsafe_allow_html=True)
+        st.image("logo.png", width=220)
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
         with st.form("login_form"):
@@ -756,8 +756,10 @@ elif tab == "scanner":
     market_data = get_cached_data_map(tickers)
     if market_data:
         st.markdown("**📉 Oversold (RSI < 40)**")
-        for t, data in market_data.items(): 
-            if data['rsi'] is not None and float(data.get('rsi', 0)) < 40: render_simple_card(data, token)
+        for t, data in market_data.items():
+            rsi_val = data.get('rsi')
+            if rsi_val is not None and float(rsi_val) < 40:
+                render_simple_card(data, token)
         st.markdown("**📅 Earnings Soon**")
         for t, data in market_data.items():
             d_val = parse_smart_date(data.get('next_earnings'))
