@@ -1218,8 +1218,8 @@ if tab == "home":
     w_date = get_watchlist_header_date()
     st.markdown(f"### {w_date} Watchlist")
     candidates = get_watchlist_rows_for_home()
-    # render_watchlist_pick_grid(candidates, token)
-    render_compact_watchlist(candidates, token)
+    render_watchlist_pick_grid(candidates, token)
+    # render_compact_watchlist(candidates, token)
 
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
