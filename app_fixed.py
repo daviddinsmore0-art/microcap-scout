@@ -1,7 +1,7 @@
 import streamlit as st
 import mysql.connector
-import yfinance as yf
-import requests
+import re
+import htmlquests
 import uuid
 import os
 import pandas as pd
@@ -9,6 +9,7 @@ import pytz
 import json
 import xml.etree.ElementTree as ET
 import streamlit.components.v1 as components
+import textwrap
 from datetime import datetime, timedelta
 
 # =========================================================
@@ -16,11 +17,33 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
+# --- Query param helper (works across Streamlit versions) ---
+def _get_qp_value(key: str, default: str = "") -> str:
+    try:
+        # Newer Streamlit: st.query_params behaves like a mapping
+        qp = getattr(st, "query_params", None)
+        if qp is not None:
+            val = qp.get(key, default)
+            # Some versions return list values
+            if isinstance(val, (list, tuple)):
+                return str(val[0]) if val else default
+            return str(val) if val is not None else default
+    except Exception:
+        pass
+    try:
+        # Older Streamlit
+        qp = st.experimental_get_query_params()
+        val = qp.get(key, [default])
+        return str(val[0]) if isinstance(val, list) and val else str(val)
+    except Exception:
+        return default
+
+
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
         /* REMOVE DEFAULT PADDING */
-        .block-container { padding-top: 0rem !important; padding-bottom: 5rem !important; }
+        .block-container { padding-top: 0rem !important; padding-bottom: calc(8rem + env(safe-area-inset-bottom)) !important; }
         
         /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
@@ -60,6 +83,9 @@ st.markdown("""
             transform: scale(0.97);
             border-color: #4ade80 !important;
         }
+
+        /* Portfolio reorder animation helper */
+        .port-row { will-change: transform; }
 
         /* Clickable tiles (button-like press feedback) */
         .click-tile {
@@ -285,34 +311,238 @@ def get_ai_analysis(ticker, headlines, current_data=None):
     return "No Data Available", 50, "NONE"
 
 def calculate_risk(row, ai_score=None):
-    s = 50; reasons = []
-    if row.get('trend_status') == 'DOWNTREND': s += 10
-    else: s -= 10
-    rsi = float(row.get('rsi') or 50)
-    if rsi > 70: s += 10
-    elif rsi < 30: s -= 10
-    vol = float(row.get('volatility') or 0)
-    if vol > 3.0: s += 10
-    if ai_score is not None:
-        adj = (50 - ai_score) * 0.5
-        s += adj
-    final = max(0, min(100, int(s)))
-    color = "#4ade80" 
-    label = "LOW"
-    if final > 65: color = "#ef4444"; label="HIGH"
-    elif final > 35: color = "#fbbf24"; label="MEDIUM"
-    return final, label, color, "badge-mix", reasons
+    """Return (risk_score, label, color, badge, breakdown).
 
-def get_watchlist_candidates():
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE signal_tag IN ('Near Breakout', 'Unusual Volume', 'Momentum') ORDER BY ABS(day_change) DESC LIMIT 10")
-    rows = cursor.fetchall()
-    if not rows:
-        cursor.execute("SELECT * FROM stock_cache ORDER BY ABS(day_change) DESC LIMIT 10")
+    breakdown is a list of tuples: (factor, points) where points are the
+    contribution to the final risk score before clamping.
+    """
+    risk = 50.0
+    breakdown = []
+
+    # Trend
+    trend = (row.get("trend_status") or "NEUTRAL").upper()
+    if trend == "DOWNTREND":
+        risk += 15
+        breakdown.append(("Trend (Downtrend)", +15))
+    elif trend == "UPTREND":
+        risk -= 12
+        breakdown.append(("Trend (Uptrend)", -12))
+    else:
+        risk += 3
+        breakdown.append(("Trend (Neutral)", +3))
+
+    # RSI (gradient)
+    rsi = float(row.get("rsi") or 50)
+    if rsi >= 80:
+        risk += 15
+        breakdown.append(("RSI (>=80 overbought)", +15))
+    elif rsi >= 70:
+        risk += 8
+        breakdown.append(("RSI (70-79 overbought)", +8))
+    elif rsi <= 20:
+        risk += 12
+        breakdown.append(("RSI (<=20 extreme)", +12))
+    elif rsi <= 30:
+        risk += 5
+        breakdown.append(("RSI (21-30 oversold)", +5))
+    else:
+        breakdown.append(("RSI (normal)", 0))
+
+    # Volatility (gradient)
+    vol = float(row.get("volatility") or 0)
+    if vol >= 6:
+        risk += 18
+        breakdown.append(("Volatility (>=6)", +18))
+    elif vol >= 4:
+        risk += 12
+        breakdown.append(("Volatility (4-5.9)", +12))
+    elif vol >= 2:
+        risk += 6
+        breakdown.append(("Volatility (2-3.9)", +6))
+    else:
+        breakdown.append(("Volatility (<2)", 0))
+
+    # Debt / Equity (debt_ratio)
+    debt = float(row.get("debt_ratio") or 0)
+    if debt >= 200:
+        risk += 15
+        breakdown.append(("Debt/Equity (>=200)", +15))
+    elif debt >= 120:
+        risk += 8
+        breakdown.append(("Debt/Equity (120-199)", +8))
+    else:
+        breakdown.append(("Debt/Equity (<120)", 0))
+
+    # AI sentiment (small nudge)
+    if ai_score is not None:
+        adj = (50 - float(ai_score)) * 0.25
+        risk += adj
+        breakdown.append(("AI sentiment adjust", round(adj, 1)))
+    else:
+        breakdown.append(("AI sentiment adjust", 0))
+
+    final = max(0, min(100, int(round(risk))))
+
+    color = "#4ade80"
+    label = "LOW"
+    if final >= 70:
+        color = "#ef4444"
+        label = "HIGH"
+    elif final >= 40:
+        color = "#fbbf24"
+        label = "MEDIUM"
+
+    return final, label, color, "badge-mix", breakdown
+
+
+
+def calculate_confidence(row, ai_score=None):
+    """Return a 0-100 confidence score (higher = cleaner/healthier setup).
+
+    This is intentionally not just (100 - risk). It adds small bonuses for
+    healthy conditions (uptrend + mid RSI) and small penalties for very high
+    volatility / extremes.
+    """
+    risk, _, _, _, _ = calculate_risk(row, ai_score)
+
+    confidence = 100 - int(risk)
+
+    trend = (row.get("trend_status") or "NEUTRAL").upper()
+    rsi = float(row.get("rsi") or 50)
+    vol = float(row.get("volatility") or 0)
+
+    if trend == "UPTREND":
+        confidence += 6
+    elif trend == "DOWNTREND":
+        confidence -= 4
+
+    if 40 <= rsi <= 60:
+        confidence += 6
+    elif rsi >= 80 or rsi <= 20:
+        confidence -= 6
+
+    if vol >= 6:
+        confidence -= 10
+    elif vol >= 4:
+        confidence -= 6
+    elif vol >= 2:
+        confidence -= 2
+
+    if ai_score is not None:
+        confidence += int((float(ai_score) - 50) * 0.15)
+
+    return max(0, min(100, int(confidence)))
+
+
+def calculate_confidence(row, ai_score=None):
+    """Confidence is 'opportunity / setup quality' (0-100)."""
+    conf = 50.0
+
+    trend = (row.get("trend_status") or "NEUTRAL").upper()
+    if trend == "UPTREND":
+        conf += 15
+    elif trend == "DOWNTREND":
+        conf -= 10
+
+    rsi = float(row.get("rsi") or 50)
+    # Prefer RSI in the middle (room to run, not extreme)
+    if 40 <= rsi <= 60:
+        conf += 8
+    elif 30 <= rsi < 40 or 60 < rsi <= 70:
+        conf += 4
+    elif rsi >= 80 or rsi <= 20:
+        conf -= 8
+
+    vol = float(row.get("volatility") or 0)
+    if vol < 2:
+        conf += 6
+    elif vol >= 6:
+        conf -= 12
+    elif vol >= 4:
+        conf -= 8
+
+    # Volume status (if present in cache)
+    vs = (row.get("volume_status") or "").lower()
+    if "unusual" in vs or "surge" in vs:
+        conf += 6
+    elif "low" in vs:
+        conf -= 3
+
+    # Range location (if 0-100): higher can be good *if* trend is up
+    try:
+        rl = float(row.get("range_loc") or 0)
+        if trend == "UPTREND" and rl >= 70:
+            conf += 4
+    except:
+        pass
+
+    if ai_score is not None:
+        conf += (float(ai_score) - 50) * 0.2
+
+    final = max(0, min(100, int(round(conf))))
+    return final
+
+
+def get_watchlist_date_for_home():
+    """Show NEXT day's watchlist after market close (4pm NY)."""
+    now_ny = datetime.now(pytz.timezone("America/New_York"))
+    if now_ny.hour >= 16:
+        return (now_ny + timedelta(days=1)).date()
+    return now_ny.date()
+
+def get_watchlist_header_date():
+    d = get_watchlist_date_for_home()
+    return datetime(d.year, d.month, d.day).strftime("%b %d")
+
+def get_daily_watchlist(date_obj):
+    """Return up to 4 rows for the given date from daily_watchlist.
+    Expects table: daily_watchlist(watch_date DATE, rank_num INT, ticker VARCHAR, label VARCHAR, score DECIMAL, created_at TIMESTAMP)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT rank_num AS rank, ticker, label, score FROM daily_watchlist WHERE watch_date=%s ORDER BY rank_num ASC LIMIT 4",
+            (date_obj.strftime("%Y-%m-%d"),)
+        )
         rows = cursor.fetchall()
-    conn.close()
-    return rows[:3]
+        conn.close()
+        return rows or []
+    except Exception:
+        return []
+
+def get_watchlist_rows_for_home():
+    """Home watchlist comes from daily_watchlist only (no dynamic fallback)."""
+    d = get_watchlist_date_for_home()
+    rows = get_daily_watchlist(d)
+
+    if not rows:
+        return []
+
+    # Try to enrich with stock_cache price/change for nicer tiles
+    tickers = [r["ticker"] for r in rows]
+    cache_map = get_cached_data_map(tickers)
+
+    out = []
+    for r in rows:
+        t = r["ticker"]
+        label = (r.get("label") or "Momentum")
+        score = r.get("score")
+        if t in cache_map:
+            row = cache_map[t]
+            row["signal_tag"] = label
+            row["_watchlist_score"] = score
+            out.append(row)
+        else:
+            out.append({
+                "ticker": t,
+                "signal_tag": label,
+                "current_price": None,
+                "day_change": float(score or 0),
+                "_watchlist_score": score
+            })
+    return out[:4]
+
 
 def get_cached_data_map(tickers):
     if not tickers: return {}
@@ -475,8 +705,70 @@ def create_gauge_html(score, label, color, size="big"):
     """
     return f'<div class="card" style="padding-bottom:0; margin-bottom:0;">{header}{svg}</div>'
 
+
+def generate_playbook(stock_row):
+    """Generate a simple rule-based trade plan using cached metrics.
+
+    Uses current_price + volatility proxy for an 'expected move' and chooses a
+    playbook style from trend/RSI conditions.
+    """
+    price = float(stock_row.get("current_price") or 0)
+    if price <= 0:
+        return None
+
+    trend = (stock_row.get("trend_status") or "NEUTRAL").upper()
+    rsi = float(stock_row.get("rsi") or 50)
+    vol = float(stock_row.get("volatility") or 2.5)
+
+    move = max(price * (vol / 100.0), price * 0.01)
+
+    if trend == "UPTREND" and rsi < 70:
+        name = "Momentum Continuation"
+        entry = price * 1.005
+        stop = price - (move * 1.2)
+        t1 = price + (move * 1.5)
+        t2 = price + (move * 3.0)
+        rationale = "Uptrend + non-overbought RSI. Follow-through favored."
+    elif rsi <= 30:
+        name = "Oversold Bounce"
+        entry = price * 1.003
+        stop = price - (move * 1.6)
+        t1 = price + (move * 1.2)
+        t2 = price + (move * 2.2)
+        rationale = "RSI oversold. Bounce setups can work—manage risk tightly."
+    elif rsi >= 80:
+        name = "Overbought Mean Reversion (Cautious)"
+        entry = price * 0.997
+        stop = price + (move * 1.2)
+        t1 = price - (move * 1.2)
+        t2 = price - (move * 2.2)
+        rationale = "RSI very high. Reversion risk—size smaller or wait for confirmation."
+    else:
+        name = "Range / Wait For Trigger"
+        entry = price * 1.007
+        stop = price - (move * 1.4)
+        t1 = price + (move * 1.3)
+        t2 = price + (move * 2.4)
+        rationale = "Neutral conditions. Use a trigger to avoid chop."
+
+    def r(x):
+        return round(float(x), 2)
+
+    return {
+        "name": name,
+        "entry": r(entry),
+        "stop": r(stop),
+        "t1": r(t1),
+        "t2": r(t2),
+        "rationale": rationale,
+        "move": r(move),
+    }
+
+
 def render_portfolio_row(row, data, token):
     risk, label, color, _, _ = calculate_risk(data)
+    conf = calculate_confidence(data)
+    conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
     price = float(data['current_price'])
     change = float(data['day_change'])
     change_color = "#4ade80" if change >= 0 else "#ef4444"
@@ -494,11 +786,11 @@ def render_portfolio_row(row, data, token):
     link = f"?token={token}&ticker={row['ticker']}"
     html = f"""
     <a href="{link}" target="_self" style="text-decoration:none;">
-        <div class="card" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+        <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
             <div>
                 <div style="display:flex; align-items:center; gap:8px;">
                     <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-                    <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:4px; font-weight:bold;">RISK: {risk}</div>
+                    <div style="display:flex; align-items:center; gap:8px;"><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div><div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div></div>
                 </div>
                 {pl_html}
             </div>
@@ -512,12 +804,54 @@ def render_portfolio_row(row, data, token):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
+    """Small horizontal tiles for the 3 daily_watchlist picks.
+
+    Shows: Ticker, label, price (if available), and % score (fallback to day_change).
+    """
+    if not rows_list:
+        st.info("No watchlist yet. The nightly job will populate it after market close.")
+        return
+
     h = '<div class="scrolling-wrapper">'
     for row in rows_list:
-        signal = row.get('signal_tag') or "Active"
-        risk, label, color, badge, reasons = calculate_risk(row)
-        link = f"?token={current_token}&ticker={row['ticker']}"
-        h += f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex: 1; min-width: 0;'><div class='click-tile' style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;'><div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:4px;'>{row['ticker']}</div><div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{signal}</div><div style='font-size:0.65rem; color:#94a3b8;'>Risk: <span style='color:{color}'>{risk}</span></div></div></a>"
+        t = row.get("ticker")
+        label = row.get("signal_tag") or "Momentum"
+
+        price = row.get("current_price")
+        score = row.get("_watchlist_score")
+        if score is None:
+            try:
+                score = float(row.get("day_change") or 0)
+            except Exception:
+                score = 0
+
+        # Format display
+        price_txt = ""
+        if price is not None:
+            try:
+                price_txt = f"${float(price):,.2f}"
+            except Exception:
+                price_txt = ""
+
+        ch = float(score or 0)
+        ch_txt = f"{ch:+.2f}%"
+        ch_color = "#4ade80" if ch >= 0 else "#ef4444"
+
+        link = f"?token={current_token}&ticker={t}"
+        h += (
+            f"<a href='{link}' target='_self' style='text-decoration:none; color:inherit; flex:1; min-width:0;'>"
+            f"<div class='click-tile' style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); "
+            f"border: 1px solid #334155; border-radius: 8px; padding: 10px; height: 100%; "
+            f"display:flex; flex-direction:column; justify-content:space-between;'>"
+            f"<div style='font-weight:bold; font-size:0.95rem; color:white; margin-bottom:2px;'>{t}</div>"
+            f"<div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:6px; "
+            f"white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{label}</div>"
+            f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
+            f"<div style='font-size:0.85rem; color:white; font-weight:bold;'>{price_txt}</div>"
+            f"<div style='font-size:0.85rem; font-weight:bold; color:{ch_color};'>{ch_txt}</div>"
+            f"</div>"
+            f"</div></a>"
+        )
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
@@ -529,12 +863,37 @@ def render_simple_card(row, current_token):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
+    # Small scroller tiles: ticker + price + % (pulled from stock_cache).
     h = '<div class="scrolling-wrapper">'
     for ticker, row in rows_dict.items():
-        ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
+        try:
+            price = float(row.get('current_price') or 0)
+        except Exception:
+            price = 0.0
+        try:
+            ch = float(row.get('day_change') or 0)
+        except Exception:
+            ch = 0.0
+
+        cc = "#4ade80" if ch >= 0 else "#ef4444"
+        arr = "▲" if ch >= 0 else "▼"
         link = f"?token={current_token}&ticker={ticker}"
-        h += f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;"><div class="scrolling-card click-tile"><div style="font-weight:bold; font-size:1.1rem; color:white; margin-bottom:4px;">{ticker}</div><div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-bottom:8px;">{arr} {ch:.2f}%</div></div></a>'
-    h += '</div>'; st.markdown(h, unsafe_allow_html=True)
+
+        price_txt = f"${price:,.2f}" if price > 0 else "—"
+
+        h += (
+            f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;">'
+            f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between;">'
+            f'    <div style="font-weight:bold; font-size:1.05rem; color:white; margin-bottom:6px;">{ticker}</div>'
+            f'    <div style="display:flex; justify-content:space-between; align-items:baseline;">'
+            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}</div>'
+            f'      <div style="font-size:0.9rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'
+            f'    </div>'
+            f'  </div>'
+            f'</a>'
+        )
+    h += '</div>'
+    st.markdown(h, unsafe_allow_html=True)
 
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
@@ -542,9 +901,6 @@ def get_greeting(name):
     elif 12 <= hour < 18: return f"Good Afternoon, {name}"
     else: return f"Good Evening, {name}"
 
-def get_watchlist_header_date():
-    now = datetime.now(pytz.timezone('America/New_York'))
-    return now.strftime("%b %d")
 
 # =========================================================
 # 3. MAIN EXECUTION
@@ -556,8 +912,8 @@ components.html("""<script>setTimeout(function(){window.parent.location.reload()
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.image("logo.png", use_container_width=True)
-        st.markdown("<h1 style='text-align:center; color:#4ade80; margin-top:10px;'>Penny Pulse</h1>", unsafe_allow_html=True)
+        st.image("logo.png", width=220)
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
     tab1, tab2, tab3 = st.tabs(["Login", "Register", "Forgot PIN"])
     with tab1:
         with st.form("login_form"):
@@ -600,6 +956,7 @@ if "ticker" in st.query_params:
         headlines_txt = "\n".join([f"- {n['title']}" for n in news_items]) if news_items else ""
         ai_summary, ai_score, ai_source = get_ai_analysis(ticker, headlines_txt, stock)
         s, l, c, _, r = calculate_risk(stock, ai_score)
+        confidence = calculate_confidence(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
@@ -621,6 +978,58 @@ if "ticker" in st.query_params:
             st.markdown("---")
 
         st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
+        st.markdown(f"""<div class='card' style='margin-top:12px; padding:18px;'>
+            <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:6px;'>CONFIDENCE</div>
+            <div style='display:flex; align-items:center; gap:14px;'>
+                <div style='font-size:2rem; font-weight:bold; color:white; line-height:1;'>{confidence}</div>
+                <div style='flex:1; height:10px; background:#334155; border-radius:999px; overflow:hidden;'>
+                    <div style='width:{confidence}%; height:100%; background:linear-gradient(90deg, #ef4444 0%, #fbbf24 50%, #4ade80 100%);'></div>
+                </div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+        play = generate_playbook(stock)
+        if play:
+            st.markdown(
+                textwrap.dedent(f"""
+<div class='card' style='margin-top:15px;'>
+  <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;'>
+    SMART PLAYBOOK
+  </div>
+
+  <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:10px;'>
+    <div style='font-size:1.05rem; font-weight:bold; color:white;'>{play["name"]}</div>
+    <div style='font-size:0.75rem; color:#94a3b8; white-space:nowrap;'>Est. move: ${play["move"]}</div>
+  </div>
+
+  <div style='display:flex; gap:10px;'>
+    <div class='metric-box' style='flex:1; padding:12px;'>
+      <div class='metric-label'>Entry</div>
+      <div class='metric-value'>${play["entry"]}</div>
+    </div>
+    <div class='metric-box' style='flex:1; padding:12px; border:1px solid #ef4444;'>
+      <div class='metric-label'>Stop</div>
+      <div class='metric-value' style='color:#ef4444;'>${play["stop"]}</div>
+    </div>
+  </div>
+
+  <div style='display:flex; gap:10px; margin-top:10px;'>
+    <div class='metric-box' style='flex:1; padding:12px; border:1px solid #4ade80;'>
+      <div class='metric-label'>Target 1</div>
+      <div class='metric-value' style='color:#4ade80;'>${play["t1"]}</div>
+    </div>
+    <div class='metric-box' style='flex:1; padding:12px; border:1px solid #4ade80;'>
+      <div class='metric-label'>Target 2</div>
+      <div class='metric-value' style='color:#4ade80;'>${play["t2"]}</div>
+    </div>
+  </div>
+
+  <div style='margin-top:10px; font-size:0.9rem; color:#e0e6ed; line-height:1.4;'>
+    {play["rationale"]}
+  </div>
+</div>
+"""), unsafe_allow_html=True
+            )
         st.markdown(f"<div class='card' style='margin-top:15px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
@@ -637,6 +1046,30 @@ if "ticker" in st.query_params:
 
         r_cls, r_txt = get_pill(float(stock.get('rsi') or 0), "rsi")
         st.markdown(f"<div class='risk-row' style='border:none;'><div class='risk-label'>RSI Momentum</div><div class='risk-pill {r_cls}'>{r_txt}</div></div></div>", unsafe_allow_html=True)
+        # Risk breakdown (why the score moved)
+        bd_rows = []
+        for name, pts in r:
+            try:
+                pts_f = float(pts)
+            except:
+                pts_f = 0
+            if abs(pts_f) < 0.1:
+                continue
+            sign = "+" if pts_f > 0 else ""
+            bd_rows.append(
+                f"<div style='display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #2d3748;'>"
+                f"<div style='color:#e0e6ed; font-size:0.9rem;'>{name}</div>"
+                f"<div style='color:#94a3b8; font-weight:bold;'>{sign}{pts_f:g}</div>"
+                f"</div>"
+            )
+        if bd_rows:
+            st.markdown(
+                "<div class='card' style='margin-top:12px; padding:18px;'>"
+                "<div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:8px;'>RISK BREAKDOWN</div>"
+                + "".join(bd_rows) +
+                "</div>",
+                unsafe_allow_html=True
+            )
         
         if ai_summary:
             ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{ai_source} INSIGHT (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
@@ -653,7 +1086,7 @@ if "ticker" in st.query_params:
     else: st.error("Data missing.")
     render_navbar(token, current_mode); st.stop()
 
-tab = st.query_params.get("tab", "home")
+tab = _get_qp_value("tab", "home")
 if tab == "home":
     try:
         conn = get_connection(); cursor = conn.cursor()
@@ -661,7 +1094,45 @@ if tab == "home":
         row = cursor.fetchone()
         briefing_text = row[0] if row else ""
         conn.close()
-        st.markdown(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{briefing_text}</div></div>""", unsafe_allow_html=True)
+        # Render briefing with safe line breaks and robust encoding cleanup
+        def _fix_mojibake(s: str) -> str:
+            # Fix common UTF-8-as-latin1 mojibake (e.g., â€”)
+            if not s:
+                return ""
+            if "â" in s or "Ã" in s:
+                try:
+                    return s.encode("latin1").decode("utf-8")
+                except Exception:
+                    return s
+            return s
+
+        briefing_text = _fix_mojibake(briefing_text)
+
+        # Split out leading "Updated ..." line if present
+        lines = [ln.strip() for ln in briefing_text.splitlines() if ln.strip() != ""]
+        updated_line = ""
+        body_lines = lines
+        if lines and lines[0].lower().startswith("updated"):
+            updated_line = lines[0]
+            body_lines = lines[1:]
+
+        body_html = html.escape("
+".join(body_lines)).replace("
+", "<br>")
+        updated_html = html.escape(updated_line)
+
+        st.markdown(
+            f'''
+            <div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
+              <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:10px;">
+                <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px;">AI MORNING BRIEFING</div>
+                <div style="color:#9aa4b2; font-size:0.8rem;">{updated_html}</div>
+              </div>
+              <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{body_html}</div>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
     except: pass
     
     st.markdown("### Portfolio Overview")
@@ -689,7 +1160,7 @@ if tab == "home":
             
     w_date = get_watchlist_header_date()
     st.markdown(f"### {w_date} Watchlist")
-    candidates = get_watchlist_candidates()
+    candidates = get_watchlist_rows_for_home()
     render_compact_watchlist(candidates, token)
 
 elif tab == "portfolio":
@@ -730,8 +1201,52 @@ elif tab == "portfolio":
     if port_rows:
         tickers = [r['ticker'] for r in port_rows]
         market_data = get_cached_data_map(tickers)
-        for row in port_rows:
-            if row['ticker'] in market_data: render_portfolio_row(row, market_data[row['ticker']], token)
+        pairs = [(row, market_data[row['ticker']]) for row in port_rows if row['ticker'] in market_data]
+        pairs.sort(key=lambda x: float(x[1].get('day_change') or 0), reverse=True)
+
+        for row, data in pairs:
+            render_portfolio_row(row, data, token)
+
+        # Animate reorder (FLIP) across reruns
+        storage_key = f"pp_flip_{user['username']}_{current_mode}"
+        _flip_js = """<script>
+                (function() {
+                  const key = "%(storage_key)s";
+                  const items = Array.from(document.querySelectorAll('[data-flip-id]'));
+                  if (!items.length) return;
+
+                  const newRects = {};
+                  items.forEach(el => {
+                    const id = el.getAttribute('data-flip-id');
+                    const r = el.getBoundingClientRect();
+                    newRects[id] = {top: r.top, left: r.left};
+                  });
+
+                  let prevRects = null;
+                  try { prevRects = JSON.parse(localStorage.getItem(key) || "null"); } catch(e) { prevRects = null; }
+
+                  if (prevRects) {
+                    items.forEach(el => {
+                      const id = el.getAttribute('data-flip-id');
+                      if (!prevRects[id] || !newRects[id]) return;
+                      const dy = prevRects[id].top - newRects[id].top;
+                      const dx = prevRects[id].left - newRects[id].left;
+                      if (dx === 0 && dy === 0) return;
+                      el.style.transition = "none";
+                      el.style.transform = "translate(" + dx + "px, " + dy + "px)";
+                      el.getBoundingClientRect(); // force reflow
+                      requestAnimationFrame(() => {
+                        el.style.transition = "transform 320ms cubic-bezier(.2,.8,.2,1)";
+                        el.style.transform = "";
+                      });
+                    });
+                  }
+
+                  try { localStorage.setItem(key, JSON.stringify(newRects)); } catch(e) {}
+                })();
+                </script>"""
+        _flip_js = _flip_js.replace("%(storage_key)s", storage_key)
+        components.html(_flip_js, height=0)
 
 elif tab == "alerts":
     st.markdown("### Volatility Alerts")
@@ -756,8 +1271,10 @@ elif tab == "scanner":
     market_data = get_cached_data_map(tickers)
     if market_data:
         st.markdown("**📉 Oversold (RSI < 40)**")
-        for t, data in market_data.items(): 
-            if data['rsi'] is not None and float(data.get('rsi', 0)) < 40: render_simple_card(data, token)
+        for t, data in market_data.items():
+            rsi_val = data.get('rsi')
+            if rsi_val is not None and float(rsi_val) < 40:
+                render_simple_card(data, token)
         st.markdown("**📅 Earnings Soon**")
         for t, data in market_data.items():
             d_val = parse_smart_date(data.get('next_earnings'))
