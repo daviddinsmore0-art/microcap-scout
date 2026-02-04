@@ -1071,8 +1071,19 @@ if tab == "home":
         row = cursor.fetchone()
         briefing_text = row[0] if row else ""
         conn.close()
-        st.markdown(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{briefing_text}</div></div>""", unsafe_allow_html=True)
-    except: pass
+        st.markdown(f"""
+<div class="card" style="border-left:4px solid #facc15; margin-bottom:20px;">
+  <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
+    AI MORNING BRIEFING
+  </div>
+
+  <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed; white-space:pre-line;">
+    {briefing_text}
+  </div>
+</div>
+""",
+unsafe_allow_html=True
+)
     
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
