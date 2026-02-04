@@ -891,7 +891,7 @@ def render_horizontal_grid(rows_dict, current_token):
 
           </div>
         </a>
-        """
+        
 
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
