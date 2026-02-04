@@ -824,7 +824,7 @@ def render_compact_watchlist(rows_list, current_token):
             f"<div style='font-size:0.65rem; color:#facc15; font-weight:bold; margin-bottom:6px; "
             f"white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{label}</div>"
             f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
-            f"<div style='font-size:0.85rem; color:white; font-weight:bold;'>{price_txt}</div>"
+            f"<div style='font-size:0.85rem; color:white; font-weight:bold;'>{price_txt}</div><br>"
             f"<div style='font-size:0.85rem; font-weight:bold; color:{ch_color};'>{ch_txt}</div>"
             f"</div>"
             f"</div></a>"
