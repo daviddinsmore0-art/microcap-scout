@@ -862,11 +862,14 @@ def render_horizontal_grid(rows_dict, current_token):
             f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;">'
             f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between;">'
             f'    <div style="font-weight:bold; font-size:1.05rem; color:white; margin-bottom:6px;">{ticker}</div>'
-            f'    <div style="display:flex; justify-content:space-between; align-items:baseline;">'
-            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}</div>'
-            f'      <div style="font-size:0.9rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'
-            f'    </div>'
-            f'  </div>'
+            f'    <div style="display:flex; flex-direction:column; align-items:center;">
+    <div style="font-size:0.95rem; font-weight:bold; color:white;">
+        ${price}
+    </div>
+    <div style="font-size:0.8rem; font-weight:bold; color:{color}; margin-top:2px;">
+        {arrow} {pct}%
+    </div>
+</div>
             f'</a>'
         )
     h += '</div>'
