@@ -888,7 +888,7 @@ def render_horizontal_grid(rows_dict, current_token):
                         margin-top:2px;">
                 {pct_txt}
             </div>
-
+"""
           </div>
         </a>
         
