@@ -1077,10 +1077,10 @@ if tab == "home":
         st.markdown(
             f"""
             <div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-              <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:8px;">
+              <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:6px;">
                 AI MORNING BRIEFING
               </div>
-              <div style="font-size:0.95rem; line-height:1.45; color:#e0e6ed; white-space:pre-line;">
+              <div style="font-size:0.95rem; line-height:1.40; color:#e0e6ed; white-space:pre-line;">
                 {briefing_text}
               </div>
             </div>
