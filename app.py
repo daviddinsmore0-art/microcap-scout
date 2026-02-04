@@ -1063,17 +1063,43 @@ if "ticker" in st.query_params:
     else: st.error("Data missing.")
     render_navbar(token, current_mode); st.stop()
 
-tab = st.query_params.get("tab", "home")
+    
+    tab = st.query_params.get("tab", "home")
 if tab == "home":
     try:
-        conn = get_connection(); cursor = conn.cursor()
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT content FROM daily_briefing WHERE id=1")
         row = cursor.fetchone()
-        briefing_text = row[0] if row else ""
         conn.close()
-        st.markdown(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{briefing_text}</div></div>""", unsafe_allow_html=True)
-    except: pass
-    
+
+        briefing_text = row[0] if row else ""
+
+        # --- FIX ENCODING ---
+        briefing_text = (
+            briefing_text
+            .encode("latin1", errors="ignore")
+            .decode("utf-8", errors="ignore")
+        )
+
+        # --- FIX LINE BREAKS ---
+        briefing_text = briefing_text.replace("\n", "<br>")
+
+        st.markdown(
+            f"""
+            <div class="card" style="border-left:4px solid #facc15; margin-bottom:20px;">
+                <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
+                    AI MORNING BRIEFING
+                </div>
+                <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">
+                    {briefing_text}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    except:
+        pass
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
     if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
