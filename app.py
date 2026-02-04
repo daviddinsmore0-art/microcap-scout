@@ -840,16 +840,18 @@ def render_simple_card(row, current_token):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
-    # Small scroller tiles: ticker + price + % (pulled from stock_cache).
+    # Small scroller tiles: ticker + price on top, % UNDER price
     h = '<div class="scrolling-wrapper">'
+
     for ticker, row in rows_dict.items():
         try:
             price = float(row.get('current_price') or 0)
-        except Exception:
+        except:
             price = 0.0
+
         try:
             ch = float(row.get('day_change') or 0)
-        except Exception:
+        except:
             ch = 0.0
 
         cc = "#4ade80" if ch >= 0 else "#ef4444"
@@ -857,18 +859,40 @@ def render_horizontal_grid(rows_dict, current_token):
         link = f"?token={current_token}&ticker={ticker}"
 
         price_txt = f"${price:,.2f}" if price > 0 else "—"
+        pct_txt = f"{arr} {ch:.2f}%"
 
-        h += (
-            f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;">'
-            f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between;">'
-            f'    <div style="font-weight:bold; font-size:1.05rem; color:white; margin-bottom:6px;">{ticker}</div>'
-            f'    <div style="display:flex; justify-content:space-between; align-items:baseline;">'
-            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}</div><br>'
-            f'      <div style="font-size:0.9rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'
-            f'    </div>'
-            f'  </div>'
-            f'</a>'
-        )
+        h += f"""
+        <a href="{link}" target="_self" style="text-decoration:none; color:inherit;">
+          <div class="scrolling-card click-tile"
+               style="display:flex;
+                      flex-direction:column;
+                      justify-content:space-between;
+                      align-items:flex-start;">
+
+            <div style="font-weight:bold;
+                        font-size:1.05rem;
+                        color:white;
+                        margin-bottom:6px;">
+                {ticker}
+            </div>
+
+            <div style="font-size:0.95rem;
+                        color:white;
+                        font-weight:bold;">
+                {price_txt}
+            </div>
+
+            <div style="font-size:0.85rem;
+                        color:{cc};
+                        font-weight:bold;
+                        margin-top:2px;">
+                {pct_txt}
+            </div>
+
+          </div>
+        </a>
+        """
+
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
