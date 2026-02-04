@@ -1071,7 +1071,7 @@ if tab == "home":
         cursor = conn.cursor()
         cursor.execute("SELECT content FROM daily_briefing WHERE id=1")
         row = cursor.fetchone()
-        briefing_text = row[0] if row else ""
+        briefing_text = row[0].replace("Overall:", "\nOverall:") if row else ""
         conn.close()
 
         st.markdown(
