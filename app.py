@@ -863,7 +863,7 @@ def render_horizontal_grid(rows_dict, current_token):
             f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between;">'
             f'    <div style="font-weight:bold; font-size:1.05rem; color:white; margin-bottom:6px;">{ticker}</div>'
             f'    <div style="display:flex; justify-content:space-between; align-items:baseline;">'
-            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}<br></div>'
+            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}</div>'
             f'      <div style="font-size:0.9rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'
             f'    </div>'
             f'  </div>'
@@ -1071,19 +1071,8 @@ if tab == "home":
         row = cursor.fetchone()
         briefing_text = row[0] if row else ""
         conn.close()
-        st.markdown(f"""
-<div class="card" style="border-left:4px solid #facc15; margin-bottom:20px;">
-  <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
-    AI MORNING BRIEFING
-  </div>
-
-  <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed; white-space:pre-line;">
-    {briefing_text}
-  </div>
-</div>
-""",
-unsafe_allow_html=True
-)
+        st.markdown(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{briefing_text}</div></div>""", unsafe_allow_html=True)
+    except: pass
     
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
