@@ -10,7 +10,6 @@ import xml.etree.ElementTree as ET
 import streamlit.components.v1 as components
 import textwrap
 from datetime import datetime, timedelta
-import html
 
 # =========================================================
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
@@ -873,35 +872,6 @@ def render_horizontal_grid(rows_dict, current_token):
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
-
-def fix_mojibake(s: str) -> str:
-    """Best-effort repair for common UTF-8->cp1252 mojibake seen in scraped/news text."""
-    if not s:
-        return s
-    repl = {
-        'â€”': '—',
-        'â€“': '–',
-        'â€™': "'",
-        'â€œ': '“',
-        'â€�': '”',
-        'â€˜': '‘',
-        'Â': '',
-    }
-    for bad, good in repl.items():
-        s = s.replace(bad, good)
-    return s
-
-def format_briefing_text(raw: str) -> str:
-    """Turn plain text from DB into safe HTML with consistent line breaks."""
-    raw = fix_mojibake(raw or '')
-    raw = raw.replace('\r\n', '\n').replace('\r', '\n')
-    # If labels are in one paragraph, force them onto new lines
-    raw = re.sub(r'ET\s+(Overall:)', r'ET\n\1', raw)
-    for label in ['Overall:', 'Upside:', 'Watch:', 'Action:']:
-        raw = re.sub(rf'(?<!\n)\b{re.escape(label)}', r'\n' + label, raw)
-    raw = re.sub(r'\n{3,}', '\n\n', raw).strip()
-    safe = html.escape(raw)
-    return safe.replace('\n', '<br>')
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
     if hour < 12: return f"Good Morning, {name}"
@@ -1101,7 +1071,7 @@ if tab == "home":
         row = cursor.fetchone()
         briefing_text = row[0] if row else ""
         conn.close()
-        st.markdown(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{format_briefing_text(briefing_text)}</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{briefing_text}</div></div>""", unsafe_allow_html=True)
     except: pass
     
     st.markdown("### Portfolio Overview")
