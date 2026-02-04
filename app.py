@@ -1,7 +1,6 @@
 import streamlit as st
 import mysql.connector
-import re
-import htmlquests
+import requests
 import uuid
 import os
 import pandas as pd
@@ -11,33 +10,12 @@ import xml.etree.ElementTree as ET
 import streamlit.components.v1 as components
 import textwrap
 from datetime import datetime, timedelta
+import html
 
 # =========================================================
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-
-# --- Query param helper (works across Streamlit versions) ---
-def _get_qp_value(key: str, default: str = "") -> str:
-    try:
-        # Newer Streamlit: st.query_params behaves like a mapping
-        qp = getattr(st, "query_params", None)
-        if qp is not None:
-            val = qp.get(key, default)
-            # Some versions return list values
-            if isinstance(val, (list, tuple)):
-                return str(val[0]) if val else default
-            return str(val) if val is not None else default
-    except Exception:
-        pass
-    try:
-        # Older Streamlit
-        qp = st.experimental_get_query_params()
-        val = qp.get(key, [default])
-        return str(val[0]) if isinstance(val, list) and val else str(val)
-    except Exception:
-        return default
-
 
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
@@ -895,6 +873,35 @@ def render_horizontal_grid(rows_dict, current_token):
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
 
+
+def fix_mojibake(s: str) -> str:
+    """Best-effort repair for common UTF-8->cp1252 mojibake seen in scraped/news text."""
+    if not s:
+        return s
+    repl = {
+        'â€”': '—',
+        'â€“': '–',
+        'â€™': "'",
+        'â€œ': '“',
+        'â€�': '”',
+        'â€˜': '‘',
+        'Â': '',
+    }
+    for bad, good in repl.items():
+        s = s.replace(bad, good)
+    return s
+
+def format_briefing_text(raw: str) -> str:
+    """Turn plain text from DB into safe HTML with consistent line breaks."""
+    raw = fix_mojibake(raw or '')
+    raw = raw.replace('\r\n', '\n').replace('\r', '\n')
+    # If labels are in one paragraph, force them onto new lines
+    raw = re.sub(r'ET\s+(Overall:)', r'ET\n\1', raw)
+    for label in ['Overall:', 'Upside:', 'Watch:', 'Action:']:
+        raw = re.sub(rf'(?<!\n)\b{re.escape(label)}', r'\n' + label, raw)
+    raw = re.sub(r'\n{3,}', '\n\n', raw).strip()
+    safe = html.escape(raw)
+    return safe.replace('\n', '<br>')
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
     if hour < 12: return f"Good Morning, {name}"
@@ -1086,7 +1093,7 @@ if "ticker" in st.query_params:
     else: st.error("Data missing.")
     render_navbar(token, current_mode); st.stop()
 
-tab = _get_qp_value("tab", "home")
+tab = st.query_params.get("tab", "home")
 if tab == "home":
     try:
         conn = get_connection(); cursor = conn.cursor()
@@ -1094,45 +1101,7 @@ if tab == "home":
         row = cursor.fetchone()
         briefing_text = row[0] if row else ""
         conn.close()
-        # Render briefing with safe line breaks and robust encoding cleanup
-        def _fix_mojibake(s: str) -> str:
-            # Fix common UTF-8-as-latin1 mojibake (e.g., â€”)
-            if not s:
-                return ""
-            if "â" in s or "Ã" in s:
-                try:
-                    return s.encode("latin1").decode("utf-8")
-                except Exception:
-                    return s
-            return s
-
-        briefing_text = _fix_mojibake(briefing_text)
-
-        # Split out leading "Updated ..." line if present
-        lines = [ln.strip() for ln in briefing_text.splitlines() if ln.strip() != ""]
-        updated_line = ""
-        body_lines = lines
-        if lines and lines[0].lower().startswith("updated"):
-            updated_line = lines[0]
-            body_lines = lines[1:]
-
-        body_html = html.escape("
-".join(body_lines)).replace("
-", "<br>")
-        updated_html = html.escape(updated_line)
-
-        st.markdown(
-            f'''
-            <div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-              <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:10px;">
-                <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px;">AI MORNING BRIEFING</div>
-                <div style="color:#9aa4b2; font-size:0.8rem;">{updated_html}</div>
-              </div>
-              <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{body_html}</div>
-            </div>
-            ''',
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;"><div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div><div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{format_briefing_text(briefing_text)}</div></div>""", unsafe_allow_html=True)
     except: pass
     
     st.markdown("### Portfolio Overview")
