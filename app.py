@@ -155,7 +155,7 @@ st.markdown("""
     flex-direction:column;
     align-items:flex-end;
     padding:12px;
-    margin-top:5px;
+    margin-top:auto;
 }
         
         /* Hide default header/footer */
