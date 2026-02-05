@@ -147,6 +147,14 @@ st.markdown("""
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
         .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
         .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
+
+    .price-block{
+    margin-left:auto;
+    text-align:right;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+}
         
         /* Hide default header/footer */
         header {visibility: hidden;} footer {visibility: hidden;} 
@@ -771,7 +779,7 @@ def render_portfolio_row(row, data, token):
                 </div>
                 {pl_html}
             </div>
-            <div style="text-align:left;">
+            <div class="price-block">
                 <div style="color:white; font-weight:bold;">${price:,.2f}</div>
                 <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
             </div>
