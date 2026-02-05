@@ -154,8 +154,7 @@ st.markdown("""
     display:flex;
     flex-direction:column;
     align-items:flex-end;
-    padding:12px;
-    padding-top:0px;
+    padding-top:2px;
 }
         
         /* Hide default header/footer */
