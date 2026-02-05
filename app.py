@@ -142,12 +142,13 @@ st.markdown("""
         }
 
         .price-block{
-    margin-left:auto;
-    text-align:right;
-    display:flex;
-    flex-direction:column;
-    align-items:flex-end;
-}
+         margin-left:auto;
+         text-align:right;
+         display:flex;
+         flex-direction:column;
+         align-items:flex-end;
+           }
+           
         /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
