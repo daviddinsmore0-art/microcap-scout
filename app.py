@@ -1208,7 +1208,7 @@ if tab == "home":
             volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
             e_list = []
             for r in valid_rows:
-                d_val = parse_smart_date(r.get('next_earnings'))
+                d_val = parse_smart_date(r.get('days_to_earnings'))
                 if d_val < 365: e_list.append((r['ticker'], d_val))
             e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
             st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div></div></div>""", unsafe_allow_html=True)
