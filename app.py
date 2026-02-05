@@ -140,7 +140,14 @@ st.markdown("""
             border-radius: 12px; 
             padding: 15px; 
         }
-        
+            .price-block{
+             margin-left:auto;
+             text-align:right;
+             display:flex;
+             flex-direction:column;
+             align-items:flex-end;
+             padding-left:12px;
+}
         /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
