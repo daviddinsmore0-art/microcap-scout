@@ -148,15 +148,10 @@ st.markdown("""
         .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
         .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
 
-    .price-block{
-    margin-left:auto;
-    text-align:right;
-    display:flex;
-    flex-direction:column;
-    align-items:flex-end;
-    padding-top:2px;
-}
-        
+         .price-block { 
+         align-self: 
+         flex-start; }
+         
         /* Hide default header/footer */
         header {visibility: hidden;} footer {visibility: hidden;} 
     </style>
