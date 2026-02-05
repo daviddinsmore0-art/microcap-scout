@@ -154,7 +154,6 @@ st.markdown("""
           display:flex;
           flex-direction:column;
           align-items:flex-end;
-          margin-top: 2px; 
                    }
          
         /* Hide default header/footer */
@@ -778,7 +777,7 @@ def render_portfolio_row(row, data, token):
                     <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
                     <div style="display:flex; align-items:flex-start; gap:8px;"><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div><div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div></div>
                 </div>
-                {pl_html}
+            
             </div>
             <div class="price-block">
                 <div style="color:white; font-weight:bold;">${price:,.2f}</div>
