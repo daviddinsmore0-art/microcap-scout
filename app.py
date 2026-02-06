@@ -934,7 +934,7 @@ def render_watchlist_pick_grid(rows, current_token=None):
         <div style='font-weight:800; font-size:1.35rem; color:#e5e7eb; line-height:1.1;'>{ticker}</div>
         <div style='margin-top:6px; font-size:0.85rem; color:#facc15; font-weight:700;'>{label}</div>
       </div>
-      <div style='price-block' text-align:right;'>
+      <div style='price-block'>
         <div style='font-weight:800; font-size:1.25rem; color:#e5e7eb;'>{price}</div>
         <div style='margin-top:6px; font-weight:800; font-size:1.05rem; color:{color};'>{pct}</div>
       </div>
