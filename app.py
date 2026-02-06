@@ -147,7 +147,7 @@ st.markdown("""
   text-align:right;
   display:flex;
   flex-direction:column;
-  align-items:flex-end;
+  align-items:flex-start;
   padding-top: 2px;  /* try 0–6px */
 }
            
