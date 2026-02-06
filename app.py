@@ -143,6 +143,7 @@ st.markdown("""
 
         .price-block{
   margin-left:auto;
+  align-self: flex-start;
   text-align:right;
   display:flex;
   flex-direction:column;
