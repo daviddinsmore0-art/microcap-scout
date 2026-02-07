@@ -821,8 +821,8 @@ def render_portfolio_row(row, data, token):
       </div>
 
     <div style="text-align:right;">
-      <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-      <div style="color:{change_color}; font-size:0.85rem;">{arrow} {change:.2f}%</div>
+      <div style="color:white; font-weight:bold; font-size:1.0rem">${price:,.2f}</div>
+      <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
     </div>
     </div>
       </a>
