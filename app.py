@@ -774,45 +774,40 @@ def render_portfolio_row(row, data, token):
     else:
         pl_html = f"<div style='color:#9ca3af; font-size:0.9rem; margin-top:4px;'>{shares:g} @ ${entry:,.2f}</div>"
 
-    # ---- optional extra lines
-    company = str(
-        (row.get("company_name") or row.get("company") or data.get("company_name") or data.get("company") or "")
-    ).strip()
+    # ---- optional extra lines (company + timestamp)
+    company = (getattr(row, "get", lambda k, d=None: None)("company_name") or
+               getattr(row, "get", lambda k, d=None: None)("company") or
+               getattr(data, "get", lambda k, d=None: None)("company_name") or
+               "").strip()
     company_html = (
         f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
         if company else ""
     )
 
-    updated_raw = (
-        row.get("fundamentals_updated")
-        or row.get("updated_at")
-        or row.get("last_updated")
-        or row.get("updated")
-        or data.get("fundamentals_updated")
-        or data.get("updated_at")
-        or data.get("last_updated")
-        or data.get("updated")
-        or ""
-    )
+    updated_raw = (getattr(row, "get", lambda k, d=None: None)("fundamentals_updated") or
+                   getattr(row, "get", lambda k, d=None: None)("updated_at") or
+                   getattr(row, "get", lambda k, d=None: None)("last_updated") or
+                   getattr(row, "get", lambda k, d=None: None)("updated") or
+                   getattr(data, "get", lambda k, d=None: None)("updated_at") or
+                   "")
 
     updated_str = ""
     if updated_raw:
         try:
+            # datetime / pandas Timestamp objects
+            if hasattr(updated_raw, "to_pydatetime"):
+                updated_raw = updated_raw.to_pydatetime()
             if hasattr(updated_raw, "strftime"):
-                dt = updated_raw
+                updated_str = updated_raw.strftime("%b %d, %I:%M %p")
             else:
                 s = str(updated_raw).strip()
-                # normalize MySQL "YYYY-MM-DD HH:MM:SS" -> ISO
-                iso = s.replace("Z", "+00:00")
-                if "T" not in iso and " " in iso and len(iso) >= 16:
-                    iso = iso.replace(" ", "T", 1)
                 try:
-                    dt = datetime.fromisoformat(iso)
+                    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                    updated_str = dt.strftime("%b %d, %I:%M %p")
                 except Exception:
-                    dt = None
-            updated_str = dt.strftime("%b %d, %I:%M %p") if dt else str(updated_raw).strip()
+                    updated_str = s
         except Exception:
-            updated_str = str(updated_raw).strip()
+            updated_str = str(updated_raw)
 
     updated_html = (
         f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
@@ -822,25 +817,25 @@ def render_portfolio_row(row, data, token):
     link = f"?token={token}&ticker={row['ticker']}"
     html = f'''
     <a href="{link}" target="_self" style="text-decoration:none;">
-      <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-        <div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
-              <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
+        <div class="card port-row" data-flip-id="{row['ticker']}"
+             style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+            <div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
+                        <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
+                    </div>
+                </div>
+                {company_html}
+                {updated_html}
+                {pl_html}
             </div>
-          </div>
-          {company_html}
-          {updated_html}
-          {pl_html}
+            <div style="text-align:right; padding-top:2px">
+                <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
+                <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
+            </div>
         </div>
-
-        <div style="text-align:right; padding-top:2px">
-          <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
-          <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
-        </div>
-      </div>
     </a>
     '''
     st.markdown(html, unsafe_allow_html=True)
