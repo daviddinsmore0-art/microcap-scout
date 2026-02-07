@@ -801,9 +801,6 @@ def render_portfolio_row(row, data, token):
         f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
         if updated_str else ""
     )
-    from datetime import datetime
-
-            st.caption(f"Updated {datetime.now().strftime('%I:%M %p')}")
             
     link = f"?token={token}&ticker={row['ticker']}"
     html = f"""
