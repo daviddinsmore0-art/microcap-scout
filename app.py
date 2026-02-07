@@ -75,7 +75,18 @@ st.markdown("""
         a.nav-link:active { transform: scale(0.92); }
 
         
-        /* Metric Boxes */
+        
+
+        /* Make entire portfolio card reliably tappable on mobile */
+        a.card-link {
+            display: block;
+            text-decoration: none !important;
+            color: inherit !important;
+            -webkit-tap-highlight-color: transparent;
+        }
+        a.card-link * { pointer-events: none; }  /* prevents text-selection/long-press stealing the tap */
+        .card.port-row { cursor: pointer; }
+/* Metric Boxes */
         .metric-box {
             background-color: #1e293b;
             border: 1px solid #2d3748;
@@ -804,7 +815,7 @@ def render_portfolio_row(row, data, token):
     link = f"?token={token}&ticker={ticker}"
 
     html = (
-        f"<a href='{link}' target='_self' style='text-decoration:none;'>"
+        f"<a href='{link}' class='card-link' target='_self'>"
         f"<div class='card port-row' data-flip-id='{ticker}' "
         f"style='display:flex; justify-content:space-between; align-items:center; border-left:4px solid {color};'>"
         f"<div>"
