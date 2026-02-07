@@ -773,7 +773,7 @@ def render_portfolio_row(row, data, token):
     link = f"?token={token}&ticker={row['ticker']}"
     html = f"""
     <a href="{link}" target="_self" style="text-decoration:none;">
-        <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:flex; flex-direction:column; align-items:left; gap:2px; border-left: 4px solid {color};">
+        <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:start-flex; flex-direction:column; align-items:left; gap:2px; border-left: 4px solid {color};">
             <div>
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
                     <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
