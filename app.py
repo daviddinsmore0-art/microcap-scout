@@ -814,7 +814,7 @@ def render_portfolio_row(row, data, token):
         if updated_str else ""
     )
 
-link = f"?token={token}&ticker={row['ticker']}"
+link = f"?ticker={row['ticker']}"
 html = f"""
 <a href="{link}" target="_self" style="text-decoration:none;">
   <div class="card port-row" data-flip-id="{row['ticker']}"
