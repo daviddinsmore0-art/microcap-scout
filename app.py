@@ -814,8 +814,8 @@ def render_portfolio_row(row, data, token):
         if updated_str else ""
     )
 
-link = f"?ticker={row['ticker']}"
-html = f"""
+       link = f"?ticker={row['ticker']}"
+       html = f"""
 <a href="{link}" target="_self" style="text-decoration:none;">
   <div class="card port-row" data-flip-id="{row['ticker']}"
        style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
@@ -847,7 +847,7 @@ html = f"""
   </div>
 </a>
 """
-st.markdown(html, unsafe_allow_html=True)
+       st.markdown(html, unsafe_allow_html=True)
     
 
 def render_compact_watchlist(rows_list, current_token):
