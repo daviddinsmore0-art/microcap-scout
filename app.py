@@ -795,6 +795,10 @@ def render_portfolio_row(row, data, token):
                     updated_str = s
         except Exception:
             updated_str = str(updated_raw)
+
+            from datetime import datetime
+
+            st.caption(f"Updated {datetime.now().strftime('%I:%M %p')}")
             
     updated_html = (
         f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
