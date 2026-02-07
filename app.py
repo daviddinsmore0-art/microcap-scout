@@ -810,7 +810,7 @@ html = f"""
         </div>
     </a>
     """
-    st.markdown(html, unsafe_allow_html=True)
+st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
