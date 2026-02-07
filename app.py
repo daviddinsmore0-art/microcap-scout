@@ -762,50 +762,64 @@ def render_portfolio_row(row, data, token):
     arrow = "▲" if change >= 0 else "▼"
     shares = float(row['shares'])
     entry = float(row['entry_price'])
-    
+
     pl_html = ""
     if shares > 0 and entry > 0:
         pl = (shares * price) - (shares * entry)
         pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
+        pl_html = (
+            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
+            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
+            f"</div>"
+        )
 
-    link = f"?token={token}&ticker={row['ticker']}"
+    company = (row.get('company_name') or row.get('company') or data.get('company_name') or '').strip()
+    company_html = (
+        f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
+        if company else ""
+    )
 
-# ---- NEW: pick fields safely (won't crash if missing) ----
-company = (row.get("company_name") or row.get("company") or row.get("name") or "").strip()
-
-# Timestamp fields (choose what you actually have)
-updated_raw = row.get("updated_at") or row.get("last_updated") or row.get("ts") or row.get("timestamp") or ""
-
-# Optional: make it pretty if it's a datetime / pandas timestamp
-updated_str = ""
-try:
+    updated_raw = (row.get('fundamentals_updated') or row.get('updated_at') or row.get('last_updated') or row.get('updated') or '')
+    updated_str = ""
     if updated_raw:
-        # if it's already a datetime-like
-        updated_str = updated_raw.strftime("%b %d, %I:%M %p")
-except Exception:
-    # fallback: just show whatever string you have
-    updated_str = str(updated_raw) if updated_raw else ""
+        try:
+            if hasattr(updated_raw, 'strftime'):
+                updated_str = updated_raw.strftime('%b %d, %I:%M %p')
+            else:
+                s = str(updated_raw).strip()
+                try:
+                    dt = datetime.datetime.fromisoformat(s.replace('Z', '+00:00'))
+                    updated_str = dt.strftime('%b %d, %I:%M %p')
+                except Exception:
+                    updated_str = s
+        except Exception:
+            updated_str = str(updated_raw)
 
-# ---- NEW: small HTML lines (only render if present) ----
-company_html = f'<div style="font-size:0.8rem; color:#9aa4b2; margin-top:2px;">{company}</div>' if company else ""
-updated_html = f'<div style="font-size:0.7rem; color:#7a8594; margin-top:2px;">Updated {updated_str}</div>' if updated_str else ""
+    updated_html = (
+        f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
+        if updated_str else ""
+    )
 
     link = f"?token={token}&ticker={row['ticker']}"
     html = f"""
-    <a href="{link}" target="_self" style="text-decoration:none;">
-        <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+    <a href=\"{link}\" target=\"_self\" style=\"text-decoration:none;\">
+        <div class=\"card port-row\" data-flip-id=\"{row['ticker']}\" style=\"display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};\">
             <div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-                    <div style="display:flex; align-items:center; gap:8px;"><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div><div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div></div>
+                <div style=\"display:flex; align-items:center; gap:8px;\">
+                    <div style=\"font-weight:bold; font-size:1.1rem; color:white;\">{row['ticker']}</div>
+                    <div style=\"display:flex; align-items:center; gap:8px;\">
+                        <div style=\"font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;\">RISK: {risk}</div>
+                        <div style=\"font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;\">CONF: {conf}</div>
+                    </div>
                 </div>
+                {company_html}
                 {pl_html}
+                {updated_html}
             </div>
-            <div style="text-align:right;">
-                <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-                <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
+            <div style=\"text-align:right;\">
+                <div style=\"color:white; font-weight:bold;\">${price:,.2f}</div>
+                <div style=\"color:{change_color}; font-size:0.8rem;\">{arrow} {change:.2f}%</div>
             </div>
         </div>
     </a>
