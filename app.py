@@ -756,40 +756,42 @@ def render_portfolio_row(row, data, token):
     risk, label, color, _, _ = calculate_risk(data)
     conf = calculate_confidence(data)
     conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
-    price = float(data['current_price'])
-    change = float(data['day_change'])
+
+    price = float(data.get("current_price", 0) or 0)
+    change = float(data.get("day_change", 0) or 0)
     change_color = "#4ade80" if change >= 0 else "#ef4444"
     arrow = "▲" if change >= 0 else "▼"
-    shares = float(row['shares'])
-    entry = float(row['entry_price'])
 
-    pl_html = ""
-    if shares > 0 and entry > 0:
-        pl = (shares * price) - (shares * entry)
-        pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
-        pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = (
-            f"<div style='color:{pl_c}; font-size:0.9rem; margin-top:2px;'>"
-            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
-            f"</div>"
-        )
-    # Company name (prefer DB/cache fields, fall back to holdings row)
-    company = (row.get("company_name") or data.get("company_name") or data.get("company") or row.get("company") or "").strip()
+    shares = float(row.get("shares", 0) or 0)
+    entry = float(row.get("entry_price", 0) or 0)
+    pl = (price - entry) * shares
+    pl_pct = ((price - entry) / entry * 100.0) if entry else 0.0
+
+    if pl > 0:
+        pl_html = f"<div style='color:#4ade80; font-size:0.9rem; margin-top:4px;'>{shares:g} @ ${entry:,.2f} • +${pl:,.2f} (+{pl_pct:.1f}%)</div>"
+    elif pl < 0:
+        pl_html = f"<div style='color:#ef4444; font-size:0.9rem; margin-top:4px;'>{shares:g} @ ${entry:,.2f} • -${abs(pl):,.2f} ({pl_pct:.1f}%)</div>"
+    else:
+        pl_html = f"<div style='color:#9ca3af; font-size:0.9rem; margin-top:4px;'>{shares:g} @ ${entry:,.2f}</div>"
+
+    # ---- optional extra lines
+    company = str(
+        (row.get("company_name") or row.get("company") or data.get("company_name") or data.get("company") or "")
+    ).strip()
     company_html = (
         f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
         if company else ""
     )
 
-    # Updated timestamp (prefer DB/cache fields, fall back to row)
     updated_raw = (
-        data.get("fundamentals_updated")
-        or data.get("updated_at")
-        or data.get("last_updated")
-        or data.get("updated")
-        or row.get("fundamentals_updated")
+        row.get("fundamentals_updated")
         or row.get("updated_at")
         or row.get("last_updated")
         or row.get("updated")
+        or data.get("fundamentals_updated")
+        or data.get("updated_at")
+        or data.get("last_updated")
+        or data.get("updated")
         or ""
     )
 
@@ -797,59 +799,51 @@ def render_portfolio_row(row, data, token):
     if updated_raw:
         try:
             if hasattr(updated_raw, "strftime"):
-                updated_str = updated_raw.strftime("%b %d, %I:%M %p")
+                dt = updated_raw
             else:
                 s = str(updated_raw).strip()
-                # Handles ISO, "YYYY-MM-DD HH:MM:SS", and ISO with Z
+                # normalize MySQL "YYYY-MM-DD HH:MM:SS" -> ISO
+                iso = s.replace("Z", "+00:00")
+                if "T" not in iso and " " in iso and len(iso) >= 16:
+                    iso = iso.replace(" ", "T", 1)
                 try:
-                    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-                    updated_str = dt.strftime("%b %d, %I:%M %p")
+                    dt = datetime.fromisoformat(iso)
                 except Exception:
-                    updated_str = s
+                    dt = None
+            updated_str = dt.strftime("%b %d, %I:%M %p") if dt else str(updated_raw).strip()
         except Exception:
-            updated_str = str(updated_raw)
+            updated_str = str(updated_raw).strip()
 
     updated_html = (
         f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
         if updated_str else ""
     )
 
-       link = f"?ticker={row['ticker']}"
-       html = f"""
-<a href="{link}" target="_self" style="text-decoration:none;">
-  <div class="card port-row" data-flip-id="{row['ticker']}"
-       style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-
-    <div>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">
-            RISK: {risk}
+    link = f"?token={token}&ticker={row['ticker']}"
+    html = f'''
+    <a href="{link}" target="_self" style="text-decoration:none;">
+      <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+        <div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
+              <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
+            </div>
           </div>
-          <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">
-            CONF: {conf}
-          </div>
+          {company_html}
+          {updated_html}
+          {pl_html}
+        </div>
+
+        <div style="text-align:right; padding-top:2px">
+          <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
+          <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
         </div>
       </div>
-
-      {company_html}
-      {updated_html}
-      {pl_html}
-    </div>
-
-    <div style="text-align:right; padding-top:2px">
-      <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
-      <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
-    </div>
-
-  </div>
-</a>
-"""
-       st.markdown(html, unsafe_allow_html=True)
-    
-
+    </a>
+    '''
+    st.markdown(html, unsafe_allow_html=True)
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
 
