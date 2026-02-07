@@ -148,7 +148,7 @@ st.markdown("""
     text-align: right;
     gap: 2px;
     margin-left: auto;
-    margin-top: auto;
+    padding-top: 2px;
 }
            
         /* Risk Pills */
