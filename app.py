@@ -145,10 +145,8 @@ st.markdown("""
   margin-left:auto;
   align-self: flex-start;
   text-align:right;
-  display:flex;
   flex-direction:column;
   align-items:flex-start;
-  padding-top: 2px;  /* try 0–6px */
 }
            
         /* Risk Pills */
