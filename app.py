@@ -775,16 +775,33 @@ def render_portfolio_row(row, data, token):
     <a href="{link}" target="_self" style="text-decoration:none;">
         <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
             <div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-                    <div style="display:flex; align-items:center; gap:8px;"><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div><div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div></div>
-                </div>
-                {pl_html}
+                <div>
+    <div style="display:flex; align-items:center; gap:8px;">
+        <div>
+            <div style="font-weight:bold; font-size:1.1rem; color:white;">
+                {row['ticker']}
             </div>
-            <div style="text-align:right;">
-                <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-                <div style="color:{change_color}; font-size:0.85rem;">{arrow} {change:.2f}%</div>
+            <div style="font-size:0.7rem; color:#9aa4b2; margin-top:-2px;">
+                {row.get('company_name', '')}
             </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:8px;">
+            <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">
+                RISK: {risk}
+            </div>
+            <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">
+                CONF: {conf}
+            </div>
+        </div>
+    </div>
+
+    {pl_html}
+
+    <div style="font-size:0.65rem; color:#7a8594; margin-top:4px;">
+        Updated {updated_str}
+    </div>
+</div>
         </div>
     </a>
     """
