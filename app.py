@@ -773,9 +773,9 @@ def render_portfolio_row(row, data, token):
     link = f"?token={token}&ticker={row['ticker']}"
     html = f"""
     <a href="{link}" target="_self" style="text-decoration:none;">
-        <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:start-flex; flex-direction:column; align-item:flex; gap:2px; border-left: 4px solid {color};">
+        <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
             <div>
-                <div style="dispay:flex-start; align-items:left; gap:8px;">
+                <div style="display:flex; align-items:center; gap:8px;">
                     <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
                     <div style="display:flex-start; align-items:left; gap:8px;"><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div><div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div></div>
                 </div>
