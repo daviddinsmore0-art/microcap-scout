@@ -792,8 +792,8 @@ except Exception:
 company_html = f'<div style="font-size:0.8rem; color:#9aa4b2; margin-top:2px;">{company}</div>' if company else ""
 updated_html = f'<div style="font-size:0.7rem; color:#7a8594; margin-top:2px;">Updated {updated_str}</div>' if updated_str else ""
 
-link = f"?token={token}&ticker={row['ticker']}"
-html = f"""
+    link = f"?token={token}&ticker={row['ticker']}"
+    html = f"""
     <a href="{link}" target="_self" style="text-decoration:none;">
         <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
             <div>
@@ -810,7 +810,7 @@ html = f"""
         </div>
     </a>
     """
-        st.markdown(html, unsafe_allow_html=True)
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
