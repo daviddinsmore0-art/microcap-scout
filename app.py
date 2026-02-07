@@ -830,10 +830,12 @@ def render_portfolio_row(row, data, token):
           <div style=\"font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;\">CONF: {conf}</div>
         </div>
       </div>
+      <div>
       {company_html}
       {updated_html}
       {pl_html}
     </div>
+    
 
     <div style=\"text-align:right; padding-top:2px\">
       <div style=\"color:white; font-weight:bold; font-size:1.1rem\">${price:,.2f}</div>
