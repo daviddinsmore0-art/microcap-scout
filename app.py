@@ -778,10 +778,6 @@ def render_portfolio_row(row, data, token):
                 <div style="display:flex; align-items:center; gap:8px;">
                     <div style="font-weight:bold; font-size:1.1rem; color:white;">
     {row['ticker']}
-    <br>
-    <span style="font-weight:normal; font-size:0.75rem;">
-        {row['company_name']}
-    </span>
 </div>
 
                     <div style="display:flex; align-items:center; gap:8px;"><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div><div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div></div>
