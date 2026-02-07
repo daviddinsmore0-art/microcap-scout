@@ -835,6 +835,9 @@ def render_portfolio_row(row, data, token):
       {updated_html}
       {pl_html}
     </div>
+    </div>
+
+    
     
 
     <div style=\"text-align:right; padding-top:2px\">
