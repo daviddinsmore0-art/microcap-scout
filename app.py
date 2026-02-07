@@ -773,42 +773,46 @@ def render_portfolio_row(row, data, token):
             f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
             f"</div>"
         )
+    # Company name (prefer DB/cache fields, fall back to holdings row)
+    company = (row.get("company_name") or data.get("company_name") or data.get("company") or row.get("company") or "").strip()
+    company_html = (
+        f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
+        if company else ""
+    )
 
-    import datetime  # make sure this exists near the top of your file
+    # Updated timestamp (prefer DB/cache fields, fall back to row)
+    updated_raw = (
+        data.get("fundamentals_updated")
+        or data.get("updated_at")
+        or data.get("last_updated")
+        or data.get("updated")
+        or row.get("fundamentals_updated")
+        or row.get("updated_at")
+        or row.get("last_updated")
+        or row.get("updated")
+        or ""
+    )
 
-company = (row.get('company_name') or row.get('company') or '').strip()
-company_html = (
-    f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
-    if company else ""
-)
+    updated_str = ""
+    if updated_raw:
+        try:
+            if hasattr(updated_raw, "strftime"):
+                updated_str = updated_raw.strftime("%b %d, %I:%M %p")
+            else:
+                s = str(updated_raw).strip()
+                # Handles ISO, "YYYY-MM-DD HH:MM:SS", and ISO with Z
+                try:
+                    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                    updated_str = dt.strftime("%b %d, %I:%M %p")
+                except Exception:
+                    updated_str = s
+        except Exception:
+            updated_str = str(updated_raw)
 
-updated_raw = (
-    row.get('fundamentals_updated')
-    or row.get('updated_at')
-    or row.get('last_updated')
-    or row.get('updated')
-    or ''
-)
-
-updated_str = ""
-if updated_raw:
-    try:
-        if hasattr(updated_raw, 'strftime'):
-            updated_str = updated_raw.strftime('%b %d, %I:%M %p')
-        else:
-            s = str(updated_raw).strip()
-            try:
-                dt = datetime.datetime.fromisoformat(s.replace('Z', '+00:00'))
-                updated_str = dt.strftime('%b %d, %I:%M %p')
-            except Exception:
-                updated_str = s
-    except Exception:
-        updated_str = str(updated_raw)
-
-updated_html = (
-    f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
-    if updated_str else ""
-)
+    updated_html = (
+        f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
+        if updated_str else ""
+    )
 
 link = f"?token={token}&ticker={row['ticker']}"
 html = f"""
