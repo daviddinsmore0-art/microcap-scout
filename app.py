@@ -752,98 +752,45 @@ def generate_playbook(stock_row):
     }
 
 
-
 def render_portfolio_row(row, data, token):
-    """Renders one portfolio row as a clickable card."""
-    import datetime as _dt  # safe even if datetime imported differently above
-
-    # --- core fields
-    ticker = (row.get("ticker") or row.get("symbol") or data.get("ticker") or data.get("symbol") or "").strip()
-    if not ticker:
-        return
-
-    price = row.get("price") if row.get("price") is not None else data.get("price")
-    try:
-        price = float(price) if price not in (None, "") else 0.0
-    except Exception:
-        price = 0.0
-
-    change = row.get("pct_change") if row.get("pct_change") is not None else row.get("change_percent")
-    if change is None:
-        change = data.get("pct_change") if data.get("pct_change") is not None else data.get("change_percent")
-    try:
-        change = float(change) if change not in (None, "") else 0.0
-    except Exception:
-        change = 0.0
-
-    arrow = "▲" if change >= 0 else "▼"
+    risk, label, color, _, _ = calculate_risk(data)
+    conf = calculate_confidence(data)
+    conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
+    price = float(data['current_price'])
+    change = float(data['day_change'])
     change_color = "#4ade80" if change >= 0 else "#ef4444"
+    arrow = "▲" if change >= 0 else "▼"
+    shares = float(row['shares'])
+    entry = float(row['entry_price'])
 
-    # --- risk/conf (assumes these vars are computed earlier for this row; fall back if not)
-    risk = row.get("risk") if row.get("risk") is not None else row.get("risk_score", 0)
-    conf = row.get("conf") if row.get("conf") is not None else row.get("confidence", 0)
-    try:
-        risk = int(risk)
-    except Exception:
-        risk = 0
-    try:
-        conf = int(conf)
-    except Exception:
-        conf = 0
+    pl_html = ""
+    if shares > 0 and entry > 0:
+        pl = (shares * price) - (shares * entry)
+        pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
+        pl_c = "#4ade80" if pl >= 0 else "#ef4444"
+        pl_html = (
+            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
+            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
+            f"</div>"
+        )
 
-    # left border color (use existing helpers/colors if present; otherwise simple rule)
-    try:
-        color = get_risk_color(risk)  # type: ignore[name-defined]
-    except Exception:
-        color = "#f59e0b" if risk < 70 else "#ef4444"
-    conf_bg = "#f59e0b"
-
-    # --- P/L line (uses existing row fields)
-    shares = row.get("shares") or row.get("qty") or 0
-    avg = row.get("avg_price") or row.get("avg") or 0
-    try:
-        shares_f = float(shares)
-        avg_f = float(avg)
-    except Exception:
-        shares_f, avg_f = 0.0, 0.0
-    pl = (price - avg_f) * shares_f if shares_f and avg_f else 0.0
-    pl_pct = ((price - avg_f) / avg_f * 100.0) if avg_f else 0.0
-    if pl > 0:
-        pl_html = f"<div style='color:#4ade80; font-size:0.9rem; margin-top:4px;'>{shares_f:g} @ ${avg_f:,.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
-    elif pl < 0:
-        pl_html = f"<div style='color:#ef4444; font-size:0.9rem; margin-top:4px;'>{shares_f:g} @ ${avg_f:,.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
-    else:
-        pl_html = f"<div style='color:#9ca3af; font-size:0.9rem; margin-top:4px;'>{shares_f:g} @ ${avg_f:,.2f}</div>"
-
-    # --- optional extra lines: company + timestamp
-    company = (row.get("company_name") or row.get("company") or data.get("company_name") or data.get("company") or "").strip()
+    company = (row.get('company_name') or row.get('company') or data.get('company_name') or '').strip()
     company_html = (
         f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
         if company else ""
     )
 
-    updated_raw = (
-        row.get("fundamentals_updated")
-        or row.get("updated_at")
-        or row.get("last_updated")
-        or row.get("updated")
-        or data.get("fundamentals_updated")
-        or data.get("updated_at")
-        or data.get("last_updated")
-        or data.get("updated")
-        or ""
-    )
-
+    updated_raw = (row.get('fundamentals_updated') or row.get('updated_at') or row.get('last_updated') or row.get('updated') or '')
     updated_str = ""
     if updated_raw:
         try:
-            if hasattr(updated_raw, "strftime"):
-                updated_str = updated_raw.strftime("%b %d, %I:%M %p")
+            if hasattr(updated_raw, 'strftime'):
+                updated_str = updated_raw.strftime('%b %d, %I:%M %p')
             else:
                 s = str(updated_raw).strip()
                 try:
-                    dt_obj = _dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
-                    updated_str = dt_obj.strftime("%b %d, %I:%M %p")
+                    dt = datetime.datetime.fromisoformat(s.replace('Z', '+00:00'))
+                    updated_str = dt.strftime('%b %d, %I:%M %p')
                 except Exception:
                     updated_str = s
         except Exception:
@@ -854,34 +801,35 @@ def render_portfolio_row(row, data, token):
         if updated_str else ""
     )
 
-    # --- link
-    link = f"?token={token}&ticker={ticker}"
+link = f"?token={token}&ticker={row['ticker']}"
 
-    # IMPORTANT: no leading indentation in HTML string (otherwise Streamlit markdown treats it as a code block)
-    html = f"""<a href=\"{link}\" target=\"_self\" style=\"text-decoration:none;\">
-<div class=\"card port-row\" data-flip-id=\"{ticker}\" style=\"display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};\">
-  <div>
-    <div style=\"display:flex; align-items:center; gap:8px;\">
-      <div style=\"font-weight:bold; font-size:1.1rem; color:white;\">{ticker}</div>
-      <div style=\"display:flex; align-items:center; gap:8px;\">
-        <div style=\"font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;\">RISK: {risk}</div>
-        <div style=\"font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;\">CONF: {conf}</div>
+html = f"""
+<a href="{link}" target="_self" style="text-decoration:none;">
+  <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+    <div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
+          <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
+        </div>
       </div>
+
+      <div style="font-size:0.75rem; color:#b0b0b0; margin-top:2px;">
+        {company}
+      </div>
+
+      {pl_html}
     </div>
-    {company_html}
-    {updated_html}
-    {pl_html}
+
+    <div style="text-align:right;">
+      <div style="color:white; font-weight:bold;">${price:,.2f}</div>
+      <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
+    </div>
   </div>
-
-  <div style=\"text-align:right; padding-top:2px\">
-    <div style=\"color:white; font-weight:bold; font-size:1.1rem\">${price:,.2f}</div>
-    <div style=\"color:{change_color}; font-size:0.90rem;\">{arrow} {change:.2f}%</div>
-  </div>
-</div>
-</a>"""
-
-    st.markdown(html, unsafe_allow_html=True)
-
+</a>
+"""
+st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
@@ -1020,7 +968,7 @@ def render_watchlist_pick_grid(rows, current_token=None):
                 href = f"?token={current_token}&tab=portfolio&ticker={ticker}"
 
             with cols[j]:
-                st.markdown(f"""
+st.markdown(f"""
 <a href='{href}' style='text-decoration:none;'>
   <div class='card' style='padding:16px; min-height:118px; cursor:pointer;'>
     <div style='display:flex; align-items:flex-start; justify-content:space-between; gap:10px;'>
