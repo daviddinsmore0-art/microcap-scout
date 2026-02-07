@@ -769,7 +769,7 @@ def render_portfolio_row(row, data, token):
         pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
         pl_html = (
-            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
+            f"<div style='color:{pl_c}; font-size:0.9rem; margin-top:2px;'>"
             f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
             f"</div>"
         )
@@ -795,8 +795,7 @@ def render_portfolio_row(row, data, token):
                     updated_str = s
         except Exception:
             updated_str = str(updated_raw)
-            from datetime import datetime
-            updated_str = datetime.now().strftime("%I:%M %p")
+            
     updated_html = (
         f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
         if updated_str else ""
@@ -818,13 +817,12 @@ def render_portfolio_row(row, data, token):
       <div style="font-size:0.75rem; color:#b0b0b0; margin-top:2px;">
         {company}
       </div>
-       <div style="font-size:0.7rem; color:#6b7280;">Updated {updated_str}</div>
       {pl_html}
       </div>
 
     <div style="text-align:right;">
       <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-      <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
+      <div style="color:{change_color}; font-size:0.85rem;">{arrow} {change:.2f}%</div>
     </div>
     </div>
       </a>
