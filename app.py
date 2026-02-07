@@ -141,13 +141,14 @@ st.markdown("""
             padding: 15px; 
         }
 
-        .price-block{
-  margin-left:auto;
-  text-align:right;
-  display:flex;
-  flex-direction:column;
-  align-items:flex-end;
-  padding-top: 2px;  /* try 0–6px */
+        .price-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+    gap: 2px;
+    margin-left: auto;
+    margin-top: auto;
 }
            
         /* Risk Pills */
