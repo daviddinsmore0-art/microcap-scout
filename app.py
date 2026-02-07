@@ -18,42 +18,149 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered",
 
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
-<style>
-/* REMOVE DEFAULT PADDING */
-.block-container { padding-top: 0.35rem; padding-bottom: 4.5rem; }
+    <style>
+        /* REMOVE DEFAULT PADDING */
+        .block-container { padding-top: 0rem !important; padding-bottom: calc(8rem + env(safe-area-inset-bottom)) !important; }
+        
+        /* Force Dark Background */
+        .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
+        
+        /* Input Fields */
+        input[type="text"], input[type="password"], input[type="number"] { 
+            background-color: #1e293b !important; 
+            color: white !important; 
+            border: 1px solid #4ade80 !important; 
+            border-radius: 8px; 
+            padding: 10px;
+        }
+        div[data-baseweb="input"] { background-color: transparent !important; border: none; }
+        
+        /* Dropdowns & Select Boxes (FIXED) */
+        div[data-baseweb="select"] > div { 
+            background-color: #1e293b !important; 
+            color: white !important; 
+            border: 1px solid #4ade80 !important; 
+        }
+        div[role="listbox"] ul { background-color: #1e293b !important; }
+        li[role="option"] { color: white !important; background-color: #1e293b !important; }
+        li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
+        div[data-baseweb="popover"] { background-color: #1e293b !important; }
+        
+        /* Cards WITH CLICK EFFECT ADDED */
+        .card { 
+            background-color: #1a1f2b; 
+            border-radius: 16px; 
+            padding: 20px; 
+            margin-bottom: 10px; 
+            border: 1px solid #2d3748; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
+            transition: transform 0.1s ease, border-color 0.1s ease;
+        }
+        .card:active {
+            transform: scale(0.97);
+            border-color: #4ade80 !important;
+        }
 
-/* Force dark background */
-.stApp { background-color: #0f1219 !important; color: #e5e7eb; }
+        /* Portfolio reorder animation helper */
+        .port-row { will-change: transform; }
 
-/* Buttons / inputs */
-.stTextInput input, .stNumberInput input, .stSelectbox select, .stTextArea textarea {
-  background: #111827 !important;
-  color: #e5e7eb !important;
-  border: 1px solid rgba(255,255,255,0.08) !important;
-  border-radius: 12px !important;
+        /* Clickable tiles (button-like press feedback) */
+        .click-tile {
+            transition: transform 0.1s ease, border-color 0.1s ease;
+        }
+        .click-tile:active {
+            transform: scale(0.97);
+            border-color: #4ade80 !important;
+        }
+        a.nav-link:active { transform: scale(0.92); }
+
+        
+        /* Metric Boxes */
+        .metric-box {
+            background-color: #1e293b;
+            border: 1px solid #2d3748;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+        .metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
+        .metric-sub { font-size: 0.9rem; font-weight: bold; }
+        
+        /* Buttons */
+        div.stButton > button {
+            background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
+            color: white !important; 
+            border: none; 
+            border-radius: 8px; 
+            font-weight: bold;
+            width: 100%;
+            padding: 12px 20px;
+        }
+        
+        /* Delete/Remove Buttons */
+        button[kind="secondary"] {
+            background: #334155 !important;
+            border: 1px solid #ef4444 !important;
+            color: #ef4444 !important;
+        }
+
+        h1, h2, h3, p, label, span, div { color: #e0e6ed; }
+
+        /* HEADLINE COLOR FIX */
+        a { color: #ffffff !important; text-decoration: none !important; }
+        a:hover { color: #4ade80 !important; }
+        
+        /* Navigation */
+        .nav-container { 
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; 
+            background-color: #0f1219; border-top: 1px solid #2d3748; 
+            display: flex; justify-content: space-around; align-items: center; z-index: 99999; 
+        }
+        a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
+        a.nav-link:hover { transform: scale(1.1); }
+        
+        /* Scrolling Wrapper */
+        .scrolling-wrapper { 
+            display: flex; 
+            flex-wrap: nowrap; 
+            overflow-x: auto; 
+            gap: 12px; 
+            padding-bottom: 10px; 
+            -ms-overflow-style: none; 
+            scrollbar-width: none; 
+        }
+        .scrolling-wrapper::-webkit-scrollbar { display: none; }
+        .scrolling-card { 
+            flex: 0 0 auto; 
+            width: 130px; 
+            background-color: #1a1f2b; 
+            border: 1px solid #2d3748; 
+            border-radius: 12px; 
+            padding: 15px; 
+        }
+
+        .price-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+    gap: 2px;
+    margin-left: auto;
+    padding-top: 2px;
 }
-
-/* Cards */
-.card {
-  background: #1a2233;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 22px;
-  padding: 18px 18px;
-  margin-bottom: 16px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-}
-
-.port-row { cursor: pointer; transition: transform 0.06s ease, filter 0.06s ease; }
-.port-row:active { transform: scale(0.985); filter: brightness(1.05); }
-
-a, a:visited { color: inherit; text-decoration: none; }
-
-/* Pills */
-.pill { display:inline-block; padding: 4px 10px; border-radius: 10px; font-weight: 800; font-size: 0.75rem; }
-
-/* Make markdown headers tighter */
-h1, h2, h3 { margin-top: 0.25rem; margin-bottom: 0.35rem; }
-</style>
+           
+        /* Risk Pills */
+        .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+        .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
+        
+        /* Hide default header/footer */
+        header {visibility: hidden;} footer {visibility: hidden;} 
+    </style>
 """, unsafe_allow_html=True)
 
 # Global Constants
@@ -646,59 +753,92 @@ def generate_playbook(stock_row):
 
 
 def render_portfolio_row(row, data, token):
+    # row: portfolio holding (dict/Series); data: latest quote/fundamentals dict for ticker
+    def _sf(x, default=0.0):
+        try:
+            if x is None or x == "":
+                return float(default)
+            return float(x)
+        except Exception:
+            return float(default)
+
+    def _g(obj, key, default=""):
+        try:
+            if hasattr(obj, "get"):
+                v = obj.get(key, default)
+            else:
+                v = getattr(obj, key, default)
+        except Exception:
+            v = default
+        return v
+
+    ticker = (data.get("ticker") or _g(row, "ticker", "") or "").strip()
+
     risk, label, color, _, _ = calculate_risk(data)
     conf = calculate_confidence(data)
     conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
 
-    price = float(data.get("current_price", 0) or 0)
-    change = float(data.get("day_change", 0) or 0)
+    price = _sf(data.get("current_price"), 0.0)
+    change = _sf(data.get("day_change"), 0.0)
     change_color = "#4ade80" if change >= 0 else "#ef4444"
     arrow = "▲" if change >= 0 else "▼"
 
-    shares = float(row.get("shares", 0) or 0)
-    entry = float(row.get("entry_price", 0) or 0)
-    pl = (price - entry) * shares
-    pl_pct = ((price - entry) / entry * 100.0) if entry else 0.0
+    shares = _sf(_g(row, "shares", 0.0), 0.0)
+    entry = _sf(_g(row, "entry_price", 0.0), 0.0)
 
-    if pl > 0:
-        pl_html = f"<div style='color:#4ade80; font-size:0.9rem; margin-top:4px;'>{shares:g} @ ${entry:,.2f} • +${pl:,.2f} (+{pl_pct:.1f}%)</div>"
-    elif pl < 0:
-        pl_html = f"<div style='color:#ef4444; font-size:0.9rem; margin-top:4px;'>{shares:g} @ ${entry:,.2f} • -${abs(pl):,.2f} ({pl_pct:.1f}%)</div>"
-    else:
-        pl_html = f"<div style='color:#9ca3af; font-size:0.9rem; margin-top:4px;'>{shares:g} @ ${entry:,.2f}</div>"
+    # P/L line
+    pl_html = ""
+    if shares > 0 and entry > 0 and price > 0:
+        pl = (shares * price) - (shares * entry)
+        pl_pct = (pl / (shares * entry)) * 100 if (shares * entry) > 0 else 0
+        pl_c = "#4ade80" if pl >= 0 else "#ef4444"
+        pl_html = (
+            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
+            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
+            f"</div>"
+        )
+    elif shares > 0 and entry > 0:
+        pl_html = (
+            f"<div style='color:#9ca3af; font-size:0.85rem; margin-top:2px;'>"
+            f"{int(shares)} @ ${entry:.2f}"
+            f"</div>"
+        )
 
-    # ---- optional extra lines
-    company = str(
-        (row.get("company_name") or row.get("company") or data.get("company_name") or data.get("company") or "")
-    ).strip()
+    # Company line (optional)
+    company = (_g(row, "company_name", "") or _g(row, "company", "") or data.get("company_name") or "").strip()
     company_html = (
         f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
         if company else ""
     )
-    link = f"?token={token}&ticker={row['ticker']}"
-    html = f'''
-    <a href="{link}" target="_self" style="text-decoration:none;">
-      <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-        <div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
-              <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
-            </div>
-          </div>
-          {company_html}
-          {pl_html}
-        </div>
 
-        <div style="text-align:right; padding-top:2px">
-          <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
-          <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
+    # IMPORTANT: no leading indentation in HTML, otherwise Markdown treats it as a code block.
+    link = f"?token={token}&ticker={ticker}"
+    html = textwrap.dedent(f"""
+<a href='{link}' target='_self' style='text-decoration:none;'>
+  <div class='card port-row' data-flip-id='{ticker}'
+       style='display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};'>
+    <div>
+      <div style='display:flex; align-items:center; gap:8px;'>
+        <div style='font-weight:bold; font-size:1.1rem; color:white;'>{ticker}</div>
+        <div style='display:flex; align-items:center; gap:8px;'>
+          <div style='font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;'>RISK: {risk}</div>
+          <div style='font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;'>CONF: {conf}</div>
         </div>
       </div>
-    </a>
-    '''
-    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+      {company_html}
+      {pl_html}
+    </div>
+
+    <div style='text-align:right; padding-top:2px'>
+      <div style='color:white; font-weight:bold; font-size:1.1rem'>${price:,.2f}</div>
+      <div style='color:{change_color}; font-size:0.90rem;'>{arrow} {change:.2f}%</div>
+    </div>
+  </div>
+</a>
+""").strip()
+
+    st.markdown(html, unsafe_allow_html=True)
+
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
 
@@ -859,7 +999,7 @@ def render_simple_card(row, current_token):
     link = f"?token={current_token}&ticker={row['ticker']}"
     risk, _, _, _, _ = calculate_risk(row)
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
-    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
     # Small scroller tiles: ticker + price + % (pulled from stock_cache).
