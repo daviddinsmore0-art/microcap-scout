@@ -768,7 +768,7 @@ def render_portfolio_row(row, data, token):
         pl = (shares * price) - (shares * entry)
         pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='color:{pl_c}; font-size:0.75rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
+        pl_html = f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
 
     link = f"?token={token}&ticker={row['ticker']}"
     html = f"""
