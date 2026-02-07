@@ -776,7 +776,7 @@ def render_portfolio_row(row, data, token):
 
     import datetime  # make sure this exists near the top of your file
 
-company = (row.get('company_name') or row.get('company') or data.get('company_name') or '').strip()
+company = (row.get('company_name') or row.get('company') or '').strip()
 company_html = (
     f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
     if company else ""
