@@ -753,91 +753,82 @@ def generate_playbook(stock_row):
 
 
 def render_portfolio_row(row, data, token):
-    # row: portfolio holding (dict/Series); data: latest quote/fundamentals dict for ticker
-    def _sf(x, default=0.0):
-        try:
-            if x is None or x == "":
-                return float(default)
-            return float(x)
-        except Exception:
-            return float(default)
-
-    def _g(obj, key, default=""):
-        try:
-            if hasattr(obj, "get"):
-                v = obj.get(key, default)
-            else:
-                v = getattr(obj, key, default)
-        except Exception:
-            v = default
-        return v
-
-    ticker = (data.get("ticker") or _g(row, "ticker", "") or "").strip()
+    """Render one holding as a clickable HTML card."""
+    # Defensive reads
+    ticker = str(row.get('ticker') or data.get('ticker') or '').strip()
+    if not ticker:
+        return
 
     risk, label, color, _, _ = calculate_risk(data)
     conf = calculate_confidence(data)
     conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
 
-    price = _sf(data.get("current_price"), 0.0)
-    change = _sf(data.get("day_change"), 0.0)
+    # Price/change
+    try:
+        price = float(data.get('current_price') or 0)
+    except Exception:
+        price = 0.0
+    try:
+        change = float(data.get('day_change') or 0)
+    except Exception:
+        change = 0.0
+
     change_color = "#4ade80" if change >= 0 else "#ef4444"
     arrow = "▲" if change >= 0 else "▼"
 
-    shares = _sf(_g(row, "shares", 0.0), 0.0)
-    entry = _sf(_g(row, "entry_price", 0.0), 0.0)
+    # Position
+    try:
+        shares = float(row.get('shares') or 0)
+    except Exception:
+        shares = 0.0
+    try:
+        entry = float(row.get('entry_price') or 0)
+    except Exception:
+        entry = 0.0
 
-    # P/L line
     pl_html = ""
     if shares > 0 and entry > 0 and price > 0:
         pl = (shares * price) - (shares * entry)
-        pl_pct = (pl / (shares * entry)) * 100 if (shares * entry) > 0 else 0
+        pl_pct = (pl / (shares * entry)) * 100 if (shares * entry) > 0 else 0.0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
+        # Match your visual: "10 @ $20.42 • $-29.00 (-14.2%)"
         pl_html = (
-            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
-            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
-            f"</div>"
-        )
-    elif shares > 0 and entry > 0:
-        pl_html = (
-            f"<div style='color:#9ca3af; font-size:0.85rem; margin-top:2px;'>"
-            f"{int(shares)} @ ${entry:.2f}"
-            f"</div>"
+            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:6px;'>"
+            f"{shares:g} @ ${entry:,.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
+            "</div>"
         )
 
-    # Company line (optional)
-    company = (_g(row, "company_name", "") or _g(row, "company", "") or data.get("company_name") or "").strip()
-    company_html = (
-        f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
-        if company else ""
+    company = (data.get('company_name') or data.get('company') or row.get('company_name') or row.get('company') or '').strip()
+    company_html = f"<div style='font-size:0.85rem; color:#9ca3af; margin-top:6px;'>{company}</div>" if company else ""
+
+    link = f"?token={token}&ticker={ticker}"
+
+    html = (
+        f"<a href='{link}' target='_self' style='text-decoration:none;'>"
+        f"<div class='card port-row' data-flip-id='{ticker}' "
+        f"style='display:flex; justify-content:space-between; align-items:center; border-left:4px solid {color};'>"
+        f"<div>"
+        f"<div style='display:flex; align-items:center; gap:10px;'>"
+        f"<div style='font-weight:800; font-size:1.35rem; color:white;'>{ticker}</div>"
+        f"<div style='display:flex; align-items:center; gap:10px;'>"
+        f"<div style='font-size:0.70rem; background:{color}; color:black; padding:6px 10px; border-radius:10px; font-weight:900;'>RISK: {risk}</div>"
+        f"<div style='font-size:0.70rem; background:{conf_bg}; color:black; padding:6px 10px; border-radius:10px; font-weight:900;'>CONF: {conf}</div>"
+        f"</div>"
+        f"</div>"
+        f"{company_html}"
+        f"{pl_html}"
+        f"</div>"
+        f"<div style='text-align:right; padding-top:2px;'>"
+        f"<div style='color:white; font-weight:900; font-size:1.35rem;'>${price:,.2f}</div>"
+        f"<div style='color:{change_color}; font-size:1.05rem; font-weight:800;'>{arrow} {change:.2f}%</div>"
+        f"</div>"
+        f"</div>"
+        f"</a>"
     )
 
-    # IMPORTANT: no leading indentation in HTML, otherwise Markdown treats it as a code block.
-    link = f"?token={token}&ticker={ticker}"
-    html = textwrap.dedent(f"""
-<a href='{link}' target='_self' style='text-decoration:none;'>
-  <div class='card port-row' data-flip-id='{ticker}'
-       style='display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};'>
-    <div>
-      <div style='display:flex; align-items:center; gap:8px;'>
-        <div style='font-weight:bold; font-size:1.1rem; color:white;'>{ticker}</div>
-        <div style='display:flex; align-items:center; gap:8px;'>
-          <div style='font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;'>RISK: {risk}</div>
-          <div style='font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;'>CONF: {conf}</div>
-        </div>
-      </div>
-      {company_html}
-      {pl_html}
-    </div>
-
-    <div style='text-align:right; padding-top:2px'>
-      <div style='color:white; font-weight:bold; font-size:1.1rem'>${price:,.2f}</div>
-      <div style='color:{change_color}; font-size:0.90rem;'>{arrow} {change:.2f}%</div>
-    </div>
-  </div>
-</a>
-""").strip()
-
     st.markdown(html, unsafe_allow_html=True)
+
+
 
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
