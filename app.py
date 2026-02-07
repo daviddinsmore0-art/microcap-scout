@@ -795,7 +795,8 @@ def render_portfolio_row(row, data, token):
                     updated_str = s
         except Exception:
             updated_str = str(updated_raw)
-
+            from datetime import datetime
+            updated_str = datetime.now().strftime("%I:%M %p")
     updated_html = (
         f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
         if updated_str else ""
@@ -817,7 +818,7 @@ def render_portfolio_row(row, data, token):
       <div style="font-size:0.75rem; color:#b0b0b0; margin-top:2px;">
         {company}
       </div>
-
+       <div style="font-size:0.7rem; color:#6b7280;">Updated {updated_str}</div>
       {pl_html}
       </div>
 
