@@ -75,18 +75,7 @@ st.markdown("""
         a.nav-link:active { transform: scale(0.92); }
 
         
-        
-
-        /* Make entire portfolio card reliably tappable on mobile */
-        a.card-link {
-            display: block;
-            text-decoration: none !important;
-            color: inherit !important;
-            -webkit-tap-highlight-color: transparent;
-        }
-        a.card-link * { pointer-events: none; }  /* prevents text-selection/long-press stealing the tap */
-        .card.port-row { cursor: pointer; }
-/* Metric Boxes */
+        /* Metric Boxes */
         .metric-box {
             background-color: #1e293b;
             border: 1px solid #2d3748;
@@ -764,82 +753,62 @@ def generate_playbook(stock_row):
 
 
 def render_portfolio_row(row, data, token):
-    """Render one holding as a clickable HTML card."""
-    # Defensive reads
-    ticker = str(row.get('ticker') or data.get('ticker') or '').strip()
-    if not ticker:
-        return
-
     risk, label, color, _, _ = calculate_risk(data)
     conf = calculate_confidence(data)
     conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
-
-    # Price/change
-    try:
-        price = float(data.get('current_price') or 0)
-    except Exception:
-        price = 0.0
-    try:
-        change = float(data.get('day_change') or 0)
-    except Exception:
-        change = 0.0
-
+    price = float(data['current_price'])
+    change = float(data['day_change'])
     change_color = "#4ade80" if change >= 0 else "#ef4444"
     arrow = "▲" if change >= 0 else "▼"
-
-    # Position
-    try:
-        shares = float(row.get('shares') or 0)
-    except Exception:
-        shares = 0.0
-    try:
-        entry = float(row.get('entry_price') or 0)
-    except Exception:
-        entry = 0.0
+    shares = float(row['shares'])
+    entry = float(row['entry_price'])
 
     pl_html = ""
-    if shares > 0 and entry > 0 and price > 0:
+    if shares > 0 and entry > 0:
         pl = (shares * price) - (shares * entry)
-        pl_pct = (pl / (shares * entry)) * 100 if (shares * entry) > 0 else 0.0
+        pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        # Match your visual: "10 @ $20.42 • $-29.00 (-14.2%)"
         pl_html = (
-            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:6px;'>"
-            f"{shares:g} @ ${entry:,.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
-            "</div>"
+            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
+            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
+            f"</div>"
         )
 
-    company = (data.get('company_name') or data.get('company') or row.get('company_name') or row.get('company') or '').strip()
-    company_html = f"<div style='font-size:0.85rem; color:#9ca3af; margin-top:6px;'>{company}</div>" if company else ""
-
-    link = f"?token={token}&ticker={ticker}"
-
-    html = (
-        f"<a href='{link}' class='card-link' target='_self'>"
-        f"<div class='card port-row' data-flip-id='{ticker}' "
-        f"style='display:flex; justify-content:space-between; align-items:center; border-left:4px solid {color};'>"
-        f"<div>"
-        f"<div style='display:flex; align-items:center; gap:10px;'>"
-        f"<div style='font-weight:800; font-size:1.35rem; color:white;'>{ticker}</div>"
-        f"<div style='display:flex; align-items:center; gap:10px;'>"
-        f"<div style='font-size:0.70rem; background:{color}; color:black; padding:6px 10px; border-radius:10px; font-weight:900;'>RISK: {risk}</div>"
-        f"<div style='font-size:0.70rem; background:{conf_bg}; color:black; padding:6px 10px; border-radius:10px; font-weight:900;'>CONF: {conf}</div>"
-        f"</div>"
-        f"</div>"
-        f"{company_html}"
-        f"{pl_html}"
-        f"</div>"
-        f"<div style='text-align:right; padding-top:2px;'>"
-        f"<div style='color:white; font-weight:900; font-size:1.35rem;'>${price:,.2f}</div>"
-        f"<div style='color:{change_color}; font-size:1.05rem; font-weight:800;'>{arrow} {change:.2f}%</div>"
-        f"</div>"
-        f"</div>"
-        f"</a>"
+    company = (row.get('company_name') or row.get('company') or data.get('company_name') or '').strip()
+    company_html = (
+        f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
+        if company else ""
     )
+    # timestamp removed
+    updated_html = ""
+    link = f"?token={token}&ticker={row['ticker']}"
 
+    # Make the whole card reliably tappable on mobile
+    html = f"""
+<a href="{link}" target="_self" style="text-decoration:none; display:block;">
+  <div class="card port-row" data-flip-id="{row['ticker']}"
+       onclick="window.location.href='{link}'"
+       style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color}; cursor:pointer;">
+    <div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
+          <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
+        </div>
+      </div>
+      {company_html}
+      {pl_html}
+    </div>
+
+    <div style="text-align:right; padding-top:2px">
+      <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
+      <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
+    </div>
+  </div>
+</a>
+"""
     st.markdown(html, unsafe_allow_html=True)
-
-
 
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
