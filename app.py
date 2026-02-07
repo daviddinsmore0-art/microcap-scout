@@ -775,10 +775,12 @@ def render_portfolio_row(row, data, token):
         pl_html = f"<div style='color:#9ca3af; font-size:0.9rem; margin-top:4px;'>{shares:g} @ ${entry:,.2f}</div>"
 
     # ---- optional extra lines (company + timestamp)
-    company = (getattr(row, "get", lambda k, d=None: None)("company_name") or
-               getattr(row, "get", lambda k, d=None: None)("company") or
-               getattr(data, "get", lambda k, d=None: None)("company_name") or
-               "").strip()
+    company = (
+    row.get("company_name")
+    or row.get("company")
+    or data.get("company_name")
+    or ""
+).strip()
     company_html = (
         f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
         if company else ""
