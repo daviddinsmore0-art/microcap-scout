@@ -771,24 +771,53 @@ def render_portfolio_row(row, data, token):
         pl_html = f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
 
     link = f"?token={token}&ticker={row['ticker']}"
-    html = f"""
-    <a href="{link}" target="_self" style="text-decoration:none;">
-        <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-            <div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-                    <div style="display:flex; align-items:center; gap:8px;"><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div><div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div></div>
-                </div>
-                {pl_html}
-            </div>
-            <div style="text-align:right;">
-                <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-                <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
-            </div>
+
+# ---- NEW: pick fields safely (won't crash if missing) ----
+company = (row.get("company_name") or row.get("company") or row.get("name") or "").strip()
+
+# Timestamp fields (choose what you actually have)
+updated_raw = row.get("updated_at") or row.get("last_updated") or row.get("ts") or row.get("timestamp") or ""
+
+# Optional: make it pretty if it's a datetime / pandas timestamp
+updated_str = ""
+try:
+    if updated_raw:
+        # if it's already a datetime-like
+        updated_str = updated_raw.strftime("%b %d, %I:%M %p")
+except Exception:
+    # fallback: just show whatever string you have
+    updated_str = str(updated_raw) if updated_raw else ""
+
+# ---- NEW: small HTML lines (only render if present) ----
+company_html = f'<div style="font-size:0.8rem; color:#9aa4b2; margin-top:2px;">{company}</div>' if company else ""
+updated_html = f'<div style="font-size:0.7rem; color:#7a8594; margin-top:2px;">Updated {updated_str}</div>' if updated_str else ""
+
+html = f"""
+<a href="{link}" target="_self" style="text-decoration:none;">
+  <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+    <div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
+          <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
         </div>
-    </a>
-    """
-    st.markdown(html, unsafe_allow_html=True)
+      </div>
+
+      {company_html}
+      {updated_html}
+
+      {pl_html}
+    </div>
+
+    <div style="text-align:right;">
+      <div style="color:white; font-weight:bold;">${price:,.2f}</div>
+      <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
+    </div>
+  </div>
+</a>
+"""
+st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
