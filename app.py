@@ -1323,7 +1323,7 @@ elif tab == "scanner":
     if market_data:
         st.markdown("**📉 Oversold (RSI < 40)**")
         for t, data in market_data.items():
-            rsi_val = data.get('rsi')
+            rsi_val = data.get('rsi_14')
             if rsi_val is not None and float(rsi_val) < 40:
                 render_simple_card(data, token)
         st.markdown("**📅 Earnings Soon**")
