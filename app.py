@@ -292,7 +292,7 @@ def get_ai_analysis(ticker, headlines, current_data=None):
                 return parsed.get('summary'), parsed.get('score'), "AI"
         except: pass
     if current_data:
-        rsi = float(current_data.get('rsi') or 50)
+        rsi = float(current_data.get('rsi_14') or 50)
         trend = current_data.get('trend_status', 'NEUTRAL')
         if rsi > 70: return "Technical: Overbought (RSI > 70). Risk of pullback.", 30, "TECH"
         elif rsi < 30: return "Technical: Oversold (RSI < 30). Potential bounce.", 80, "TECH"
@@ -322,7 +322,7 @@ def calculate_risk(row, ai_score=None):
         breakdown.append(("Trend (Neutral)", +3))
 
     # RSI (gradient)
-    rsi = float(row.get("rsi") or 50)
+    rsi = float(row.get("rsi_14") or 50)
     if rsi >= 80:
         risk += 15
         breakdown.append(("RSI (>=80 overbought)", +15))
@@ -398,7 +398,7 @@ def calculate_confidence(row, ai_score=None):
     confidence = 100 - int(risk)
 
     trend = (row.get("trend_status") or "NEUTRAL").upper()
-    rsi = float(row.get("rsi") or 50)
+    rsi = float(row.get("rsi_14") or 50)
     vol = float(row.get("volatility") or 0)
 
     if trend == "UPTREND":
@@ -434,7 +434,7 @@ def calculate_confidence(row, ai_score=None):
     elif trend == "DOWNTREND":
         conf -= 10
 
-    rsi = float(row.get("rsi") or 50)
+    rsi = float(row.get("rsi_14") or 50)
     # Prefer RSI in the middle (room to run, not extreme)
     if 40 <= rsi <= 60:
         conf += 8
