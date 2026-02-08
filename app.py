@@ -126,6 +126,7 @@ st.markdown("""
             display: flex; 
             flex-wrap: nowrap; 
             overflow-x: auto; 
+            scroll-behavior: smooth;
             gap: 12px; 
             padding-bottom: 10px; 
             -ms-overflow-style: none; 
