@@ -140,7 +140,17 @@ st.markdown("""
             border-radius: 12px; 
             padding: 15px; 
         }
-        
+
+        .price-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+    gap: 2px;
+    margin-left: auto;
+    padding-top: 2px;
+}
+           
         /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
@@ -258,7 +268,7 @@ def get_news_data(ticker):
         resp = requests.get(url, headers=headers, timeout=5)
         if resp.status_code == 200:
             root = ET.fromstring(resp.content)
-            for item in root.findall('.//item')[:2]:
+            for item in root.findall('.//item')[:3]:
                 title = item.find('title').text if item.find('title') is not None else "No Title"
                 link = item.find('link').text if item.find('link') is not None else "#"
                 news_results.append({'title': title, 'link': link, 'pub': "Yahoo", 'time': "Recent"})
@@ -752,32 +762,51 @@ def render_portfolio_row(row, data, token):
     arrow = "▲" if change >= 0 else "▼"
     shares = float(row['shares'])
     entry = float(row['entry_price'])
-    
+
     pl_html = ""
     if shares > 0 and entry > 0:
         pl = (shares * price) - (shares * entry)
         pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = f"<div style='color:{pl_c}; font-size:0.75rem; margin-top:2px;'>{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)</div>"
+        pl_html = (
+            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
+            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
+            f"</div>"
+        )
 
+    company = (row.get('company_name') or row.get('company') or data.get('company_name') or '').strip()
+    company_html = (
+        f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
+        if company else ""
+    )
     link = f"?token={token}&ticker={row['ticker']}"
+
+    # Make the whole card tappable on mobile (no <a>, use onclick)
     html = f"""
-    <a href="{link}" target="_self" style="text-decoration:none;">
-        <div class="card port-row" data-flip-id="{row["ticker"]}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-            <div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-                    <div style="display:flex; align-items:center; gap:8px;"><div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div><div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div></div>
-                </div>
-                {pl_html}
-            </div>
-            <div style="text-align:right;">
-                <div style="color:white; font-weight:bold;">${price:,.2f}</div>
-                <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
-            </div>
-        </div>
-    </a>
-    """
+<div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color}; cursor:pointer;"
+     onclick="window.location.href='{link}';"
+     role="link" tabindex="0"
+     onkeydown="if(event.key==='Enter'){{window.location.href='{link}';}}">
+  <div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
+        <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
+      </div>
+    </div>
+    {company_html}
+    {pl_html}
+  </div>
+
+  <div style="text-align:right; padding-top:2px">
+    <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
+    <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
+  </div>
+</div>
+"""
+    # IMPORTANT: strip leading spaces so Streamlit doesn't render this as a code block on mobile
+    html = "\n".join(line.lstrip() for line in html.splitlines()).strip()
     st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
@@ -831,6 +860,109 @@ def render_compact_watchlist(rows_list, current_token):
         )
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
+
+def _fmt_price(x):
+    try:
+        return f"${float(x):,.2f}"
+    except Exception:
+        return "—"
+
+def _fmt_pct(x):
+    try:
+        return f"{float(x):+.2f}%"
+    except Exception:
+        return "0.00%"
+
+def compute_anomaly_pick(rows):
+    """Pick the biggest absolute % mover from the current watchlist rows."""
+    if not rows:
+        return None
+    # Prefer true day_change if present, otherwise fall back to watchlist score
+    def get_move(r):
+        v = r.get("day_change")
+        if v is None:
+            v = r.get("_watchlist_score", 0) or 0
+        try:
+            return float(v)
+        except Exception:
+            return 0.0
+
+    # Try to avoid duplicating the first 3 picks if possible
+    primary = {r.get("ticker") for r in rows[:3] if r.get("ticker")}
+    ranked = sorted(rows, key=lambda r: abs(get_move(r)), reverse=True)
+    chosen = None
+    for r in ranked:
+        if r.get("ticker") and r.get("ticker") not in primary:
+            chosen = r
+            break
+    if chosen is None and ranked:
+        chosen = ranked[0]
+
+    if not chosen:
+        return None
+
+    anomaly = dict(chosen)
+    anomaly["signal_tag"] = "Anomaly Pick"
+    anomaly["_is_anomaly"] = True
+    return anomaly
+
+def render_watchlist_pick_grid(rows, current_token=None):
+    """Render 2x2 grid of pick cards: first 3 watchlist rows + anomaly pick."""
+    if not rows:
+        return
+
+    cards = list(rows[:3])
+    anomaly = compute_anomaly_pick(rows)
+    if anomaly:
+        # Avoid exact duplicate card (same ticker + label already)
+        if not any((c.get("ticker")==anomaly.get("ticker") and c.get("signal_tag")==anomaly.get("signal_tag")) for c in cards):
+            cards.append(anomaly)
+    cards = cards[:4]
+
+    # 2 rows of 2
+    for row_i in range(0, len(cards), 2):
+        cols = st.columns(2)
+        for j in range(2):
+            k = row_i + j
+            if k >= len(cards):
+                continue
+            r = cards[k]
+            ticker = r.get("ticker","")
+            label = r.get("signal_tag","Pick")
+            price = _fmt_price(r.get("current_price"))
+            move = r.get("day_change")
+            if move is None:
+                move = r.get("_watchlist_score", 0) or 0
+            pct = _fmt_pct(move)
+
+            try:
+                mv = float(move)
+            except Exception:
+                mv = 0.0
+            color = "#22c55e" if mv > 0 else ("#ef4444" if mv < 0 else "#94a3b8")
+
+            href = f"?tab=portfolio&ticker={ticker}"
+            if current_token:
+                href = f"?token={current_token}&tab=portfolio&ticker={ticker}"
+
+            with cols[j]:
+                st.markdown(f"""
+<a href='{href}' style='text-decoration:none;'>
+  <div class='card' style='padding:16px; min-height:118px; cursor:pointer;'>
+    <div style='display:flex; align-items:flex-start; justify-content:space-between; gap:10px;'>
+      <div>
+        <div style='font-weight:800; font-size:1.35rem; color:#e5e7eb; line-height:1.1;'>{ticker}</div>
+        <div style='margin-top:6px; font-size:0.85rem; color:#facc15; font-weight:700;'>{label}</div>
+      </div>
+      <div style='price-block'>
+        <div style='font-weight:800; font-size:1.25rem; color:#e5e7eb;'>{price}</div>
+        <div style='margin-top:6px; font-weight:800; font-size:1.05rem; color:{color};'>{pct}</div>
+      </div>
+      </div>
+    </div>
+  </div>
+</a>
+""", unsafe_allow_html=True)
 
 def render_simple_card(row, current_token):
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
@@ -1116,7 +1248,8 @@ if tab == "home":
     w_date = get_watchlist_header_date()
     st.markdown(f"### {w_date} Watchlist")
     candidates = get_watchlist_rows_for_home()
-    render_compact_watchlist(candidates, token)
+    render_watchlist_pick_grid(candidates, token)
+    #render_compact_watchlist(candidates, token)
 
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
