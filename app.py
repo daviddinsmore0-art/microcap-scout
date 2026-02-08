@@ -773,8 +773,8 @@ def render_portfolio_row(row, data, token):
         pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
         pl_html = (
-            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
-            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
+            f"<div style='color:{pl_c}; font-size:0.90rem; margin-top:2px;'>"
+            f"{int(shares)} @ ${entry:.2f} Total PL ${pl:,.2f} ({pl_pct:.1f}%)"
             f"</div>"
         )
 
@@ -793,8 +793,8 @@ def render_portfolio_row(row, data, token):
           <div style="display:flex; align-items:center; gap:8px;">
             <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
             <div style="display:flex; align-items:center; gap:8px;">
-              <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
-              <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
+              <div style="font-size:0.8rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
+              <div style="font-size:0.8rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
             </div>
           </div>
           <div style="font-size:0.75rem; color:#b0b0b0; margin-top:2px;">{company}</div>
