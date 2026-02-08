@@ -148,7 +148,6 @@ st.markdown("""
     text-align: right;
     gap: 2px;
     margin-left: auto;
-    padding-top: 2px;
 }
            
         /* Risk Pills */
@@ -708,7 +707,7 @@ def generate_playbook(stock_row):
         return None
 
     trend = (stock_row.get("trend_status") or "NEUTRAL").upper()
-    rsi = float(stock_row.get("rsi") or 50)
+    rsi = float(stock_row.get("rsi_14") or 50)
     vol = float(stock_row.get("volatility") or 2.5)
 
     move = max(price * (vol / 100.0), price * 0.01)
