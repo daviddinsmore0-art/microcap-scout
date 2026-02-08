@@ -1,7 +1,6 @@
 import streamlit as st
 import mysql.connector
-import re
-import htmlquests
+import requests
 import uuid
 import os
 import pandas as pd
@@ -16,28 +15,6 @@ from datetime import datetime, timedelta
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-
-# --- Query param helper (works across Streamlit versions) ---
-def _get_qp_value(key: str, default: str = "") -> str:
-    try:
-        # Newer Streamlit: st.query_params behaves like a mapping
-        qp = getattr(st, "query_params", None)
-        if qp is not None:
-            val = qp.get(key, default)
-            # Some versions return list values
-            if isinstance(val, (list, tuple)):
-                return str(val[0]) if val else default
-            return str(val) if val is not None else default
-    except Exception:
-        pass
-    try:
-        # Older Streamlit
-        qp = st.experimental_get_query_params()
-        val = qp.get(key, [default])
-        return str(val[0]) if isinstance(val, list) and val else str(val)
-    except Exception:
-        return default
-
 
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
@@ -864,6 +841,7 @@ def render_simple_card(row, current_token):
 
 def render_horizontal_grid(rows_dict, current_token):
     # Small scroller tiles: ticker + price + % (pulled from stock_cache).
+    # Layout: ticker (top) then price then % on its own line so all tiles stay the same height.
     h = '<div class="scrolling-wrapper">'
     for ticker, row in rows_dict.items():
         try:
@@ -883,12 +861,10 @@ def render_horizontal_grid(rows_dict, current_token):
 
         h += (
             f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit;">'
-            f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between;">'
-            f'    <div style="font-weight:bold; font-size:1.05rem; color:white; margin-bottom:6px;">{ticker}</div>'
-            f'    <div style="display:flex; justify-content:space-between; align-items:baseline;">'
-            f'      <div style="font-size:0.95rem; color:white; font-weight:bold;">{price_txt}</div>'
-            f'      <div style="font-size:0.9rem; color:{cc}; font-weight:bold;">{arr} {ch:.2f}%</div>'
-            f'    </div>'
+            f'  <div class="scrolling-card click-tile" style="display:flex; flex-direction:column; justify-content:space-between; min-height:88px;">'
+            f'    <div style="font-weight:bold; font-size:1.05rem; color:white; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{ticker}</div>'
+            f'    <div style="font-size:0.95rem; color:white; font-weight:bold; margin-top:6px;">{price_txt}</div>'
+            f'    <div style="font-size:0.85rem; color:{cc}; font-weight:bold; margin-top:4px;">{arr} {ch:.2f}%</div>'
             f'  </div>'
             f'</a>'
         )
@@ -1055,17 +1031,15 @@ if "ticker" in st.query_params:
                 pts_f = 0
             if abs(pts_f) < 0.1:
                 continue
-            sign = "+" if pts_f > 0 else ""
             bd_rows.append(
-                f"<div style='display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #2d3748;'>"
+                f"<div style='padding:8px 0; border-bottom:1px solid #2d3748;'>"
                 f"<div style='color:#e0e6ed; font-size:0.9rem;'>{name}</div>"
-                f"<div style='color:#94a3b8; font-weight:bold;'>{sign}{pts_f:g}</div>"
                 f"</div>"
             )
         if bd_rows:
             st.markdown(
                 "<div class='card' style='margin-top:12px; padding:18px;'>"
-                "<div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:8px;'>RISK BREAKDOWN</div>"
+                "<div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:8px;'>WHY THIS SCORE</div>"
                 + "".join(bd_rows) +
                 "</div>",
                 unsafe_allow_html=True
@@ -1086,7 +1060,7 @@ if "ticker" in st.query_params:
     else: st.error("Data missing.")
     render_navbar(token, current_mode); st.stop()
 
-tab = _get_qp_value("tab", "home")
+tab = st.query_params.get("tab", "home")
 if tab == "home":
     try:
         conn = get_connection(); cursor = conn.cursor()
@@ -1094,46 +1068,27 @@ if tab == "home":
         row = cursor.fetchone()
         briefing_text = row[0] if row else ""
         conn.close()
-        # Render briefing with safe line breaks and robust encoding cleanup
-        def _fix_mojibake(s: str) -> str:
-            # Fix common UTF-8-as-latin1 mojibake (e.g., â€”)
-            if not s:
-                return ""
-            if "â" in s or "Ã" in s:
+
+        # --- Normalize briefing text for HTML rendering ---
+        if briefing_text:
+            # Fix common mojibake (UTF-8 interpreted as Latin-1)
+            if any(x in briefing_text for x in ['â', 'Ã', 'Â']):
                 try:
-                    return s.encode("latin1").decode("utf-8")
+                    briefing_text = briefing_text.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
                 except Exception:
-                    return s
-            return s
-
-        briefing_text = _fix_mojibake(briefing_text)
-
-        # Split out leading "Updated ..." line if present
-        lines = [ln.strip() for ln in briefing_text.splitlines() if ln.strip() != ""]
-        updated_line = ""
-        body_lines = lines
-        if lines and lines[0].lower().startswith("updated"):
-            updated_line = lines[0]
-            body_lines = lines[1:]
-
-        body_html = html.escape("
-".join(body_lines)).replace("
-", "<br>")
-        updated_html = html.escape(updated_line)
+                    pass
+            briefing_text = briefing_text.replace("\r\n", "\n").replace("\r", "\n")
+            briefing_text = briefing_text.replace("\n", "<br>")
 
         st.markdown(
-            f'''
-            <div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-              <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:10px;">
-                <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px;">AI MORNING BRIEFING</div>
-                <div style="color:#9aa4b2; font-size:0.8rem;">{updated_html}</div>
-              </div>
-              <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{body_html}</div>
-            </div>
-            ''',
-            unsafe_allow_html=True,
+            f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
+                <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div>
+                <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{briefing_text}</div>
+            </div>""",
+            unsafe_allow_html=True
         )
-    except: pass
+    except:
+        pass
     
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
@@ -1206,47 +1161,7 @@ elif tab == "portfolio":
 
         for row, data in pairs:
             render_portfolio_row(row, data, token)
-
-        # Animate reorder (FLIP) across reruns
-        storage_key = f"pp_flip_{user['username']}_{current_mode}"
-        _flip_js = """<script>
-                (function() {
-                  const key = "%(storage_key)s";
-                  const items = Array.from(document.querySelectorAll('[data-flip-id]'));
-                  if (!items.length) return;
-
-                  const newRects = {};
-                  items.forEach(el => {
-                    const id = el.getAttribute('data-flip-id');
-                    const r = el.getBoundingClientRect();
-                    newRects[id] = {top: r.top, left: r.left};
-                  });
-
-                  let prevRects = null;
-                  try { prevRects = JSON.parse(localStorage.getItem(key) || "null"); } catch(e) { prevRects = null; }
-
-                  if (prevRects) {
-                    items.forEach(el => {
-                      const id = el.getAttribute('data-flip-id');
-                      if (!prevRects[id] || !newRects[id]) return;
-                      const dy = prevRects[id].top - newRects[id].top;
-                      const dx = prevRects[id].left - newRects[id].left;
-                      if (dx === 0 && dy === 0) return;
-                      el.style.transition = "none";
-                      el.style.transform = "translate(" + dx + "px, " + dy + "px)";
-                      el.getBoundingClientRect(); // force reflow
-                      requestAnimationFrame(() => {
-                        el.style.transition = "transform 320ms cubic-bezier(.2,.8,.2,1)";
-                        el.style.transform = "";
-                      });
-                    });
-                  }
-
-                  try { localStorage.setItem(key, JSON.stringify(newRects)); } catch(e) {}
-                })();
-                </script>"""
-        _flip_js = _flip_js.replace("%(storage_key)s", storage_key)
-        components.html(_flip_js, height=0)
+        # (Reorder animation disabled for stability)
 
 elif tab == "alerts":
     st.markdown("### Volatility Alerts")
