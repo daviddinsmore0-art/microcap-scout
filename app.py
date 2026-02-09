@@ -1342,20 +1342,38 @@ elif tab == "portfolio":
         # (Reorder animation disabled for stability)
 
 elif tab == "alerts":
-    st.markdown("### Volatility Alerts")
-    with st.expander("New Alert", expanded=True):
-        port_rows = get_portfolio_details(user['username'], current_mode)
-        options = ["ALL STOCKS"] + [r['ticker'] for r in port_rows]
-        if port_rows:
-            t = st.selectbox("Ticker", options); c = st.selectbox("Trigger", ["DOWN", "UP"]); v = st.number_input("Target Price")
-            if st.button("Set Alert"): add_alert(user['username'], t, c, v); st.rerun()
-        else: st.info("Add stocks first.")
-    st.divider()
-    alerts = get_user_alerts(user['username'])
-    for a in alerts:
-        bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"; border = "#ef4444" if a['is_triggered'] else "#2d3748"
-        st.markdown(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;"><div><div style="font-weight:bold; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div></div></div>""", unsafe_allow_html=True)
-        if st.button("Clear", key=f"del_al_{a['id']}"): delete_alert(a['id']); st.rerun()
+    st.markdown("### Alert Settings")
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute(
+        "SELECT day_change_threshold FROM user_alert_settings WHERE username=%s",
+        (user['username'],)
+    )
+    row = cursor.fetchone()
+
+    current_threshold = float(row['day_change_threshold']) if row else 5.0
+
+    new_val = st.slider(
+        "Alert me when any stock moves ± (%)",
+        min_value=1.0,
+        max_value=20.0,
+        value=current_threshold,
+        step=0.5
+    )
+
+    if st.button("Save Alert Settings"):
+        cursor.execute("""
+            INSERT INTO user_alert_settings (username, day_change_threshold)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE
+            day_change_threshold = VALUES(day_change_threshold)
+        """, (user['username'], new_val))
+        conn.commit()
+        st.success("Alert settings saved.")
+
+    conn.close()
 
 elif tab == "scanner":
     st.markdown("### Market Scanner")
