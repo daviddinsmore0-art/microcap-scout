@@ -1368,7 +1368,7 @@ elif tab == "alerts":
             INSERT INTO user_alert_settings (username, pct_change_threshold)
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE
-            pct_change_threshold = VALUES(day_change_threshold)
+            pct_change_threshold = VALUES(pct_change_threshold)
         """, (user['username'], new_val))
         conn.commit()
         st.success("Alert settings saved.")
