@@ -1197,6 +1197,48 @@ if "ticker" in st.query_params:
 
 tab = st.query_params.get("tab", "home")
 if tab == "home":
+    # ============================================
+    # PENNYPULSE ALERT BANNER
+    # ============================================
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT message, created_at
+            FROM alert_history
+            ORDER BY created_at DESC
+            LIMIT 5
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+
+        if rows:
+            alert_html = ""
+            for msg, ts in rows:
+                alert_html += f"<div style='margin-bottom:4px;'>🚨 {msg}</div>"
+
+            st.markdown(f"""
+            <div class="card" style="
+                border-left:4px solid #ef4444;
+                margin-bottom:15px;
+                background:#111827;
+            ">
+                <div style="
+                    color:#ef4444;
+                    font-size:0.8rem;
+                    font-weight:bold;
+                    letter-spacing:1px;
+                    margin-bottom:8px;
+                ">
+                    PENNYPULSE ALERTS
+                </div>
+                <div style="font-size:0.9rem;">
+                    {alert_html}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    except:
+        pass
     try:
         conn = get_connection(); cursor = conn.cursor()
         cursor.execute("SELECT content FROM daily_briefing WHERE id=1")
