@@ -1348,7 +1348,7 @@ elif tab == "alerts":
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute(
-        "SELECT day_change_threshold FROM user_alert_settings WHERE username=%s",
+        "SELECT pct_change_threshold FROM user_alert_settings WHERE username=%s",
         (user['username'],)
     )
     row = cursor.fetchone()
