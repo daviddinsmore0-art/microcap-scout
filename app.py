@@ -1241,7 +1241,7 @@ try:
             </div>
         </div>
         """, unsafe_allow_html=True)
-except:
+    except:
     pass
     try:
         conn = get_connection(); cursor = conn.cursor()
