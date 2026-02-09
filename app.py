@@ -1243,6 +1243,7 @@ try:
         """, unsafe_allow_html=True)
     except:
     pass
+    
     try:
         conn = get_connection(); cursor = conn.cursor()
         cursor.execute("SELECT content FROM daily_briefing WHERE id=1")
