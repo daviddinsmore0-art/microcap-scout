@@ -1353,7 +1353,7 @@ elif tab == "alerts":
     )
     row = cursor.fetchone()
 
-    current_threshold = float(row['day_change_threshold']) if row else 5.0
+    current_threshold = float(row['pct_change_threshold']) if row else 5.0
 
     new_val = st.slider(
         "Alert me when any stock moves ± (%)",
@@ -1365,10 +1365,10 @@ elif tab == "alerts":
 
     if st.button("Save Alert Settings"):
         cursor.execute("""
-            INSERT INTO user_alert_settings (username, day_change_threshold)
+            INSERT INTO user_alert_settings (username, pct_change_threshold)
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE
-            day_change_threshold = VALUES(day_change_threshold)
+            pct_change_threshold = VALUES(day_change_threshold)
         """, (user['username'], new_val))
         conn.commit()
         st.success("Alert settings saved.")
