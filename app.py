@@ -1203,6 +1203,9 @@ if tab == "home":
     # ============================================
 # PENNYPULSE ALERT BANNER (PER USER)
 # ============================================
+# ============================================
+# PENNYPULSE ALERT BANNER (PER USER)
+# ============================================
 try:
     conn = get_connection()
     cursor = conn.cursor()
@@ -1241,7 +1244,8 @@ try:
             </div>
         </div>
         """, unsafe_allow_html=True)
-    except:
+
+except:
     pass
     
     try:
