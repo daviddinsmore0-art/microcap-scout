@@ -1623,62 +1623,98 @@ elif tab == "scanner":
                 elif rvol >= 3.0:
                     tile_variant = " scan-vol"
 
-                # Micro "trend" sparkline (derived from day change + RSI; not historical prices)
-                def spark_svg(slope, amp, stroke):
-                    w, h = 92, 28
-                    n = 18
-                    pts = []
-                    for i in range(n):
-                        x = i * (w / (n - 1))
-                        t = i / (n - 1)
-                        # smooth wave + slope, deterministic
-                        y = (h/2) + (amp * (0.9 - abs(t-0.5))) * (0.6 * __import__("math").sin(6.28318*(t+0.08))) - (slope * (t-0.5) * (h/1.6))
-                        y = max(2, min(h-2, y))
-                        pts.append(f"{x:.1f},{y:.1f}")
-                    poly = " ".join(pts)
-                    return f"""<div class='scan-spark'>
-<svg viewBox='0 0 {w} {h}' preserveAspectRatio='none' aria-hidden='true'>
-  <polyline fill='none' stroke='{stroke}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' points='{poly}' />
-</svg>
-</div>"""
+def render_signal_card(r, *, badge_text=None):
+    ticker = (r.get("ticker") or "").upper()
+    price = _f(r.get("price"), 0.0)
+    day = _f(r.get("change_pct"), 0.0)
+    day_txt = f"▲ {day:.2f}%" if day >= 0 else f"▼ {abs(day):.2f}%"
+    chg_color = "#4ade80" if day >= 0 else "#ef4444"
 
-                # slope from day change + RSI bias
-                slope = (day / 10.0) + ((rsi - 50.0) / 80.0)
-                amp = 10.0
-                spark_color = "#4ade80" if day >= 0 else "#ef4444"
-                spark_html = spark_svg(slope, amp, spark_color)
+    trend = (r.get("trend_status") or "NEUTRAL").upper()
+    rsi = _f(r.get("rsi_14"), 50.0)
+    rvol = _f(r.get("rvol"), 1.0)
 
-                card_html = f'''
-                <div class="scan-tile{tile_variant}">
-                  <div class="scan-head">
-                    <div class="scan-left">
-                      <div class="scan-ticker">{ticker}</div>
-                      <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
-                    </div>
-                    <div class="scan-right">
-                      <div class="scan-price">${price:,.2f}</div>
-                      <div class="scan-chg" style="color:{chg_color};">{day_txt}</div>
-                      {spark_html}
-                    </div>
-                  </div>
+    # risk handling (safe tuple handling)
+    risk_val = calculate_risk(r)
+    if isinstance(risk_val, tuple):
+        risk_score, risk_label, risk_color, *_ = risk_val
+    else:
+        risk_score, risk_label, risk_color = risk_val, "—", "#94a3b8"
 
-                  <div class="scan-row">
-                    <div class="{chip_class(risk_score, "risk")}">Risk {int(risk_score)}</div>
-                    <div class="scan-chip" style="border-color: rgba(255,255,255,0.10); background: rgba(148,163,184,0.08); color:#e2e8f0;">{risk_label}</div>
-                    <div class="{chip_class(conf, "conf")}">Conf {int(conf)}</div>
-                    {badge_html}
-                  </div>
+    conf = calculate_confidence(r)
 
-                  <div class="scan-divider"></div>
+    # pill colors
+    def pill_class(v, kind="conf"):
+        try:
+            v = float(v)
+        except:
+            return "scan-chip"
+        if kind == "risk":
+            return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
+        return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
 
-                  <div class="scan-mini">
-                    <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
-                    <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
-                    <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
-                  </div>
-                </div>
-                '''
-                st.markdown(card_html, unsafe_allow_html=True)
+    # accent rail color
+    if trend == "UPTREND":
+        rail = "#4ade80"
+    elif trend == "DOWNTREND":
+        rail = "#ef4444"
+    else:
+        rail = "#38bdf8"
+
+    # static safe sparkline (no f-strings)
+    spark = """
+    <svg width="90" height="28" viewBox="0 0 90 28">
+      <path d="M0,20 C20,18 40,10 60,12 75,14 90,8 90,8"
+            fill="none"
+            stroke="#4ade80"
+            stroke-width="3"
+            stroke-linecap="round"/>
+    </svg>
+    """
+
+    link = f"?token={token}&ticker={ticker}"
+
+    badge_html = ""
+    if badge_text:
+        badge_html = f'<div class="scan-badge">{badge_text}</div>'
+
+    card_html = f"""
+<a href="{link}" class="card-link" target="_self">
+  <div class="scan-card" style="border-left:5px solid {rail};">
+
+    <div class="scan-top">
+      <div>
+        <div class="scan-ticker">{ticker}</div>
+        <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
+      </div>
+
+      <div class="scan-right">
+        <div class="scan-price">${price:.2f}</div>
+        <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
+        <div style="margin-top:6px;">{spark}</div>
+      </div>
+    </div>
+
+    <div class="scan-row">
+      <div class="{pill_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
+      <div class="scan-chip">{risk_label}</div>
+      <div class="{pill_class(conf, 'conf')}">Conf {int(conf)}</div>
+    </div>
+
+    {badge_html}
+
+    <div class="scan-divider"></div>
+
+    <div class="scan-mini">
+      <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
+      <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
+      <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
+    </div>
+
+  </div>
+</a>
+"""
+    st.markdown(card_html, unsafe_allow_html=True)
             # Top ranked list (all signals)
             st.markdown("### 🔥 Biggest Signals (Ranked)")
             st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
