@@ -1401,62 +1401,61 @@ elif tab == "scanner":
     OVERBOUGHT_RSI = 70
 
     def fetch_scanner_rows(where_sql: str = "", order_sql: str = "signal_score DESC", limit: int = 100):
-    """Fetch rows for the Market Scanner page.
+        """Fetch rows for the Market Scanner page.
 
-    - Works with mysql-connector.
-    - Avoids relying on non-existent columns by computing a signal_score on the fly.
-    - `where_sql` should be a SQL fragment beginning with 'AND ...' and must reference alias `sc`.
+        - Works with mysql-connector.
+        - Avoids relying on non-existent columns by computing a signal_score on the fly.
+        - `where_sql` should be a SQL fragment beginning with 'AND ...' and must reference alias `sc`.
+        """
+        cnx = get_connection()
+        cur = cnx.cursor(dictionary=True)
+
+        # Defensive casting for LIMIT (mysql-connector requires a plain int).
+        try:
+            limit_i = int(limit)
+        except Exception:
+            limit_i = 100
+        limit_i = max(1, min(limit_i, 500))
+
+        # Whitelist order_sql to avoid accidental SQL issues (only simple identifiers, commas, dots, spaces).
+        if not isinstance(order_sql, str) or not re.fullmatch(r"[A-Za-z0-9_\s,\.]+", order_sql.strip() or "signal_score DESC"):
+            order_sql = "signal_score DESC"
+        order_sql = order_sql.strip() or "signal_score DESC"
+
+        where_sql = (where_sql or "").strip()
+        if where_sql and not where_sql.upper().startswith("AND "):
+            # Ensure we don't end up with malformed SQL.
+            where_sql = "AND " + where_sql
+
+        sql = f"""SELECT
+      sc.ticker,
+      sc.price,
+      sc.day_change,
+      sc.rsi_14,
+      sc.rvol,
+      sc.trend_status,
+      (
+        COALESCE(ABS(sc.day_change), 0) * 10
+        + COALESCE(sc.rvol, 0) * 4
+        + CASE
+            WHEN LOWER(sc.trend_status) = 'uptrend' THEN 15
+            WHEN LOWER(sc.trend_status) = 'downtrend' THEN 15
+            ELSE 0
+          END
+        + CASE
+            WHEN sc.rsi_14 >= 70 OR sc.rsi_14 <= 30 THEN 8
+            ELSE 0
+          END
+      ) AS signal_score
+    FROM stock_cache sc
+    WHERE 1=1
+      {where_sql}
+    ORDER BY {order_sql}
+    LIMIT %s
     """
-    cnx = get_connection()
-    cur = cnx.cursor(dictionary=True)
 
-    # Defensive casting for LIMIT (mysql-connector requires a plain int).
-    try:
-        limit_i = int(limit)
-    except Exception:
-        limit_i = 100
-    limit_i = max(1, min(limit_i, 500))
-
-    # Whitelist order_sql to avoid accidental SQL issues (only simple identifiers, commas, dots, spaces).
-    if not isinstance(order_sql, str) or not re.fullmatch(r"[A-Za-z0-9_\s,\.]+", order_sql.strip() or "signal_score DESC"):
-        order_sql = "signal_score DESC"
-    order_sql = order_sql.strip() or "signal_score DESC"
-
-    where_sql = (where_sql or "").strip()
-    if where_sql and not where_sql.upper().startswith("AND "):
-        # Ensure we don't end up with malformed SQL.
-        where_sql = "AND " + where_sql
-
-    sql = f"""SELECT
-  sc.ticker,
-  sc.price,
-  sc.day_change,
-  sc.rsi_14,
-  sc.rvol,
-  sc.trend_status,
-  (
-    COALESCE(ABS(sc.day_change), 0) * 10
-    + COALESCE(sc.rvol, 0) * 4
-    + CASE
-        WHEN LOWER(sc.trend_status) = 'uptrend' THEN 15
-        WHEN LOWER(sc.trend_status) = 'downtrend' THEN 15
-        ELSE 0
-      END
-    + CASE
-        WHEN sc.rsi_14 >= 70 OR sc.rsi_14 <= 30 THEN 8
-        ELSE 0
-      END
-  ) AS signal_score
-FROM stock_cache sc
-WHERE 1=1
-  {where_sql}
-ORDER BY {order_sql}
-LIMIT %s
-"""
-
-    cur.execute(sql, (limit_i,))
-    rows = cur.fetchall() or []
-    cur.close()
-    cnx.close()
-    return rows
-
+        cur.execute(sql, (limit_i,))
+        rows = cur.fetchall() or []
+        cur.close()
+        cnx.close()
+        return rows
