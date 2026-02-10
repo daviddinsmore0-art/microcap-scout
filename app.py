@@ -164,6 +164,51 @@ st.markdown("""
   /* Make whole card tappable */
   a.card-link { display:block; text-decoration:none; color:inherit; -webkit-tap-highlight-color: transparent; }
   a.card-link:visited { color:inherit; }
+
+/* ===== Market Scanner Tiles (only used in Scanner) ===== */
+.scan-grid { display: flex; flex-direction: column; gap: 12px; }
+.scan-tile {
+    position: relative;
+    background: radial-gradient(1200px 400px at 0% 0%, rgba(74,222,128,0.10), rgba(0,0,0,0)) , #121826;
+    border: 1px solid rgba(148,163,184,0.18);
+    border-radius: 22px;
+    padding: 16px 16px;
+    margin: 0;
+    box-shadow: 0 10px 22px rgba(0,0,0,0.30);
+    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.scan-tile:active { transform: scale(0.985); border-color: rgba(74,222,128,0.55); box-shadow: 0 12px 26px rgba(0,0,0,0.36); }
+.scan-top { display:flex; justify-content:space-between; align-items:flex-start; gap: 10px; }
+.scan-left { min-width: 0; }
+.scan-ticker { font-size: 22px; font-weight: 900; letter-spacing: 0.4px; line-height: 1.05; }
+.scan-sub { margin-top: 4px; color: rgba(148,163,184,0.9); font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+.scan-right { text-align:right; }
+.scan-price { font-size: 18px; font-weight: 900; }
+.scan-day { font-size: 12px; font-weight: 800; margin-top: 2px; letter-spacing: 0.3px; }
+.scan-divider { height:1px; background: rgba(148,163,184,0.14); margin: 12px 0 10px; }
+.scan-stats { display:flex; justify-content:space-between; gap: 10px; }
+.scan-chip {
+    display:inline-flex; align-items:center; gap:6px;
+    padding: 6px 10px; border-radius: 999px;
+    background: rgba(51,65,85,0.35);
+    border: 1px solid rgba(148,163,184,0.20);
+    font-size: 12px; font-weight: 800;
+    color: rgba(226,232,240,0.95);
+    white-space: nowrap;
+}
+.scan-chip .muted { color: rgba(148,163,184,0.95); font-weight: 800; }
+.scan-badge {
+    display:inline-block;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255,196,0,0.12);
+    border: 1px solid rgba(255,196,0,0.35);
+    color: #FFC400;
+    font-weight: 900;
+    font-size: 12px;
+    letter-spacing: 0.4px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1485,36 +1530,39 @@ elif tab == "scanner":
 
                 arrow = "▲" if day >= 0 else "▼"
                 day_txt = f"{arrow} {abs(day):.2f}%"
-                badge_html = ""
-                if badge_text:
-                    badge_html = f"""
-                    <div style="display:inline-block;padding:6px 10px;border-radius:999px;
-                                background:rgba(255,196,0,0.12);border:1px solid rgba(255,196,0,0.35);
-                                color:#FFC400;font-weight:800;font-size:12px;letter-spacing:0.4px;">
-                        {badge_text}
-                    </div>
-                    """
+                                # Badge (optional)
+                badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
+
+                # Extra stats (purely visual; does not affect logic/navigation)
+                rsi_val = _f(r.get("rsi_14"), 50.0)
+                trend_txt = (r.get("trend_status") or "—").upper()
+                rvol_val = _f(r.get("rvol"), 1.0)
+
+                day_color = "#4ade80" if day >= 0 else "#ef4444"
+                price_txt = f"${price:,.2f}"
 
                 card_html = f"""
-                <div style="
-                    background:#161a24;
-                    border-radius:22px;
-                    padding:18px 18px;
-                    margin:14px 0;
-                    border:1px solid rgba(255,255,255,0.06);
-                    box-shadow:0 10px 22px rgba(0,0,0,0.25);
-                ">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-                        <div>
-                            <div style="font-size:22px;font-weight:900;letter-spacing:0.4px;">{ticker}</div>
-                            <div style="opacity:0.75;margin-top:2px;">Risk: {risk_txt}</div>
+                <div class="scan-tile click-tile">
+                    <div class="scan-top">
+                        <div class="scan-left">
+                            <div class="scan-ticker">{ticker}</div>
+                            <div class="scan-sub">Market Scanner</div>
                         </div>
-                        <div style="text-align:right;">
-                            <div style="font-size:22px;font-weight:900;">${price:,.2f}</div>
-                            <div style="opacity:0.9;margin-top:2px;">{day_txt}</div>
+                        <div class="scan-right">
+                            <div class="scan-price">{price_txt}</div>
+                            <div class="scan-day" style="color:{day_color};">{day_txt}</div>
                         </div>
                     </div>
+
                     <div style="margin-top:10px;">{badge_html}</div>
+
+                    <div class="scan-divider"></div>
+
+                    <div class="scan-stats">
+                        <div class="scan-chip"><span class="muted">RSI</span> {rsi_val:.0f}</div>
+                        <div class="scan-chip"><span class="muted">Trend</span> {trend_txt}</div>
+                        <div class="scan-chip"><span class="muted">RVOL</span> {rvol_val:.1f}×</div>
+                    </div>
                 </div>
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
