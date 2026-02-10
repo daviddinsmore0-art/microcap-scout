@@ -1542,30 +1542,40 @@ elif tab == "scanner":
                 price_txt = f"${price:,.2f}"
 
                 card_html = f"""
-                <div class="scan-tile click-tile">
-                    <div class="scan-top">
-                        <div class="scan-left">
-                            <div class="scan-ticker">{ticker}</div>
-                            <div class="scan-sub">Market Scanner</div>
-                        </div>
-                        <div class="scan-right">
-                            <div class="scan-price">{price_txt}</div>
-                            <div class="scan-day" style="color:{day_color};">{day_txt}</div>
-                        </div>
-                    </div>
+<a href="{link}" class="card-link" target="_self">
+  <div class="scan-card">
 
-                    <div style="margin-top:10px;">{badge_html}</div>
+    <div class="scan-top">
+      <div>
+        <div class="scan-ticker">{ticker}</div>
+        <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
+      </div>
 
-                    <div class="scan-divider"></div>
+      <div class="scan-right">
+        <div class="scan-price">${price:.2f}</div>
+        <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
+        <div style="margin-top:6px;">{badge_html}</div>
+      </div>
+    </div>
 
-                    <div class="scan-stats">
-                        <div class="scan-chip"><span class="muted">RSI</span> {rsi_val:.0f}</div>
-                        <div class="scan-chip"><span class="muted">Trend</span> {trend_txt}</div>
-                        <div class="scan-chip"><span class="muted">RVOL</span> {rvol_val:.1f}×</div>
-                    </div>
-                </div>
-                """
-                st.markdown(card_html, unsafe_allow_html=True)
+    <div class="scan-pills">
+      <div class="{pill_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
+      <div class="{pill_class(conf, 'conf')}">Conf {int(conf)}</div>
+      <div class="scan-pill">Tap →</div>
+    </div>
+
+    <div class="scan-divider"></div>
+
+    <div class="scan-mini">
+      <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
+      <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
+      <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
+    </div>
+
+  </div>
+</a>
+"""
+st.markdown(card_html, unsafe_allow_html=True)
 
             # Top ranked list (all signals)
             st.markdown("### 🔥 Biggest Signals (Ranked)")
