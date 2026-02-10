@@ -1473,16 +1473,63 @@ elif tab == "scanner":
         else:
             any_signal_rows.sort(key=signal_score, reverse=True)
 
+            def signal_reason(r: dict) -> str:
+                """Human-friendly explanation for why this ticker is showing up."""
+                try:
+                    day = float(r.get("day_change") or 0.0)
+                except Exception:
+                    day = 0.0
+                try:
+                    rvol = float(r.get("rvol") or 0.0)
+                except Exception:
+                    rvol = 0.0
+                try:
+                    rsi = float(r.get("rsi_14") or 0.0)
+                except Exception:
+                    rsi = 0.0
+
+                if is_strong_momentum(r):
+                    parts = ["Uptrend + strength"]
+                    if rvol > 0:
+                        parts.append(f"vol {rvol:.1f}x")
+                    if abs(day) > 0:
+                        parts.append(f"{day:+.2f}% today")
+                    return " • ".join(parts)
+
+                if is_weakness_building(r):
+                    parts = ["Downtrend + selling pressure"]
+                    if rvol > 0:
+                        parts.append(f"vol {rvol:.1f}x")
+                    if abs(day) > 0:
+                        parts.append(f"{day:+.2f}% today")
+                    return " • ".join(parts)
+
+                if is_big_move_up(r):
+                    return f"Big move up {day:+.2f}% today"
+
+                if is_big_move_down(r):
+                    return f"Big move down {day:+.2f}% today"
+
+                if is_volume_spike(r):
+                    return f"Volume spike ({rvol:.1f}x normal)" if rvol > 0 else "Volume spike"
+
+                if is_oversold(r):
+                    return f"Oversold (RSI {rsi:.0f})" if rsi > 0 else "Oversold (RSI < 40)"
+
+                if is_overbought(r):
+                    return f"Overbought (RSI {rsi:.0f})" if rsi > 0 else "Overbought (RSI > 70)"
+
+                trend = (r.get("trend_status") or "").strip()
+                if trend:
+                    return f"Trend: {trend}"
+
+                return "Notable move / signal"
+
             def render_signal_card(r, *, badge_text=None):
                 ticker = r.get("ticker", "")
                 price = _f(r.get("current_price"), 0.0)
                 day = _f(r.get("day_change"), 0.0)
-                risk = calculate_risk(r)
-                try:
-                    risk_txt = f"{int(float(risk))}" if risk is not None else "—"
-                except Exception:
-                    risk_txt = "—"
-
+                reason_txt = signal_reason(r)
                 arrow = "▲" if day >= 0 else "▼"
                 day_txt = f"{arrow} {abs(day):.2f}%"
                 badge_html = ""
@@ -1507,7 +1554,7 @@ elif tab == "scanner":
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
                         <div>
                             <div style="font-size:22px;font-weight:900;letter-spacing:0.4px;">{ticker}</div>
-                            <div style="opacity:0.75;margin-top:2px;">Risk: {risk_txt}</div>
+                            <div style="opacity:0.75;margin-top:2px;">Why: {reason_txt}</div>
                         </div>
                         <div style="text-align:right;">
                             <div style="font-size:22px;font-weight:900;">${price:,.2f}</div>
