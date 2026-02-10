@@ -967,13 +967,63 @@ def render_watchlist_pick_grid(rows, current_token=None):
 </a>
 """, unsafe_allow_html=True)
 
-def render_simple_card(row, current_token):
-    p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
-    link = f"?token={current_token}&ticker={row['ticker']}"
-    risk, _, _, _, _ = calculate_risk(row)
-    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
-    st.markdown(html, unsafe_allow_html=True)
+def render_simple_card(row, current_token, subtitle: str | None = None, badge: str | None = None, rank: int | None = None):
+    """Render a single market-scanner card.
 
+    - subtitle: small text under the ticker (eg. 'Strong Momentum')
+    - badge: short pill text in the top-right (eg. 'WATCH THIS ONE')
+    - rank: optional numeric rank shown in the badge (eg. #1)
+    """
+    p = float(row.get("current_price") or 0)
+    ch = float(row.get("day_change") or 0)
+    cc = "#4ade80" if ch >= 0 else "#ef4444"
+    arr = "▲" if ch >= 0 else "▼"
+
+    rsi = row.get("rsi_14")
+    rvol = row.get("rvol")
+    risk = row.get("risk_score") if "risk_score" in row else row.get("risk")
+    if risk is None:
+        risk = row.get("risk_value")
+
+    # link to details page (keeps your existing routing)
+    link = f"?token={current_token}&ticker={row['ticker']}&page=details"
+
+    badge_txt = ""
+    if badge:
+        prefix = f"#{rank} " if isinstance(rank, int) and rank > 0 else ""
+        badge_txt = f"""<div style="position:absolute; top:12px; right:14px; font-size:12px; letter-spacing:0.08em; font-weight:800; padding:6px 10px; border-radius:999px; background:rgba(239,68,68,.16); border:1px solid rgba(239,68,68,.35); color:#ff6b6b;">{prefix}{badge}</div>"""
+
+    subtitle_html = f'<div style="margin-top:6px; font-size:14px; color:#cbd5e1; opacity:0.9;">{subtitle}</div>' if subtitle else ""
+
+    st.markdown(f"""
+    <a href="{link}" style="text-decoration:none;">
+      <div style="position:relative; margin: 12px 0; padding: 18px 18px; border-radius: 18px;
+           background: rgba(17,24,39,0.65); border: 1px solid rgba(148,163,184,0.12);
+           box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+        {badge_txt}
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <div style="font-size: 26px; font-weight: 800; letter-spacing:0.02em; color:#f8fafc;">{row['ticker']}</div>
+            {subtitle_html}
+            <div style="margin-top:10px; font-size: 14px; color:#94a3b8;">
+              Risk: <span style="color:#e2e8f0; font-weight:700;">{risk if risk is not None else '—'}</span>
+              <span style="opacity:0.55;"> • </span>
+              RSI: <span style="color:#e2e8f0; font-weight:700;">{f"{float(rsi):.0f}" if rsi is not None else "—"}</span>
+              <span style="opacity:0.55;"> • </span>
+              RVOL: <span style="color:#e2e8f0; font-weight:700;">{f"{float(rvol):.2f}" if rvol is not None else "—"}</span>
+            </div>
+          </div>
+
+          <div style="text-align:right;">
+            <div style="font-size: 26px; font-weight: 900; color:#f8fafc;">{('$' + f'{p:,.2f}') if p else '—'}</div>
+            <div style="margin-top:8px; font-size: 18px; font-weight: 800; color:{cc};">
+              {arr} {abs(ch):.2f}%
+            </div>
+          </div>
+        </div>
+      </div>
+    </a>
+    """, unsafe_allow_html=True)
 def render_horizontal_grid(rows_dict, current_token):
     # Small scroller tiles: ticker + price + % (pulled from stock_cache).
     # Layout: ticker (top) then price then % on its own line so all tiles stay the same height.
@@ -1455,7 +1505,29 @@ elif tab == "scanner":
                 score = 60 + (14 - days_to)
                 buckets["📅 Earnings Soon"].append((score, data))
 
-        # Render sections in priority order, sorted top->low within each category
+        
+# Build a single ranked list of *all* portfolio tickers that triggered at least one signal.
+best_by_ticker = {}  # ticker -> {"score": float, "title": str, "data": dict}
+for title, items in buckets.items():
+    for it in items:
+        t = it["data"]["ticker"]
+        s = float(it["score"])
+        prev = best_by_ticker.get(t)
+        if (prev is None) or (s > prev["score"]):
+            best_by_ticker[t] = {"score": s, "title": title, "data": it["data"]}
+
+ranked = sorted(best_by_ticker.values(), key=lambda x: x["score"], reverse=True)
+
+if ranked:
+    st.markdown("### 🏆 Ranked Signals (portfolio only)")
+    st.caption("All your portfolio tickers with at least one big signal — ranked strongest to weakest.")
+    for i, it in enumerate(ranked, start=1):
+        # Top few get a 'watch this one' badge.
+        badge = "WATCH THIS ONE" if i <= 3 else None
+        render_simple_card(it["data"], current_token, subtitle=it["title"], badge=badge, rank=i)
+    st.markdown("---")
+
+# Render sections in priority order, sorted top->low within each category
         for title in ["🚀 Strong Momentum", "🧯 Weakness Building", "🔥 Volume Surge",
                       "📈 Big Move Up", "📉 Big Move Down", "🧊 Oversold", "🥵 Overbought",
                       "📅 Earnings Soon"]:
@@ -1464,7 +1536,7 @@ elif tab == "scanner":
                 continue
             st.markdown(f"**{title}**")
             for _, d in sorted(items, key=lambda x: x[0], reverse=True):
-                render_simple_card(d, token)
+                render_simple_card(d, current_token, subtitle=title)
 
 elif tab == "settings":
     st.markdown("### Settings")
