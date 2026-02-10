@@ -1521,7 +1521,7 @@ elif tab == "scanner":
 
             # Top ranked list (all signals)
             st.markdown("### 🔥 Biggest Signals (Ranked)")
-            top_n = min(25, len(any_signal_rows))
+            top_n = min(3, len(any_signal_rows))
             for i, r in enumerate(any_signal_rows[:top_n], start=1):
                 badge = "Watch this one!" if i <= 3 else None
                 render_signal_card(r, badge_text=badge)
