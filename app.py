@@ -1404,9 +1404,9 @@ elif tab == "scanner":
             FROM stock_cache
             WHERE {where_sql}
             ORDER BY {order_sql}
-            LIMIT %s
+            LIMIT {int(limit)}
         """
-        cur.execute(sql, (limit,))
+        cur.execute(sql)
         rows = cur.fetchall()
         cur.close()
         conn.close()
