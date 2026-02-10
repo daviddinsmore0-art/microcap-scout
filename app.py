@@ -1478,7 +1478,10 @@ elif tab == "scanner":
                 price = _f(r.get("current_price"), 0.0)
                 day = _f(r.get("day_change"), 0.0)
                 risk = calculate_risk(r)
-                risk_txt = f"{int(risk)}" if risk is not None else "—"
+                try:
+                    risk_txt = f"{int(float(risk))}" if risk is not None else "—"
+                except Exception:
+                    risk_txt = "—"
 
                 arrow = "▲" if day >= 0 else "▼"
                 day_txt = f"{arrow} {abs(day):.2f}%"
