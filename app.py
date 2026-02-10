@@ -1400,37 +1400,44 @@ elif tab == "scanner":
     OVERSOLD_RSI = 40
     OVERBOUGHT_RSI = 70
 
-    def fetch_scanner_rows(where_sql: str, order_sql: str, limit: int = SCAN_LIMIT):
+    def fetch_scanner_rows(where_sql: str = "", order_sql: str = "ABS(day_change) DESC, rvol DESC", limit: int = 200):
+        """Fetch scanner rows from stock_cache.
+
+        Uses only columns that exist in your DB schema:
+        ticker, current_price, day_change, rsi_14 (or rsi), rvol, trend_status, volume_status.
+        """
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
-        sql = f"""
-            SELECT
-                ticker, current_price, day_change,
-                rsi AS rsi_14, trend_status, volume_status,
-                range_loc, volatility, debt_ratio,
-                days_to_earnings, market_cap, eps, signal_tag
-            FROM stock_cache
-            WHERE {where_sql}
-            ORDER BY {order_sql}
-            LIMIT {int(limit)}
-        """
+
+        rsi_expr = "COALESCE(rsi_14, rsi)"
+        base_cols = f"ticker, current_price, day_change, {rsi_expr} AS rsi_14, rvol, trend_status, volume_status"
+
+        sql = f"SELECT {base_cols} FROM stock_cache"
+        if where_sql:
+            sql += " WHERE " + where_sql
+        if order_sql:
+            sql += " ORDER BY " + order_sql
+        sql += f" LIMIT {int(limit)}"
+
         cur.execute(sql)
         rows = cur.fetchall()
         cur.close()
         conn.close()
         return rows
 
-    categories = [
-        ("🔥 Strong Momentum (Uptrend + big move)", f"trend_status='UPTREND' AND day_change >= {BIG_MOVE_PCT}", "day_change DESC, volatility DESC"),
-        ("🧊 Weakness Building (Downtrend + big drop)", f"trend_status='DOWNTREND' AND day_change <= -{BIG_MOVE_PCT}", "day_change ASC, volatility DESC"),
-        ("📈 Heavy Trading (volume surge)", "UPPER(COALESCE(volume_status,'')) IN ('HEAVY','SURGE','SPIKE','UNUSUAL')", "ABS(day_change) DESC, volatility DESC"),
-        ("📉 Oversold (RSI < 40)", f"rsi IS NOT NULL AND rsi < {OVERSOLD_RSI}", "rsi ASC, ABS(day_change) DESC"),
-        ("📊 Overbought (RSI > 70)", f"rsi IS NOT NULL AND rsi > {OVERBOUGHT_RSI}", "rsi DESC, ABS(day_change) DESC"),
-        ("⏰ Earnings Soon (0–7 days)", "days_to_earnings IS NOT NULL AND days_to_earnings BETWEEN 0 AND 7", "days_to_earnings ASC, ABS(day_change) DESC"),
-        ("🎯 Near Range High (top 10%)", "range_loc IS NOT NULL AND range_loc >= 0.90", "range_loc DESC, ABS(day_change) DESC"),
-        ("🎯 Near Range Low (bottom 10%)", "range_loc IS NOT NULL AND range_loc <= 0.10", "range_loc ASC, ABS(day_change) DESC"),
-    ]
+    # ---- Big-signal scanner categories (top-to-bottom) ----
+    BIG_MOVE_PCT = 3.0     # big move threshold (%)
+    BIG_RVOL = 3.0         # unusual relative volume
 
+    categories = [
+        ("Strong Momentum", f"UPPER(trend_status)='UPTREND' AND day_change >= {BIG_MOVE_PCT}", "day_change DESC, rvol DESC"),
+        ("Weakness Building", f"UPPER(trend_status)='DOWNTREND' AND day_change <= -{BIG_MOVE_PCT}", "day_change ASC, rvol DESC"),
+        ("Heavy Trading", "UPPER(COALESCE(volume_status,'')) IN ('HEAVY','SURGE','SPIKE','UNUSUAL')", "rvol DESC, ABS(day_change) DESC"),
+        ("Oversold (RSI < 40)", "COALESCE(rsi_14, rsi) < 40", "COALESCE(rsi_14, rsi) ASC, rvol DESC"),
+        ("Overbought (RSI > 70)", "COALESCE(rsi_14, rsi) > 70", "COALESCE(rsi_14, rsi) DESC, rvol DESC"),
+        ("Big Movers (|%| ≥ 3)", f"ABS(day_change) >= {BIG_MOVE_PCT}", "ABS(day_change) DESC, rvol DESC"),
+        ("High RVOL (≥ 3)", f"COALESCE(rvol,0) >= {BIG_RVOL}", "rvol DESC, ABS(day_change) DESC"),
+    ]
     any_rows = False
     for title, where_sql, order_sql in categories:
         rows = fetch_scanner_rows(where_sql, order_sql, SCAN_LIMIT)
