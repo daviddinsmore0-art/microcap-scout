@@ -165,106 +165,66 @@ st.markdown("""
   a.card-link { display:block; text-decoration:none; color:inherit; -webkit-tap-highlight-color: transparent; }
   a.card-link:visited { color:inherit; }
 
-        /* ===== Market Scanner Trading Tiles ===== */
+/* ===== Market Scanner Trading Tiles (scanner-only classes) ===== */
+.scan-grid{display:grid;grid-template-columns:1fr;gap:14px;}
+@media (min-width: 780px){.scan-grid{grid-template-columns:1fr 1fr;}}
 
-/* Responsive grid wrapper (scanner-only). On phones = 1 col, larger screens = 2 cols */
-.scan-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin: 14px 0; }
-@media (min-width: 720px) {
-  .scan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.scan-card{
+  background:#0f1722;
+  border-radius:22px;
+  padding:18px 18px;
+  margin:14px 0;
+  border:1px solid rgba(255,255,255,0.08);
+  box-shadow:0 14px 28px rgba(0,0,0,0.28);
+  position:relative;
+  overflow:hidden;
+}
+.scan-card:active{ transform:scale(0.992); }
+
+.scan-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.scan-left{ min-width:0; }
+.scan-ticker{ font-size:30px; font-weight:900; letter-spacing:1px; line-height:1.0; color:#f1f5f9; }
+.scan-sub{ margin-top:6px; font-size:13px; color:#94a3b8; letter-spacing:0.7px; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:62vw; }
+
+.scan-right{ text-align:right; min-width:120px; }
+.scan-price{ font-size:24px; font-weight:900; color:#f8fafc; line-height:1.05; }
+.scan-day{ margin-top:6px; font-size:15px; font-weight:900; }
+
+.scan-row{ display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; align-items:center; }
+.scan-chip{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:9px 14px; border-radius:999px;
+  font-size:14px; font-weight:900; letter-spacing:0.4px;
+  background:rgba(148,163,184,0.10);
+  border:1px solid rgba(255,255,255,0.12);
+  color:#e2e8f0;
+}
+.scan-chip.good{ background:rgba(74,222,128,0.12); border-color:rgba(74,222,128,0.35); color:#4ade80; }
+.scan-chip.warn{ background:rgba(251,191,36,0.12); border-color:rgba(251,191,36,0.35); color:#fbbf24; }
+.scan-chip.bad { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.35); color:#ef4444; }
+
+.scan-badge{
+  display:inline-block;
+  margin-top:12px;
+  padding:9px 14px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#fbbf24,#f59e0b);
+  color:#111827;
+  font-weight:900;
+  font-size:13px;
+  letter-spacing:0.3px;
+  box-shadow:0 8px 18px rgba(0,0,0,0.25);
 }
 
-/* Tile */
-.scan-tile {
-    position: relative;
-    background:
-        radial-gradient(1200px 500px at 20% 10%, rgba(74,222,128,0.10), transparent 55%),
-        linear-gradient(180deg, rgba(22,26,36,0.98), rgba(18,22,31,0.98));
-    border-radius: 22px;
-    padding: 16px 16px;
-    margin: 0; /* grid handles spacing */
-    border: 1px solid rgba(255,255,255,0.07);
-    box-shadow: 0 10px 22px rgba(0,0,0,0.28);
-    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
-    cursor: pointer;
+.scan-divider{ margin-top:14px; border-top:1px solid rgba(255,255,255,0.08); }
+
+.scan-mini{
+  display:flex; justify-content:space-between; gap:10px;
+  margin-top:12px; font-size:13px; color:#cbd5e1;
 }
-.scan-tile:hover {
-    transform: translateY(-2px);
-    border-color: rgba(74, 222, 128, 0.28);
-    box-shadow: 0 14px 26px rgba(0,0,0,0.32);
-}
-.scan-tile:active { transform: scale(0.985); border-color: rgba(74, 222, 128, 0.55); }
+.scan-mini span{ color:#94a3b8; margin-right:6px; }
 
-/* Accent rail (color-coded by signal type) */
-.scan-tile::before {
-    content: "";
-    position: absolute;
-    left: 10px;
-    top: 12px;
-    bottom: 12px;
-    width: 4px;
-    border-radius: 999px;
-    background: rgba(148,163,184,0.35);
-    filter: blur(0px);
-}
-.scan-tile.scan-bull::before { background: rgba(74,222,128,0.75); }
-.scan-tile.scan-bear::before { background: rgba(239,68,68,0.75); }
-.scan-tile.scan-ice::before  { background: rgba(56,189,248,0.75); }
-.scan-tile.scan-fire::before { background: rgba(251,191,36,0.80); }
-.scan-tile.scan-vol::before  { background: rgba(167,139,250,0.75); }
-
-/* Layout */
-.scan-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-.scan-left { min-width: 0; padding-left: 8px; }
-.scan-right { text-align:right; min-width: 124px; }
-
-/* Typography */
-.scan-ticker { font-size: 26px; font-weight: 950; letter-spacing: 1px; line-height: 1.05; color: #f1f5f9; }
-.scan-sub { margin-top: 6px; font-size: 12px; color: #94a3b8; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
-.scan-price { font-size: 22px; font-weight: 950; line-height: 1.05; color: #f8fafc; }
-.scan-chg { margin-top: 6px; font-size: 13px; font-weight: 900; }
-
-/* Sparkline */
-.scan-spark {
-    margin-top: 8px;
-    width: 92px;
-    height: 28px;
-    opacity: 0.95;
-}
-.scan-spark svg { width: 92px; height: 28px; display: block; }
-
-/* Chips */
-.scan-row { display:flex; flex-wrap:wrap; gap:8px; margin-top: 12px; align-items:center; padding-left: 8px; }
-.scan-chip {
-    display:inline-flex; align-items:center; gap:6px;
-    padding: 6px 10px; border-radius: 999px;
-    font-size: 12px; font-weight: 900; letter-spacing: 0.2px;
-    border: 1px solid rgba(255,255,255,0.10);
-    background: rgba(148,163,184,0.10);
-    color: #e2e8f0;
-}
-.scan-chip.good { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.35); color: #4ade80; }
-.scan-chip.warn { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.35); color: #fbbf24; }
-.scan-chip.bad  { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.35); color: #ef4444; }
-
-/* CTA badge */
-.scan-badge {
-    display:inline-block;
-    margin-top: 2px;
-    padding: 8px 14px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, rgba(251,191,36,0.95), rgba(245,158,11,0.95));
-    color: #111827;
-    font-weight: 950;
-    font-size: 13px;
-    letter-spacing: 0.3px;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.25);
-    border: 1px solid rgba(251,191,36,0.25);
-}
-
-/* Footer mini stats */
-.scan-divider { margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.07); }
-.scan-mini { display:flex; justify-content:space-between; gap:10px; margin-top: 10px; font-size: 12px; color:#cbd5e1; padding-left: 8px; }
-.scan-mini span { color:#94a3b8; font-weight: 700; }
+.scan-spark{ margin-top:10px; opacity:0.95; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -1574,28 +1534,22 @@ elif tab == "scanner":
             st.info("No big signals right now for your portfolio. Check back soon.")
         else:
             any_signal_rows.sort(key=signal_score, reverse=True)
-
             def render_signal_card(r, *, badge_text=None):
-                ticker = r.get("ticker", "")
+                ticker = (r.get("ticker") or "").upper()
                 price = _f(r.get("current_price"), 0.0)
                 day = _f(r.get("day_change"), 0.0)
 
-                risk_val = calculate_risk(r)
-                if isinstance(risk_val, tuple):
-                    risk_score, risk_label, risk_color, *_ = risk_val
-                else:
-                    risk_score, risk_label, risk_color = (_f(risk_val, 50.0), "—", "#94a3b8")
-
-                conf = calculate_confidence(r)
+                arrow = "▲" if day >= 0 else "▼"
+                day_txt = f"{arrow} {abs(day):.2f}%"
+                chg_color = "#4ade80" if day >= 0 else "#ef4444"
 
                 trend = (r.get("trend_status") or "NEUTRAL").upper()
                 rsi = _f(r.get("rsi_14"), 50.0)
                 rvol = _f(r.get("rvol"), 1.0)
 
-                arrow = "▲" if day >= 0 else "▼"
-                day_txt = f"{arrow} {abs(day):.2f}%"
-
-                chg_color = "#4ade80" if day >= 0 else "#ef4444"
+                # calculate_risk() returns: (score, label, color, badge, breakdown)
+                risk_score, risk_label, *_ = calculate_risk(r)
+                conf = calculate_confidence(r)
 
                 def chip_class(v, kind="conf"):
                     try:
@@ -1606,115 +1560,60 @@ elif tab == "scanner":
                         return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
                     return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
 
-                badge_html = ""
-                if badge_text:
-                    badge_html = f'<div class="scan-badge">{badge_text}</div>'
+                # Accent rail color
+                rail = "#38bdf8"
+                if trend == "UPTREND":
+                    rail = "#4ade80"
+                elif trend == "DOWNTREND":
+                    rail = "#ef4444"
+                if rsi <= 30:
+                    rail = "#fbbf24"
+                elif rsi >= 70:
+                    rail = "#a78bfa"
 
-                # Color-coded tile style (visual only)
-                tile_variant = ""
-                if day >= 5.0 or (trend == "UPTREND" and rvol >= 1.8):
-                    tile_variant = " scan-bull"
-                elif day <= -5.0 or trend == "DOWNTREND":
-                    tile_variant = " scan-bear"
-                elif rsi < 40.0:
-                    tile_variant = " scan-ice"
-                elif rsi > 70.0:
-                    tile_variant = " scan-fire"
-                elif rvol >= 3.0:
-                    tile_variant = " scan-vol"
+                badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
 
-def render_signal_card(r, *, badge_text=None):
-    ticker = (r.get("ticker") or "").upper()
-    price = _f(r.get("price"), 0.0)
-    day = _f(r.get("change_pct"), 0.0)
-    day_txt = f"▲ {day:.2f}%" if day >= 0 else f"▼ {abs(day):.2f}%"
-    chg_color = "#4ade80" if day >= 0 else "#ef4444"
+                spark = '''
+                <svg width="92" height="30" viewBox="0 0 92 30" class="scan-spark" aria-hidden="true">
+                  <path d="M2,22 C20,22 28,20 36,16 48,10 56,10 66,12 76,14 82,10 90,8"
+                        fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+                '''
 
-    trend = (r.get("trend_status") or "NEUTRAL").upper()
-    rsi = _f(r.get("rsi_14"), 50.0)
-    rvol = _f(r.get("rvol"), 1.0)
+                card_html = f'''
+                <div class="scan-card" style="border-left:5px solid {rail};">
+                  <div class="scan-top">
+                    <div class="scan-left">
+                      <div class="scan-ticker">{ticker}</div>
+                      <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
+                    </div>
+                    <div class="scan-right">
+                      <div class="scan-price">${price:.2f}</div>
+                      <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
+                      {spark}
+                    </div>
+                  </div>
 
-    # risk handling (safe tuple handling)
-    risk_val = calculate_risk(r)
-    if isinstance(risk_val, tuple):
-        risk_score, risk_label, risk_color, *_ = risk_val
-    else:
-        risk_score, risk_label, risk_color = risk_val, "—", "#94a3b8"
+                  <div class="scan-row">
+                    <div class="{chip_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
+                    <div class="scan-chip">{risk_label}</div>
+                    <div class="{chip_class(conf, 'conf')}">Conf {int(conf)}</div>
+                  </div>
 
-    conf = calculate_confidence(r)
+                  {badge_html}
 
-    # pill colors
-    def pill_class(v, kind="conf"):
-        try:
-            v = float(v)
-        except:
-            return "scan-chip"
-        if kind == "risk":
-            return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
-        return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
+                  <div class="scan-divider"></div>
 
-    # accent rail color
-    if trend == "UPTREND":
-        rail = "#4ade80"
-    elif trend == "DOWNTREND":
-        rail = "#ef4444"
-    else:
-        rail = "#38bdf8"
+                  <div class="scan-mini">
+                    <div><span>Range</span>{_f(r.get("range_loc"), 0.0):.0f}%</div>
+                    <div><span>Vol</span>{_f(r.get("volatility"), 0.0):.1f}</div>
+                    <div><span>Debt</span>{_f(r.get("debt_ratio"), 0.0):.0f}</div>
+                  </div>
+                </div>
+                '''
+                st.markdown(card_html, unsafe_allow_html=True)
 
-    # static safe sparkline (no f-strings)
-    spark = """
-    <svg width="90" height="28" viewBox="0 0 90 28">
-      <path d="M0,20 C20,18 40,10 60,12 75,14 90,8 90,8"
-            fill="none"
-            stroke="#4ade80"
-            stroke-width="3"
-            stroke-linecap="round"/>
-    </svg>
-    """
 
-    link = f"?token={token}&ticker={ticker}"
-
-    badge_html = ""
-    if badge_text:
-        badge_html = f'<div class="scan-badge">{badge_text}</div>'
-
-    card_html = f"""
-<a href="{link}" class="card-link" target="_self">
-  <div class="scan-card" style="border-left:5px solid {rail};">
-
-    <div class="scan-top">
-      <div>
-        <div class="scan-ticker">{ticker}</div>
-        <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
-      </div>
-
-      <div class="scan-right">
-        <div class="scan-price">${price:.2f}</div>
-        <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
-        <div style="margin-top:6px;">{spark}</div>
-      </div>
-    </div>
-
-    <div class="scan-row">
-      <div class="{pill_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
-      <div class="scan-chip">{risk_label}</div>
-      <div class="{pill_class(conf, 'conf')}">Conf {int(conf)}</div>
-    </div>
-
-    {badge_html}
-
-    <div class="scan-divider"></div>
-
-    <div class="scan-mini">
-      <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
-      <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
-      <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
-    </div>
-
-  </div>
-</a>
-"""
-    st.markdown(card_html, unsafe_allow_html=True)
             # Top ranked list (all signals)
             st.markdown("### 🔥 Biggest Signals (Ranked)")
             st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
@@ -1722,7 +1621,8 @@ def render_signal_card(r, *, badge_text=None):
             for i, r in enumerate(any_signal_rows[:top_n], start=1):
                 badge = "Watch this one!" if i <= 3 else None
                 render_signal_card(r, badge_text=badge)
-            st.markdown("</div>", unsafe_allow_html=True)
+
+            st.markdown('</div>', unsafe_allow_html=True)
 
             # Category sections
             st.markdown("---")
@@ -1734,11 +1634,9 @@ def render_signal_card(r, *, badge_text=None):
                     continue
                 bucket_rows.sort(key=signal_score, reverse=True)
                 st.markdown(f"#### {title}")
-                st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
                 for i, r in enumerate(bucket_rows[:15], start=1):
                     badge = "Watch this one!" if i == 1 else None
                     render_signal_card(r, badge_text=badge)
-                st.markdown("</div>", unsafe_allow_html=True)
 
 elif tab == "settings":
 
