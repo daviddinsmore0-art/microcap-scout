@@ -1535,80 +1535,77 @@ elif tab == "scanner":
         else:
             any_signal_rows.sort(key=signal_score, reverse=True)
             def render_signal_card(r, *, badge_text=None):
-    ticker = (r.get("ticker") or "").upper()
-    price = _f(r.get("current_price"), 0.0)
-    day = _f(r.get("day_change"), 0.0)
+                ticker = (r.get("ticker") or "").upper()
+                price = _f(r.get("current_price"), 0.0)
+                day = _f(r.get("day_change"), 0.0)
 
-    arrow = "▲" if day >= 0 else "▼"
-    day_txt = f"{arrow} {abs(day):.2f}%"
-    chg_color = "#4ade80" if day >= 0 else "#ef4444"
+                arrow = "▲" if day >= 0 else "▼"
+                day_txt = f"{arrow} {abs(day):.2f}%"
+                chg_color = "#4ade80" if day >= 0 else "#ef4444"
 
-    trend = (r.get("trend_status") or "NEUTRAL").upper()
-    rsi = _f(r.get("rsi_14"), 50.0)
-    rvol = _f(r.get("rvol"), 1.0)
+                trend = (r.get("trend_status") or "NEUTRAL").upper()
+                rsi = _f(r.get("rsi_14"), 50.0)
+                rvol = _f(r.get("rvol"), 1.0)
 
-    # calculate_risk() returns: (score, label, color, badge, breakdown)
-    risk_score, risk_label, *_ = calculate_risk(r)
-    conf = calculate_confidence(r)
+                # calculate_risk() returns: (score, label, color, badge, breakdown)
+                risk_score, risk_label, *_ = calculate_risk(r)
+                conf = calculate_confidence(r)
 
-    def chip_class(v, kind="conf"):
-        try:
-            v = float(v)
-        except Exception:
-            return "scan-chip"
-        if kind == "risk":
-            return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
-        return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
+                def chip_class(v, kind="conf"):
+                    try:
+                        v = float(v)
+                    except Exception:
+                        return "scan-chip"
+                    if kind == "risk":
+                        return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
+                    return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
 
-    # Accent rail color
-    rail = "#38bdf8"
-    if trend == "UPTREND":
-        rail = "#4ade80"
-    elif trend == "DOWNTREND":
-        rail = "#ef4444"
-    if rsi <= 30:
-        rail = "#fbbf24"
-    elif rsi >= 70:
-        rail = "#a78bfa"
+                # Accent rail color
+                rail = "#38bdf8"
+                if trend == "UPTREND":
+                    rail = "#4ade80"
+                elif trend == "DOWNTREND":
+                    rail = "#ef4444"
+                if rsi <= 30:
+                    rail = "#fbbf24"
+                elif rsi >= 70:
+                    rail = "#a78bfa"
 
-    badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
+                badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
 
-    card_html = "\n".join([
-f'<a href="{link}" class="card-link" target="_self">',
-f'<div class="scan-card" style="border-left:5px solid {rail};">',
+                # Keep navigation exactly as your app uses it (query params)
+                link = f"?token={token}&ticker={ticker}"
 
-'<div class="scan-top">',
-'<div class="scan-left">',
-f'<div class="scan-ticker">{ticker}</div>',
-f'<div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>',
-'</div>',
-'<div class="scan-right">',
-f'<div class="scan-price">${price:.2f}</div>',
-f'<div class="scan-day" style="color:{chg_color};">{day_txt}</div>',
-'</div>',
-'</div>',
+                card_html = "\n".join([
+                    f'<a href="{link}" class="card-link" target="_self">',
+                    f'<div class="scan-card" style="border-left:5px solid {rail};">',
+                    '<div class="scan-top">',
+                    '<div class="scan-left">',
+                    f'<div class="scan-ticker">{ticker}</div>',
+                    f'<div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>',
+                    '</div>',
+                    '<div class="scan-right">',
+                    f'<div class="scan-price">${price:.2f}</div>',
+                    f'<div class="scan-day" style="color:{chg_color};">{day_txt}</div>',
+                    '</div>',
+                    '</div>',
+                    '<div class="scan-row">',
+                    f'<div class="{chip_class(risk_score, "risk")}">Risk {int(risk_score)}</div>',
+                    f'<div class="scan-chip">{risk_label}</div>',
+                    f'<div class="{chip_class(conf, "conf")}">Conf {int(conf)}</div>',
+                    '</div>',
+                    badge_html,
+                    '<div class="scan-divider"></div>',
+                    '<div class="scan-mini">',
+                    f'<div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>',
+                    f'<div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
+                    f'<div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>',
+                    '</div>',
+                    '</div>',
+                    '</a>',
+                ]).strip()
 
-'<div class="scan-row">',
-f'<div class="{chip_class(risk_score, "risk")}">Risk {int(risk_score)}</div>',
-f'<div class="scan-chip">{risk_label}</div>',
-f'<div class="{chip_class(conf, "conf")}">Conf {int(conf)}</div>',
-'</div>',
-
-badge_html,
-
-'<div class="scan-divider"></div>',
-
-'<div class="scan-mini">',
-f'<div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>',
-f'<div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
-f'<div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>',
-'</div>',
-
-'</div>',
-'</a>',
-]).strip()
-
-    st.markdown(card_html, unsafe_allow_html=True)
+                st.markdown(card_html, unsafe_allow_html=True)
 
 
 
