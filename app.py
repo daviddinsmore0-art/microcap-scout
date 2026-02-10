@@ -1400,29 +1400,102 @@ elif tab == "scanner":
     OVERSOLD_RSI = 40
     OVERBOUGHT_RSI = 70
 
-    def fetch_scanner_rows(where_sql: str = "", order_sql: str = "ABS(day_change) DESC, rvol DESC", limit: int = 200):
-        """Fetch scanner rows from stock_cache.
-
-        Uses only columns that exist in your DB schema:
-        ticker, current_price, day_change, rsi_14 (or rsi), rvol, trend_status, volume_status.
+    def fetch_scanner_rows(where_key: str | None = None, limit: int = 200):
         """
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
+        Market scanner rows (global, not per-user): pulls from stock_cache and supports
+        optional category filters (where_key). Designed to be resilient to schema drift.
+        """
+        cnx = get_db()
+        cur = cnx.cursor(dictionary=True)
 
-        rsi_expr = "COALESCE(rsi_14, rsi)"
-        base_cols = f"ticker, current_price, day_change, {rsi_expr} AS rsi_14, rvol, trend_status, volume_status"
+        def table_cols(table: str) -> set[str]:
+            cur.execute(f"SHOW COLUMNS FROM `{table}`")
+            return {r["Field"] for r in cur.fetchall()}
 
-        sql = f"SELECT {base_cols} FROM stock_cache"
-        if where_sql:
-            sql += " WHERE " + where_sql
-        if order_sql:
-            sql += " ORDER BY " + order_sql
-        sql += f" LIMIT {int(limit)}"
+        sc_cols = table_cols("stock_cache")
 
-        cur.execute(sql)
+        def pick(candidates: list[str]) -> str | None:
+            for c in candidates:
+                if c in sc_cols:
+                    return c
+            return None
+
+        # Resolve column names that may differ across deployments
+        col_ticker = pick(["ticker", "symbol"])
+        col_name = pick(["company_name", "name"])
+        col_price = pick(["current_price", "price", "last_price", "last", "close", "close_price"])
+        col_day_change = pick(["day_change", "dayChange", "pct_change", "change_pct", "percent_change"])
+        col_rsi = pick(["rsi_14", "rsi14", "rsi"])
+        col_rvol = pick(["rvol", "rel_volume", "relative_volume", "rvoll"])
+        col_trend = pick(["trend_status", "trend", "trendStatus"])
+        col_volume_status = pick(["volume_status", "volumeStatus"])
+
+        # Build SELECT list safely (unknown cols -> NULL)
+        select_parts = []
+        def sel(col: str | None, alias: str):
+            if col:
+                select_parts.append(f"`{col}` AS `{alias}`")
+            else:
+                select_parts.append(f"NULL AS `{alias}`")
+
+        sel(col_ticker, "ticker")
+        sel(col_name, "company_name")
+        sel(col_price, "current_price")
+        sel(col_day_change, "day_change")
+        sel(col_rsi, "rsi_14")
+        sel(col_rvol, "rvol")
+        sel(col_trend, "trend_status")
+        sel(col_volume_status, "volume_status")
+
+        base_sql = f"SELECT {', '.join(select_parts)} FROM `stock_cache`"
+
+        where_clauses = []
+        params: list = []
+
+        # Category filters: only apply if the needed column exists
+        if where_key == "oversold" and col_rsi:
+            where_clauses.append(f"`{col_rsi}` < %s"); params.append(40)
+        elif where_key == "overbought" and col_rsi:
+            where_clauses.append(f"`{col_rsi}` > %s"); params.append(70)
+        elif where_key == "big_gainers" and col_day_change:
+            where_clauses.append(f"`{col_day_change}` >= %s"); params.append(5.0)
+        elif where_key == "big_losers" and col_day_change:
+            where_clauses.append(f"`{col_day_change}` <= %s"); params.append(-5.0)
+        elif where_key == "volume_surge" and col_rvol:
+            where_clauses.append(f"`{col_rvol}` >= %s"); params.append(3.0)
+        elif where_key == "entering_uptrend" and col_trend:
+            where_clauses.append(f"`{col_trend}` IN (%s, %s)"); params.extend(["Entering Uptrend", "Uptrend"])
+        elif where_key == "entering_downtrend" and col_trend:
+            where_clauses.append(f"`{col_trend}` IN (%s, %s)"); params.extend(["Entering Downtrend", "Downtrend"])
+        elif where_key == "strong_momentum":
+            if col_day_change:
+                where_clauses.append(f"`{col_day_change}` >= %s"); params.append(3.0)
+            if col_rvol:
+                where_clauses.append(f"`{col_rvol}` >= %s"); params.append(2.5)
+        elif where_key == "weakness":
+            if col_day_change:
+                where_clauses.append(f"`{col_day_change}` <= %s"); params.append(-3.0)
+            if col_trend:
+                where_clauses.append(f"`{col_trend}` IN (%s, %s)"); params.extend(["Entering Downtrend", "Downtrend"])
+
+        sql = base_sql
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        # Order by "biggest signals" when possible
+        order_by_parts = []
+        if col_rvol: order_by_parts.append(f"`{col_rvol}` DESC")
+        if col_day_change: order_by_parts.append(f"ABS(`{col_day_change}`) DESC")
+        if col_rsi: order_by_parts.append(f"ABS(`{col_rsi}`-50) DESC")
+        if not order_by_parts: order_by_parts.append("`ticker` ASC")
+
+        sql += " ORDER BY " + ", ".join(order_by_parts)
+        sql += " LIMIT %s"
+        params.append(int(limit))
+
+        cur.execute(sql, params)
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
+        cur.close(); cnx.close()
         return rows
 
     # ---- Big-signal scanner categories (top-to-bottom) ----
