@@ -1459,3 +1459,14 @@ elif tab == "scanner":
         cur.close()
         cnx.close()
         return rows
+    elif tab == "settings":
+    st.markdown("### Settings")
+    with st.form("settings_form"):
+        new_name = st.text_input("Display Name", value=user['display_name'])
+        new_email = st.text_input("Recovery Email", value=user.get('email', ''))
+        new_pin = st.text_input("New PIN", type="password")
+        if st.form_submit_button("Save Changes"):
+            if update_user_settings(user['username'], new_name, new_email, new_pin if new_pin else None): st.success("Saved!"); st.rerun()
+    if st.button("Log Out"): st.query_params.clear(); st.rerun()
+
+render_navbar(token, current_mode)
