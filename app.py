@@ -1477,8 +1477,8 @@ elif tab == "scanner":
                 ticker = r.get("ticker", "")
                 price = _f(r.get("current_price"), 0.0)
                 day = _f(r.get("day_change"), 0.0)
-                risk = r.get("risk_score")
-                risk_txt = f"{int(float(risk))}" if risk is not None else "—"
+                risk = calculate_risk(r)
+                risk_txt = f"{int(risk)}" if risk is not None else "—"
 
                 arrow = "▲" if day >= 0 else "▼"
                 day_txt = f"{arrow} {abs(day):.2f}%"
