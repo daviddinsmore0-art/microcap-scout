@@ -1400,89 +1400,63 @@ elif tab == "scanner":
     OVERSOLD_RSI = 40
     OVERBOUGHT_RSI = 70
 
-    def fetch_scanner_rows(where_sql: str = "", order_sql: str = "", limit: int = 50):
-        """Fetch rows for Market Scanner.
+    def fetch_scanner_rows(where_sql: str = "", order_sql: str = "signal_score DESC", limit: int = 100):
+    """Fetch rows for the Market Scanner page.
 
-        where_sql: SQL fragment for WHERE clause (without leading 'WHERE').
-        order_sql: SQL fragment for ORDER BY clause (without leading 'ORDER BY').
-        limit: max rows.
-        """
-        cnx = get_db_connection()
-        cur = cnx.cursor(dictionary=True)
+    - Works with mysql-connector.
+    - Avoids relying on non-existent columns by computing a signal_score on the fly.
+    - `where_sql` should be a SQL fragment beginning with 'AND ...' and must reference alias `sc`.
+    """
+    cnx = get_connection()
+    cur = cnx.cursor(dictionary=True)
 
-        limit = int(limit) if limit is not None else 50
-        if limit <= 0:
-            cur.close()
-            cnx.close()
-            return []
+    # Defensive casting for LIMIT (mysql-connector requires a plain int).
+    try:
+        limit_i = int(limit)
+    except Exception:
+        limit_i = 100
+    limit_i = max(1, min(limit_i, 500))
 
-        base_sql = (
-            "SELECT "
-            "sc.ticker, sc.price, sc.day_change, sc.rsi_14, sc.rvol, sc.trend_status, "
-            "sc.risk_score, sc.updated_at "
-            "FROM stock_cache sc"
-        )
+    # Whitelist order_sql to avoid accidental SQL issues (only simple identifiers, commas, dots, spaces).
+    if not isinstance(order_sql, str) or not re.fullmatch(r"[A-Za-z0-9_\s,\.]+", order_sql.strip() or "signal_score DESC"):
+        order_sql = "signal_score DESC"
+    order_sql = order_sql.strip() or "signal_score DESC"
 
-        sql = base_sql
-        if where_sql and str(where_sql).strip():
-            sql += " WHERE " + where_sql.strip()
+    where_sql = (where_sql or "").strip()
+    if where_sql and not where_sql.upper().startswith("AND "):
+        # Ensure we don't end up with malformed SQL.
+        where_sql = "AND " + where_sql
 
-        if order_sql and str(order_sql).strip():
-            sql += " ORDER BY " + order_sql.strip()
-        else:
-            sql += " ORDER BY sc.risk_score DESC, ABS(sc.day_change) DESC, sc.rvol DESC"
+    sql = f"""SELECT
+  sc.ticker,
+  sc.price,
+  sc.day_change,
+  sc.rsi_14,
+  sc.rvol,
+  sc.trend_status,
+  (
+    COALESCE(ABS(sc.day_change), 0) * 10
+    + COALESCE(sc.rvol, 0) * 4
+    + CASE
+        WHEN LOWER(sc.trend_status) = 'uptrend' THEN 15
+        WHEN LOWER(sc.trend_status) = 'downtrend' THEN 15
+        ELSE 0
+      END
+    + CASE
+        WHEN sc.rsi_14 >= 70 OR sc.rsi_14 <= 30 THEN 8
+        ELSE 0
+      END
+  ) AS signal_score
+FROM stock_cache sc
+WHERE 1=1
+  {where_sql}
+ORDER BY {order_sql}
+LIMIT %s
+"""
 
-        sql += " LIMIT %s"
+    cur.execute(sql, (limit_i,))
+    rows = cur.fetchall() or []
+    cur.close()
+    cnx.close()
+    return rows
 
-        cur.execute(sql, (limit,))
-        rows = cur.fetchall()
-        cur.close()
-        cnx.close()
-        return rows
-
-    # ---- Big-signal scanner categories (top-to-bottom) ----
-    BIG_MOVE_PCT = 3.0     # big move threshold (%)
-    BIG_RVOL = 3.0         # unusual relative volume
-
-    categories = [
-        ("Strong Momentum", f"UPPER(trend_status)='UPTREND' AND day_change >= {BIG_MOVE_PCT}", "day_change DESC, rvol DESC"),
-        ("Weakness Building", f"UPPER(trend_status)='DOWNTREND' AND day_change <= -{BIG_MOVE_PCT}", "day_change ASC, rvol DESC"),
-        ("Heavy Trading", "UPPER(COALESCE(volume_status,'')) IN ('HEAVY','SURGE','SPIKE','UNUSUAL')", "rvol DESC, ABS(day_change) DESC"),
-        ("Oversold (RSI < 40)", "COALESCE(rsi_14, rsi) < 40", "COALESCE(rsi_14, rsi) ASC, rvol DESC"),
-        ("Overbought (RSI > 70)", "COALESCE(rsi_14, rsi) > 70", "COALESCE(rsi_14, rsi) DESC, rvol DESC"),
-        ("Big Movers (|%| ≥ 3)", f"ABS(day_change) >= {BIG_MOVE_PCT}", "ABS(day_change) DESC, rvol DESC"),
-        ("High RVOL (≥ 3)", f"COALESCE(rvol,0) >= {BIG_RVOL}", "rvol DESC, ABS(day_change) DESC"),
-    ]
-    any_rows = False
-    for title, where_sql, order_sql in categories:
-        rows = fetch_scanner_rows(where_sql, order_sql, SCAN_LIMIT)
-        if not rows:
-            continue
-        any_rows = True
-elif tab == "scanner":
-    st.markdown("### Market Scanner")
-    port_rows = get_portfolio_details(user['username'], current_mode)
-    tickers = [r['ticker'] for r in port_rows]
-    market_data = get_cached_data_map(tickers)
-    if market_data:
-        st.markdown("**📉 Oversold (RSI < 40)**")
-        for t, data in market_data.items():
-            rsi_val = data.get('rsi_14')
-            if rsi_val is not None and float(rsi_val) < 40:
-                render_simple_card(data, token)
-        st.markdown("**📅 Earnings Soon**")
-        for t, data in market_data.items():
-            d_val = parse_smart_date(data.get('next_earnings'))
-            if d_val < 14: render_simple_card(data, token)
-
-elif tab == "settings":
-    st.markdown("### Settings")
-    with st.form("settings_form"):
-        new_name = st.text_input("Display Name", value=user['display_name'])
-        new_email = st.text_input("Recovery Email", value=user.get('email', ''))
-        new_pin = st.text_input("New PIN", type="password")
-        if st.form_submit_button("Save Changes"):
-            if update_user_settings(user['username'], new_name, new_email, new_pin if new_pin else None): st.success("Saved!"); st.rerun()
-    if st.button("Log Out"): st.query_params.clear(); st.rerun()
-
-render_navbar(token, current_mode)
