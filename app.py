@@ -126,7 +126,6 @@ st.markdown("""
             display: flex; 
             flex-wrap: nowrap; 
             overflow-x: auto; 
-            scroll-behavior: smooth;
             gap: 12px; 
             padding-bottom: 10px; 
             -ms-overflow-style: none; 
@@ -149,6 +148,7 @@ st.markdown("""
     text-align: right;
     gap: 2px;
     margin-left: auto;
+    padding-top: 2px;
 }
            
         /* Risk Pills */
@@ -159,12 +159,8 @@ st.markdown("""
         .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
         
         /* Hide default header/footer */
-        #MainMenu {visibility: hidden;} footer {visibility: hidden;} 
-    
-  /* Make whole card tappable */
-  a.card-link { display:block; text-decoration:none; color:inherit; -webkit-tap-highlight-color: transparent; }
-  a.card-link:visited { color:inherit; }
-</style>
+        header {visibility: hidden;} footer {visibility: hidden;} 
+    </style>
 """, unsafe_allow_html=True)
 
 # Global Constants
@@ -251,8 +247,6 @@ def get_user_from_token(t):
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
     row = cursor.fetchone()
-    if row and 'rsi_14' not in row and 'rsi' in row:
-        row['rsi_14'] = row['rsi']
     conn.close()
     return row
 
@@ -295,7 +289,7 @@ def get_ai_analysis(ticker, headlines, current_data=None):
                 return parsed.get('summary'), parsed.get('score'), "AI"
         except: pass
     if current_data:
-        rsi = float(current_data.get('rsi_14') or 50)
+        rsi = float(current_data.get('rsi') or 50)
         trend = current_data.get('trend_status', 'NEUTRAL')
         if rsi > 70: return "Technical: Overbought (RSI > 70). Risk of pullback.", 30, "TECH"
         elif rsi < 30: return "Technical: Oversold (RSI < 30). Potential bounce.", 80, "TECH"
@@ -325,7 +319,7 @@ def calculate_risk(row, ai_score=None):
         breakdown.append(("Trend (Neutral)", +3))
 
     # RSI (gradient)
-    rsi = float(row.get("rsi_14") or 50)
+    rsi = float(row.get("rsi") or 50)
     if rsi >= 80:
         risk += 15
         breakdown.append(("RSI (>=80 overbought)", +15))
@@ -401,7 +395,7 @@ def calculate_confidence(row, ai_score=None):
     confidence = 100 - int(risk)
 
     trend = (row.get("trend_status") or "NEUTRAL").upper()
-    rsi = float(row.get("rsi_14") or 50)
+    rsi = float(row.get("rsi") or 50)
     vol = float(row.get("volatility") or 0)
 
     if trend == "UPTREND":
@@ -437,7 +431,7 @@ def calculate_confidence(row, ai_score=None):
     elif trend == "DOWNTREND":
         conf -= 10
 
-    rsi = float(row.get("rsi_14") or 50)
+    rsi = float(row.get("rsi") or 50)
     # Prefer RSI in the middle (room to run, not extreme)
     if 40 <= rsi <= 60:
         conf += 8
@@ -544,10 +538,6 @@ def get_cached_data_map(tickers):
     format_strings = ','.join(['%s'] * len(tickers))
     cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers))
     rows = cursor.fetchall()
-    # normalize schema: some DBs use `rsi` instead of `rsi_14`
-    for row in rows:
-        if 'rsi_14' not in row and 'rsi' in row:
-            row['rsi_14'] = row['rsi']
     conn.close()
     return {row['ticker']: row for row in rows}
 
@@ -556,8 +546,6 @@ def get_single_stock(ticker):
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s", (ticker,))
     row = cursor.fetchone()
-    if row and 'rsi_14' not in row and 'rsi' in row:
-        row['rsi_14'] = row['rsi']
     conn.close()
     return row
 
@@ -716,7 +704,7 @@ def generate_playbook(stock_row):
         return None
 
     trend = (stock_row.get("trend_status") or "NEUTRAL").upper()
-    rsi = float(stock_row.get("rsi_14") or 50)
+    rsi = float(stock_row.get("rsi") or 50)
     vol = float(stock_row.get("volatility") or 2.5)
 
     move = max(price * (vol / 100.0), price * 0.01)
@@ -781,8 +769,8 @@ def render_portfolio_row(row, data, token):
         pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
         pl_c = "#4ade80" if pl >= 0 else "#ef4444"
         pl_html = (
-            f"<div style='color:{pl_c}; font-size:0.90rem; margin-top:2px;'>"
-            f"{int(shares)} @ ${entry:.2f} Total PL $ {pl:,.2f} ({pl_pct:.1f}%)"
+            f"<div style='color:{pl_c}; font-size:0.85rem; margin-top:2px;'>"
+            f"{int(shares)} @ ${entry:.2f} • ${pl:,.2f} ({pl_pct:.1f}%)"
             f"</div>"
         )
 
@@ -791,33 +779,56 @@ def render_portfolio_row(row, data, token):
         f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
         if company else ""
     )
+
+    updated_raw = (row.get('fundamentals_updated') or row.get('updated_at') or row.get('last_updated') or row.get('updated') or '')
+    updated_str = ""
+    if updated_raw:
+        try:
+            if hasattr(updated_raw, 'strftime'):
+                updated_str = updated_raw.strftime('%b %d, %I:%M %p')
+            else:
+                s = str(updated_raw).strip()
+                try:
+                    dt = datetime.datetime.fromisoformat(s.replace('Z', '+00:00'))
+                    updated_str = dt.strftime('%b %d, %I:%M %p')
+                except Exception:
+                    updated_str = s
+        except Exception:
+            updated_str = str(updated_raw)
+
+    updated_html = (
+        f"<div style='font-size:0.7rem; color:#6b7280; margin-top:2px;'>Updated {updated_str}</div>"
+        if updated_str else ""
+    )
+
     link = f"?token={token}&ticker={row['ticker']}"
 
-    # Make the whole card tappable on mobile (no <a>, use onclick)
-    html = f"""
-    <a href="{link}" class="card-link" target="_self">
-      <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-        <div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="font-size:0.7rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
-              <div style="font-size:0.7rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
-            </div>
-          </div>
-          <div style="font-size:0.75rem; color:#b0b0b0; margin-top:2px;">{company}</div>
-          {pl_html}
-        </div>
-        <div style="text-align:right; padding-top:2px;">
-          <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
-          <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
+html = f"""
+<a href="{link}" target="_self" style="text-decoration:none;">
+  <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
+    <div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="font-size:0.6rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
+          <div style="font-size:0.6rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
         </div>
       </div>
-    </a>
-    """
 
-    # IMPORTANT: strip leading spaces so Streamlit doesn't render this as a code block on mobile
-    html = "\n".join(line.lstrip() for line in html.splitlines()).strip()
+      <div style="font-size:0.75rem; color:#b0b0b0; margin-top:2px;">
+        {company}
+      </div>
+
+      {pl_html}
+    </div>
+
+    <div style="text-align:right;">
+      <div style="color:white; font-weight:bold;">${price:,.2f}</div>
+      <div style="color:{change_color}; font-size:0.8rem;">{arrow} {change:.2f}%</div>
+    </div>
+  </div>
+</a>
+"""
     st.markdown(html, unsafe_allow_html=True)
 
 def render_compact_watchlist(rows_list, current_token):
@@ -1205,56 +1216,6 @@ if "ticker" in st.query_params:
 
 tab = st.query_params.get("tab", "home")
 if tab == "home":
-    # ============================================
-    # PENNYPULSE ALERT BANNER
-    # ============================================
-    # ============================================
-    # ============================================
-    # PENNYPULSE ALERT BANNER (PER USER)
-    # ============================================
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT message, created_at
-            FROM alert_history
-            WHERE username = %s
-            ORDER BY created_at DESC
-            LIMIT 5
-        """, (user['username'],))
-        rows = cursor.fetchall()
-        conn.close()
-
-        if rows:
-            alert_html = ""
-            for msg, ts in rows:
-                alert_html += f"<div style='margin-bottom:4px;'>🚨 {msg}</div>"
-
-            st.markdown(f"""
-            <div class="card" style="
-                border-left:4px solid #ef4444;
-                margin-bottom:15px;
-                background:#111827;
-            ">
-                <div style="
-                    color:#ef4444;
-                    font-size:0.8rem;
-                    font-weight:bold;
-                    letter-spacing:1px;
-                    margin-bottom:8px;
-                ">
-                    PENNYPULSE ALERTS
-                </div>
-                <div style="font-size:0.9rem;">
-                    {alert_html}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    except:
-        pass
-
-
-    
     try:
         conn = get_connection(); cursor = conn.cursor()
         cursor.execute("SELECT content FROM daily_briefing WHERE id=1")
@@ -1312,9 +1273,6 @@ if tab == "home":
     render_watchlist_pick_grid(candidates, token)
     #render_compact_watchlist(candidates, token)
 
-    # Bottom nav (fixed)
-    render_navbar(token, active_tab=tab, mode=mode)
-
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
@@ -1360,114 +1318,46 @@ elif tab == "portfolio":
             render_portfolio_row(row, data, token)
         # (Reorder animation disabled for stability)
 
-    # Bottom nav (fixed)
-    render_navbar(token, active_tab=tab, mode=mode)
-
 elif tab == "alerts":
-    st.markdown("### Alert Settings")
-
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    cursor.execute(
-        "SELECT pct_change_threshold FROM user_alert_settings WHERE username=%s",
-        (user['username'],)
-    )
-    row = cursor.fetchone()
-
-    current_threshold = float(row['pct_change_threshold']) if row else 5.0
-
-    new_val = st.slider(
-        "Alert me when any stock moves ± (%)",
-        min_value=1.0,
-        max_value=20.0,
-        value=current_threshold,
-        step=0.5
-    )
-
-    if st.button("Save Alert Settings"):
-        cursor.execute("""
-            INSERT INTO user_alert_settings (username, pct_change_threshold)
-            VALUES (%s, %s)
-            ON DUPLICATE KEY UPDATE
-            pct_change_threshold = VALUES(pct_change_threshold)
-        """, (user['username'], new_val))
-        conn.commit()
-        st.success("Alert settings saved.")
-
-    conn.close()
-
-    # Bottom nav (fixed)
-    render_navbar(token, active_tab=tab, mode=mode)
+    st.markdown("### Volatility Alerts")
+    with st.expander("New Alert", expanded=True):
+        port_rows = get_portfolio_details(user['username'], current_mode)
+        options = ["ALL STOCKS"] + [r['ticker'] for r in port_rows]
+        if port_rows:
+            t = st.selectbox("Ticker", options); c = st.selectbox("Trigger", ["DOWN", "UP"]); v = st.number_input("Target Price")
+            if st.button("Set Alert"): add_alert(user['username'], t, c, v); st.rerun()
+        else: st.info("Add stocks first.")
+    st.divider()
+    alerts = get_user_alerts(user['username'])
+    for a in alerts:
+        bg = "#3d1111" if a['is_triggered'] else "#1a1f2b"; border = "#ef4444" if a['is_triggered'] else "#2d3748"
+        st.markdown(f"""<div style="background:{bg}; border:1px solid {border}; border-radius:12px; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between;"><div><div style="font-weight:bold; color:white;">{a['ticker']}</div><div style="font-size:0.85rem; color:#94a3b8;">{a['condition_type']} {a['target_price']}</div></div></div>""", unsafe_allow_html=True)
+        if st.button("Clear", key=f"del_al_{a['id']}"): delete_alert(a['id']); st.rerun()
 
 elif tab == "scanner":
     st.markdown("### Market Scanner")
-    st.caption("All tickers — biggest signals first. (Your alerts banner still shows your last 5.)")
+    port_rows = get_portfolio_details(user['username'], current_mode)
+    tickers = [r['ticker'] for r in port_rows]
+    market_data = get_cached_data_map(tickers)
+    if market_data:
+        st.markdown("**📉 Oversold (RSI < 40)**")
+        for t, data in market_data.items():
+            rsi_val = data.get('rsi')
+            if rsi_val is not None and float(rsi_val) < 40:
+                render_simple_card(data, token)
+        st.markdown("**📅 Earnings Soon**")
+        for t, data in market_data.items():
+            d_val = parse_smart_date(data.get('next_earnings'))
+            if d_val < 14: render_simple_card(data, token)
 
-    SCAN_LIMIT = 50
-    BIG_MOVE_PCT = 2.5
-    OVERSOLD_RSI = 40
-    OVERBOUGHT_RSI = 70
+elif tab == "settings":
+    st.markdown("### Settings")
+    with st.form("settings_form"):
+        new_name = st.text_input("Display Name", value=user['display_name'])
+        new_email = st.text_input("Recovery Email", value=user.get('email', ''))
+        new_pin = st.text_input("New PIN", type="password")
+        if st.form_submit_button("Save Changes"):
+            if update_user_settings(user['username'], new_name, new_email, new_pin if new_pin else None): st.success("Saved!"); st.rerun()
+    if st.button("Log Out"): st.query_params.clear(); st.rerun()
 
-    # Bottom nav (fixed)
-    render_navbar(token, active_tab=tab, mode=mode)
-
-    def fetch_scanner_rows(where_sql: str = "", order_sql: str = "signal_score DESC", limit: int = 100):
-        """Fetch rows for the Market Scanner page.
-
-        - Works with mysql-connector.
-        - Avoids relying on non-existent columns by computing a signal_score on the fly.
-        - `where_sql` should be a SQL fragment beginning with 'AND ...' and must reference alias `sc`.
-        """
-        cnx = get_connection()
-        cur = cnx.cursor(dictionary=True)
-
-        # Defensive casting for LIMIT (mysql-connector requires a plain int).
-        try:
-            limit_i = int(limit)
-        except Exception:
-            limit_i = 100
-        limit_i = max(1, min(limit_i, 500))
-
-        # Whitelist order_sql to avoid accidental SQL issues (only simple identifiers, commas, dots, spaces).
-        if not isinstance(order_sql, str) or not re.fullmatch(r"[A-Za-z0-9_\s,\.]+", order_sql.strip() or "signal_score DESC"):
-            order_sql = "signal_score DESC"
-        order_sql = order_sql.strip() or "signal_score DESC"
-
-        where_sql = (where_sql or "").strip()
-        if where_sql and not where_sql.upper().startswith("AND "):
-            # Ensure we don't end up with malformed SQL.
-            where_sql = "AND " + where_sql
-
-        sql = f"""SELECT
-      sc.ticker,
-      sc.price,
-      sc.day_change,
-      sc.rsi_14,
-      sc.rvol,
-      sc.trend_status,
-      (
-        COALESCE(ABS(sc.day_change), 0) * 10
-        + COALESCE(sc.rvol, 0) * 4
-        + CASE
-            WHEN LOWER(sc.trend_status) = 'uptrend' THEN 15
-            WHEN LOWER(sc.trend_status) = 'downtrend' THEN 15
-            ELSE 0
-          END
-        + CASE
-            WHEN sc.rsi_14 >= 70 OR sc.rsi_14 <= 30 THEN 8
-            ELSE 0
-          END
-      ) AS signal_score
-    FROM stock_cache sc
-    WHERE 1=1
-      {where_sql}
-    ORDER BY {order_sql}
-    LIMIT %s
-    """
-
-        cur.execute(sql, (limit_i,))
-        rows = cur.fetchall() or []
-        cur.close()
-        cnx.close()
-        return rows
+render_navbar(token, current_mode)
