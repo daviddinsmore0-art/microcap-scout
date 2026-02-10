@@ -1525,47 +1525,58 @@ elif tab == "scanner":
 
                 return "Notable move / signal"
 
-            def render_signal_card(r, *, badge_text=None):
-                ticker = r.get("ticker", "")
-                price = _f(r.get("current_price"), 0.0)
-                day = _f(r.get("day_change"), 0.0)
-                reason_txt = signal_reason(r)
-                arrow = "▲" if day >= 0 else "▼"
-                day_txt = f"{arrow} {abs(day):.2f}%"
-                badge_html = ""
-                if badge_text:
-                    badge_html = f"""
-                    <div style="display:inline-block;padding:6px 10px;border-radius:999px;
-                                background:rgba(255,196,0,0.12);border:1px solid rgba(255,196,0,0.35);
-                                color:#FFC400;font-weight:800;font-size:12px;letter-spacing:0.4px;">
-                        {badge_text}
-                    </div>
-                    """
+            def render_signal_card(r, badge_text=None):
+    ticker = r.get("ticker", "")
+    price = r.get("price", 0)
+    change = r.get("change_pct", 0)
 
-                card_html = f"""
-                <div style="
-                    background:#161a24;
-                    border-radius:22px;
-                    padding:18px 18px;
-                    margin:14px 0;
-                    border:1px solid rgba(255,255,255,0.06);
-                    box-shadow:0 10px 22px rgba(0,0,0,0.25);
-                ">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-                        <div>
-                            <div style="font-size:22px;font-weight:900;letter-spacing:0.4px;">{ticker}</div>
-                            <div style="opacity:0.75;margin-top:2px;">Why: {reason_txt}</div>
-                        </div>
-                        <div style="text-align:right;">
-                            <div style="font-size:22px;font-weight:900;">${price:,.2f}</div>
-                            <div style="opacity:0.9;margin-top:2px;">{day_txt}</div>
-                        </div>
-                    </div>
-                    <div style="margin-top:10px;">{badge_html}</div>
-                </div>
-                """
-                st.markdown(card_html, unsafe_allow_html=True)
+    try:
+        price_txt = f"${float(price):.2f}"
+    except:
+        price_txt = "—"
 
+    try:
+        change_val = float(change)
+        arrow = "▲" if change_val >= 0 else "▼"
+        change_txt = f"{arrow} {abs(change_val):.2f}%"
+    except:
+        change_txt = "—"
+
+    # Simple built-in reason logic (no external functions)
+    reason = None
+    try:
+        rsi = float(r.get("rsi", 0))
+        vol_mult = float(r.get("volume_multiple", 0))
+        chg = float(change)
+
+        if rsi and rsi < 40:
+            reason = f"Oversold (RSI {int(rsi)})"
+        elif vol_mult and vol_mult > 2:
+            reason = f"Volume spike ({vol_mult:.1f}x)"
+        elif abs(chg) > 5:
+            reason = f"Big move ({chg:+.2f}%)"
+    except:
+        pass
+
+    st.markdown(f"""
+    <div style="
+        background: linear-gradient(145deg, #111827, #0b1220);
+        padding: 16px;
+        border-radius: 18px;
+        margin-bottom: 14px;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+    ">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:20px; font-weight:700;">{ticker}</div>
+            <div style="text-align:right;">
+                <div style="font-size:20px; font-weight:700;">{price_txt}</div>
+                <div style="opacity:0.8;">{change_txt}</div>
+            </div>
+        </div>
+        {"<div style='margin-top:8px; opacity:0.75;'>Why: " + reason + "</div>" if reason else ""}
+        {"<div style='margin-top:10px; display:inline-block; padding:6px 12px; border-radius:999px; background:#3a2d00; color:#ffd54a; font-weight:600;'>Watch this one!</div>" if badge_text else ""}
+    </div>
+    """, unsafe_allow_html=True)
             # Top ranked list (all signals)
             st.markdown("### 🔥 Biggest Signals (Ranked)")
             top_n = min(3, len(any_signal_rows))
