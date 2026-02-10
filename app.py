@@ -159,7 +159,7 @@ st.markdown("""
         .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
         
         /* Hide default header/footer */
-        header {visibility: hidden;} footer {visibility: hidden;} 
+        #MainMenu {visibility: hidden;} footer {visibility: hidden;} 
     
   /* Make whole card tappable */
   a.card-link { display:block; text-decoration:none; color:inherit; -webkit-tap-highlight-color: transparent; }
@@ -1312,6 +1312,9 @@ if tab == "home":
     render_watchlist_pick_grid(candidates, token)
     #render_compact_watchlist(candidates, token)
 
+    # Bottom nav (fixed)
+    render_navbar(token, active_tab=tab, mode=mode)
+
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
@@ -1357,6 +1360,9 @@ elif tab == "portfolio":
             render_portfolio_row(row, data, token)
         # (Reorder animation disabled for stability)
 
+    # Bottom nav (fixed)
+    render_navbar(token, active_tab=tab, mode=mode)
+
 elif tab == "alerts":
     st.markdown("### Alert Settings")
 
@@ -1391,6 +1397,9 @@ elif tab == "alerts":
 
     conn.close()
 
+    # Bottom nav (fixed)
+    render_navbar(token, active_tab=tab, mode=mode)
+
 elif tab == "scanner":
     st.markdown("### Market Scanner")
     st.caption("All tickers — biggest signals first. (Your alerts banner still shows your last 5.)")
@@ -1399,6 +1408,9 @@ elif tab == "scanner":
     BIG_MOVE_PCT = 2.5
     OVERSOLD_RSI = 40
     OVERBOUGHT_RSI = 70
+
+    # Bottom nav (fixed)
+    render_navbar(token, active_tab=tab, mode=mode)
 
     def fetch_scanner_rows(where_sql: str = "", order_sql: str = "signal_score DESC", limit: int = 100):
         """Fetch rows for the Market Scanner page.
@@ -1459,14 +1471,3 @@ elif tab == "scanner":
         cur.close()
         cnx.close()
         return rows
-    elif tab == "settings":
-    st.markdown("### Settings")
-    with st.form("settings_form"):
-        new_name = st.text_input("Display Name", value=user['display_name'])
-        new_email = st.text_input("Recovery Email", value=user.get('email', ''))
-        new_pin = st.text_input("New PIN", type="password")
-        if st.form_submit_button("Save Changes"):
-            if update_user_settings(user['username'], new_name, new_email, new_pin if new_pin else None): st.success("Saved!"); st.rerun()
-    if st.button("Log Out"): st.query_params.clear(); st.rerun()
-
-render_navbar(token, current_mode)
