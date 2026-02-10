@@ -1459,13 +1459,22 @@ elif tab == "scanner":
         if not rows:
             continue
         any_rows = True
-        st.markdown(f"**{title}**")
-        for row in rows:
-            # Reuse the same compact card layout (ticker, price, % move + Risk)
-            render_simple_card(row, token)
+elif tab == "scanner":
+    st.markdown("### Market Scanner")
+    port_rows = get_portfolio_details(user['username'], current_mode)
+    tickers = [r['ticker'] for r in port_rows]
+    market_data = get_cached_data_map(tickers)
+    if market_data:
+        st.markdown("**📉 Oversold (RSI < 40)**")
+        for t, data in market_data.items():
+            rsi_val = data.get('rsi_14')
+            if rsi_val is not None and float(rsi_val) < 40:
+                render_simple_card(data, token)
+        st.markdown("**📅 Earnings Soon**")
+        for t, data in market_data.items():
+            d_val = parse_smart_date(data.get('next_earnings'))
+            if d_val < 14: render_simple_card(data, token)
 
-    if not any_rows:
-        st.info("No scanner results found. This usually means stock_cache is empty or missing the fields used by the scanner.")
 elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
