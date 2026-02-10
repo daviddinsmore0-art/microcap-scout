@@ -251,6 +251,8 @@ def get_user_from_token(t):
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT s.username, p.display_name, p.paper_balance, p.email FROM user_sessions s JOIN user_profiles p ON s.username=p.username WHERE s.token=%s", (t,))
     row = cursor.fetchone()
+    if row and 'rsi_14' not in row and 'rsi' in row:
+        row['rsi_14'] = row['rsi']
     conn.close()
     return row
 
@@ -542,6 +544,10 @@ def get_cached_data_map(tickers):
     format_strings = ','.join(['%s'] * len(tickers))
     cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers))
     rows = cursor.fetchall()
+    # normalize schema: some DBs use `rsi` instead of `rsi_14`
+    for row in rows:
+        if 'rsi_14' not in row and 'rsi' in row:
+            row['rsi_14'] = row['rsi']
     conn.close()
     return {row['ticker']: row for row in rows}
 
@@ -550,6 +556,8 @@ def get_single_stock(ticker):
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s", (ticker,))
     row = cursor.fetchone()
+    if row and 'rsi_14' not in row and 'rsi' in row:
+        row['rsi_14'] = row['rsi']
     conn.close()
     return row
 
@@ -1398,7 +1406,7 @@ elif tab == "scanner":
         sql = f"""
             SELECT
                 ticker, current_price, day_change,
-                rsi_14, trend_status, volume_status,
+                rsi AS rsi_14, trend_status, volume_status,
                 range_loc, volatility, debt_ratio,
                 days_to_earnings, market_cap, eps, signal_tag
             FROM stock_cache
@@ -1416,8 +1424,8 @@ elif tab == "scanner":
         ("🔥 Strong Momentum (Uptrend + big move)", f"trend_status='UPTREND' AND day_change >= {BIG_MOVE_PCT}", "day_change DESC, volatility DESC"),
         ("🧊 Weakness Building (Downtrend + big drop)", f"trend_status='DOWNTREND' AND day_change <= -{BIG_MOVE_PCT}", "day_change ASC, volatility DESC"),
         ("📈 Heavy Trading (volume surge)", "UPPER(COALESCE(volume_status,'')) IN ('HEAVY','SURGE','SPIKE','UNUSUAL')", "ABS(day_change) DESC, volatility DESC"),
-        ("📉 Oversold (RSI < 40)", f"rsi_14 IS NOT NULL AND rsi_14 < {OVERSOLD_RSI}", "rsi_14 ASC, ABS(day_change) DESC"),
-        ("📊 Overbought (RSI > 70)", f"rsi_14 IS NOT NULL AND rsi_14 > {OVERBOUGHT_RSI}", "rsi_14 DESC, ABS(day_change) DESC"),
+        ("📉 Oversold (RSI < 40)", f"rsi IS NOT NULL AND rsi < {OVERSOLD_RSI}", "rsi ASC, ABS(day_change) DESC"),
+        ("📊 Overbought (RSI > 70)", f"rsi IS NOT NULL AND rsi > {OVERBOUGHT_RSI}", "rsi DESC, ABS(day_change) DESC"),
         ("⏰ Earnings Soon (0–7 days)", "days_to_earnings IS NOT NULL AND days_to_earnings BETWEEN 0 AND 7", "days_to_earnings ASC, ABS(day_change) DESC"),
         ("🎯 Near Range High (top 10%)", "range_loc IS NOT NULL AND range_loc >= 0.90", "range_loc DESC, ABS(day_change) DESC"),
         ("🎯 Near Range Low (bottom 10%)", "range_loc IS NOT NULL AND range_loc <= 0.10", "range_loc ASC, ABS(day_change) DESC"),
