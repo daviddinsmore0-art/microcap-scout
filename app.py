@@ -1385,20 +1385,57 @@ elif tab == "alerts":
 
 elif tab == "scanner":
     st.markdown("### Market Scanner")
-    port_rows = get_portfolio_details(user['username'], current_mode)
-    tickers = [r['ticker'] for r in port_rows]
-    market_data = get_cached_data_map(tickers)
-    if market_data:
-        st.markdown("**📉 Oversold (RSI < 40)**")
-        for t, data in market_data.items():
-            rsi_val = data.get('rsi_14')
-            if rsi_val is not None and float(rsi_val) < 40:
-                render_simple_card(data, token)
-        st.markdown("**📅 Earnings Soon**")
-        for t, data in market_data.items():
-            d_val = parse_smart_date(data.get('next_earnings'))
-            if d_val < 14: render_simple_card(data, token)
+    st.caption("All tickers — biggest signals first. (Your alerts banner still shows your last 5.)")
 
+    SCAN_LIMIT = 50
+    BIG_MOVE_PCT = 2.5
+    OVERSOLD_RSI = 40
+    OVERBOUGHT_RSI = 70
+
+    def fetch_scanner_rows(where_sql: str, order_sql: str, limit: int = SCAN_LIMIT):
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+        sql = f"""
+            SELECT
+                ticker, current_price, day_change,
+                rsi_14, trend_status, volume_status,
+                range_loc, volatility, debt_ratio,
+                days_to_earnings, market_cap, eps, signal_tag
+            FROM stock_cache
+            WHERE {where_sql}
+            ORDER BY {order_sql}
+            LIMIT %s
+        """
+        cur.execute(sql, (limit,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return rows
+
+    categories = [
+        ("🔥 Strong Momentum (Uptrend + big move)", f"trend_status='UPTREND' AND day_change >= {BIG_MOVE_PCT}", "day_change DESC, volatility DESC"),
+        ("🧊 Weakness Building (Downtrend + big drop)", f"trend_status='DOWNTREND' AND day_change <= -{BIG_MOVE_PCT}", "day_change ASC, volatility DESC"),
+        ("📈 Heavy Trading (volume surge)", "UPPER(COALESCE(volume_status,'')) IN ('HEAVY','SURGE','SPIKE','UNUSUAL')", "ABS(day_change) DESC, volatility DESC"),
+        ("📉 Oversold (RSI < 40)", f"rsi_14 IS NOT NULL AND rsi_14 < {OVERSOLD_RSI}", "rsi_14 ASC, ABS(day_change) DESC"),
+        ("📊 Overbought (RSI > 70)", f"rsi_14 IS NOT NULL AND rsi_14 > {OVERBOUGHT_RSI}", "rsi_14 DESC, ABS(day_change) DESC"),
+        ("⏰ Earnings Soon (0–7 days)", "days_to_earnings IS NOT NULL AND days_to_earnings BETWEEN 0 AND 7", "days_to_earnings ASC, ABS(day_change) DESC"),
+        ("🎯 Near Range High (top 10%)", "range_loc IS NOT NULL AND range_loc >= 0.90", "range_loc DESC, ABS(day_change) DESC"),
+        ("🎯 Near Range Low (bottom 10%)", "range_loc IS NOT NULL AND range_loc <= 0.10", "range_loc ASC, ABS(day_change) DESC"),
+    ]
+
+    any_rows = False
+    for title, where_sql, order_sql in categories:
+        rows = fetch_scanner_rows(where_sql, order_sql, SCAN_LIMIT)
+        if not rows:
+            continue
+        any_rows = True
+        st.markdown(f"**{title}**")
+        for row in rows:
+            # Reuse the same compact card layout (ticker, price, % move + Risk)
+            render_simple_card(row, token)
+
+    if not any_rows:
+        st.info("No scanner results found. This usually means stock_cache is empty or missing the fields used by the scanner.")
 elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
