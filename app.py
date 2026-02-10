@@ -165,50 +165,50 @@ st.markdown("""
   a.card-link { display:block; text-decoration:none; color:inherit; -webkit-tap-highlight-color: transparent; }
   a.card-link:visited { color:inherit; }
 
-/* ===== Market Scanner Tiles (only used in Scanner) ===== */
-.scan-grid { display: flex; flex-direction: column; gap: 12px; }
-.scan-tile {
-    position: relative;
-    background: radial-gradient(1200px 400px at 0% 0%, rgba(74,222,128,0.10), rgba(0,0,0,0)) , #121826;
-    border: 1px solid rgba(148,163,184,0.18);
-    border-radius: 22px;
-    padding: 16px 16px;
-    margin: 0;
-    box-shadow: 0 10px 22px rgba(0,0,0,0.30);
-    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
-}
-.scan-tile:active { transform: scale(0.985); border-color: rgba(74,222,128,0.55); box-shadow: 0 12px 26px rgba(0,0,0,0.36); }
-.scan-top { display:flex; justify-content:space-between; align-items:flex-start; gap: 10px; }
-.scan-left { min-width: 0; }
-.scan-ticker { font-size: 22px; font-weight: 900; letter-spacing: 0.4px; line-height: 1.05; }
-.scan-sub { margin-top: 4px; color: rgba(148,163,184,0.9); font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
-.scan-right { text-align:right; }
-.scan-price { font-size: 18px; font-weight: 900; }
-.scan-day { font-size: 12px; font-weight: 800; margin-top: 2px; letter-spacing: 0.3px; }
-.scan-divider { height:1px; background: rgba(148,163,184,0.14); margin: 12px 0 10px; }
-.scan-stats { display:flex; justify-content:space-between; gap: 10px; }
-.scan-chip {
-    display:inline-flex; align-items:center; gap:6px;
-    padding: 6px 10px; border-radius: 999px;
-    background: rgba(51,65,85,0.35);
-    border: 1px solid rgba(148,163,184,0.20);
-    font-size: 12px; font-weight: 800;
-    color: rgba(226,232,240,0.95);
-    white-space: nowrap;
-}
-.scan-chip .muted { color: rgba(148,163,184,0.95); font-weight: 800; }
-.scan-badge {
-    display:inline-block;
-    padding: 6px 10px;
-    border-radius: 999px;
-    background: rgba(255,196,0,0.12);
-    border: 1px solid rgba(255,196,0,0.35);
-    color: #FFC400;
-    font-weight: 900;
-    font-size: 12px;
-    letter-spacing: 0.4px;
-}
+        /* ===== Market Scanner Trading Tiles ===== */
+        .scan-tile {
+            background: radial-gradient(1200px 500px at 20% 10%, rgba(74,222,128,0.10), transparent 55%),
+                        linear-gradient(180deg, rgba(22,26,36,0.98), rgba(18,22,31,0.98));
+            border-radius: 22px;
+            padding: 16px 16px;
+            margin: 14px 0;
+            border: 1px solid rgba(255,255,255,0.07);
+            box-shadow: 0 10px 22px rgba(0,0,0,0.28);
+            transition: transform 0.12s ease, border-color 0.12s ease;
+        }
+        .scan-tile:active { transform: scale(0.985); border-color: rgba(74, 222, 128, 0.55); }
 
+        .scan-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+        .scan-left { min-width: 0; }
+        .scan-ticker { font-size: 22px; font-weight: 950; letter-spacing: 0.4px; line-height: 1.05; }
+        .scan-sub { margin-top: 5px; font-size: 12px; color: #94a3b8; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+
+        .scan-right { text-align:right; min-width: 110px; }
+        .scan-price { font-size: 20px; font-weight: 950; line-height: 1.05; }
+        .scan-chg { margin-top: 6px; font-size: 13px; font-weight: 900; }
+
+        .scan-row { display:flex; flex-wrap:wrap; gap:8px; margin-top: 12px; align-items:center; }
+        .scan-chip {
+            display:inline-flex; align-items:center; gap:6px;
+            padding: 6px 10px; border-radius: 999px;
+            font-size: 12px; font-weight: 900; letter-spacing: 0.2px;
+            border: 1px solid rgba(255,255,255,0.10);
+            background: rgba(148,163,184,0.10);
+            color: #e2e8f0;
+        }
+        .scan-chip.good { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.35); color: #4ade80; }
+        .scan-chip.warn { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.35); color: #fbbf24; }
+        .scan-chip.bad  { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.35); color: #ef4444; }
+
+        .scan-badge {
+            display:inline-block; padding:6px 10px; border-radius: 999px;
+            background: rgba(255,196,0,0.12); border: 1px solid rgba(255,196,0,0.35);
+            color:#FFC400; font-weight: 950; font-size: 12px; letter-spacing: 0.4px;
+        }
+
+        .scan-divider { margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.07); }
+        .scan-mini { display:flex; justify-content:space-between; gap:10px; margin-top: 10px; font-size: 12px; color:#cbd5e1; }
+        .scan-mini span { color:#94a3b8; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1522,61 +1522,67 @@ elif tab == "scanner":
                 ticker = r.get("ticker", "")
                 price = _f(r.get("current_price"), 0.0)
                 day = _f(r.get("day_change"), 0.0)
-                risk = calculate_risk(r)
-                try:
-                    risk_txt = f"{int(float(risk))}" if risk is not None else "—"
-                except Exception:
-                    risk_txt = "—"
+
+                risk_val = calculate_risk(r)
+                if isinstance(risk_val, tuple):
+                    risk_score, risk_label, risk_color, *_ = risk_val
+                else:
+                    risk_score, risk_label, risk_color = (_f(risk_val, 50.0), "—", "#94a3b8")
+
+                conf = calculate_confidence(r)
+
+                trend = (r.get("trend_status") or "NEUTRAL").upper()
+                rsi = _f(r.get("rsi_14"), 50.0)
+                rvol = _f(r.get("rvol"), 1.0)
 
                 arrow = "▲" if day >= 0 else "▼"
                 day_txt = f"{arrow} {abs(day):.2f}%"
-                                # Badge (optional)
-                badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
 
-                # Extra stats (purely visual; does not affect logic/navigation)
-                rsi_val = _f(r.get("rsi_14"), 50.0)
-                trend_txt = (r.get("trend_status") or "—").upper()
-                rvol_val = _f(r.get("rvol"), 1.0)
+                chg_color = "#4ade80" if day >= 0 else "#ef4444"
 
-                day_color = "#4ade80" if day >= 0 else "#ef4444"
-                price_txt = f"${price:,.2f}"
+                def chip_class(v, kind="conf"):
+                    try:
+                        v = float(v)
+                    except Exception:
+                        return "scan-chip"
+                    if kind == "risk":
+                        return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
+                    return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
 
-                card_html = f"""
-<a href="{link}" class="card-link" target="_self">
-  <div class="scan-card">
+                badge_html = ""
+                if badge_text:
+                    badge_html = f'<div class="scan-badge">{badge_text}</div>'
 
-    <div class="scan-top">
-      <div>
-        <div class="scan-ticker">{ticker}</div>
-        <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
-      </div>
+                card_html = f'''
+                <div class="scan-tile">
+                  <div class="scan-head">
+                    <div class="scan-left">
+                      <div class="scan-ticker">{ticker}</div>
+                      <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
+                    </div>
+                    <div class="scan-right">
+                      <div class="scan-price">${price:,.2f}</div>
+                      <div class="scan-chg" style="color:{chg_color};">{day_txt}</div>
+                    </div>
+                  </div>
 
-      <div class="scan-right">
-        <div class="scan-price">${price:.2f}</div>
-        <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
-        <div style="margin-top:6px;">{badge_html}</div>
-      </div>
-    </div>
+                  <div class="scan-row">
+                    <div class="{chip_class(risk_score, "risk")}">Risk {int(risk_score)}</div>
+                    <div class="scan-chip" style="border-color: rgba(255,255,255,0.10); background: rgba(148,163,184,0.08); color:#e2e8f0;">{risk_label}</div>
+                    <div class="{chip_class(conf, "conf")}">Conf {int(conf)}</div>
+                    {badge_html}
+                  </div>
 
-    <div class="scan-pills">
-      <div class="{pill_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
-      <div class="{pill_class(conf, 'conf')}">Conf {int(conf)}</div>
-      <div class="scan-pill">Tap →</div>
-    </div>
+                  <div class="scan-divider"></div>
 
-    <div class="scan-divider"></div>
-
-    <div class="scan-mini">
-      <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
-      <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
-      <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
-    </div>
-
-  </div>
-</a>
-"""
-st.markdown(card_html, unsafe_allow_html=True)
-
+                  <div class="scan-mini">
+                    <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
+                    <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
+                    <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
+                  </div>
+                </div>
+                '''
+                st.markdown(card_html, unsafe_allow_html=True)
             # Top ranked list (all signals)
             st.markdown("### 🔥 Biggest Signals (Ranked)")
             top_n = min(3, len(any_signal_rows))
