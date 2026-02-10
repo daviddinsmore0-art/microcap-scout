@@ -730,11 +730,11 @@ def render_navbar(token, mode):
     mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
     st.markdown(f"""
     <div class="nav-container">
-        <a href="?token={token}&tab=home{mode_arg}" class="nav-link">🏠</a>
-        <a href="?token={token}&tab=portfolio{mode_arg}" class="nav-link">📂</a>
-        <a href="?token={token}&tab=alerts{mode_arg}" class="nav-link">🔔</a>
-        <a href="?token={token}&tab=scanner{mode_arg}" class="nav-link">📡</a>
-        <a href="?token={token}&tab=settings{mode_arg}" class="nav-link">⚙️</a>
+        <a href="?token={token}&tab=home{mode_arg}" class="nav-link" target="_self">🏠</a>
+        <a href="?token={token}&tab=portfolio{mode_arg}" class="nav-link" target="_self">📂</a>
+        <a href="?token={token}&tab=alerts{mode_arg}" class="nav-link" target="_self">🔔</a>
+        <a href="?token={token}&tab=scanner{mode_arg}" class="nav-link" target="_self">📡</a>
+        <a href="?token={token}&tab=settings{mode_arg}" class="nav-link" target="_self">⚙️</a>
     </div>
     """, unsafe_allow_html=True)
 
