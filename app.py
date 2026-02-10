@@ -224,7 +224,6 @@ st.markdown("""
 }
 .scan-mini span{ color:#94a3b8; margin-right:6px; }
 
-.scan-spark{ margin-top:10px; opacity:0.95; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -1573,12 +1572,7 @@ elif tab == "scanner":
 
                 badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
 
-                spark = textwrap.dedent('''
-<svg width="92" height="30" viewBox="0 0 92 30" class="scan-spark" aria-hidden="true">
-  <path d="M2,22 C20,22 28,20 36,16 48,10 56,10 66,12 76,14 82,10 90,8"
-        fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round"/>
-</svg>
-''').strip()
+                spark = ""
 
                 card_html = textwrap.dedent(f'''
 <div class="scan-card" style="border-left:5px solid {rail};">
