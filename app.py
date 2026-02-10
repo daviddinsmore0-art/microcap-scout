@@ -224,8 +224,42 @@ st.markdown("""
 }
 .scan-mini span{ color:#94a3b8; margin-right:6px; }
 
-.scan-spark{ margin-top:10px; opacity:0.95; }
+/* ===== Market Scanner Tiles (polished) ===== */
+.scan-tile { padding: 14px 16px; }
+.scan-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.scan-left { min-width: 0; }
+.scan-right { text-align:right; min-width: 96px; }
+.scan-ticker { font-size: 26px; font-weight: 900; letter-spacing: 1px; line-height: 1.05; }
+.scan-sub { margin-top: 6px; font-size: 12px; color: #94a3b8; letter-spacing: 0.6px; text-transform: uppercase; }
+.scan-price { font-size: 24px; font-weight: 900; line-height: 1.0; }
+.scan-day { margin-top: 4px; font-size: 14px; font-weight: 900; }
 
+.scan-chips { display:flex; flex-wrap:wrap; gap:10px; margin-top: 14px; }
+.scan-chip { display:inline-flex; align-items:center; padding: 10px 14px; border-radius: 999px;
+  font-size: 14px; font-weight: 900; letter-spacing: 0.2px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(148,163,184,0.08);
+  color:#e2e8f0;
+}
+.scan-chip.good { background: rgba(74,222,128,0.10); border-color: rgba(74,222,128,0.25); color:#4ade80; }
+.scan-chip.warn { background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.25); color:#fbbf24; }
+.scan-chip.bad  { background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.25); color:#ef4444; }
+.scan-chip.neutral { background: rgba(148,163,184,0.10); border-color: rgba(255,255,255,0.10); color:#e2e8f0; }
+
+.scan-badge { display:inline-block; margin-top: 12px; padding: 10px 16px; border-radius: 999px;
+  background: linear-gradient(90deg, #fbbf24, #f59e0b); color:#111827;
+  font-weight: 950; font-size: 15px; letter-spacing:0.2px;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.25);
+}
+
+.scan-divider { margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.07); }
+
+.scan-mini { display:flex; justify-content:space-between; gap:10px; margin-top: 10px; font-size: 13px; color:#cbd5e1; }
+.scan-mini span { color:#94a3b8; margin-right: 6px; }
+
+/* Responsive 2-col grid wrapper (only if you already wrap with .scan-grid) */
+.scan-grid { display:grid; grid-template-columns: 1fr; gap: 14px; }
+@media (min-width: 900px){ .scan-grid { grid-template-columns: 1fr 1fr; } }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1535,84 +1569,80 @@ elif tab == "scanner":
         else:
             any_signal_rows.sort(key=signal_score, reverse=True)
             def render_signal_card(r, *, badge_text=None):
+                # --- display-only (Market Scanner cards) ---
                 ticker = (r.get("ticker") or "").upper()
-                price = _f(r.get("current_price"), 0.0)
-                day = _f(r.get("day_change"), 0.0)
-
+                price  = _f(r.get("current_price"), 0.0)
+                day    = _f(r.get("day_change"), 0.0)
+            
                 arrow = "▲" if day >= 0 else "▼"
                 day_txt = f"{arrow} {abs(day):.2f}%"
                 chg_color = "#4ade80" if day >= 0 else "#ef4444"
-
+            
                 trend = (r.get("trend_status") or "NEUTRAL").upper()
-                rsi = _f(r.get("rsi_14"), 50.0)
-                rvol = _f(r.get("rvol"), 1.0)
-
+                rsi   = _f(r.get("rsi_14"), 50.0)
+                rvol  = _f(r.get("rvol"), 1.0)
+            
                 # calculate_risk() returns: (score, label, color, badge, breakdown)
                 risk_score, risk_label, *_ = calculate_risk(r)
                 conf = calculate_confidence(r)
-
+            
                 def chip_class(v, kind="conf"):
                     try:
-                        v = float(v)
+            v = float(v)
                     except Exception:
-                        return "scan-chip"
+            return "scan-chip"
                     if kind == "risk":
-                        return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
+            return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
                     return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
-
-                # Accent rail color
-                rail = "#38bdf8"
+            
+                # Accent rail (Webull-ish)
                 if trend == "UPTREND":
                     rail = "#4ade80"
                 elif trend == "DOWNTREND":
                     rail = "#ef4444"
-                if rsi <= 30:
-                    rail = "#fbbf24"
-                elif rsi >= 70:
-                    rail = "#a78bfa"
-
-                badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
-
-                spark = textwrap.dedent('''
-<svg width="92" height="30" viewBox="0 0 92 30" class="scan-spark" aria-hidden="true">
-  <path d="M2,22 C20,22 28,20 36,16 48,10 56,10 66,12 76,14 82,10 90,8"
-        fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round"/>
-</svg>
-''').strip()
-
-                card_html = textwrap.dedent(f'''
-<div class="scan-card" style="border-left:5px solid {rail};">
-  <div class="scan-top">
-    <div class="scan-left">
-      <div class="scan-ticker">{ticker}</div>
-      <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
-    </div>
-    <div class="scan-right">
-      <div class="scan-price">${price:.2f}</div>
-      <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
-      {spark}
-    </div>
-  </div>
-
-  <div class="scan-row">
-    <div class="{chip_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
-    <div class="scan-chip">{risk_label}</div>
-    <div class="{chip_class(conf, 'conf')}">Conf {int(conf)}</div>
-  </div>
-
-  {badge_html}
-
-  <div class="scan-divider"></div>
-
-  <div class="scan-mini">
-    <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
-    <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
-    <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
-  </div>
-</div>
-''').strip()
+                else:
+                    rail = "#fbbf24" if rsi <= 30 else ("#a78bfa" if rsi >= 70 else "#38bdf8")
+            
+                badge_html = ""
+                if badge_text:
+                    badge_html = f'<div class="scan-badge">{badge_text}</div>'
+            
+                # Keep link behavior exactly as before
+                link = f"?token={token}&ticker={ticker}"
+            
+                card_html = textwrap.dedent(f"""    <a href="{link}" class="card-link" target="_self">
+                  <div class="scan-card scan-tile" style="border-left:6px solid {rail};">
+                    <div class="scan-head">
+                      <div class="scan-left">
+            <div class="scan-ticker">{ticker}</div>
+            <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
+                      </div>
+                      <div class="scan-right">
+            <div class="scan-price">${price:.2f}</div>
+            <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
+                      </div>
+                    </div>
+            
+                    <div class="scan-chips">
+                      <div class="{chip_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
+                      <div class="scan-chip neutral">{risk_label}</div>
+                      <div class="{chip_class(conf, 'conf')}">Conf {int(conf)}</div>
+                    </div>
+            
+                    {badge_html}
+            
+                    <div class="scan-divider"></div>
+            
+                    <div class="scan-mini">
+                      <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
+                      <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
+                      <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
+                    </div>
+                  </div>
+                </a>
+                """).strip()
+            
                 st.markdown(card_html, unsafe_allow_html=True)
-
 
             # Top ranked list (all signals)
             st.markdown("### 🔥 Biggest Signals (Ranked)")
