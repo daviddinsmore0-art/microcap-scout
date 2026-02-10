@@ -967,63 +967,13 @@ def render_watchlist_pick_grid(rows, current_token=None):
 </a>
 """, unsafe_allow_html=True)
 
-def render_simple_card(row, current_token, subtitle: str | None = None, badge: str | None = None, rank: int | None = None):
-    """Render a single market-scanner card.
+def render_simple_card(row, current_token):
+    p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
+    link = f"?token={current_token}&ticker={row['ticker']}"
+    risk, _, _, _, _ = calculate_risk(row)
+    html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
+    st.markdown(html, unsafe_allow_html=True)
 
-    - subtitle: small text under the ticker (eg. 'Strong Momentum')
-    - badge: short pill text in the top-right (eg. 'WATCH THIS ONE')
-    - rank: optional numeric rank shown in the badge (eg. #1)
-    """
-    p = float(row.get("current_price") or 0)
-    ch = float(row.get("day_change") or 0)
-    cc = "#4ade80" if ch >= 0 else "#ef4444"
-    arr = "▲" if ch >= 0 else "▼"
-
-    rsi = row.get("rsi_14")
-    rvol = row.get("rvol")
-    risk = row.get("risk_score") if "risk_score" in row else row.get("risk")
-    if risk is None:
-        risk = row.get("risk_value")
-
-    # link to details page (keeps your existing routing)
-    link = f"?token={current_token}&ticker={row['ticker']}&page=details"
-
-    badge_txt = ""
-    if badge:
-        prefix = f"#{rank} " if isinstance(rank, int) and rank > 0 else ""
-        badge_txt = f"""<div style="position:absolute; top:12px; right:14px; font-size:12px; letter-spacing:0.08em; font-weight:800; padding:6px 10px; border-radius:999px; background:rgba(239,68,68,.16); border:1px solid rgba(239,68,68,.35); color:#ff6b6b;">{prefix}{badge}</div>"""
-
-    subtitle_html = f'<div style="margin-top:6px; font-size:14px; color:#cbd5e1; opacity:0.9;">{subtitle}</div>' if subtitle else ""
-
-    st.markdown(f"""
-    <a href="{link}" style="text-decoration:none;">
-      <div style="position:relative; margin: 12px 0; padding: 18px 18px; border-radius: 18px;
-           background: rgba(17,24,39,0.65); border: 1px solid rgba(148,163,184,0.12);
-           box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
-        {badge_txt}
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
-          <div>
-            <div style="font-size: 26px; font-weight: 800; letter-spacing:0.02em; color:#f8fafc;">{row['ticker']}</div>
-            {subtitle_html}
-            <div style="margin-top:10px; font-size: 14px; color:#94a3b8;">
-              Risk: <span style="color:#e2e8f0; font-weight:700;">{risk if risk is not None else '—'}</span>
-              <span style="opacity:0.55;"> • </span>
-              RSI: <span style="color:#e2e8f0; font-weight:700;">{f"{float(rsi):.0f}" if rsi is not None else "—"}</span>
-              <span style="opacity:0.55;"> • </span>
-              RVOL: <span style="color:#e2e8f0; font-weight:700;">{f"{float(rvol):.2f}" if rvol is not None else "—"}</span>
-            </div>
-          </div>
-
-          <div style="text-align:right;">
-            <div style="font-size: 26px; font-weight: 900; color:#f8fafc;">{('$' + f'{p:,.2f}') if p else '—'}</div>
-            <div style="margin-top:8px; font-size: 18px; font-weight: 800; color:{cc};">
-              {arr} {abs(ch):.2f}%
-            </div>
-          </div>
-        </div>
-      </div>
-    </a>
-    """, unsafe_allow_html=True)
 def render_horizontal_grid(rows_dict, current_token):
     # Small scroller tiles: ticker + price + % (pulled from stock_cache).
     # Layout: ticker (top) then price then % on its own line so all tiles stay the same height.
@@ -1433,112 +1383,162 @@ elif tab == "alerts":
 
     conn.close()
 
+
 elif tab == "scanner":
-    st.markdown("### Market Scanner (My Portfolio)")
+    st.markdown("## Market Scanner")
+    st.caption("Your portfolio only — biggest signals first. (Your alerts banner still shows your last 5.)")
 
-    # Only scan the logged-in user's portfolio tickers (no global market scanning)
-    port_rows = get_portfolio_details(user['username'], current_mode)
-    tickers = [r['ticker'] for r in port_rows]
-    market_data = get_cached_data_map(tickers)
+    portfolio_rows = get_portfolio_details(user["username"], current_mode)
+    tickers = [r["ticker"] for r in portfolio_rows if r.get("ticker")]
 
-    if not market_data:
-        st.info("No scanner data yet for your portfolio.")
+    if not tickers:
+        st.info("No tickers in your portfolio yet. Add a few to see scanner signals.")
     else:
-        def _f(x, default=0.0):
+        data_map = get_cached_data_map(tickers)
+        rows = list(data_map.values())
+
+        def _f(v, default=0.0):
             try:
-                if x is None or x == "":
+                if v is None:
                     return default
-                return float(x)
+                return float(v)
             except Exception:
                 return default
 
-        buckets = {
-            "🚀 Strong Momentum": [],
-            "🧯 Weakness Building": [],
-            "🔥 Volume Surge": [],
-            "📈 Big Move Up": [],
-            "📉 Big Move Down": [],
-            "🥵 Overbought": [],
-            "🧊 Oversold": [],
-            "📅 Earnings Soon": [],
-        }
+        def signal_score(r):
+            day = _f(r.get("day_change"))
+            rsi = _f(r.get("rsi_14"), 50.0)
+            rvol = _f(r.get("rvol"), 1.0)
+            trend = (r.get("trend_status") or "").upper()
 
-        for t, data in market_data.items():
-            # Normalize key fields (your DB uses rsi_14, rvol, day_change, trend_status)
-            rsi = _f(data.get("rsi_14"), default=0.0)
-            rvol = _f(data.get("rvol"), default=0.0)
-            chg = _f(data.get("day_change"), default=0.0)
-            trend = str(data.get("trend_status") or "").upper()
-
-            # BIG SIGNALS (strict, low-noise)
-            if trend == "UPTREND" and rsi >= 65 and chg >= 5.0:
-                score = 100 + chg + (rvol * 6)
-                buckets["🚀 Strong Momentum"].append((score, data))
-            if trend == "DOWNTREND" and rsi <= 35 and chg <= -5.0:
-                score = 100 + abs(chg) + (rvol * 6)
-                buckets["🧯 Weakness Building"].append((score, data))
-
-            # Volume (high intent)
-            if rvol >= 3.0:
-                score = 90 + (rvol * 10) + abs(chg)
-                buckets["🔥 Volume Surge"].append((score, data))
-
-            # Big movers (helps users quickly see what matters)
-            if chg >= 8.0:
-                score = 85 + chg
-                buckets["📈 Big Move Up"].append((score, data))
-            if chg <= -8.0:
-                score = 85 + abs(chg)
-                buckets["📉 Big Move Down"].append((score, data))
-
-            # RSI extremes (secondary)
+            score = abs(day) * 2.0
+            if rvol >= 2:
+                score += (rvol - 1.0) * 10.0
+            if rsi <= 40:
+                score += 20.0 + (40.0 - rsi)
             if rsi >= 70:
-                score = 70 + (rsi - 70) + abs(chg)
-                buckets["🥵 Overbought"].append((score, data))
-            if 0 < rsi <= 30:
-                score = 70 + (30 - rsi) + abs(chg)
-                buckets["🧊 Oversold"].append((score, data))
+                score += 20.0 + (rsi - 70.0)
+            if trend in ("UPTREND", "DOWNTREND"):
+                score += 15.0
+            return score
 
-            # Earnings soon (FYI)
-            days_to = parse_smart_date(data.get("next_earnings"))
-            if days_to is not None and days_to >= 0 and days_to <= 14:
-                score = 60 + (14 - days_to)
-                buckets["📅 Earnings Soon"].append((score, data))
+        def is_strong_momentum(r):
+            day = _f(r.get("day_change"))
+            rvol = _f(r.get("rvol"), 1.0)
+            trend = (r.get("trend_status") or "").upper()
+            return day >= 4.0 and rvol >= 1.8 and trend == "UPTREND"
 
-        
-# Build a single ranked list of *all* portfolio tickers that triggered at least one signal.
-best_by_ticker = {}  # ticker -> {"score": float, "title": str, "data": dict}
-for title, items in buckets.items():
-    for it in items:
-        t = it["data"]["ticker"]
-        s = float(it["score"])
-        prev = best_by_ticker.get(t)
-        if (prev is None) or (s > prev["score"]):
-            best_by_ticker[t] = {"score": s, "title": title, "data": it["data"]}
+        def is_weakness(r):
+            day = _f(r.get("day_change"))
+            rvol = _f(r.get("rvol"), 1.0)
+            trend = (r.get("trend_status") or "").upper()
+            return day <= -4.0 and rvol >= 1.8 and trend == "DOWNTREND"
 
-ranked = sorted(best_by_ticker.values(), key=lambda x: x["score"], reverse=True)
+        def is_big_up(r):
+            return _f(r.get("day_change")) >= 7.0
 
-if ranked:
-    st.markdown("### 🏆 Ranked Signals (portfolio only)")
-    st.caption("All your portfolio tickers with at least one big signal — ranked strongest to weakest.")
-    for i, it in enumerate(ranked, start=1):
-        # Top few get a 'watch this one' badge.
-        badge = "WATCH THIS ONE" if i <= 3 else None
-        render_simple_card(it["data"], current_token, subtitle=it["title"], badge=badge, rank=i)
-    st.markdown("---")
+        def is_big_down(r):
+            return _f(r.get("day_change")) <= -7.0
 
-# Render sections in priority order, sorted top->low within each category
-        for title in ["🚀 Strong Momentum", "🧯 Weakness Building", "🔥 Volume Surge",
-                      "📈 Big Move Up", "📉 Big Move Down", "🧊 Oversold", "🥵 Overbought",
-                      "📅 Earnings Soon"]:
-            items = buckets.get(title, [])
-            if not items:
+        def is_oversold(r):
+            return _f(r.get("rsi_14"), 50.0) < 40.0
+
+        def is_overbought(r):
+            return _f(r.get("rsi_14"), 50.0) > 70.0
+
+        def is_high_rvol(r):
+            return _f(r.get("rvol"), 1.0) >= 3.0
+
+        # Buckets (rows can appear in multiple buckets)
+        buckets = [
+            ("🚀 Strong Momentum", is_strong_momentum),
+            ("🧯 Weakness Building", is_weakness),
+            ("📈 Big Move Up", is_big_up),
+            ("📉 Big Move Down", is_big_down),
+            ("🧊 Oversold (RSI < 40)", is_oversold),
+            ("🔥 Overbought (RSI > 70)", is_overbought),
+            ("🌪 High Relative Volume", is_high_rvol),
+        ]
+
+        # Keep only tickers that have *some* signal
+        any_signal_rows = []
+        for r in rows:
+            if r.get("ticker") is None or r.get("current_price") is None:
                 continue
-            st.markdown(f"**{title}**")
-            for _, d in sorted(items, key=lambda x: x[0], reverse=True):
-                render_simple_card(d, current_token, subtitle=title)
+            if any(fn(r) for _, fn in buckets):
+                any_signal_rows.append(r)
+
+        if not any_signal_rows:
+            st.info("No big signals right now for your portfolio. Check back soon.")
+        else:
+            any_signal_rows.sort(key=signal_score, reverse=True)
+
+            def render_signal_card(r, *, badge_text=None):
+                ticker = r.get("ticker", "")
+                price = _f(r.get("current_price"), 0.0)
+                day = _f(r.get("day_change"), 0.0)
+                risk = r.get("risk_score")
+                risk_txt = f"{int(float(risk))}" if risk is not None else "—"
+
+                arrow = "▲" if day >= 0 else "▼"
+                day_txt = f"{arrow} {abs(day):.2f}%"
+                badge_html = ""
+                if badge_text:
+                    badge_html = f"""
+                    <div style="display:inline-block;padding:6px 10px;border-radius:999px;
+                                background:rgba(255,196,0,0.12);border:1px solid rgba(255,196,0,0.35);
+                                color:#FFC400;font-weight:800;font-size:12px;letter-spacing:0.4px;">
+                        {badge_text}
+                    </div>
+                    """
+
+                card_html = f"""
+                <div style="
+                    background:#161a24;
+                    border-radius:22px;
+                    padding:18px 18px;
+                    margin:14px 0;
+                    border:1px solid rgba(255,255,255,0.06);
+                    box-shadow:0 10px 22px rgba(0,0,0,0.25);
+                ">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+                        <div>
+                            <div style="font-size:22px;font-weight:900;letter-spacing:0.4px;">{ticker}</div>
+                            <div style="opacity:0.75;margin-top:2px;">Risk: {risk_txt}</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:22px;font-weight:900;">${price:,.2f}</div>
+                            <div style="opacity:0.9;margin-top:2px;">{day_txt}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:10px;">{badge_html}</div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+
+            # Top ranked list (all signals)
+            st.markdown("### 🔥 Biggest Signals (Ranked)")
+            top_n = min(25, len(any_signal_rows))
+            for i, r in enumerate(any_signal_rows[:top_n], start=1):
+                badge = "Watch this one!" if i <= 3 else None
+                render_signal_card(r, badge_text=badge)
+
+            # Category sections
+            st.markdown("---")
+            st.markdown("### Categories")
+
+            for title, fn in buckets:
+                bucket_rows = [r for r in any_signal_rows if fn(r)]
+                if not bucket_rows:
+                    continue
+                bucket_rows.sort(key=signal_score, reverse=True)
+                st.markdown(f"#### {title}")
+                for i, r in enumerate(bucket_rows[:15], start=1):
+                    badge = "Watch this one!" if i == 1 else None
+                    render_signal_card(r, badge_text=badge)
 
 elif tab == "settings":
+
     st.markdown("### Settings")
     with st.form("settings_form"):
         new_name = st.text_input("Display Name", value=user['display_name'])
