@@ -1383,23 +1383,96 @@ elif tab == "alerts":
 
     conn.close()
 
+
 elif tab == "scanner":
-    st.markdown("### Market Scanner")
-    port_rows = get_portfolio_details(user['username'], current_mode)
-    tickers = [r['ticker'] for r in port_rows]
-    market_data = get_cached_data_map(tickers)
-    if market_data:
-        st.markdown("**📉 Oversold (RSI < 40)**")
-        for t, data in market_data.items():
-            rsi_val = data.get('rsi_14')
-            if rsi_val is not None and float(rsi_val) < 40:
-                render_simple_card(data, token)
-        st.markdown("**📅 Earnings Soon**")
-        for t, data in market_data.items():
-            d_val = parse_smart_date(data.get('next_earnings'))
-            if d_val < 14: render_simple_card(data, token)
+        st.subheader("Market Scanner")
+        st.caption("Your portfolio only — biggest signals first. (Your alerts banner still shows your last 5.)")
+
+        # Pull portfolio tickers & cached indicators (per-user)
+        portfolio = get_portfolio_details(username) or []
+        tickers = [p["ticker"] for p in portfolio if p.get("ticker")]
+        data_map = get_cached_data_map(tickers) if tickers else {}
+
+        # Helper: normalize fields safely
+        def _f(x, default=None):
+            try:
+                return float(x) if x is not None and x != "" else default
+            except Exception:
+                return default
+
+        def _s(x):
+            return (str(x) if x is not None else "").strip()
+
+        # Build signal buckets: {title: [(score, ticker, data), ...]}
+        buckets = {
+            "🚨 Strong Momentum": [],
+            "⚠️ Weakness": [],
+            "📈 Big Move Up": [],
+            "📉 Big Move Down": [],
+            "🔥 Unusual Volume": [],
+            "🧊 Oversold (RSI < 40)": [],
+            "🥵 Overbought (RSI > 70)": [],
+            "🗓️ Earnings Soon": [],
+        }
+
+        for t in tickers:
+            d = data_map.get(t) or {}
+            day_change = _f(d.get("day_change"), 0.0) or 0.0
+            rsi = _f(d.get("rsi_14"), None)
+            rvol = _f(d.get("rvol"), None)
+            trend = _s(d.get("trend_status")).lower()
+
+            # Signal scoring (bigger = earlier)
+            abs_move = abs(day_change)
+            # Trend signals
+            if ("up" in trend or "bull" in trend) and (rvol is not None and rvol >= 2.0) and day_change >= 2.0:
+                score = abs_move * 10 + (rvol or 0) * 5
+                buckets["🚨 Strong Momentum"].append((score, t, d))
+            if ("down" in trend or "bear" in trend) and (rvol is not None and rvol >= 2.0) and day_change <= -2.0:
+                score = abs_move * 10 + (rvol or 0) * 5
+                buckets["⚠️ Weakness"].append((score, t, d))
+
+            # Big movers
+            if day_change >= 5.0:
+                buckets["📈 Big Move Up"].append((abs_move * 10, t, d))
+            if day_change <= -5.0:
+                buckets["📉 Big Move Down"].append((abs_move * 10, t, d))
+
+            # Volume spike
+            if rvol is not None and rvol >= 3.0:
+                buckets["🔥 Unusual Volume"].append((rvol * 10 + abs_move, t, d))
+
+            # RSI extremes
+            if rsi is not None and rsi < 40.0:
+                # prioritize lowest RSI, then move
+                buckets["🧊 Oversold (RSI < 40)"].append(((40.0 - rsi) * 10 + abs_move, t, d))
+            if rsi is not None and rsi > 70.0:
+                buckets["🥵 Overbought (RSI > 70)"].append(((rsi - 70.0) * 10 + abs_move, t, d))
+
+            # Earnings soon (if present)
+            dt = parse_smart_date(d.get("next_earnings"))
+            if dt:
+                days = (dt.date() - datetime.now().date()).days
+                if 0 <= days <= 14:
+                    # sooner gets higher score
+                    buckets["🗓️ Earnings Soon"].append(((14 - days) * 10 + abs_move, t, d))
+
+        # Render: only show buckets with items, each sorted biggest first
+        any_rows = False
+        for title, items in buckets.items():
+            if not items:
+                continue
+            any_rows = True
+            st.markdown(f"### {title}")
+            items.sort(key=lambda x: x[0], reverse=True)
+            for _, t, d in items[:25]:  # cap per section for performance
+                render_simple_card(t, d)
+
+        if not any_rows:
+            st.info("No big signals in your portfolio right now. (Try again after the next price refresh.)")
 
 elif tab == "settings":
+
     st.markdown("### Settings")
     with st.form("settings_form"):
         new_name = st.text_input("Display Name", value=user['display_name'])
