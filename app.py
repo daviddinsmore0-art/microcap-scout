@@ -1573,44 +1573,44 @@ elif tab == "scanner":
 
                 badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
 
-                spark = '''
-                <svg width="92" height="30" viewBox="0 0 92 30" class="scan-spark" aria-hidden="true">
-                  <path d="M2,22 C20,22 28,20 36,16 48,10 56,10 66,12 76,14 82,10 90,8"
-                        fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round"/>
-                </svg>
-                '''
+                spark = textwrap.dedent('''
+<svg width="92" height="30" viewBox="0 0 92 30" class="scan-spark" aria-hidden="true">
+  <path d="M2,22 C20,22 28,20 36,16 48,10 56,10 66,12 76,14 82,10 90,8"
+        fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round"/>
+</svg>
+''').strip()
 
-                card_html = f'''
-                <div class="scan-card" style="border-left:5px solid {rail};">
-                  <div class="scan-top">
-                    <div class="scan-left">
-                      <div class="scan-ticker">{ticker}</div>
-                      <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
-                    </div>
-                    <div class="scan-right">
-                      <div class="scan-price">${price:.2f}</div>
-                      <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
-                      {spark}
-                    </div>
-                  </div>
+                card_html = textwrap.dedent(f'''
+<div class="scan-card" style="border-left:5px solid {rail};">
+  <div class="scan-top">
+    <div class="scan-left">
+      <div class="scan-ticker">{ticker}</div>
+      <div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>
+    </div>
+    <div class="scan-right">
+      <div class="scan-price">${price:.2f}</div>
+      <div class="scan-day" style="color:{chg_color};">{day_txt}</div>
+      {spark}
+    </div>
+  </div>
 
-                  <div class="scan-row">
-                    <div class="{chip_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
-                    <div class="scan-chip">{risk_label}</div>
-                    <div class="{chip_class(conf, 'conf')}">Conf {int(conf)}</div>
-                  </div>
+  <div class="scan-row">
+    <div class="{chip_class(risk_score, 'risk')}">Risk {int(risk_score)}</div>
+    <div class="scan-chip">{risk_label}</div>
+    <div class="{chip_class(conf, 'conf')}">Conf {int(conf)}</div>
+  </div>
 
-                  {badge_html}
+  {badge_html}
 
-                  <div class="scan-divider"></div>
+  <div class="scan-divider"></div>
 
-                  <div class="scan-mini">
-                    <div><span>Range</span>{_f(r.get("range_loc"), 0.0):.0f}%</div>
-                    <div><span>Vol</span>{_f(r.get("volatility"), 0.0):.1f}</div>
-                    <div><span>Debt</span>{_f(r.get("debt_ratio"), 0.0):.0f}</div>
-                  </div>
-                </div>
-                '''
+  <div class="scan-mini">
+    <div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>
+    <div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>
+    <div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>
+  </div>
+</div>
+''').strip()
                 st.markdown(card_html, unsafe_allow_html=True)
 
 
