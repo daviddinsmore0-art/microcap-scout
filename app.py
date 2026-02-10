@@ -1574,31 +1574,39 @@ elif tab == "scanner":
     badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
 
     card_html = "\n".join([
-        f'<div class="scan-card" style="border-left:5px solid {rail};">',
-        '<div class="scan-top">',
-        '<div class="scan-left">',
-        f'<div class="scan-ticker">{ticker}</div>',
-        f'<div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>',
-        '</div>',
-        '<div class="scan-right">',
-        f'<div class="scan-price">${price:.2f}</div>',
-        f'<div class="scan-day" style="color:{chg_color};">{day_txt}</div>',
-        '</div>',
-        '</div>',
-        '<div class="scan-row">',
-        f'<div class="{chip_class(risk_score, "risk")}">Risk {int(risk_score)}</div>',
-        f'<div class="scan-chip">{risk_label}</div>',
-        f'<div class="{chip_class(conf, "conf")}">Conf {int(conf)}</div>',
-        '</div>',
-        badge_html,
-        '<div class="scan-divider"></div>',
-        '<div class="scan-mini">',
-        f'<div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>',
-        f'<div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
-        f'<div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>',
-        '</div>',
-        '</div>',
-    ]).strip()
+f'<a href="{link}" class="card-link" target="_self">',
+f'<div class="scan-card" style="border-left:5px solid {rail};">',
+
+'<div class="scan-top">',
+'<div class="scan-left">',
+f'<div class="scan-ticker">{ticker}</div>',
+f'<div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>',
+'</div>',
+'<div class="scan-right">',
+f'<div class="scan-price">${price:.2f}</div>',
+f'<div class="scan-day" style="color:{chg_color};">{day_txt}</div>',
+'</div>',
+'</div>',
+
+'<div class="scan-row">',
+f'<div class="{chip_class(risk_score, "risk")}">Risk {int(risk_score)}</div>',
+f'<div class="scan-chip">{risk_label}</div>',
+f'<div class="{chip_class(conf, "conf")}">Conf {int(conf)}</div>',
+'</div>',
+
+badge_html,
+
+'<div class="scan-divider"></div>',
+
+'<div class="scan-mini">',
+f'<div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>',
+f'<div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
+f'<div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>',
+'</div>',
+
+'</div>',
+'</a>',
+]).strip()
 
     st.markdown(card_html, unsafe_allow_html=True)
 
