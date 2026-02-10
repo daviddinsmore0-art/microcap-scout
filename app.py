@@ -166,49 +166,106 @@ st.markdown("""
   a.card-link:visited { color:inherit; }
 
         /* ===== Market Scanner Trading Tiles ===== */
-        .scan-tile {
-            background: radial-gradient(1200px 500px at 20% 10%, rgba(74,222,128,0.10), transparent 55%),
-                        linear-gradient(180deg, rgba(22,26,36,0.98), rgba(18,22,31,0.98));
-            border-radius: 22px;
-            padding: 16px 16px;
-            margin: 14px 0;
-            border: 1px solid rgba(255,255,255,0.07);
-            box-shadow: 0 10px 22px rgba(0,0,0,0.28);
-            transition: transform 0.12s ease, border-color 0.12s ease;
-        }
-        .scan-tile:active { transform: scale(0.985); border-color: rgba(74, 222, 128, 0.55); }
 
-        .scan-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-        .scan-left { min-width: 0; }
-        .scan-ticker { font-size: 22px; font-weight: 950; letter-spacing: 0.4px; line-height: 1.05; }
-        .scan-sub { margin-top: 5px; font-size: 12px; color: #94a3b8; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+/* Responsive grid wrapper (scanner-only). On phones = 1 col, larger screens = 2 cols */
+.scan-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin: 14px 0; }
+@media (min-width: 720px) {
+  .scan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
-        .scan-right { text-align:right; min-width: 110px; }
-        .scan-price { font-size: 20px; font-weight: 950; line-height: 1.05; }
-        .scan-chg { margin-top: 6px; font-size: 13px; font-weight: 900; }
+/* Tile */
+.scan-tile {
+    position: relative;
+    background:
+        radial-gradient(1200px 500px at 20% 10%, rgba(74,222,128,0.10), transparent 55%),
+        linear-gradient(180deg, rgba(22,26,36,0.98), rgba(18,22,31,0.98));
+    border-radius: 22px;
+    padding: 16px 16px;
+    margin: 0; /* grid handles spacing */
+    border: 1px solid rgba(255,255,255,0.07);
+    box-shadow: 0 10px 22px rgba(0,0,0,0.28);
+    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+    cursor: pointer;
+}
+.scan-tile:hover {
+    transform: translateY(-2px);
+    border-color: rgba(74, 222, 128, 0.28);
+    box-shadow: 0 14px 26px rgba(0,0,0,0.32);
+}
+.scan-tile:active { transform: scale(0.985); border-color: rgba(74, 222, 128, 0.55); }
 
-        .scan-row { display:flex; flex-wrap:wrap; gap:8px; margin-top: 12px; align-items:center; }
-        .scan-chip {
-            display:inline-flex; align-items:center; gap:6px;
-            padding: 6px 10px; border-radius: 999px;
-            font-size: 12px; font-weight: 900; letter-spacing: 0.2px;
-            border: 1px solid rgba(255,255,255,0.10);
-            background: rgba(148,163,184,0.10);
-            color: #e2e8f0;
-        }
-        .scan-chip.good { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.35); color: #4ade80; }
-        .scan-chip.warn { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.35); color: #fbbf24; }
-        .scan-chip.bad  { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.35); color: #ef4444; }
+/* Accent rail (color-coded by signal type) */
+.scan-tile::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    top: 12px;
+    bottom: 12px;
+    width: 4px;
+    border-radius: 999px;
+    background: rgba(148,163,184,0.35);
+    filter: blur(0px);
+}
+.scan-tile.scan-bull::before { background: rgba(74,222,128,0.75); }
+.scan-tile.scan-bear::before { background: rgba(239,68,68,0.75); }
+.scan-tile.scan-ice::before  { background: rgba(56,189,248,0.75); }
+.scan-tile.scan-fire::before { background: rgba(251,191,36,0.80); }
+.scan-tile.scan-vol::before  { background: rgba(167,139,250,0.75); }
 
-        .scan-badge {
-            display:inline-block; padding:6px 10px; border-radius: 999px;
-            background: rgba(255,196,0,0.12); border: 1px solid rgba(255,196,0,0.35);
-            color:#FFC400; font-weight: 950; font-size: 12px; letter-spacing: 0.4px;
-        }
+/* Layout */
+.scan-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.scan-left { min-width: 0; padding-left: 8px; }
+.scan-right { text-align:right; min-width: 124px; }
 
-        .scan-divider { margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.07); }
-        .scan-mini { display:flex; justify-content:space-between; gap:10px; margin-top: 10px; font-size: 12px; color:#cbd5e1; }
-        .scan-mini span { color:#94a3b8; font-weight: 700; }
+/* Typography */
+.scan-ticker { font-size: 26px; font-weight: 950; letter-spacing: 1px; line-height: 1.05; color: #f1f5f9; }
+.scan-sub { margin-top: 6px; font-size: 12px; color: #94a3b8; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+.scan-price { font-size: 22px; font-weight: 950; line-height: 1.05; color: #f8fafc; }
+.scan-chg { margin-top: 6px; font-size: 13px; font-weight: 900; }
+
+/* Sparkline */
+.scan-spark {
+    margin-top: 8px;
+    width: 92px;
+    height: 28px;
+    opacity: 0.95;
+}
+.scan-spark svg { width: 92px; height: 28px; display: block; }
+
+/* Chips */
+.scan-row { display:flex; flex-wrap:wrap; gap:8px; margin-top: 12px; align-items:center; padding-left: 8px; }
+.scan-chip {
+    display:inline-flex; align-items:center; gap:6px;
+    padding: 6px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 900; letter-spacing: 0.2px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(148,163,184,0.10);
+    color: #e2e8f0;
+}
+.scan-chip.good { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.35); color: #4ade80; }
+.scan-chip.warn { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.35); color: #fbbf24; }
+.scan-chip.bad  { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.35); color: #ef4444; }
+
+/* CTA badge */
+.scan-badge {
+    display:inline-block;
+    margin-top: 2px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(251,191,36,0.95), rgba(245,158,11,0.95));
+    color: #111827;
+    font-weight: 950;
+    font-size: 13px;
+    letter-spacing: 0.3px;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+    border: 1px solid rgba(251,191,36,0.25);
+}
+
+/* Footer mini stats */
+.scan-divider { margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.07); }
+.scan-mini { display:flex; justify-content:space-between; gap:10px; margin-top: 10px; font-size: 12px; color:#cbd5e1; padding-left: 8px; }
+.scan-mini span { color:#94a3b8; font-weight: 700; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1553,8 +1610,46 @@ elif tab == "scanner":
                 if badge_text:
                     badge_html = f'<div class="scan-badge">{badge_text}</div>'
 
+                # Color-coded tile style (visual only)
+                tile_variant = ""
+                if day >= 5.0 or (trend == "UPTREND" and rvol >= 1.8):
+                    tile_variant = " scan-bull"
+                elif day <= -5.0 or trend == "DOWNTREND":
+                    tile_variant = " scan-bear"
+                elif rsi < 40.0:
+                    tile_variant = " scan-ice"
+                elif rsi > 70.0:
+                    tile_variant = " scan-fire"
+                elif rvol >= 3.0:
+                    tile_variant = " scan-vol"
+
+                # Micro "trend" sparkline (derived from day change + RSI; not historical prices)
+                def spark_svg(slope, amp, stroke):
+                    w, h = 92, 28
+                    n = 18
+                    pts = []
+                    for i in range(n):
+                        x = i * (w / (n - 1))
+                        t = i / (n - 1)
+                        # smooth wave + slope, deterministic
+                        y = (h/2) + (amp * (0.9 - abs(t-0.5))) * (0.6 * __import__("math").sin(6.28318*(t+0.08))) - (slope * (t-0.5) * (h/1.6))
+                        y = max(2, min(h-2, y))
+                        pts.append(f"{x:.1f},{y:.1f}")
+                    poly = " ".join(pts)
+                    return f"""<div class='scan-spark'>
+<svg viewBox='0 0 {w} {h}' preserveAspectRatio='none' aria-hidden='true'>
+  <polyline fill='none' stroke='{stroke}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' points='{poly}' />
+</svg>
+</div>"""
+
+                # slope from day change + RSI bias
+                slope = (day / 10.0) + ((rsi - 50.0) / 80.0)
+                amp = 10.0
+                spark_color = "#4ade80" if day >= 0 else "#ef4444"
+                spark_html = spark_svg(slope, amp, spark_color)
+
                 card_html = f'''
-                <div class="scan-tile">
+                <div class="scan-tile{tile_variant}">
                   <div class="scan-head">
                     <div class="scan-left">
                       <div class="scan-ticker">{ticker}</div>
@@ -1563,6 +1658,7 @@ elif tab == "scanner":
                     <div class="scan-right">
                       <div class="scan-price">${price:,.2f}</div>
                       <div class="scan-chg" style="color:{chg_color};">{day_txt}</div>
+                      {spark_html}
                     </div>
                   </div>
 
@@ -1585,10 +1681,12 @@ elif tab == "scanner":
                 st.markdown(card_html, unsafe_allow_html=True)
             # Top ranked list (all signals)
             st.markdown("### 🔥 Biggest Signals (Ranked)")
+            st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
             top_n = min(3, len(any_signal_rows))
             for i, r in enumerate(any_signal_rows[:top_n], start=1):
                 badge = "Watch this one!" if i <= 3 else None
                 render_signal_card(r, badge_text=badge)
+            st.markdown("</div>", unsafe_allow_html=True)
 
             # Category sections
             st.markdown("---")
@@ -1600,9 +1698,11 @@ elif tab == "scanner":
                     continue
                 bucket_rows.sort(key=signal_score, reverse=True)
                 st.markdown(f"#### {title}")
+                st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
                 for i, r in enumerate(bucket_rows[:15], start=1):
                     badge = "Watch this one!" if i == 1 else None
                     render_signal_card(r, badge_text=badge)
+                st.markdown("</div>", unsafe_allow_html=True)
 
 elif tab == "settings":
 
