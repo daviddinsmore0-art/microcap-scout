@@ -279,7 +279,8 @@ def init_db():
                 sniper_min_move DECIMAL(6,2) DEFAULT 8.00,
                 sniper_min_rvol DECIMAL(6,2) DEFAULT 2.00,
                 sniper_min_range DECIMAL(6,2) DEFAULT 10.00,
-                sniper_max_mcap BIGINT DEFAULT 500000000
+                sniper_max_mcap BIGINT DEFAULT 500000000,
+                global_list_enabled TINYINT(1) DEFAULT 0
             )
         """)
 
@@ -304,7 +305,8 @@ def init_db():
             "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_move DECIMAL(6,2) DEFAULT 8.00",
             "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_rvol DECIMAL(6,2) DEFAULT 2.00",
             "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_range DECIMAL(6,2) DEFAULT 10.00",
-            "ALTER TABLE user_alert_settings ADD COLUMN sniper_max_mcap BIGINT DEFAULT 500000000",
+            "ALTER TABLE user_alert_settings ADD COLUMN sniper_max_mcap BIGINT DEFAULT 500000000,
+                global_list_enabled TINYINT(1) DEFAULT 0",
         ]
         for stmt in alter_stmts:
             try:
@@ -1514,112 +1516,150 @@ elif tab == "portfolio":
             render_portfolio_row(row, data, token)
         # (Reorder animation disabled for stability)
 
-elif tab == "alerts":
-    st.markdown("## 🔔 Alerts")
 
-    # --- Load current settings (or defaults) ---
+elif tab == "alerts":
+    st.markdown("## Alerts")
+    st.caption("Simple toggles. Portfolio-first. Optional: include your PennyPulse Global List.")
+
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("SELECT * FROM user_alert_settings WHERE username=%s", (user["username"],))
-    s = cursor.fetchone() or {}
+    # Load current settings (safe defaults)
+    cursor.execute("""
+        SELECT
+            telegram_enabled, telegram_chat_id,
+            pct_change_enabled, pct_change_threshold,
+            vol_spike_enabled,
+            rsi_enabled,
+            sniper_enabled,
+            COALESCE(global_list_enabled, 0) AS global_list_enabled
+        FROM user_alert_settings
+        WHERE username=%s
+        LIMIT 1
+    """, (user["username"],))
+    srow = cursor.fetchone() or {}
 
-    telegram_enabled = bool(s.get("telegram_enabled", 0))
-    telegram_chat_id = s.get("telegram_chat_id", "") or ""
+    telegram_enabled = int(srow.get("telegram_enabled") or 0) == 1
+    telegram_chat_id = (srow.get("telegram_chat_id") or "").strip()
 
-    pct_enabled = bool(s.get("pct_change_enabled", 0))
-    pct_threshold = float(s.get("pct_change_threshold", 5.0) or 5.0)
+    pct_enabled = int(srow.get("pct_change_enabled") or 0) == 1
+    vol_enabled = int(srow.get("vol_spike_enabled") or 0) == 1
+    rsi_enabled = int(srow.get("rsi_enabled") or 0) == 1
+    sniper_enabled = int(srow.get("sniper_enabled") or 0) == 1
+    global_enabled = int(srow.get("global_list_enabled") or 0) == 1
 
-    range_enabled = bool(s.get("range_enabled", 0))
-    range_threshold = float(s.get("range_threshold", 8.0) or 8.0)
-
-    vol_enabled = bool(s.get("vol_spike_enabled", 0))
-    vol_mult = float(s.get("vol_spike_mult", 2.5) or 2.5)
-    vol_min_move = float(s.get("vol_spike_min_move", 2.0) or 2.0)
-
-    rsi_enabled = bool(s.get("rsi_enabled", 0))
-    rsi_low = float(s.get("rsi_low", 30.0) or 30.0)
-    rsi_high = float(s.get("rsi_high", 70.0) or 70.0)
-    rsi_confirm_move = float(s.get("rsi_confirm_move", 3.0) or 3.0)
-    rsi_confirm_rvol = float(s.get("rsi_confirm_rvol", 1.5) or 1.5)
-
-    sniper_enabled = bool(s.get("sniper_enabled", 0))
-    sniper_max_price = float(s.get("sniper_max_price", 5.0) or 5.0)
-    sniper_min_move = float(s.get("sniper_min_move", 8.0) or 8.0)
-    sniper_min_rvol = float(s.get("sniper_min_rvol", 2.0) or 2.0)
-    sniper_min_range = float(s.get("sniper_min_range", 10.0) or 10.0)
-    sniper_max_mcap = float(s.get("sniper_max_mcap", 500000000) or 500000000)
-
-    st.caption("All alerts are portfolio-only and delivered via Telegram. Enable what you want — deduped so you won't get spammed.")
+    # ---------- UI ----------
+    st.markdown(
+        """
+        <div class="card" style="border-left:4px solid #4ade80; margin-bottom:14px;">
+          <div style="color:#4ade80; font-size:0.8rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">
+            TELEGRAM DELIVERY (OPTIONAL)
+          </div>
+          <div style="font-size:0.92rem; color:#cbd5e1; line-height:1.45;">
+            Turn this on if you want real-time alerts delivered to you. Otherwise, you can still view alerts inside the app.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     telegram_enabled_ui = st.checkbox("Enable Telegram alerts", value=telegram_enabled)
+    telegram_chat_id_ui = st.text_input(
+        "Your Telegram Chat ID",
+        value=telegram_chat_id,
+        placeholder="Example: 123456789",
+        disabled=not telegram_enabled_ui
+    )
 
-    if telegram_enabled_ui:
-        st.markdown("**Step 1:** In Telegram, open your PennyPulse bot and press **Start**.")
-        st.markdown("**Step 2:** Paste your Telegram **Chat ID** below.")
-        telegram_chat_id_ui = st.text_input("Telegram Chat ID", value=telegram_chat_id, placeholder="Example: 123456789")
-    else:
-        telegram_chat_id_ui = telegram_chat_id  # keep stored value
+    st.markdown(
+        """
+        <div class="card" style="border-left:4px solid #fbbf24; margin-bottom:14px;">
+          <div style="color:#fbbf24; font-size:0.8rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">
+            SCAN SCOPE
+          </div>
+          <div style="font-size:0.92rem; color:#cbd5e1; line-height:1.45;">
+            By default, alerts scan <b>your portfolio</b>. Turn on Global List if you want PennyPulse to also scan your curated universe.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    st.divider()
-    st.markdown("### Alert Types")
-
-    pct_enabled_ui = st.checkbox("Price move alert (±%)", value=pct_enabled, disabled=not telegram_enabled_ui)
-    pct_threshold_ui = st.slider("Trigger at (%)", 1.0, 25.0, pct_threshold, 0.5, disabled=not (telegram_enabled_ui and pct_enabled_ui))
-
-    range_enabled_ui = st.checkbox("Range expansion (intraday range %)", value=range_enabled, disabled=not telegram_enabled_ui)
-    range_threshold_ui = st.slider("Range % threshold", 2.0, 30.0, range_threshold, 0.5, disabled=not (telegram_enabled_ui and range_enabled_ui))
-
-    vol_enabled_ui = st.checkbox("Volume spike vs avg volume (10d)", value=vol_enabled, disabled=not telegram_enabled_ui)
-    vol_mult_ui = st.slider("Volume multiplier (x)", 1.0, 10.0, vol_mult, 0.1, disabled=not (telegram_enabled_ui and vol_enabled_ui))
-    vol_min_move_ui = st.slider("Min % move to confirm", 0.0, 10.0, vol_min_move, 0.5, disabled=not (telegram_enabled_ui and vol_enabled_ui))
-
-    rsi_enabled_ui = st.checkbox("RSI extremes", value=rsi_enabled, disabled=not telegram_enabled_ui)
-    col1, col2 = st.columns(2)
-    with col1:
-        rsi_low_ui = st.slider("Oversold (RSI <=)", 5.0, 50.0, rsi_low, 1.0, disabled=not (telegram_enabled_ui and rsi_enabled_ui))
-    with col2:
-        rsi_high_ui = st.slider("Overbought (RSI >=)", 50.0, 95.0, rsi_high, 1.0, disabled=not (telegram_enabled_ui and rsi_enabled_ui))
-    rsi_confirm_move_ui = st.slider("Confirm with move ≥ (%)", 0.0, 10.0, rsi_confirm_move, 0.5, disabled=not (telegram_enabled_ui and rsi_enabled_ui))
-    rsi_confirm_rvol_ui = st.slider("OR confirm with RVOL ≥", 1.0, 10.0, rsi_confirm_rvol, 0.1, disabled=not (telegram_enabled_ui and rsi_enabled_ui))
+    global_enabled_ui = st.checkbox("Include PennyPulse Global List (optional)", value=global_enabled)
 
     st.divider()
-    st.markdown("### 🧨 Penny Sniper (optional)")
-    st.caption("High-signal penny runner alerts. Uses current_price + move + volume/range filters.")
-    sniper_enabled_ui = st.checkbox("Enable Penny Sniper alerts", value=sniper_enabled, disabled=not telegram_enabled_ui)
+    st.markdown("### 🔔 Alert Types")
 
-    colA, colB, colC = st.columns(3)
-    with colA:
-        sniper_max_price_ui = st.number_input("Max price ($)", min_value=0.5, max_value=50.0, value=float(sniper_max_price), step=0.5, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
-        sniper_min_move_ui = st.number_input("Min |% move|", min_value=1.0, max_value=50.0, value=float(sniper_min_move), step=0.5, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
-    with colB:
-        sniper_min_rvol_ui = st.number_input("Min RVOL", min_value=1.0, max_value=20.0, value=float(sniper_min_rvol), step=0.1, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
-        sniper_min_range_ui = st.number_input("Min range %", min_value=1.0, max_value=50.0, value=float(sniper_min_range), step=0.5, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
-    with colC:
-        sniper_max_mcap_ui = st.number_input("Max market cap", min_value=0.0, max_value=50000000000.0, value=float(sniper_max_mcap), step=50000000.0, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
+    # 1) Simple (fixed) price alert
+    st.markdown("**Price Move Alert (Simple)**")
+    st.caption("Fires if any tracked ticker moves **±5%** today. (No slider — always 5%.)")
+    pct_enabled_ui = st.checkbox("Enable ±5% price alerts", value=pct_enabled)
+
+    st.divider()
+
+    # 2–4) Pro alerts (3 only)
+    st.markdown("**Pro Alerts (3 pack)**")
+    st.caption("These use your cached technicals/volume metrics. Keep them simple: toggle on/off.")
+
+    vol_enabled_ui = st.checkbox(
+        "🚀 Volume Surge Breakout",
+        value=vol_enabled,
+        help="Looks for unusual relative volume + meaningful move (great for breakouts)."
+    )
+
+    rsi_enabled_ui = st.checkbox(
+        "🔄 RSI Reversal",
+        value=rsi_enabled,
+        help="Flags oversold/overbought reversals with a small move/volume confirmation."
+    )
+
+    sniper_enabled_ui = st.checkbox(
+        "🧨 Penny Sniper",
+        value=sniper_enabled,
+        help="High-signal penny runners (price + move + RVOL + range + market-cap guardrails)."
+    )
 
     st.divider()
 
     if st.button("Save Alert Settings"):
+        # Fixed pro defaults (kept in DB so the PHP worker can rely on them)
+        pct_threshold = 5.00
+        vol_mult = 2.50
+        vol_min_move = 3.00
+        rsi_low = 30.00
+        rsi_high = 70.00
+        rsi_confirm_move = 3.00
+        rsi_confirm_rvol = 1.50
+
+        sniper_max_price = 5.0000
+        sniper_min_move = 8.00
+        sniper_min_rvol = 2.00
+        sniper_min_range = 10.00
+        sniper_max_mcap = 500000000
+
         cursor.execute("""
             INSERT INTO user_alert_settings (
                 username,
                 telegram_enabled, telegram_chat_id,
+                global_list_enabled,
                 pct_change_enabled, pct_change_threshold,
-                range_enabled, range_threshold,
                 vol_spike_enabled, vol_spike_mult, vol_spike_min_move,
                 rsi_enabled, rsi_low, rsi_high, rsi_confirm_move, rsi_confirm_rvol,
                 sniper_enabled, sniper_max_price, sniper_min_move, sniper_min_rvol, sniper_min_range, sniper_max_mcap
             ) VALUES (
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                %s,%s,%s,
+                %s,
+                %s,%s,
+                %s,%s,%s,
+                %s,%s,%s,%s,%s,
+                %s,%s,%s,%s,%s,%s
             )
             ON DUPLICATE KEY UPDATE
                 telegram_enabled=VALUES(telegram_enabled),
                 telegram_chat_id=VALUES(telegram_chat_id),
+                global_list_enabled=VALUES(global_list_enabled),
                 pct_change_enabled=VALUES(pct_change_enabled),
                 pct_change_threshold=VALUES(pct_change_threshold),
-                range_enabled=VALUES(range_enabled),
-                range_threshold=VALUES(range_threshold),
                 vol_spike_enabled=VALUES(vol_spike_enabled),
                 vol_spike_mult=VALUES(vol_spike_mult),
                 vol_spike_min_move=VALUES(vol_spike_min_move),
@@ -1637,31 +1677,49 @@ elif tab == "alerts":
         """, (
             user["username"],
             1 if telegram_enabled_ui else 0,
-            telegram_chat_id_ui.strip() if telegram_enabled_ui else (telegram_chat_id or ""),
+            telegram_chat_id_ui.strip() if telegram_enabled_ui else "",
+            1 if global_enabled_ui else 0,
             1 if pct_enabled_ui else 0,
-            float(pct_threshold_ui),
-            1 if range_enabled_ui else 0,
-            float(range_threshold_ui),
+            float(pct_threshold),
             1 if vol_enabled_ui else 0,
-            float(vol_mult_ui),
-            float(vol_min_move_ui),
+            float(vol_mult),
+            float(vol_min_move),
             1 if rsi_enabled_ui else 0,
-            float(rsi_low_ui),
-            float(rsi_high_ui),
-            float(rsi_confirm_move_ui),
-            float(rsi_confirm_rvol_ui),
+            float(rsi_low),
+            float(rsi_high),
+            float(rsi_confirm_move),
+            float(rsi_confirm_rvol),
             1 if sniper_enabled_ui else 0,
-            float(sniper_max_price_ui),
-            float(sniper_min_move_ui),
-            float(sniper_min_rvol_ui),
-            float(sniper_min_range_ui),
-            float(sniper_max_mcap_ui)
+            float(sniper_max_price),
+            float(sniper_min_move),
+            float(sniper_min_rvol),
+            float(sniper_min_range),
+            float(sniper_max_mcap),
         ))
         conn.commit()
         st.success("Alert settings saved.")
 
-    conn.close()
+    # Optional: show last 5 alerts (if alert_history exists)
+    try:
+        cursor.execute("""
+            SELECT message, created_at
+            FROM alert_history
+            WHERE username=%s
+            ORDER BY created_at DESC
+            LIMIT 5
+        """, (user["username"],))
+        rows = cursor.fetchall() or []
+        if rows:
+            st.markdown("### Recent Alerts")
+            html = "".join([f"<div style='margin-bottom:6px;'>🚨 {m}</div>" for m, _ in rows])
+            st.markdown(
+                f"<div class='card' style='border-left:4px solid #ef4444;'>{html}</div>",
+                unsafe_allow_html=True
+            )
+    except Exception:
+        pass
 
+    conn.close()
 
 
 elif tab == "scanner":
