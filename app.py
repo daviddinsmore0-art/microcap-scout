@@ -255,6 +255,62 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, portfolio_type VARCHAR(20) DEFAULT 'REAL', is_active BOOLEAN DEFAULT TRUE, realized_pl DECIMAL(20,2) DEFAULT 0.00, PRIMARY KEY (id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+
+        # --- Alert settings (per user) ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_alert_settings (
+                username VARCHAR(255) PRIMARY KEY,
+                telegram_enabled TINYINT(1) DEFAULT 0,
+                telegram_chat_id VARCHAR(64) DEFAULT '',
+                pct_change_enabled TINYINT(1) DEFAULT 0,
+                pct_change_threshold DECIMAL(6,2) DEFAULT 5.00,
+                range_enabled TINYINT(1) DEFAULT 0,
+                range_threshold DECIMAL(6,2) DEFAULT 8.00,
+                vol_spike_enabled TINYINT(1) DEFAULT 0,
+                vol_spike_mult DECIMAL(6,2) DEFAULT 2.50,
+                vol_spike_min_move DECIMAL(6,2) DEFAULT 2.00,
+                rsi_enabled TINYINT(1) DEFAULT 0,
+                rsi_low DECIMAL(6,2) DEFAULT 30.00,
+                rsi_high DECIMAL(6,2) DEFAULT 70.00,
+                rsi_confirm_move DECIMAL(6,2) DEFAULT 3.00,
+                rsi_confirm_rvol DECIMAL(6,2) DEFAULT 1.50,
+                sniper_enabled TINYINT(1) DEFAULT 0,
+                sniper_max_price DECIMAL(10,4) DEFAULT 5.0000,
+                sniper_min_move DECIMAL(6,2) DEFAULT 8.00,
+                sniper_min_rvol DECIMAL(6,2) DEFAULT 2.00,
+                sniper_min_range DECIMAL(6,2) DEFAULT 10.00,
+                sniper_max_mcap BIGINT DEFAULT 500000000
+            )
+        """)
+
+        # Add missing columns safely (for existing installs)
+        alter_stmts = [
+            "ALTER TABLE user_alert_settings ADD COLUMN telegram_enabled TINYINT(1) DEFAULT 0",
+            "ALTER TABLE user_alert_settings ADD COLUMN telegram_chat_id VARCHAR(64) DEFAULT ''",
+            "ALTER TABLE user_alert_settings ADD COLUMN pct_change_enabled TINYINT(1) DEFAULT 0",
+            "ALTER TABLE user_alert_settings ADD COLUMN pct_change_threshold DECIMAL(6,2) DEFAULT 5.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN range_enabled TINYINT(1) DEFAULT 0",
+            "ALTER TABLE user_alert_settings ADD COLUMN range_threshold DECIMAL(6,2) DEFAULT 8.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN vol_spike_enabled TINYINT(1) DEFAULT 0",
+            "ALTER TABLE user_alert_settings ADD COLUMN vol_spike_mult DECIMAL(6,2) DEFAULT 2.50",
+            "ALTER TABLE user_alert_settings ADD COLUMN vol_spike_min_move DECIMAL(6,2) DEFAULT 2.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN rsi_enabled TINYINT(1) DEFAULT 0",
+            "ALTER TABLE user_alert_settings ADD COLUMN rsi_low DECIMAL(6,2) DEFAULT 30.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN rsi_high DECIMAL(6,2) DEFAULT 70.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN rsi_confirm_move DECIMAL(6,2) DEFAULT 3.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN rsi_confirm_rvol DECIMAL(6,2) DEFAULT 1.50",
+            "ALTER TABLE user_alert_settings ADD COLUMN sniper_enabled TINYINT(1) DEFAULT 0",
+            "ALTER TABLE user_alert_settings ADD COLUMN sniper_max_price DECIMAL(10,4) DEFAULT 5.0000",
+            "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_move DECIMAL(6,2) DEFAULT 8.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_rvol DECIMAL(6,2) DEFAULT 2.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_range DECIMAL(6,2) DEFAULT 10.00",
+            "ALTER TABLE user_alert_settings ADD COLUMN sniper_max_mcap BIGINT DEFAULT 500000000",
+        ]
+        for stmt in alter_stmts:
+            try:
+                cursor.execute(stmt)
+            except Exception:
+                pass
         # Ensure created_at exists for ordering (safe if column already exists)
         try:
             cursor.execute("ALTER TABLE user_alerts ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
@@ -1267,7 +1323,7 @@ if tab == "home":
     # PENNYPULSE ALERT BANNER (PER USER)
     # ============================================
     # ============================================
-    # TOP MOVERS (Portfolio) — PER USER (portfolio)
+    # BIG MOVERS (±5%) — PER USER (portfolio)
     # ============================================
     try:
         conn = get_connection()
@@ -1284,8 +1340,9 @@ if tab == "home":
                 SELECT ticker, current_price, day_change
                 FROM stock_cache
                 WHERE ticker IN ({placeholders})
+                  AND day_change >= 5
                 ORDER BY day_change DESC
-                LIMIT 3
+                LIMIT 5
             """, tuple(user_tickers))
             gainers = cursor.fetchall()
 
@@ -1293,8 +1350,9 @@ if tab == "home":
                 SELECT ticker, current_price, day_change
                 FROM stock_cache
                 WHERE ticker IN ({placeholders})
+                  AND day_change <= -5
                 ORDER BY day_change ASC
-                LIMIT 3
+                LIMIT 5
             """, tuple(user_tickers))
             losers = cursor.fetchall()
 
@@ -1322,8 +1380,8 @@ if tab == "home":
         if not user_tickers:
             body_html = "<div style='opacity:0.75;'>No tickers in your portfolio yet.</div>"
         else:
-            gainers_html = "".join(fmt_row(t, p, c) for t, p, c in gainers) or "<div style='opacity:0.7;'>No gainers yet.</div>"
-            losers_html  = "".join(fmt_row(t, p, c) for t, p, c in losers)  or "<div style='opacity:0.7;'>No losers yet.</div>"
+            gainers_html = "".join(fmt_row(t, p, c) for t, p, c in gainers) or "<div style='opacity:0.7;'>No gainers ≥ 5%.</div>"
+            losers_html  = "".join(fmt_row(t, p, c) for t, p, c in losers)  or "<div style='opacity:0.7;'>No losers ≤ -5%.</div>"
 
             body_html = (
                 "<div style='display:flex; gap:18px; flex-wrap:wrap;'>"
@@ -1341,7 +1399,7 @@ if tab == "home":
         st.markdown(
             f"""<div class="card" style="border-left:4px solid #38bdf8; margin-bottom:15px; background:#111827;">
                 <div style="color:#38bdf8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
-                    TOP MOVERS (Portfolio)
+                    BIG MOVERS (±5%)
                 </div>
                 {body_html}
             </div>""",
@@ -1457,38 +1515,153 @@ elif tab == "portfolio":
         # (Reorder animation disabled for stability)
 
 elif tab == "alerts":
-    st.markdown("### Alert Settings")
+    st.markdown("## 🔔 Alerts")
 
+    # --- Load current settings (or defaults) ---
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    cursor.execute(
-        "SELECT pct_change_threshold FROM user_alert_settings WHERE username=%s",
-        (user['username'],)
-    )
-    row = cursor.fetchone()
+    cursor.execute("SELECT * FROM user_alert_settings WHERE username=%s", (user["username"],))
+    s = cursor.fetchone() or {}
 
-    current_threshold = float(row['pct_change_threshold']) if row else 5.0
+    telegram_enabled = bool(s.get("telegram_enabled", 0))
+    telegram_chat_id = s.get("telegram_chat_id", "") or ""
 
-    new_val = st.slider(
-        "Alert me when any stock moves ± (%)",
-        min_value=1.0,
-        max_value=20.0,
-        value=current_threshold,
-        step=0.5
-    )
+    pct_enabled = bool(s.get("pct_change_enabled", 0))
+    pct_threshold = float(s.get("pct_change_threshold", 5.0) or 5.0)
+
+    range_enabled = bool(s.get("range_enabled", 0))
+    range_threshold = float(s.get("range_threshold", 8.0) or 8.0)
+
+    vol_enabled = bool(s.get("vol_spike_enabled", 0))
+    vol_mult = float(s.get("vol_spike_mult", 2.5) or 2.5)
+    vol_min_move = float(s.get("vol_spike_min_move", 2.0) or 2.0)
+
+    rsi_enabled = bool(s.get("rsi_enabled", 0))
+    rsi_low = float(s.get("rsi_low", 30.0) or 30.0)
+    rsi_high = float(s.get("rsi_high", 70.0) or 70.0)
+    rsi_confirm_move = float(s.get("rsi_confirm_move", 3.0) or 3.0)
+    rsi_confirm_rvol = float(s.get("rsi_confirm_rvol", 1.5) or 1.5)
+
+    sniper_enabled = bool(s.get("sniper_enabled", 0))
+    sniper_max_price = float(s.get("sniper_max_price", 5.0) or 5.0)
+    sniper_min_move = float(s.get("sniper_min_move", 8.0) or 8.0)
+    sniper_min_rvol = float(s.get("sniper_min_rvol", 2.0) or 2.0)
+    sniper_min_range = float(s.get("sniper_min_range", 10.0) or 10.0)
+    sniper_max_mcap = float(s.get("sniper_max_mcap", 500000000) or 500000000)
+
+    st.caption("All alerts are portfolio-only and delivered via Telegram. Enable what you want — deduped so you won't get spammed.")
+
+    telegram_enabled_ui = st.checkbox("Enable Telegram alerts", value=telegram_enabled)
+
+    if telegram_enabled_ui:
+        st.markdown("**Step 1:** In Telegram, open your PennyPulse bot and press **Start**.")
+        st.markdown("**Step 2:** Paste your Telegram **Chat ID** below.")
+        telegram_chat_id_ui = st.text_input("Telegram Chat ID", value=telegram_chat_id, placeholder="Example: 123456789")
+    else:
+        telegram_chat_id_ui = telegram_chat_id  # keep stored value
+
+    st.divider()
+    st.markdown("### Alert Types")
+
+    pct_enabled_ui = st.checkbox("Price move alert (±%)", value=pct_enabled, disabled=not telegram_enabled_ui)
+    pct_threshold_ui = st.slider("Trigger at (%)", 1.0, 25.0, pct_threshold, 0.5, disabled=not (telegram_enabled_ui and pct_enabled_ui))
+
+    range_enabled_ui = st.checkbox("Range expansion (intraday range %)", value=range_enabled, disabled=not telegram_enabled_ui)
+    range_threshold_ui = st.slider("Range % threshold", 2.0, 30.0, range_threshold, 0.5, disabled=not (telegram_enabled_ui and range_enabled_ui))
+
+    vol_enabled_ui = st.checkbox("Volume spike vs avg volume (10d)", value=vol_enabled, disabled=not telegram_enabled_ui)
+    vol_mult_ui = st.slider("Volume multiplier (x)", 1.0, 10.0, vol_mult, 0.1, disabled=not (telegram_enabled_ui and vol_enabled_ui))
+    vol_min_move_ui = st.slider("Min % move to confirm", 0.0, 10.0, vol_min_move, 0.5, disabled=not (telegram_enabled_ui and vol_enabled_ui))
+
+    rsi_enabled_ui = st.checkbox("RSI extremes", value=rsi_enabled, disabled=not telegram_enabled_ui)
+    col1, col2 = st.columns(2)
+    with col1:
+        rsi_low_ui = st.slider("Oversold (RSI <=)", 5.0, 50.0, rsi_low, 1.0, disabled=not (telegram_enabled_ui and rsi_enabled_ui))
+    with col2:
+        rsi_high_ui = st.slider("Overbought (RSI >=)", 50.0, 95.0, rsi_high, 1.0, disabled=not (telegram_enabled_ui and rsi_enabled_ui))
+    rsi_confirm_move_ui = st.slider("Confirm with move ≥ (%)", 0.0, 10.0, rsi_confirm_move, 0.5, disabled=not (telegram_enabled_ui and rsi_enabled_ui))
+    rsi_confirm_rvol_ui = st.slider("OR confirm with RVOL ≥", 1.0, 10.0, rsi_confirm_rvol, 0.1, disabled=not (telegram_enabled_ui and rsi_enabled_ui))
+
+    st.divider()
+    st.markdown("### 🧨 Penny Sniper (optional)")
+    st.caption("High-signal penny runner alerts. Uses current_price + move + volume/range filters.")
+    sniper_enabled_ui = st.checkbox("Enable Penny Sniper alerts", value=sniper_enabled, disabled=not telegram_enabled_ui)
+
+    colA, colB, colC = st.columns(3)
+    with colA:
+        sniper_max_price_ui = st.number_input("Max price ($)", min_value=0.5, max_value=50.0, value=float(sniper_max_price), step=0.5, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
+        sniper_min_move_ui = st.number_input("Min |% move|", min_value=1.0, max_value=50.0, value=float(sniper_min_move), step=0.5, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
+    with colB:
+        sniper_min_rvol_ui = st.number_input("Min RVOL", min_value=1.0, max_value=20.0, value=float(sniper_min_rvol), step=0.1, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
+        sniper_min_range_ui = st.number_input("Min range %", min_value=1.0, max_value=50.0, value=float(sniper_min_range), step=0.5, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
+    with colC:
+        sniper_max_mcap_ui = st.number_input("Max market cap", min_value=0.0, max_value=50000000000.0, value=float(sniper_max_mcap), step=50000000.0, disabled=not (telegram_enabled_ui and sniper_enabled_ui))
+
+    st.divider()
 
     if st.button("Save Alert Settings"):
         cursor.execute("""
-            INSERT INTO user_alert_settings (username, pct_change_threshold)
-            VALUES (%s, %s)
+            INSERT INTO user_alert_settings (
+                username,
+                telegram_enabled, telegram_chat_id,
+                pct_change_enabled, pct_change_threshold,
+                range_enabled, range_threshold,
+                vol_spike_enabled, vol_spike_mult, vol_spike_min_move,
+                rsi_enabled, rsi_low, rsi_high, rsi_confirm_move, rsi_confirm_rvol,
+                sniper_enabled, sniper_max_price, sniper_min_move, sniper_min_rvol, sniper_min_range, sniper_max_mcap
+            ) VALUES (
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+            )
             ON DUPLICATE KEY UPDATE
-            pct_change_threshold = VALUES(pct_change_threshold)
-        """, (user['username'], new_val))
+                telegram_enabled=VALUES(telegram_enabled),
+                telegram_chat_id=VALUES(telegram_chat_id),
+                pct_change_enabled=VALUES(pct_change_enabled),
+                pct_change_threshold=VALUES(pct_change_threshold),
+                range_enabled=VALUES(range_enabled),
+                range_threshold=VALUES(range_threshold),
+                vol_spike_enabled=VALUES(vol_spike_enabled),
+                vol_spike_mult=VALUES(vol_spike_mult),
+                vol_spike_min_move=VALUES(vol_spike_min_move),
+                rsi_enabled=VALUES(rsi_enabled),
+                rsi_low=VALUES(rsi_low),
+                rsi_high=VALUES(rsi_high),
+                rsi_confirm_move=VALUES(rsi_confirm_move),
+                rsi_confirm_rvol=VALUES(rsi_confirm_rvol),
+                sniper_enabled=VALUES(sniper_enabled),
+                sniper_max_price=VALUES(sniper_max_price),
+                sniper_min_move=VALUES(sniper_min_move),
+                sniper_min_rvol=VALUES(sniper_min_rvol),
+                sniper_min_range=VALUES(sniper_min_range),
+                sniper_max_mcap=VALUES(sniper_max_mcap)
+        """, (
+            user["username"],
+            1 if telegram_enabled_ui else 0,
+            telegram_chat_id_ui.strip() if telegram_enabled_ui else (telegram_chat_id or ""),
+            1 if pct_enabled_ui else 0,
+            float(pct_threshold_ui),
+            1 if range_enabled_ui else 0,
+            float(range_threshold_ui),
+            1 if vol_enabled_ui else 0,
+            float(vol_mult_ui),
+            float(vol_min_move_ui),
+            1 if rsi_enabled_ui else 0,
+            float(rsi_low_ui),
+            float(rsi_high_ui),
+            float(rsi_confirm_move_ui),
+            float(rsi_confirm_rvol_ui),
+            1 if sniper_enabled_ui else 0,
+            float(sniper_max_price_ui),
+            float(sniper_min_move_ui),
+            float(sniper_min_rvol_ui),
+            float(sniper_min_range_ui),
+            float(sniper_max_mcap_ui)
+        ))
         conn.commit()
         st.success("Alert settings saved.")
 
     conn.close()
+
 
 
 elif tab == "scanner":
