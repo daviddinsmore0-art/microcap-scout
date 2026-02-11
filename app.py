@@ -1313,11 +1313,11 @@ if tab == "home":
         conn = get_connection(); cursor = conn.cursor()
         cursor.execute("SELECT content FROM morning_briefing_global WHERE id=1")
         row = cursor.fetchone()
-        briefing_text = row[0] if row else ""
+        brief_text = row[0] if row else ""
         conn.close()
 
         # --- Normalize briefing text for HTML rendering ---
-        if briefing_text:
+        if brief_text:
             # Fix common mojibake (UTF-8 interpreted as Latin-1)
             if any(x in brief_text for x in ['â', 'Ã', 'Â']):
                 try:
