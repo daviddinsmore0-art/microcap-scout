@@ -1319,18 +1319,18 @@ if tab == "home":
         # --- Normalize briefing text for HTML rendering ---
         if briefing_text:
             # Fix common mojibake (UTF-8 interpreted as Latin-1)
-            if any(x in briefing_text for x in ['â', 'Ã', 'Â']):
+            if any(x in brief_text for x in ['â', 'Ã', 'Â']):
                 try:
-                    briefing_text = briefing_text.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
+                    brief_text = brief_text.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
                 except Exception:
                     pass
-            briefing_text = briefing_text.replace("\r\n", "\n").replace("\r", "\n")
-            briefing_text = briefing_text.replace("\n", "<br>")
+            brief_text = brief_text.replace("\r\n", "\n").replace("\r", "\n")
+            brief_text = brief_text.replace("\n", "<br>")
 
         st.markdown(
             f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
                 <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div>
-                <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{briefing_text}</div>
+                <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{brief_text}</div>
             </div>""",
             unsafe_allow_html=True
         )
