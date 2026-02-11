@@ -255,36 +255,6 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS user_sessions (token VARCHAR(255) PRIMARY KEY, username VARCHAR(255))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_portfolio (id INT NOT NULL AUTO_INCREMENT, username VARCHAR(255), ticker VARCHAR(20), shares DECIMAL(10,4) DEFAULT 0, entry_price DECIMAL(20,4) DEFAULT 0, portfolio_type VARCHAR(20) DEFAULT 'REAL', is_active BOOLEAN DEFAULT TRUE, realized_pl DECIMAL(20,2) DEFAULT 0.00, PRIMARY KEY (id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS user_alerts (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ticker VARCHAR(20), condition_type VARCHAR(10), target_price DECIMAL(20,4), is_triggered BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-
-        # --- Per-user alert settings (Telegram + toggles) ---
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_alert_settings (
-                username VARCHAR(255) NOT NULL PRIMARY KEY,
-                telegram_enabled TINYINT(1) NOT NULL DEFAULT 0,
-                telegram_chat_id VARCHAR(64) DEFAULT NULL,
-                pct_change_enabled TINYINT(1) NOT NULL DEFAULT 1,
-                pct_change_threshold DECIMAL(6,2) NOT NULL DEFAULT 5.00,
-                unusual_vol_enabled TINYINT(1) NOT NULL DEFAULT 0,
-                rvol_threshold DECIMAL(6,2) NOT NULL DEFAULT 2.00,
-                cooldown_minutes INT NOT NULL DEFAULT 60,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        """)
-        # Add missing columns safely (older tables)
-        for _sql in [
-            "ALTER TABLE user_alert_settings ADD COLUMN telegram_enabled TINYINT(1) NOT NULL DEFAULT 0",
-            "ALTER TABLE user_alert_settings ADD COLUMN telegram_chat_id VARCHAR(64) DEFAULT NULL",
-            "ALTER TABLE user_alert_settings ADD COLUMN pct_change_enabled TINYINT(1) NOT NULL DEFAULT 1",
-            "ALTER TABLE user_alert_settings ADD COLUMN unusual_vol_enabled TINYINT(1) NOT NULL DEFAULT 0",
-            "ALTER TABLE user_alert_settings ADD COLUMN rvol_threshold DECIMAL(6,2) NOT NULL DEFAULT 2.00",
-            "ALTER TABLE user_alert_settings ADD COLUMN cooldown_minutes INT NOT NULL DEFAULT 60",
-            "ALTER TABLE user_alert_settings ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
-        ]:
-            try:
-                cursor.execute(_sql)
-            except Exception:
-                pass
-
         # Ensure created_at exists for ordering (safe if column already exists)
         try:
             cursor.execute("ALTER TABLE user_alerts ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
@@ -1297,7 +1267,7 @@ if tab == "home":
     # PENNYPULSE ALERT BANNER (PER USER)
     # ============================================
     # ============================================
-    # BIG MOVERS (±5%) — PER USER (portfolio)
+    # TOP MOVERS (Portfolio) — PER USER (portfolio)
     # ============================================
     try:
         conn = get_connection()
@@ -1314,9 +1284,8 @@ if tab == "home":
                 SELECT ticker, current_price, day_change
                 FROM stock_cache
                 WHERE ticker IN ({placeholders})
-                  AND day_change >= 5
                 ORDER BY day_change DESC
-                LIMIT 5
+                LIMIT 3
             """, tuple(user_tickers))
             gainers = cursor.fetchall()
 
@@ -1324,9 +1293,8 @@ if tab == "home":
                 SELECT ticker, current_price, day_change
                 FROM stock_cache
                 WHERE ticker IN ({placeholders})
-                  AND day_change <= -5
                 ORDER BY day_change ASC
-                LIMIT 5
+                LIMIT 3
             """, tuple(user_tickers))
             losers = cursor.fetchall()
 
@@ -1354,8 +1322,8 @@ if tab == "home":
         if not user_tickers:
             body_html = "<div style='opacity:0.75;'>No tickers in your portfolio yet.</div>"
         else:
-            gainers_html = "".join(fmt_row(t, p, c) for t, p, c in gainers) or "<div style='opacity:0.7;'>No gainers ≥ 5%.</div>"
-            losers_html  = "".join(fmt_row(t, p, c) for t, p, c in losers)  or "<div style='opacity:0.7;'>No losers ≤ -5%.</div>"
+            gainers_html = "".join(fmt_row(t, p, c) for t, p, c in gainers) or "<div style='opacity:0.7;'>No gainers yet.</div>"
+            losers_html  = "".join(fmt_row(t, p, c) for t, p, c in losers)  or "<div style='opacity:0.7;'>No losers yet.</div>"
 
             body_html = (
                 "<div style='display:flex; gap:18px; flex-wrap:wrap;'>"
@@ -1373,7 +1341,7 @@ if tab == "home":
         st.markdown(
             f"""<div class="card" style="border-left:4px solid #38bdf8; margin-bottom:15px; background:#111827;">
                 <div style="color:#38bdf8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
-                    BIG MOVERS (±5%)
+                    TOP MOVERS (Portfolio)
                 </div>
                 {body_html}
             </div>""",
@@ -1488,85 +1456,40 @@ elif tab == "portfolio":
             render_portfolio_row(row, data, token)
         # (Reorder animation disabled for stability)
 
-
 elif tab == "alerts":
     st.markdown("### Alert Settings")
 
-    # Load current settings
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("""
-        SELECT
-            telegram_enabled,
-            telegram_chat_id,
-            pct_change_enabled,
-            pct_change_threshold
-        FROM user_alert_settings
-        WHERE username = %s
-    """, (user['username'],))
-    row = cursor.fetchone() or {}
-    conn.close()
 
-    telegram_enabled = bool(row.get("telegram_enabled", 0))
-    telegram_chat_id = row.get("telegram_chat_id") or ""
-    pct_enabled = bool(row.get("pct_change_enabled", 1))
-    pct_threshold = float(row.get("pct_change_threshold", 5.0) or 5.0)
+    cursor.execute(
+        "SELECT pct_change_threshold FROM user_alert_settings WHERE username=%s",
+        (user['username'],)
+    )
+    row = cursor.fetchone()
 
-    # --- Telegram setup ---
-    st.markdown("#### Telegram Alerts")
-    telegram_enabled = st.checkbox("Enable Telegram alerts", value=telegram_enabled)
+    current_threshold = float(row['pct_change_threshold']) if row else 5.0
 
-    if telegram_enabled:
-        st.info(
-            "To connect Telegram alerts:\n"
-            "1) Open Telegram and start a chat with the PennyPulse bot\n"
-            "2) Send /start\n"
-            "3) Paste your Telegram **Chat ID** below (numbers only).\n\n"
-            "Tip: you can get your Chat ID by messaging @userinfobot (or any chat-id bot) in Telegram."
-        )
-        telegram_chat_id = st.text_input("Telegram Chat ID", value=telegram_chat_id, placeholder="e.g. 123456789")
-
-    st.divider()
-
-    # --- Price move alerts ---
-    st.markdown("#### Price Move Alerts")
-    pct_enabled = st.checkbox("Alert me when a stock moves ±(%) today", value=pct_enabled)
-    pct_threshold = st.number_input(
-        "Threshold (%)",
+    new_val = st.slider(
+        "Alert me when any stock moves ± (%)",
         min_value=1.0,
-        max_value=50.0,
-        value=float(pct_threshold),
-        step=0.5,
-        format="%.2f",
-        disabled=not pct_enabled,
+        max_value=20.0,
+        value=current_threshold,
+        step=0.5
     )
 
     if st.button("Save Alert Settings"):
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO user_alert_settings
-                (username, telegram_enabled, telegram_chat_id, pct_change_enabled, pct_change_threshold)
-            VALUES
-                (%s, %s, %s, %s, %s)
+        cursor.execute("""
+            INSERT INTO user_alert_settings (username, pct_change_threshold)
+            VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE
-                telegram_enabled = VALUES(telegram_enabled),
-                telegram_chat_id = VALUES(telegram_chat_id),
-                pct_change_enabled = VALUES(pct_change_enabled),
-                pct_change_threshold = VALUES(pct_change_threshold)
-            """,
-            (
-                user['username'],
-                1 if telegram_enabled else 0,
-                telegram_chat_id.strip() if telegram_enabled else None,
-                1 if pct_enabled else 0,
-                float(pct_threshold),
-            ),
-        )
+            pct_change_threshold = VALUES(pct_change_threshold)
+        """, (user['username'], new_val))
         conn.commit()
-        conn.close()
         st.success("Alert settings saved.")
+
+    conn.close()
+
 
 elif tab == "scanner":
     st.markdown("## Market Scanner")
