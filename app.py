@@ -1266,46 +1266,97 @@ if tab == "home":
     # ============================================
     # PENNYPULSE ALERT BANNER (PER USER)
     # ============================================
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT message, created_at
-            FROM alert_history
-            WHERE username = %s
-            ORDER BY created_at DESC
-            LIMIT 5
-        """, (user['username'],))
-        rows = cursor.fetchall()
-        conn.close()
+# BIG MOVERS (GLOBAL)  +/- 5% (Home replacement)
+# ============================================
+try:
+    conn = get_connection()
+    cursor = conn.cursor()
 
-        if rows:
-            alert_html = ""
-            for msg, ts in rows:
-                alert_html += f"<div style='margin-bottom:4px;'>🚨 {msg}</div>"
+    # Top gainers
+    cursor.execute("""
+        SELECT ticker, current_price, day_change
+        FROM stock_cache
+        WHERE day_change >= 5
+        ORDER BY day_change DESC
+        LIMIT 5
+    """)
+    gainers = cursor.fetchall()
 
-            st.markdown(f"""
-            <div class="card" style="
-                border-left:4px solid #ef4444;
-                margin-bottom:15px;
-                background:#111827;
-            ">
-                <div style="
-                    color:#ef4444;
-                    font-size:0.8rem;
-                    font-weight:bold;
-                    letter-spacing:1px;
-                    margin-bottom:8px;
-                ">
-                    PENNYPULSE ALERTS
-                </div>
+    # Top losers
+    cursor.execute("""
+        SELECT ticker, current_price, day_change
+        FROM stock_cache
+        WHERE day_change <= -5
+        ORDER BY day_change ASC
+        LIMIT 5
+    """)
+    losers = cursor.fetchall()
+
+    conn.close()
+
+    # Build HTML
+    def fmt_row(ticker, price, pct):
+        sign = "+" if pct is not None and pct > 0 else ""
+        price_str = f"{float(price):.2f}" if price is not None else "-"
+        pct_str = f"{sign}{float(pct):.2f}%" if pct is not None else "-"
+        return f"""
+        <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:6px;">
+            <div style="font-weight:700;">{ticker}</div>
+            <div style="opacity:0.85;">${price_str}</div>
+            <div style="font-weight:700;">{pct_str}</div>
+        </div>
+        """
+
+    gainers_html = ""
+    if gainers:
+        for t, p, c in gainers:
+            gainers_html += fmt_row(t, p, c)
+    else:
+        gainers_html = "<div style='opacity:0.7;'>No gainers ≥ 5% right now.</div>"
+
+    losers_html = ""
+    if losers:
+        for t, p, c in losers:
+            losers_html += fmt_row(t, p, c)
+    else:
+        losers_html = "<div style='opacity:0.7;'>No losers ≤ -5% right now.</div>"
+
+    st.markdown(f"""
+    <div class="card" style="
+        border-left:4px solid #38bdf8;
+        margin-bottom:15px;
+        background:#111827;
+    ">
+        <div style="
+            color:#38bdf8;
+            font-size:0.8rem;
+            font-weight:bold;
+            letter-spacing:1px;
+            margin-bottom:10px;
+        ">
+            BIG MOVERS (±5%)
+        </div>
+
+        <div style="display:flex; gap:18px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:220px;">
+                <div style="font-weight:800; margin-bottom:8px;">📈 GAINERS</div>
                 <div style="font-size:0.9rem;">
-                    {alert_html}
+                    {gainers_html}
                 </div>
             </div>
-            """, unsafe_allow_html=True)
-    except:
-        pass
+
+            <div style="flex:1; min-width:220px;">
+                <div style="font-weight:800; margin-bottom:8px;">📉 LOSERS</div>
+                <div style="font-size:0.9rem;">
+                    {losers_html}
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+except Exception:
+    pass
 
 
     
