@@ -1311,7 +1311,7 @@ if tab == "home":
     
     try:
         conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("SELECT content FROM morning_briefing_global WHERE id=1")
+        cursor.execute("SELECT content FROM morning_brief_global WHERE id=1")
         row = cursor.fetchone()
         brief_text = row[0] if row else ""
         conn.close()
