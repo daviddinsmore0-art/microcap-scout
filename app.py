@@ -1599,7 +1599,7 @@ elif tab == "scanner":
                     '<div class="scan-mini">',
                     f'<div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>',
                     f'<div><span>Vol</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
-                    f'<div><span>Debt</span> {_f(r.get("debt_ratio"), 0.0):.0f}</div>',
+                    f'<div><span>Debt Ratio</span> {_f(r.get("debt_ratio"), 0.0):.0f} %</div>',
                     '</div>',
                     '</div>',
                     '</a>',
