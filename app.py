@@ -1266,97 +1266,93 @@ if tab == "home":
     # ============================================
     # PENNYPULSE ALERT BANNER (PER USER)
     # ============================================
-# BIG MOVERS (GLOBAL)  +/- 5% (Home replacement)
-# ============================================
-try:
-    conn = get_connection()
-    cursor = conn.cursor()
+    # ============================================
+    # BIG MOVERS (±5%) — PER USER (portfolio)
+    # ============================================
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
 
-    # Top gainers
-    cursor.execute("""
-        SELECT ticker, current_price, day_change
-        FROM stock_cache
-        WHERE day_change >= 5
-        ORDER BY day_change DESC
-        LIMIT 5
-    """)
-    gainers = cursor.fetchall()
+        cursor.execute("SELECT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE", (user["username"],))
+        user_tickers = [r[0] for r in cursor.fetchall()]
 
-    # Top losers
-    cursor.execute("""
-        SELECT ticker, current_price, day_change
-        FROM stock_cache
-        WHERE day_change <= -5
-        ORDER BY day_change ASC
-        LIMIT 5
-    """)
-    losers = cursor.fetchall()
+        gainers, losers = [], []
+        if user_tickers:
+            placeholders = ",".join(["%s"] * len(user_tickers))
 
-    conn.close()
+            cursor.execute(f"""
+                SELECT ticker, current_price, day_change
+                FROM stock_cache
+                WHERE ticker IN ({placeholders})
+                  AND day_change >= 5
+                ORDER BY day_change DESC
+                LIMIT 5
+            """, tuple(user_tickers))
+            gainers = cursor.fetchall()
 
-    # Build HTML
-    def fmt_row(ticker, price, pct):
-        sign = "+" if pct is not None and pct > 0 else ""
-        price_str = f"{float(price):.2f}" if price is not None else "-"
-        pct_str = f"{sign}{float(pct):.2f}%" if pct is not None else "-"
-        return f"""
-        <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:6px;">
-            <div style="font-weight:700;">{ticker}</div>
-            <div style="opacity:0.85;">${price_str}</div>
-            <div style="font-weight:700;">{pct_str}</div>
-        </div>
-        """
+            cursor.execute(f"""
+                SELECT ticker, current_price, day_change
+                FROM stock_cache
+                WHERE ticker IN ({placeholders})
+                  AND day_change <= -5
+                ORDER BY day_change ASC
+                LIMIT 5
+            """, tuple(user_tickers))
+            losers = cursor.fetchall()
 
-    gainers_html = ""
-    if gainers:
-        for t, p, c in gainers:
-            gainers_html += fmt_row(t, p, c)
-    else:
-        gainers_html = "<div style='opacity:0.7;'>No gainers ≥ 5% right now.</div>"
+        conn.close()
 
-    losers_html = ""
-    if losers:
-        for t, p, c in losers:
-            losers_html += fmt_row(t, p, c)
-    else:
-        losers_html = "<div style='opacity:0.7;'>No losers ≤ -5% right now.</div>"
+        def fmt_row(ticker, price, pct):
+            try:
+                pct_f = float(pct) if pct is not None else 0.0
+            except Exception:
+                pct_f = 0.0
+            sign = "+" if pct_f > 0 else ""
+            try:
+                price_str = f"{float(price):.2f}" if price is not None else "-"
+            except Exception:
+                price_str = "-"
+            pct_str = f"{sign}{pct_f:.2f}%"
+            return (
+                "<div style='display:flex; justify-content:space-between; gap:10px; margin-bottom:6px;'>"
+                f"<div style='font-weight:700;'>{ticker}</div>"
+                f"<div style='opacity:0.85;'>${price_str}</div>"
+                f"<div style='font-weight:700;'>{pct_str}</div>"
+                "</div>"
+            )
 
-    st.markdown(f"""
-    <div class="card" style="
-        border-left:4px solid #38bdf8;
-        margin-bottom:15px;
-        background:#111827;
-    ">
-        <div style="
-            color:#38bdf8;
-            font-size:0.8rem;
-            font-weight:bold;
-            letter-spacing:1px;
-            margin-bottom:10px;
-        ">
-            BIG MOVERS (±5%)
-        </div>
+        if not user_tickers:
+            body_html = "<div style='opacity:0.75;'>No tickers in your portfolio yet.</div>"
+        else:
+            gainers_html = "".join(fmt_row(t, p, c) for t, p, c in gainers) or "<div style='opacity:0.7;'>No gainers ≥ 5%.</div>"
+            losers_html  = "".join(fmt_row(t, p, c) for t, p, c in losers)  or "<div style='opacity:0.7;'>No losers ≤ -5%.</div>"
 
-        <div style="display:flex; gap:18px; flex-wrap:wrap;">
-            <div style="flex:1; min-width:220px;">
-                <div style="font-weight:800; margin-bottom:8px;">📈 GAINERS</div>
-                <div style="font-size:0.9rem;">
-                    {gainers_html}
+            body_html = (
+                "<div style='display:flex; gap:18px; flex-wrap:wrap;'>"
+                "<div style='flex:1; min-width:220px;'>"
+                "<div style='font-weight:800; margin-bottom:8px;'>📈 GAINERS</div>"
+                f"<div style='font-size:0.9rem;'>{gainers_html}</div>"
+                "</div>"
+                "<div style='flex:1; min-width:220px;'>"
+                "<div style='font-weight:800; margin-bottom:8px;'>📉 LOSERS</div>"
+                f"<div style='font-size:0.9rem;'>{losers_html}</div>"
+                "</div>"
+                "</div>"
+            )
+
+        st.markdown(
+            f"""<div class="card" style="border-left:4px solid #38bdf8; margin-bottom:15px; background:#111827;">
+                <div style="color:#38bdf8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
+                    BIG MOVERS (±5%)
                 </div>
-            </div>
+                {body_html}
+            </div>""",
+            unsafe_allow_html=True
+        )
 
-            <div style="flex:1; min-width:220px;">
-                <div style="font-weight:800; margin-bottom:8px;">📉 LOSERS</div>
-                <div style="font-size:0.9rem;">
-                    {losers_html}
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    except Exception:
+        pass
 
-except Exception:
-    pass
 
 
     
