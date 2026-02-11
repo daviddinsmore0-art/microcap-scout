@@ -305,8 +305,8 @@ def init_db():
             "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_move DECIMAL(6,2) DEFAULT 8.00",
             "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_rvol DECIMAL(6,2) DEFAULT 2.00",
             "ALTER TABLE user_alert_settings ADD COLUMN sniper_min_range DECIMAL(6,2) DEFAULT 10.00",
-            "ALTER TABLE user_alert_settings ADD COLUMN sniper_max_mcap BIGINT DEFAULT 500000000,
-                global_list_enabled TINYINT(1) DEFAULT 0",
+            "ALTER TABLE user_alert_settings ADD COLUMN sniper_max_mcap BIGINT DEFAULT 500000000",
+            "ALTER TABLE user_alert_settings ADD COLUMN global_list_enabled TINYINT(1) DEFAULT 0",
         ]
         for stmt in alter_stmts:
             try:
