@@ -1873,7 +1873,7 @@ elif tab == "scanner":
                     badge_html,
                     '<div class="scan-divider"></div>',
                     '<div class="scan-mini">',
-                    f'<div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>',
+                    f'<div><span>Range</span> {_f(r.get("range_pct"), 0.0):.0f}%</div>',
                     f'<div><span>Volatility</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
                     f'<div><span>Debt Ratio</span> {_f(r.get("debt_ratio"), 0.0):.0f} %</div>',
                     '</div>',
