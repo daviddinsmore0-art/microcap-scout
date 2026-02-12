@@ -1710,11 +1710,31 @@ elif tab == "alerts":
         """, (user["username"],))
         rows = cursor.fetchall() or []
         if rows:
-            st.markdown("### Recent Alerts")
-            html = "".join([f"<div style='margin-bottom:6px;'>🚨 {m}</div>" for m, _ in rows])
-            st.markdown(
-                f"<div class='card' style='border-left:4px solid #ef4444;'>{html}</div>",
-                unsafe_allow_html=True
+    st.markdown("### Recent Alerts")
+
+    cards = []
+
+    for row in rows:
+        # if using normal cursor (tuple)
+        message = row[0]
+        created = row[1]
+
+        cards.append(f"""
+            <div style="
+                background:#111827;
+                padding:14px;
+                border-radius:12px;
+                margin-bottom:10px;
+                border-left:4px solid #ef4444;
+                font-size:15px;">
+                🚨 {message}
+                <div style="opacity:0.6;font-size:12px;margin-top:4px;">
+                    {created}
+                </div>
+            </div>
+        """)
+
+    st.markdown("".join(cards), unsafe_allow_html=True)
             )
     except Exception:
         pass
