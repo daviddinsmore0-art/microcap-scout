@@ -1409,316 +1409,111 @@ if tab == "home":
 
 
     
+        # Global Movers (from global_cache)
+    gainers = []
+    losers = []
     try:
-        conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("SELECT brief_text FROM morning_brief_global WHERE id=1")
-        row = cursor.fetchone()
-        brief_text = row[0] if row else ""
-        conn.close()
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
 
-        # --- Normalize briefing text for HTML rendering ---
-        if brief_text:
-            # Fix common mojibake (UTF-8 interpreted as Latin-1)
-            if any(x in brief_text for x in ['â', 'Ã', 'Â']):
-                try:
-                    brief_text = brief_text.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
-                except Exception:
-                    pass
-            brief_text = brief_text.replace("\r\n", "\n").replace("\r", "\n")
-            brief_text = brief_text.replace("\n", "<br>")
+        cursor.execute("""
+            SELECT ticker, current_price, day_change
+            FROM global_cache
+            WHERE ticker IS NOT NULL
+              AND current_price IS NOT NULL
+              AND day_change IS NOT NULL
+            ORDER BY day_change DESC
+            LIMIT 5
+        """)
+        gainers = cursor.fetchall() or []
+
+        cursor.execute("""
+            SELECT ticker, current_price, day_change
+            FROM global_cache
+            WHERE ticker IS NOT NULL
+              AND current_price IS NOT NULL
+              AND day_change IS NOT NULL
+            ORDER BY day_change ASC
+            LIMIT 5
+        """)
+        losers = cursor.fetchall() or []
+
+        conn.close()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        gainers = []
+        losers = []
+
+    def _fmt_price(v):
+        try:
+            return f"${float(v):,.2f}"
+        except Exception:
+            return "-"
+
+    def _fmt_pct(v):
+        try:
+            return f"{float(v):+.2f}%"
+        except Exception:
+            return "-"
+
+    if gainers or losers:
+        g_html = ""
+        for r in gainers:
+            g_html += (
+                f"<div style='display:flex; justify-content:space-between; padding:6px 0;'>"
+                f"<div style='font-weight:700;'>{(r.get('ticker') or '').upper()}</div>"
+                f"<div style='opacity:0.85;'>{_fmt_price(r.get('current_price'))}</div>"
+                f"<div style='font-weight:700;'>{_fmt_pct(r.get('day_change'))}</div>"
+                f"</div>"
+            )
+
+        l_html = ""
+        for r in losers:
+            l_html += (
+                f"<div style='display:flex; justify-content:space-between; padding:6px 0;'>"
+                f"<div style='font-weight:700;'>{(r.get('ticker') or '').upper()}</div>"
+                f"<div style='opacity:0.85;'>{_fmt_price(r.get('current_price'))}</div>"
+                f"<div style='font-weight:700;'>{_fmt_pct(r.get('day_change'))}</div>"
+                f"</div>"
+            )
 
         st.markdown(
-            f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">AI MORNING BRIEFING</div>
-                <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">{brief_text}</div>
-            </div>""",
+            f"""
+            <div class="card" style="border-left: 4px solid #facc15;">
+              <div class="section-title" style="color:#facc15;">GLOBAL MOVERS (Top 5)</div>
+
+              <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+                <div style="font-size:22px;">📈</div>
+                <div style="font-size:18px; font-weight:700;">GAINERS</div>
+              </div>
+              <div style="margin-top:6px;">{g_html}</div>
+
+              <div style="height:10px;"></div>
+
+              <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+                <div style="font-size:22px;">📉</div>
+                <div style="font-size:18px; font-weight:700;">LOSERS</div>
+              </div>
+              <div style="margin-top:6px;">{l_html}</div>
+            </div>
+            """,
             unsafe_allow_html=True
         )
-    except:
-        pass
-    
-    st.markdown("### Portfolio Overview")
-    portfolio = get_portfolio_details(user['username'], current_mode)
-    if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
     else:
-        tickers = [r['ticker'] for r in portfolio]
-        data_map = get_cached_data_map(tickers)
-        valid_rows = [data_map[t] for t in tickers if t in data_map]
-        if valid_rows:
-            avg = sum([calculate_risk(x)[0] for x in valid_rows])/len(valid_rows)
-            st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
-            
-            # THE BIG 3 METRICS ROW
-            riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
-            volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
-            e_list = []
-            for r in valid_rows:
-                d_val = parse_smart_date(r.get('next_earnings'))
-                if d_val < 365: e_list.append((r['ticker'], d_val))
-            e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
-            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div></div></div>""", unsafe_allow_html=True)
-            
-            render_horizontal_grid(data_map, token)
-            
-    w_date = get_watchlist_header_date()
-    st.markdown(f"### {w_date} Watchlist")
-    candidates = get_watchlist_rows_for_home()
-    render_watchlist_pick_grid(candidates, token)
-    #render_compact_watchlist(candidates, token)
-
-elif tab == "portfolio":
-    st.markdown(f"### My Stocks ({current_mode})")
-    total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
-    c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
-    c_day = "#4ade80" if day_pl >= 0 else "#ef4444"
-    st.markdown(f"""<div style="display:flex; gap:10px; margin-bottom:20px;"><div class="metric-box" style="flex:1;"><div class="metric-label">Total P/L</div><div class="metric-value" style="color:{c_pl}">${total_pl:,.2f}</div><div class="metric-sub" style="color:{c_pl}">({total_pct:+.2f}%)</div></div><div class="metric-box" style="flex:1;"><div class="metric-label">Today's P/L</div><div class="metric-value" style="color:{c_day}">${day_pl:,.2f}</div><div class="metric-sub" style="color:{c_day}">({day_pct:+.2f}%)</div></div></div>""", unsafe_allow_html=True)
-
-    if current_mode == "REAL":
-        with st.expander("Manage Holdings", expanded=False):
-            t1, t2, t3 = st.tabs(["Add Stock", "Edit Position", "Remove Stock"])
-            with t1:
-                with st.form("add_stock"):
-                    c1, c2, c3 = st.columns([2, 1, 1])
-                    new_t = c1.text_input("Ticker"); shares = c2.number_input("Shares"); price = c3.number_input("Avg Price")
-                    if st.form_submit_button("Add to Portfolio"):
-                        if new_t: add_ticker_to_db(user['username'], new_t.upper(), shares, price, 'REAL'); st.rerun()
-            with t2:
-                port_rows = get_portfolio_details(user['username'], 'REAL')
-                if port_rows:
-                    with st.form("edit_pos"):
-                        edit_t = st.selectbox("Select Stock", [r['ticker'] for r in port_rows])
-                        c1, c2 = st.columns(2); new_s = c1.number_input("New Shares"); new_p = c2.number_input("New Avg Price")
-                        if st.form_submit_button("Update Position"):
-                            update_ticker_in_db(user['username'], edit_t, new_s, new_p, 'REAL'); st.rerun()
-                else: st.info("Empty Portfolio")
-            with t3:
-                port_rows = get_portfolio_details(user['username'], 'REAL')
-                if port_rows:
-                    to_remove = st.selectbox("Select Stock to Remove", [r['ticker'] for r in port_rows])
-                    if st.button("Remove Selected", type="primary"):
-                        deactivate_stock(user['username'], to_remove, 'REAL'); st.rerun()
-                else: st.info("Portfolio is empty.")
-    
-    st.divider()
-    port_rows = get_portfolio_details(user['username'], current_mode)
-    if port_rows:
-        tickers = [r['ticker'] for r in port_rows]
-        market_data = get_cached_data_map(tickers)
-        pairs = [(row, market_data[row['ticker']]) for row in port_rows if row['ticker'] in market_data]
-        pairs.sort(key=lambda x: float(x[1].get('day_change') or 0), reverse=True)
-
-        for row, data in pairs:
-            render_portfolio_row(row, data, token)
-        # (Reorder animation disabled for stability)
+        st.markdown(
+            """
+            <div class="card" style="border-left: 4px solid #facc15;">
+              <div class="section-title" style="color:#facc15;">GLOBAL MOVERS</div>
+              <div style="opacity:0.8; margin-top:8px;">No global data yet. Run global_up.php to populate global_cache.</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 
-elif tab == "alerts":
-    st.markdown("## Alerts")
-    st.caption("Simple toggles. Portfolio-first. Optional: include your PennyPulse Global List.")
-
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    # Load current settings (safe defaults)
-    cursor.execute("""
-        SELECT
-            telegram_enabled, telegram_chat_id,
-            pct_change_enabled, pct_change_threshold,
-            vol_spike_enabled,
-            rsi_enabled,
-            sniper_enabled,
-            COALESCE(global_list_enabled, 0) AS global_list_enabled
-        FROM user_alert_settings
-        WHERE username=%s
-        LIMIT 1
-    """, (user["username"],))
-    srow = cursor.fetchone() or {}
-
-    telegram_enabled = int(srow.get("telegram_enabled") or 0) == 1
-    telegram_chat_id = (srow.get("telegram_chat_id") or "").strip()
-
-    pct_enabled = int(srow.get("pct_change_enabled") or 0) == 1
-    vol_enabled = int(srow.get("vol_spike_enabled") or 0) == 1
-    rsi_enabled = int(srow.get("rsi_enabled") or 0) == 1
-    sniper_enabled = int(srow.get("sniper_enabled") or 0) == 1
-    global_enabled = int(srow.get("global_list_enabled") or 0) == 1
-
-    # ---------- UI ----------
-    st.markdown(
-        """
-        <div class="card" style="border-left:4px solid #4ade80; margin-bottom:14px;">
-          <div style="color:#4ade80; font-size:0.8rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">
-            TELEGRAM DELIVERY (OPTIONAL)
-          </div>
-          <div style="font-size:0.92rem; color:#cbd5e1; line-height:1.45;">
-            Turn this on if you want real-time alerts delivered to you. Otherwise, you can still view alerts inside the app.
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    telegram_enabled_ui = st.checkbox("Enable Telegram alerts", value=telegram_enabled)
-    telegram_chat_id_ui = st.text_input(
-        "Your Telegram Chat ID",
-        value=telegram_chat_id,
-        placeholder="Example: 123456789",
-        disabled=not telegram_enabled_ui
-    )
-
-    st.markdown(
-        """
-        <div class="card" style="border-left:4px solid #fbbf24; margin-bottom:14px;">
-          <div style="color:#fbbf24; font-size:0.8rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">
-            SCAN SCOPE
-          </div>
-          <div style="font-size:0.92rem; color:#cbd5e1; line-height:1.45;">
-            By default, alerts scan <b>your portfolio</b>. Turn on Global List if you want PennyPulse to also scan your curated universe.
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    global_enabled_ui = st.checkbox("Include PennyPulse Global List (optional)", value=global_enabled)
-
-    st.divider()
-    st.markdown("### 🔔 Alert Types")
-
-    # 1) Simple (fixed) price alert
-    st.markdown("**Price Move Alert (Simple)**")
-    st.caption("Fires if any tracked ticker moves **±5%** today. (No slider — always 5%.)")
-    pct_enabled_ui = st.checkbox("Enable ±5% price alerts", value=pct_enabled)
-
-    st.divider()
-
-    # 2–4) Pro alerts (3 only)
-    st.markdown("**Pro Alerts (3 pack)**")
-    st.caption("These use your cached technicals/volume metrics. Keep them simple: toggle on/off.")
-
-    vol_enabled_ui = st.checkbox(
-        "🚀 Volume Surge Breakout",
-        value=vol_enabled,
-        help="Looks for unusual relative volume + meaningful move (great for breakouts)."
-    )
-
-    rsi_enabled_ui = st.checkbox(
-        "🔄 RSI Reversal",
-        value=rsi_enabled,
-        help="Flags oversold/overbought reversals with a small move/volume confirmation."
-    )
-
-    sniper_enabled_ui = st.checkbox(
-        "🧨 Penny Sniper",
-        value=sniper_enabled,
-        help="High-signal penny runners (price + move + RVOL + range + market-cap guardrails)."
-    )
-
-    st.divider()
-
-    if st.button("Save Alert Settings"):
-        # Fixed pro defaults (kept in DB so the PHP worker can rely on them)
-        pct_threshold = 5.00
-        vol_mult = 2.50
-        vol_min_move = 3.00
-        rsi_low = 30.00
-        rsi_high = 70.00
-        rsi_confirm_move = 3.00
-        rsi_confirm_rvol = 1.50
-
-        sniper_max_price = 5.0000
-        sniper_min_move = 8.00
-        sniper_min_rvol = 2.00
-        sniper_min_range = 10.00
-        sniper_max_mcap = 500000000
-
-        cursor.execute("""
-            INSERT INTO user_alert_settings (
-                username,
-                telegram_enabled, telegram_chat_id,
-                global_list_enabled,
-                pct_change_enabled, pct_change_threshold,
-                vol_spike_enabled, vol_spike_mult, vol_spike_min_move,
-                rsi_enabled, rsi_low, rsi_high, rsi_confirm_move, rsi_confirm_rvol,
-                sniper_enabled, sniper_max_price, sniper_min_move, sniper_min_rvol, sniper_min_range, sniper_max_mcap
-            ) VALUES (
-                %s,%s,%s,
-                %s,
-                %s,%s,
-                %s,%s,%s,
-                %s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,%s
-            )
-            ON DUPLICATE KEY UPDATE
-                telegram_enabled=VALUES(telegram_enabled),
-                telegram_chat_id=VALUES(telegram_chat_id),
-                global_list_enabled=VALUES(global_list_enabled),
-                pct_change_enabled=VALUES(pct_change_enabled),
-                pct_change_threshold=VALUES(pct_change_threshold),
-                vol_spike_enabled=VALUES(vol_spike_enabled),
-                vol_spike_mult=VALUES(vol_spike_mult),
-                vol_spike_min_move=VALUES(vol_spike_min_move),
-                rsi_enabled=VALUES(rsi_enabled),
-                rsi_low=VALUES(rsi_low),
-                rsi_high=VALUES(rsi_high),
-                rsi_confirm_move=VALUES(rsi_confirm_move),
-                rsi_confirm_rvol=VALUES(rsi_confirm_rvol),
-                sniper_enabled=VALUES(sniper_enabled),
-                sniper_max_price=VALUES(sniper_max_price),
-                sniper_min_move=VALUES(sniper_min_move),
-                sniper_min_rvol=VALUES(sniper_min_rvol),
-                sniper_min_range=VALUES(sniper_min_range),
-                sniper_max_mcap=VALUES(sniper_max_mcap)
-        """, (
-            user["username"],
-            1 if telegram_enabled_ui else 0,
-            telegram_chat_id_ui.strip() if telegram_enabled_ui else "",
-            1 if global_enabled_ui else 0,
-            1 if pct_enabled_ui else 0,
-            float(pct_threshold),
-            1 if vol_enabled_ui else 0,
-            float(vol_mult),
-            float(vol_min_move),
-            1 if rsi_enabled_ui else 0,
-            float(rsi_low),
-            float(rsi_high),
-            float(rsi_confirm_move),
-            float(rsi_confirm_rvol),
-            1 if sniper_enabled_ui else 0,
-            float(sniper_max_price),
-            float(sniper_min_move),
-            float(sniper_min_rvol),
-            float(sniper_min_range),
-            float(sniper_max_mcap),
-        ))
-        conn.commit()
-        st.success("Alert settings saved.")
-
-
-    # Optional: show last 5 alerts (from alert_history)
-    try:
-        cursor.execute("""
-            SELECT message, created_at
-            FROM alert_history
-            WHERE username=%s
-            ORDER BY created_at DESC
-            LIMIT 5
-        """, (user["username"],))
-        rows = cursor.fetchall() or []
-
-        if rows:
-            st.markdown("### Recent Alerts")
-            alert_html = "".join(
-                [f"<div style='margin-bottom:6px;'>🚨 { (r.get('message') or '') }</div>" for r in rows]
-            )
-            st.markdown(
-                f"<div class='card' style='border-left:4px solid #ff4b4b; padding:10px'>{alert_html}</div>",
-                unsafe_allow_html=True
-            )
-    except Exception:
-        pass
-
-    conn.close()
 
 
 elif tab == "scanner":
@@ -1873,7 +1668,7 @@ elif tab == "scanner":
                     badge_html,
                     '<div class="scan-divider"></div>',
                     '<div class="scan-mini">',
-                    f'<div><span>Range</span> {_f(r.get("range_pct"), 0.0):.0f}%</div>',
+                    f'<div><span>Range</span> {_f(r.get("range_loc"), 0.0):.0f}%</div>',
                     f'<div><span>Volatility</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
                     f'<div><span>Debt Ratio</span> {_f(r.get("debt_ratio"), 0.0):.0f} %</div>',
                     '</div>',
