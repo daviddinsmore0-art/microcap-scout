@@ -1331,83 +1331,78 @@ if tab == "home":
         conn = get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE", (user["username"],))
+        # Top movers from the user's ACTIVE portfolio tickers (no ±5% filter).
+        cursor.execute(
+            "SELECT DISTINCT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE",
+            (user["username"],),
+        )
         user_tickers = [r[0] for r in cursor.fetchall()]
 
         gainers, losers = [], []
         if user_tickers:
             placeholders = ",".join(["%s"] * len(user_tickers))
+            params = tuple(user_tickers)
 
-            # === TOP 3 GAINERS / LOSERS (NO 5% FILTER) ===
+            cursor.execute(
+                f"SELECT ticker, current_price, day_change "
+                f"FROM stock_cache "
+                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
+                f"ORDER BY day_change DESC "
+                f"LIMIT 3",
+                params,
+            )
+            gainers = cursor.fetchall() or []
 
-     cursor.execute("""
-         SELECT ticker, price, pct_change
-         FROM stock_cache
-         WHERE pct_change IS NOT NULL
-         ORDER BY pct_change DESC
-         LIMIT 3
-       """)
-     top_gainers = cursor.fetchall()
-
-    cursor.execute("""
-         SELECT ticker, price, pct_change
-         FROM stock_cache
-         WHERE pct_change IS NOT NULL
-         ORDER BY pct_change ASC
-         LIMIT 3
-     """)
-     top_losers = cursor.fetchall()
+            cursor.execute(
+                f"SELECT ticker, current_price, day_change "
+                f"FROM stock_cache "
+                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
+                f"ORDER BY day_change ASC "
+                f"LIMIT 3",
+                params,
+            )
+            losers = cursor.fetchall() or []
 
         conn.close()
 
-        def fmt_row(ticker, price, pct):
+        def _fmt_mover_row(row):
+            t, price, chg = row
             try:
-                pct_f = float(pct) if pct is not None else 0.0
+                chg = float(chg)
             except Exception:
-                pct_f = 0.0
-            sign = "+" if pct_f > 0 else ""
+                chg = 0.0
+            sign = "+" if chg >= 0 else ""
             try:
-                price_str = f"{float(price):.2f}" if price is not None else "-"
+                price_txt = f"${float(price):.2f}"
             except Exception:
-                price_str = "-"
-            pct_str = f"{sign}{pct_f:.2f}%"
+                price_txt = "-"
             return (
-                "<div style='display:flex; justify-content:space-between; gap:10px; margin-bottom:6px;'>"
-                f"<div style='font-weight:700;'>{ticker}</div>"
-                f"<div style='opacity:0.85;'>${price_str}</div>"
-                f"<div style='font-weight:700;'>{pct_str}</div>"
+                "<div style='display:flex; justify-content:space-between; gap:10px; "
+                "font-size:16px; margin:6px 0;'>"
+                f"<div style='min-width:70px; font-weight:700;'>{t}</div>"
+                f"<div style='opacity:.85;'>{price_txt}</div>"
+                f"<div style='font-weight:700;'>{sign}{chg:.2f}%</div>"
                 "</div>"
             )
 
-        if not user_tickers:
-            body_html = "<div style='opacity:0.75;'>No tickers in your portfolio yet.</div>"
-        else:
-            gainers_html = "".join(fmt_row(t, p, c) for t, p, c in gainers) or "<div style='opacity:0.7;'>No gainers ≥ 5%.</div>"
-            losers_html  = "".join(fmt_row(t, p, c) for t, p, c in losers)  or "<div style='opacity:0.7;'>No losers ≤ -5%.</div>"
-
-            body_html = (
-                "<div style='display:flex; gap:18px; flex-wrap:wrap;'>"
-                "<div style='flex:1; min-width:220px;'>"
-                "<div style='font-weight:800; margin-bottom:8px;'>📈 GAINERS</div>"
-                f"<div style='font-size:0.9rem;'>{gainers_html}</div>"
-                "</div>"
-                "<div style='flex:1; min-width:220px;'>"
-                "<div style='font-weight:800; margin-bottom:8px;'>📉 LOSERS</div>"
-                f"<div style='font-size:0.9rem;'>{losers_html}</div>"
-                "</div>"
-                "</div>"
-            )
+        gainers_html = "".join(_fmt_mover_row(r) for r in gainers) or "<div style='opacity:.7'>No gainers yet.</div>"
+        losers_html = "".join(_fmt_mover_row(r) for r in losers) or "<div style='opacity:.7'>No losers yet.</div>"
 
         st.markdown(
-            f"""<div class="card" style="border-left:4px solid #38bdf8; margin-bottom:15px; background:#111827;">
-                <div style="color:#38bdf8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
-                    BIG MOVERS (±5%)
-                </div>
-                {body_html}
-            </div>""",
-            unsafe_allow_html=True
+            f"""
+            <div class='card' style='padding:18px; border-left:6px solid #2f80ed;'>
+              <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
+                BIG MOVERS (Top 3)
+              </div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>📈 GAINERS</div>
+              {gainers_html}
+              <div style='height:10px'></div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>📉 LOSERS</div>
+              {losers_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-
     except Exception:
         pass
 
