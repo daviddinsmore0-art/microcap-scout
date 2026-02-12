@@ -1701,40 +1701,30 @@ elif tab == "alerts":
 
     # Optional: show last 5 alerts (if alert_history exists)
  try:
-        cursor.execute("""
+    cursor.execute("""
         SELECT message, created_at
         FROM alert_history
         WHERE username=%s
         ORDER BY created_at DESC
         LIMIT 5
     """, (user["username"],))
+    rows = cursor.fetchall() or []
 
-        rows = cursor.fetchall() or []
-
-        if rows:
+    if rows:
         st.markdown("### Recent Alerts")
+        html = "".join(
+            [
+                f"<div style='margin-bottom:6px;'>🚨 {r['message']}</div>"
+                for r in rows
+            ]
+        )
+        st.markdown(
+            f"<div class='card' style='border-left:4px solid #ff4b4b; padding:10px'>{html}</div>",
+            unsafe_allow_html=True
+        )
 
-        for message, created in rows:
-            st.markdown(
-                f"""
-                <div style="
-                    background:#111827;
-                    padding:14px;
-                    border-radius:12px;
-                    margin-bottom:10px;
-                    border-left:4px solid #ef4444;
-                    font-size:15px;">
-                    🚨 {message}
-                    <div style="opacity:0.6;font-size:12px;margin-top:4px;">
-                        {created}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
- except Exception:
-        pass
+except Exception:
+    pass
 
         conn.close()
 
