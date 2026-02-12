@@ -1699,37 +1699,35 @@ elif tab == "alerts":
         conn.commit()
         st.success("Alert settings saved.")
 
-    # Optional: show last 5 alerts (if alert_history exists)
- try:
-    cursor.execute("""
-        SELECT message, created_at
-        FROM alert_history
-        WHERE username=%s
-        ORDER BY created_at DESC
-        LIMIT 5
-    """, (user["username"],))
-    rows = cursor.fetchall() or []
 
-    if rows:
-        st.markdown("### Recent Alerts")
-        html = "".join(
-            [
-                f"<div style='margin-bottom:6px;'>🚨 {r['message']}</div>"
-                for r in rows
-            ]
-        )
-        st.markdown(
-            f"<div class='card' style='border-left:4px solid #ff4b4b; padding:10px'>{html}</div>",
-            unsafe_allow_html=True
-        )
+    # Optional: show last 5 alerts (from alert_history)
+    try:
+        cursor.execute("""
+            SELECT message, created_at
+            FROM alert_history
+            WHERE username=%s
+            ORDER BY created_at DESC
+            LIMIT 5
+        """, (user["username"],))
+        rows = cursor.fetchall() or []
 
-except Exception:
-    pass
+        if rows:
+            st.markdown("### Recent Alerts")
+            alert_html = "".join(
+                [f"<div style='margin-bottom:6px;'>🚨 { (r.get('message') or '') }</div>" for r in rows]
+            )
+            st.markdown(
+                f"<div class='card' style='border-left:4px solid #ff4b4b; padding:10px'>{alert_html}</div>",
+                unsafe_allow_html=True
+            )
+    except Exception:
+        pass
 
-        conn.close()
+    conn.close()
 
 
 elif tab == "scanner":
+
     st.markdown("## Market Scanner")
     st.caption("Your portfolio only — biggest signals first. (Your alerts banner still shows your last 5.)")
 
