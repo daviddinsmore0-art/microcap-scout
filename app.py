@@ -1700,7 +1700,7 @@ elif tab == "alerts":
         st.success("Alert settings saved.")
 
     # Optional: show last 5 alerts (if alert_history exists)
-        try:
+ try:
         cursor.execute("""
         SELECT message, created_at
         FROM alert_history
@@ -1733,7 +1733,7 @@ elif tab == "alerts":
                 unsafe_allow_html=True
             )
 
-exce    pt Exception:
+except Exception:
         pass
 
         conn.close()
