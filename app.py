@@ -1700,8 +1700,8 @@ elif tab == "alerts":
         st.success("Alert settings saved.")
 
     # Optional: show last 5 alerts (if alert_history exists)
-    try:
-    cursor.execute("""
+        try:
+        cursor.execute("""
         SELECT message, created_at
         FROM alert_history
         WHERE username=%s
@@ -1709,9 +1709,9 @@ elif tab == "alerts":
         LIMIT 5
     """, (user["username"],))
 
-    rows = cursor.fetchall() or []
+        rows = cursor.fetchall() or []
 
-    if rows:
+        if rows:
         st.markdown("### Recent Alerts")
 
         for message, created in rows:
@@ -1733,10 +1733,10 @@ elif tab == "alerts":
                 unsafe_allow_html=True
             )
 
-except Exception:
-    pass
+exce    pt Exception:
+        pass
 
-    conn.close()
+        conn.close()
 
 
 elif tab == "scanner":
