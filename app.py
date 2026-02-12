@@ -1643,7 +1643,7 @@ elif tab == "alerts":
 
     if st.button("Save Alert Settings"):
         # Fixed pro defaults (kept in DB so the PHP worker can rely on them)
-        pct_threshold = 5.00
+        pct_change_threshold = 5.00
         vol_mult = 2.50
         vol_min_move = 3.00
         rsi_low = 30.00
