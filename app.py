@@ -1338,25 +1338,25 @@ if tab == "home":
         if user_tickers:
             placeholders = ",".join(["%s"] * len(user_tickers))
 
-            cursor.execute(f"""
-                SELECT ticker, current_price, day_change
-                FROM stock_cache
-                WHERE ticker IN ({placeholders})
-                  AND day_change >= 5
-                ORDER BY day_change DESC
-                LIMIT 5
-            """, tuple(user_tickers))
-            gainers = cursor.fetchall()
+            # === TOP 3 GAINERS / LOSERS (NO 5% FILTER) ===
 
-            cursor.execute(f"""
-                SELECT ticker, current_price, day_change
-                FROM stock_cache
-                WHERE ticker IN ({placeholders})
-                  AND day_change <= -5
-                ORDER BY day_change ASC
-                LIMIT 5
-            """, tuple(user_tickers))
-            losers = cursor.fetchall()
+cursor.execute("""
+    SELECT ticker, price, pct_change
+    FROM stock_cache
+    WHERE pct_change IS NOT NULL
+    ORDER BY pct_change DESC
+    LIMIT 3
+""")
+top_gainers = cursor.fetchall()
+
+cursor.execute("""
+    SELECT ticker, price, pct_change
+    FROM stock_cache
+    WHERE pct_change IS NOT NULL
+    ORDER BY pct_change ASC
+    LIMIT 3
+""")
+top_losers = cursor.fetchall()
 
         conn.close()
 
