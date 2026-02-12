@@ -1733,7 +1733,7 @@ elif tab == "alerts":
                 unsafe_allow_html=True
             )
 
-except Exception:
+ except Exception:
         pass
 
         conn.close()
