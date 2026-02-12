@@ -1340,23 +1340,23 @@ if tab == "home":
 
             # === TOP 3 GAINERS / LOSERS (NO 5% FILTER) ===
 
-cursor.execute("""
-    SELECT ticker, price, pct_change
-    FROM stock_cache
-    WHERE pct_change IS NOT NULL
-    ORDER BY pct_change DESC
-    LIMIT 3
-""")
-top_gainers = cursor.fetchall()
+     cursor.execute("""
+         SELECT ticker, price, pct_change
+         FROM stock_cache
+         WHERE pct_change IS NOT NULL
+         ORDER BY pct_change DESC
+         LIMIT 3
+       """)
+     top_gainers = cursor.fetchall()
 
-cursor.execute("""
-    SELECT ticker, price, pct_change
-    FROM stock_cache
-    WHERE pct_change IS NOT NULL
-    ORDER BY pct_change ASC
-    LIMIT 3
-""")
-top_losers = cursor.fetchall()
+    cursor.execute("""
+         SELECT ticker, price, pct_change
+         FROM stock_cache
+         WHERE pct_change IS NOT NULL
+         ORDER BY pct_change ASC
+         LIMIT 3
+     """)
+     top_losers = cursor.fetchall()
 
         conn.close()
 
