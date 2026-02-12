@@ -1412,9 +1412,9 @@ if tab == "home":
 
     try:
         conn = get_connection(); cursor = conn.cursor()
-        cursor.execute("SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change DESC LIMIT 5")
+        cursor.execute("SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change DESC LIMIT 3")
         gainers = cursor.fetchall() or []
-        cursor.execute("SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change ASC LIMIT 5")
+        cursor.execute("SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change ASC LIMIT 3")
         losers = cursor.fetchall() or []
         conn.close()
 
@@ -1441,7 +1441,7 @@ if tab == "home":
 
             st.markdown(
                 f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS (Top 5)</div>
+                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS (Top 3)</div>
                     <div style="font-size:0.85rem; font-weight:800; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">GAINERS</div>
                     {gain_html}
                     <div style="height:10px"></div>
