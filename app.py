@@ -1415,8 +1415,7 @@ if tab == "home":
             day_c = "#4ade80" if day_pl >= 0 else "#ef4444"
             total_c = "#4ade80" if total_pl >= 0 else "#ef4444"
 
-            st.markdown(
-                f"""
+            st.markdown(textwrap.dedent(f"""
                 <div class="card" style="
                     padding:18px;
                     border: 1px solid rgba(46,255,170,0.25);
@@ -1466,25 +1465,20 @@ if tab == "home":
                     </div>
                   </div>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                """).strip(), unsafe_allow_html=True)
         except Exception:
             pass
 
         # --- Portfolio ticker scroller ---
         try:
-            st.markdown(
-                """
+            st.markdown(textwrap.dedent("""
                 <div style="display:flex; align-items:center; justify-content:space-between; margin:14px 2px 8px 2px;">
                   <div style="font-size:1.05rem; font-weight:900; color:#e5e7eb;">
                     📈 Portfolio Ticker Scroller
                   </div>
                   <div style="font-size:0.85rem; opacity:0.75; color:#94a3b8;">Tap a ticker</div>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                """).strip(), unsafe_allow_html=True)
             render_horizontal_grid(data_map, token)
         except Exception:
             pass
@@ -1550,8 +1544,7 @@ if tab == "home":
             gainers_html = "".join(_fmt_mover_row(r) for r in gainers) or "<div style='opacity:.7'>No gainers yet.</div>"
             losers_html = "".join(_fmt_mover_row(r) for r in losers) or "<div style='opacity:.7'>No losers yet.</div>"
 
-            st.markdown(
-                f"""
+            st.markdown(textwrap.dedent(f"""
                 <style>
                   .pp-mgrid {{
                     display:grid;
@@ -1596,9 +1589,7 @@ if tab == "home":
                     </div>
                   </div>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                """).strip(), unsafe_allow_html=True)
         except Exception:
             pass
 
@@ -1633,25 +1624,19 @@ if tab == "home":
             gain_html = "".join([_fmt_row(t,p,c) for (t,p,c) in gainers]) if gainers else "<div style='color:#94a3b8;'>No gainers.</div>"
             lose_html = "".join([_fmt_row(t,p,c) for (t,p,c) in losers]) if losers else "<div style='color:#94a3b8;'>No losers.</div>"
 
-            st.markdown(
-                f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 18px;">
+            st.markdown(textwrap.dedent(f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 18px;">
                     <div style="color:#facc15; font-size:0.85rem; font-weight:950; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS (Top 3)</div>
                     <div style="font-size:0.85rem; font-weight:900; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">GAINERS</div>
                     {gain_html}
                     <div style="height:10px"></div>
                     <div style="font-size:0.85rem; font-weight:900; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">LOSERS</div>
                     {lose_html}
-                </div>""",
-                unsafe_allow_html=True
-            )
+                </div>""").strip(), unsafe_allow_html=True)
         else:
-            st.markdown(
-                """<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 18px;">
+            st.markdown(textwrap.dedent("""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 18px;">
                     <div style="color:#facc15; font-size:0.85rem; font-weight:950; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS</div>
                     <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">No global data yet. Run <code>global_up.php</code> to populate <code>global_cache</code>.</div>
-                </div>""",
-                unsafe_allow_html=True
-            )
+                </div>""").strip(), unsafe_allow_html=True)
     except:
         pass
 
@@ -1757,8 +1742,7 @@ elif tab == "alerts":
     global_enabled = int(srow.get("global_list_enabled") or 0) == 1
 
     # ---------- UI ----------
-    st.markdown(
-        """
+    st.markdown(textwrap.dedent("""
         <div class="card" style="border-left:4px solid #4ade80; margin-bottom:14px;">
           <div style="color:#4ade80; font-size:0.8rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">
             TELEGRAM DELIVERY (OPTIONAL)
@@ -1767,9 +1751,7 @@ elif tab == "alerts":
             Turn this on if you want real-time alerts delivered to you. Otherwise, you can still view alerts inside the app.
           </div>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        """).strip(), unsafe_allow_html=True)
 
     telegram_enabled_ui = st.checkbox("Enable Telegram alerts", value=telegram_enabled)
     telegram_chat_id_ui = st.text_input(
@@ -1779,8 +1761,7 @@ elif tab == "alerts":
         disabled=not telegram_enabled_ui
     )
 
-    st.markdown(
-        """
+    st.markdown(textwrap.dedent("""
         <div class="card" style="border-left:4px solid #fbbf24; margin-bottom:14px;">
           <div style="color:#fbbf24; font-size:0.8rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">
             SCAN SCOPE
@@ -1789,9 +1770,7 @@ elif tab == "alerts":
             By default, alerts scan <b>your portfolio</b>. Turn on Global List if you want PennyPulse to also scan your curated universe.
           </div>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        """).strip(), unsafe_allow_html=True)
 
     global_enabled_ui = st.checkbox("Include PennyPulse Global List (optional)", value=global_enabled)
 
