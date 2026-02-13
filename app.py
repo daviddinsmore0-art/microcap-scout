@@ -228,19 +228,7 @@ st.markdown("""
 
 </style>
 """, unsafe_allow_html=True)
-def get_greeting(name: str = ""):
-    """Return a time-based greeting.
 
-    `name` is optional; when provided it will be appended after a comma.
-    """
-    hour = datetime.now(pytz.timezone('America/Halifax')).hour
-    suffix = f", {name}" if name else ""
-    if hour < 12:
-        return f"Good Morning{suffix}"
-    elif 12 <= hour < 18:
-        return f"Good Afternoon{suffix}"
-    else:
-        return f"Good Evening{suffix}"
 # Global Constants
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com", 
@@ -1197,7 +1185,12 @@ def render_horizontal_grid(rows_dict, current_token):
         )
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
-    
+
+def get_greeting(name):
+    hour = datetime.now(pytz.timezone('America/Halifax')).hour
+    if hour < 12: return f"Good Morning, {name}"
+    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
+    else: return f"Good Evening, {name}"
 
 
 # =========================================================
@@ -1235,10 +1228,16 @@ if not user: st.error("Session Expired"); st.stop()
 current_mode = st.query_params.get("mode", "REAL")
 if current_mode not in ["REAL", "PAPER"]: current_mode = "REAL"
 
-# Header
-# Use the user's display name (fallback to username) for greeting
-_display_name = (user.get('display_name') or user.get('username') or '').strip() or 'Trader'
-st.markdown(f"### {get_greeting(_display_name)}")
+c1, c2 = st.columns([2, 1])
+with c1: st.markdown(f"### {get_greeting(user['display_name'])}")
+with c2:
+    is_paper = st.checkbox("Paper Trading", value=(current_mode=="PAPER"))
+    new_mode = "PAPER" if is_paper else "REAL"
+    if new_mode != current_mode: st.query_params["mode"] = new_mode; st.rerun()
+
+if current_mode == "PAPER":
+    st.markdown(f"<div style='background:#1e293b; padding:10px; border-radius:8px; color:#4ade80; font-weight:bold; text-align:center;'>💵 Balance: ${float(user['paper_balance']):,.2f}</div>", unsafe_allow_html=True)
+
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
     stock = get_single_stock(ticker)
@@ -1377,531 +1376,180 @@ if "ticker" in st.query_params:
     render_navbar(token, current_mode); st.stop()
 
 tab = st.query_params.get("tab", "home")
-
 if tab == "home":
-    # =========================================================
-    # HOME (Mockup-style) — custom HTML/CSS while keeping Streamlit backend
-    # =========================================================
-    st.markdown("""
-    <style>
-      :root{
-        --bg:#070a10;
-        --panel:rgba(15,18,25,.72);
-        --panel2:rgba(20,26,35,.78);
-        --stroke:rgba(148,163,184,.22);
-        --text:#e5e7eb;
-        --muted:#94a3b8;
-        --green:#4ade80;
-        --red:#ef4444;
-        --amber:#fbbf24;
-        --glow:0 0 22px rgba(74,222,128,.22), 0 0 50px rgba(56,189,248,.10);
-      }
-
-      /* tighten overall */
-      .block-container { max-width: 980px; padding-top: .6rem !important; }
-
-      /* hide streamlit anchors spacing issues */
-      [data-testid="stMarkdownContainer"]{ line-height: 1.2; }
-
-      .pp-topbar{
-        display:flex; align-items:center; justify-content:space-between;
-        gap:12px; margin:2px 0 10px 0;
-      }
-      .pp-brand{
-        display:flex; align-items:center; gap:10px;
-      }
-      .pp-logo{
-        width:34px; height:34px; border-radius:10px;
-        background: radial-gradient(circle at 30% 30%, rgba(74,222,128,.35), rgba(0,0,0,0) 60%),
-                    rgba(15,18,25,.75);
-        border:1px solid var(--stroke);
-        box-shadow: var(--glow);
-        display:flex; align-items:center; justify-content:center;
-        overflow:hidden;
-      }
-      .pp-wordmark{
-        font-weight:900; letter-spacing:.06em;
-        font-size: 1.05rem;
-      }
-      .pp-wordmark span{ color: var(--green); }
-      .pp-right{
-        display:flex; align-items:center; gap:10px;
-      }
-      .pp-pill{
-        display:flex; align-items:center; gap:10px;
-        padding:8px 12px;
-        border-radius:999px;
-        background: rgba(15,18,25,.55);
-        border:1px solid var(--stroke);
-        backdrop-filter: blur(10px);
-      }
-      .pp-dot{
-        width:8px; height:8px; border-radius:999px;
-        background: var(--green);
-        box-shadow: 0 0 10px rgba(74,222,128,.55);
-      }
-      .pp-dot.closed{ background: var(--red); box-shadow: 0 0 10px rgba(239,68,68,.55); }
-      .pp-iconbtn{
-        width:44px; height:44px; border-radius:999px;
-        display:flex; align-items:center; justify-content:center;
-        background: rgba(15,18,25,.55);
-        border:1px solid var(--stroke);
-        box-shadow: 0 0 18px rgba(251,191,36,.12);
-      }
-      .pp-avatar{
-        width:44px; height:44px; border-radius:999px;
-        display:flex; align-items:center; justify-content:center;
-        background: rgba(15,18,25,.55);
-        border:1px solid var(--stroke);
-        font-weight:800;
-      }
-
-      .pp-greeting{
-        font-size: 2.35rem;
-        font-weight: 900;
-        margin: 6px 0 12px 0;
-        text-shadow: 0 0 18px rgba(56,189,248,.12);
-      }
-
-      .pp-card{
-        background: linear-gradient(180deg, rgba(20,26,35,.82), rgba(10,12,18,.68));
-        border:1px solid rgba(148,163,184,.18);
-        border-radius: 22px;
-        box-shadow: 0 18px 60px rgba(0,0,0,.55), var(--glow);
-        overflow:hidden;
-      }
-      .pp-card .pp-card-hd{
-        padding:16px 18px;
-        background: linear-gradient(90deg, rgba(74,222,128,.14), rgba(0,0,0,0) 65%);
-        border-bottom:1px solid rgba(148,163,184,.12);
-        display:flex; justify-content:space-between; align-items:center; gap:10px;
-      }
-      .pp-card .pp-title{
-        font-size: 1.35rem; font-weight: 900;
-      }
-      .pp-card .pp-sub{
-        font-size:.78rem; color: var(--muted);
-        letter-spacing:.18em; font-weight: 800;
-        display:flex; align-items:center; gap:10px;
-      }
-      .pp-card .pp-body{
-        padding: 16px 18px 18px 18px;
-      }
-
-      .pp-grid{
-        display:grid;
-        grid-template-columns: 1.05fr .95fr;
-        gap:14px;
-      }
-
-      .pp-metrics .pp-value{
-        font-size: 2.35rem; font-weight: 950; margin: 2px 0 10px 0;
-      }
-      .pp-metrics .pp-label{ color: var(--muted); font-weight: 800; letter-spacing:.08em; font-size:.85rem; }
-      .pp-metrics .pp-duo{
-        display:grid; grid-template-columns: 1fr 1fr; gap:10px;
-        margin-top: 10px;
-      }
-      .pp-mini{
-        background: rgba(15,18,25,.55);
-        border:1px solid rgba(148,163,184,.14);
-        border-radius: 16px;
-        padding: 12px 12px;
-      }
-      .pp-mini .pp-mini-top{
-        display:flex; align-items:center; gap:8px;
-        color: var(--muted); font-weight: 800;
-      }
-      .pp-mini .pp-mini-main{
-        font-size: 1.55rem; font-weight: 950; margin-top: 6px;
-      }
-      .pp-mini .pp-mini-sub{
-        font-size: 1.05rem; font-weight: 900; margin-top: 2px;
-      }
-
-      .pp-chips{
-        display:grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap:10px;
-        margin-top: 14px;
-      }
-      .pp-chip{
-        display:flex; align-items:center; justify-content:space-between;
-        gap:8px;
-        padding:10px 12px;
-        border-radius: 999px;
-        background: rgba(15,18,25,.55);
-        border: 1px solid rgba(148,163,184,.14);
-      }
-      .pp-chip .k{ color: var(--muted); font-weight: 850; font-size:.85rem; }
-      .pp-chip .v{ font-weight: 950; font-size:.95rem; }
-
-      .pp-section{
-        margin-top: 16px;
-      }
-      .pp-section-hd{
-        display:flex; justify-content:space-between; align-items:center;
-        margin: 14px 2px 10px 2px;
-      }
-      .pp-section-hd h3{
-        margin:0; font-size:1.15rem; font-weight: 950;
-      }
-      .pp-section-hd .pp-link{
-        color: var(--text);
-        opacity: .86;
-        text-decoration:none;
-        font-weight: 900;
-        background: rgba(15,18,25,.55);
-        border:1px solid rgba(148,163,184,.14);
-        padding:10px 12px;
-        border-radius: 999px;
-      }
-
-      .pp-scroll{
-        overflow-x:auto;
-        display:flex; gap:12px;
-        padding: 12px 6px 4px 6px;
-        scroll-snap-type: x mandatory;
-      }
-      .pp-scroll::-webkit-scrollbar{ height:8px; }
-      .pp-scroll::-webkit-scrollbar-thumb{ background: rgba(148,163,184,.22); border-radius: 999px; }
-
-      .pp-tile{
-        min-width: 150px;
-        scroll-snap-align:start;
-        background: rgba(15,18,25,.55);
-        border:1px solid rgba(148,163,184,.14);
-        border-radius: 18px;
-        padding: 12px 12px;
-        box-shadow: 0 10px 30px rgba(0,0,0,.35);
-      }
-      .pp-tile .t{ font-weight: 950; font-size: 1.1rem; }
-      .pp-tile .p{ font-weight: 950; font-size: 1.35rem; margin-top: 6px; }
-      .pp-tile .d{ font-weight: 900; font-size: 1.05rem; margin-top: 6px; }
-
-      .pp-movers{
-        display:grid; grid-template-columns: 1fr 1fr; gap:12px;
-      }
-      .pp-table{
-        width:100%;
-        border-collapse: collapse;
-        margin-top: 8px;
-        font-weight: 800;
-      }
-      .pp-table th{
-        text-align:left;
-        color: var(--muted);
-        font-size:.75rem;
-        letter-spacing:.14em;
-        padding: 10px 0 8px 0;
-        border-bottom: 1px solid rgba(148,163,184,.12);
-      }
-      .pp-table td{
-        padding: 10px 0;
-        border-bottom: 1px solid rgba(148,163,184,.10);
-      }
-      .pp-table tr:last-child td{ border-bottom:none; }
-      .pp-pos{ color: var(--green); }
-      .pp-neg{ color: var(--red); }
-
-      /* bottom nav (visual + clickable) */
-      .pp-bottomnav{
-        position: fixed;
-        left: 0; right: 0;
-        bottom: 0;
-        padding: 10px 10px calc(10px + env(safe-area-inset-bottom)) 10px;
-        background: linear-gradient(180deg, rgba(7,10,16,0), rgba(7,10,16,.86) 35%, rgba(7,10,16,.96));
-        z-index: 999;
-      }
-      .pp-bottomnav .row{
-        max-width: 980px;
-        margin: 0 auto;
-        background: rgba(15,18,25,.62);
-        border:1px solid rgba(148,163,184,.16);
-        border-radius: 22px;
-        box-shadow: 0 18px 55px rgba(0,0,0,.6), var(--glow);
-        display:grid;
-        grid-template-columns: repeat(5, 1fr);
-        gap: 6px;
-        padding: 10px 8px;
-        backdrop-filter: blur(10px);
-      }
-      .pp-navitem{
-        text-decoration:none;
-        color: rgba(229,231,235,.82);
-        display:flex; flex-direction:column; align-items:center; gap:6px;
-        font-weight: 900;
-        font-size: .78rem;
-        padding: 8px 6px;
-        border-radius: 18px;
-      }
-      .pp-navitem.active{
-        color: var(--green);
-        background: rgba(74,222,128,.10);
-        border:1px solid rgba(74,222,128,.22);
-        box-shadow: 0 0 22px rgba(74,222,128,.10);
-      }
-
-      @media (max-width: 740px){
-        .pp-grid{ grid-template-columns: 1fr; }
-        .pp-movers{ grid-template-columns: 1fr; }
-        .pp-greeting{ font-size: 2.05rem; }
-      }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # ---------- Header data ----------
-    tz = pytz.timezone("America/New_York")
-    now_et = datetime.now(tz)
-    date_str = now_et.strftime("%A, %b %-d") if hasattr(now_et, "strftime") else now_et.strftime("%A, %b %d")
-    # Market open check (simple)
-    is_weekday = now_et.weekday() < 5
-    minutes = now_et.hour * 60 + now_et.minute
-    market_open = is_weekday and (minutes >= (9*60+30)) and (minutes < (16*60))
-    market_label = "Market Open" if market_open else "Market Closed"
-    dot_class = "" if market_open else "closed"
-
-    # User greeting text
-    display_name = (user.get("display_name") or user.get("username") or "").strip() or "Trader"
-    greeting_txt = get_greeting(display_name)
-
-    # Attempt to inline logo.png if present (so it renders nicely in header)
-    import base64
-    import html as html
-    logo_html = ""
+    # ============================================
+    # PENNYPULSE ALERT BANNER
+    # ============================================
+    # ============================================
+    # ============================================
+    # PENNYPULSE ALERT BANNER (PER USER)
+    # ============================================
+    # ============================================
+    # BIG MOVERS (±5%) — PER USER (portfolio)
+    # ============================================
     try:
-        if os.path.exists("logo.png"):
-            with open("logo.png", "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("utf-8")
-            logo_html = f'<img src="data:image/png;base64,{b64}" style="height:28px; width:auto; display:block;" />'
-    except Exception:
-        logo_html = ""
+        conn = get_connection()
+        cursor = conn.cursor()
 
-    initials = "".join([p[0] for p in display_name.split() if p]).upper()[:2] or "PP"
+        # Top movers from the user's ACTIVE portfolio tickers (no ±5% filter).
+        cursor.execute(
+            "SELECT DISTINCT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE",
+            (user["username"],),
+        )
+        user_tickers = [r[0] for r in cursor.fetchall()]
 
-    st.markdown(
-        f"""
-        <div class="pp-topbar">
-          <div class="pp-brand">
-            <div class="pp-logo">{logo_html if logo_html else "⚡"}</div>
-            <div class="pp-wordmark">PENNY <span>PULSE</span></div>
-          </div>
-          <div class="pp-right">
-            <div class="pp-pill">
-              <div style="font-weight:900;">{date_str}</div>
-              <div style="width:1px; height:14px; background:rgba(148,163,184,.25);"></div>
-              <div class="pp-dot {dot_class}"></div>
-              <div style="font-weight:950;">{market_label}</div>
-            </div>
-            <div class="pp-iconbtn">🔔</div>
-            <div class="pp-avatar">{initials}</div>
-          </div>
-        </div>
-        <div class="pp-greeting">{greeting_txt}</div>
-        """,
-        unsafe_allow_html=True
-    )
+        gainers, losers = [], []
+        if user_tickers:
+            placeholders = ",".join(["%s"] * len(user_tickers))
+            params = tuple(user_tickers)
 
-    # ---------- Portfolio calcs ----------
-    portfolio = get_portfolio_details(user["username"], current_mode)
-    if not portfolio:
-        st.info(f"Your {current_mode} portfolio is empty.")
-        render_navbar(token, current_mode)
-        st.stop()
+            cursor.execute(
+                f"SELECT ticker, current_price, day_change "
+                f"FROM stock_cache "
+                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
+                f"ORDER BY day_change DESC "
+                f"LIMIT 3",
+                params,
+            )
+            gainers = cursor.fetchall() or []
 
-    tickers = [r["ticker"] for r in portfolio if r.get("ticker")]
-    data_map = get_cached_data_map(tickers)
+            cursor.execute(
+                f"SELECT ticker, current_price, day_change "
+                f"FROM stock_cache "
+                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
+                f"ORDER BY day_change ASC "
+                f"LIMIT 3",
+                params,
+            )
+            losers = cursor.fetchall() or []
 
-    rows = []
-    for r in portfolio:
-        t = r["ticker"]
-        s = data_map.get(t)
-        if not s:
-            continue
-        # merge basics used in calcs
-        merged = {**s, **r}
-        rows.append(merged)
+        conn.close()
 
-    if not rows:
-        st.warning("No price data yet. If you just added tickers, run your refresher / wait a moment.")
-        render_navbar(token, current_mode)
-        st.stop()
+        def _fmt_mover_row(row):
+            t, price, chg = row
+            try:
+                chg = float(chg)
+            except Exception:
+                chg = 0.0
+            sign = "+" if chg >= 0 else ""
+            try:
+                price_txt = f"${float(price):.2f}"
+            except Exception:
+                price_txt = "-"
+            return (
+                "<div style='display:flex; justify-content:space-between; gap:10px; "
+                "font-size:16px; margin:6px 0;'>"
+                f"<div style='min-width:70px; font-weight:700;'>{t}</div>"
+                f"<div style='opacity:.85;'>{price_txt}</div>"
+                f"<div style='font-weight:700;'>{sign}{chg:.2f}%</div>"
+                "</div>"
+            )
 
-    total_value = 0.0
-    cost_basis = 0.0
-    unreal = 0.0
-    day_pl = 0.0
+        gainers_html = "".join(_fmt_mover_row(r) for r in gainers) or "<div style='opacity:.7'>No gainers yet.</div>"
+        losers_html = "".join(_fmt_mover_row(r) for r in losers) or "<div style='opacity:.7'>No losers yet.</div>"
 
-    for r in rows:
-        shares = float(r.get("shares") or 0)
-        entry = float(r.get("entry_price") or r.get("avg_price") or 0)
-        price = float(r.get("current_price") or 0)
-        day_chg_pct = float(r.get("day_change") or 0)
-
-        total_value += price * shares
-        cost_basis += entry * shares
-        unreal += (price - entry) * shares
-
-        # day P/L from pct change
-        prev = price / (1 + (day_chg_pct / 100.0)) if (1 + (day_chg_pct / 100.0)) != 0 else price
-        day_pl += (price - prev) * shares
-
-    day_pct = (day_pl / (total_value - day_pl) * 100.0) if (total_value - day_pl) != 0 else 0.0
-    unreal_pct = (unreal / cost_basis * 100.0) if cost_basis > 0 else 0.0
-
-    # risk score (avg)
-    avg_risk = int(sum([calculate_risk(r)[0] for r in rows]) / max(1, len(rows)))
-    risk_score, risk_label, risk_color, *_ = calculate_risk({**rows[0], "risk_override": avg_risk}) if False else (avg_risk, "MEDIUM" if avg_risk < 65 else "HIGH", "#fbbf24" if avg_risk < 65 else "#ef4444")
-
-    # top/loser/volatile
-    def _safe_pct(x):
-        try: return float(x)
-        except: return 0.0
-
-    top_g = max(rows, key=lambda r: _safe_pct(r.get("day_change", 0)))
-    top_l = min(rows, key=lambda r: _safe_pct(r.get("day_change", 0)))
-    top_v = max(rows, key=lambda r: abs(_safe_pct(r.get("day_change", 0))))
-
-    def fmt_money(v): return f"${v:,.2f}"
-    def fmt_pct(v): return f"{v:+.2f}%"
-
-    # Gauge HTML (reuse existing SVG gauge generator)
-    gauge_html = create_gauge_html(avg_risk, "MEDIUM" if avg_risk < 65 else "HIGH", "#fbbf24" if avg_risk < 65 else "#ef4444", "big")
-
-    st.markdown(
-        f"""
-        <div class="pp-card">
-          <div class="pp-card-hd">
-            <div class="pp-title">Portfolio Summary</div>
-            <div class="pp-sub"><span style="width:6px;height:6px;border-radius:999px;background:var(--green);display:inline-block;box-shadow:0 0 12px rgba(74,222,128,.45)"></span> PORTFOLIO RISK</div>
-          </div>
-          <div class="pp-body">
-            <div class="pp-grid">
-              <div>
-                {gauge_html}
-              </div>
-              <div class="pp-metrics">
-                <div class="pp-label">Total Value</div>
-                <div class="pp-value">{fmt_money(total_value)}</div>
-                <div class="pp-duo">
-                  <div class="pp-mini">
-                    <div class="pp-mini-top">▲ Today</div>
-                    <div class="pp-mini-main" style="color:{'#4ade80' if day_pl>=0 else '#ef4444'};">{fmt_money(day_pl)}</div>
-                    <div class="pp-mini-sub" style="color:{'#4ade80' if day_pl>=0 else '#ef4444'};">{fmt_pct(day_pct)}</div>
-                  </div>
-                  <div class="pp-mini">
-                    <div class="pp-mini-top">▲ Unrealized</div>
-                    <div class="pp-mini-main" style="color:{'#4ade80' if unreal>=0 else '#ef4444'};">{fmt_money(unreal)}</div>
-                    <div class="pp-mini-sub" style="color:{'#4ade80' if unreal>=0 else '#ef4444'};">{fmt_pct(unreal_pct)}</div>
-                  </div>
-                </div>
-
-                <div class="pp-chips">
-                  <div class="pp-chip"><div class="k">Top Gainer</div><div class="v">{html.escape(top_g['ticker'])} <span class="pp-pos">{fmt_pct(_safe_pct(top_g.get('day_change')))}</span></div></div>
-                  <div class="pp-chip"><div class="k">Top Loser</div><div class="v">{html.escape(top_l['ticker'])} <span class="pp-neg">{fmt_pct(_safe_pct(top_l.get('day_change')))}</span></div></div>
-                  <div class="pp-chip"><div class="k">Most Volatile</div><div class="v">{html.escape(top_v['ticker'])} <span style="color:var(--amber)">{fmt_pct(abs(_safe_pct(top_v.get('day_change'))))}</span></div></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="pp-section">
-              <div class="pp-section-hd">
-                <h3>Portfolio Ticker Scroller</h3>
-                <a class="pp-link" href="?token={token}&tab=portfolio">View All</a>
-              </div>
-              <div class="pp-scroll">
-        """,
-        unsafe_allow_html=True
-    )
-
-    # Scroller tiles (clickable to ticker detail)
-    for r in rows[:20]:
-        t = r["ticker"]
-        price = float(r.get("current_price") or 0)
-        chg = _safe_pct(r.get("day_change") or 0)
-        cls = "pp-pos" if chg >= 0 else "pp-neg"
         st.markdown(
             f"""
-            <a href="?token={token}&ticker={t}" target="_self" style="text-decoration:none; color:inherit;">
-              <div class="pp-tile">
-                <div class="t">{html.escape(t)}</div>
-                <div class="p">{fmt_money(price)}</div>
-                <div class="d {cls}">{fmt_pct(chg)}</div>
+            <div class='card' style='padding:18px; border-left:6px solid #2f80ed;'>
+              <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
+                BIG MOVERS (Top 3)
               </div>
-            </a>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>📈 GAINERS</div>
+              {gainers_html}
+              <div style='height:10px'></div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>📉 LOSERS</div>
+              {losers_html}
+            </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
+    except Exception:
+        pass
 
-    st.markdown("""</div></div>""", unsafe_allow_html=True)
 
-    # Movers tables
-    gainers = sorted(rows, key=lambda r: _safe_pct(r.get("day_change", 0)), reverse=True)[:3]
-    decliners = sorted(rows, key=lambda r: _safe_pct(r.get("day_change", 0)))[:3]
 
-    def table_rows(rs, neg=False):
-        out = []
-        for r in rs:
-            t = html.escape(r["ticker"])
-            price = float(r.get("current_price") or 0)
-            pct = _safe_pct(r.get("day_change") or 0)
-            cls = "pp-neg" if pct < 0 else "pp-pos"
-            out.append(f"<tr><td style='font-weight:950;'>{t}</td><td>{fmt_money(price)}</td><td class='{cls}'>{fmt_pct(pct)}</td></tr>")
-        return "\n".join(out)
+    
 
-    st.markdown(
-        f"""
-        <div class="pp-section">
-          <div class="pp-section-hd">
-            <h3>Portfolio Movers</h3>
-          </div>
-          <div class="pp-movers">
-            <div class="pp-card">
-              <div class="pp-card-hd">
-                <div class="pp-title">Top 3 Gainers</div>
-              </div>
-              <div class="pp-body">
-                <table class="pp-table">
-                  <thead><tr><th>Ticker</th><th>Price</th><th>Today</th></tr></thead>
-                  <tbody>
-                    {table_rows(gainers)}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change DESC LIMIT 3")
+        gainers = cursor.fetchall() or []
+        cursor.execute("SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change ASC LIMIT 3")
+        losers = cursor.fetchall() or []
+        conn.close()
 
-            <div class="pp-card">
-              <div class="pp-card-hd">
-                <div class="pp-title">Top 3 Decliners</div>
-              </div>
-              <div class="pp-body">
-                <table class="pp-table">
-                  <thead><tr><th>Ticker</th><th>Price</th><th>Today</th></tr></thead>
-                  <tbody>
-                    {table_rows(decliners)}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
+        def _fmt_row(t, p, chg):
+            try:
+                p = float(p) if p is not None else None
+            except Exception:
+                p = None
+            try:
+                chg = float(chg) if chg is not None else 0.0
+            except Exception:
+                chg = 0.0
+            sign = "+" if chg >= 0 else ""
+            price_txt = f"${p:,.2f}" if p is not None else ""
+            return f"""<div style='display:flex; justify-content:space-between; padding:6px 0;'>
+                        <div style='font-weight:700; color:#e5e7eb;'>{t}</div>
+                        <div style='color:#cbd5e1;'>{price_txt}</div>
+                        <div style='font-weight:700; color:#e5e7eb;'>{sign}{chg:.2f}%</div>
+                    </div>"""
 
-        <div style="height:120px;"></div>
+        if gainers or losers:
+            gain_html = "".join([_fmt_row(t,p,c) for (t,p,c) in gainers]) if gainers else "<div style='color:#94a3b8;'>No gainers.</div>"
+            lose_html = "".join([_fmt_row(t,p,c) for (t,p,c) in losers]) if losers else "<div style='color:#94a3b8;'>No losers.</div>"
 
-        <div class="pp-bottomnav">
-          <div class="row">
-            <a class="pp-navitem active" href="?token={token}&tab=home">Home</a>
-            <a class="pp-navitem" href="?token={token}&tab=portfolio">Portfolio</a>
-            <a class="pp-navitem" href="?token={token}&tab=alerts">Alerts</a>
-            <a class="pp-navitem" href="?token={token}&tab=scanner">Discover</a>
-            <a class="pp-navitem" href="?token={token}&tab=settings">Settings</a>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            st.markdown(
+                f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
+                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS (Top 3)</div>
+                    <div style="font-size:0.85rem; font-weight:800; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">GAINERS</div>
+                    {gain_html}
+                    <div style="height:10px"></div>
+                    <div style="font-size:0.85rem; font-weight:800; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">LOSERS</div>
+                    {lose_html}
+                </div>""",
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                """<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
+                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS</div>
+                    <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">No global data yet. Run <code>global_up.php</code> to populate <code>global_cache</code>.</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
+    except:
+        pass
 
-    st.stop()
+
+    st.markdown("### Portfolio Overview")
+    portfolio = get_portfolio_details(user['username'], current_mode)
+    if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
+    else:
+        tickers = [r['ticker'] for r in portfolio]
+        data_map = get_cached_data_map(tickers)
+        valid_rows = [data_map[t] for t in tickers if t in data_map]
+        if valid_rows:
+            avg = sum([calculate_risk(x)[0] for x in valid_rows])/len(valid_rows)
+            st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
+            
+            # THE BIG 3 METRICS ROW
+            riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
+            volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
+            e_list = []
+            for r in valid_rows:
+                d_val = parse_smart_date(r.get('next_earnings'))
+                if d_val < 365: e_list.append((r['ticker'], d_val))
+            e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
+            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div></div></div>""", unsafe_allow_html=True)
+            
+            render_horizontal_grid(data_map, token)
+            
+    w_date = get_watchlist_header_date()
+    st.markdown(f"### {w_date} Watchlist")
+    candidates = get_watchlist_rows_for_home()
+    render_watchlist_pick_grid(candidates, token)
+    #render_compact_watchlist(candidates, token)
 
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
