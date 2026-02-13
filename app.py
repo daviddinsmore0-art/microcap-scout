@@ -1388,8 +1388,9 @@ if "ticker" in st.query_params:
 tab = st.query_params.get("tab", "home")
 if tab == "home":
 
-    render_topbar(user.get("display_name") or user.get("username") or "User")
-    # 🔖 build stamp so you can tell you're on the updated file (remove later if you want)
+    
+    #render_topbar(username)
+    🔖 build stamp so you can tell you're on the updated file (remove later if you want)
     st.caption("build: home_image2_v3")
 
     # Always REAL mode (paper trading removed)
