@@ -228,11 +228,19 @@ st.markdown("""
 
 </style>
 """, unsafe_allow_html=True)
-def get_greeting(name):
+def get_greeting(name: str = ""):
+    """Return a time-based greeting.
+
+    `name` is optional; when provided it will be appended after a comma.
+    """
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
-    if hour < 12: return f"Good Morning, {name}"
-    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
-    else: return f"Good Evening, {name}"
+    suffix = f", {name}" if name else ""
+    if hour < 12:
+        return f"Good Morning{suffix}"
+    elif 12 <= hour < 18:
+        return f"Good Afternoon{suffix}"
+    else:
+        return f"Good Evening{suffix}"
 # Global Constants
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com", 
@@ -1228,8 +1236,9 @@ current_mode = st.query_params.get("mode", "REAL")
 if current_mode not in ["REAL", "PAPER"]: current_mode = "REAL"
 
 # Header
-st.markdown(f"### {get_greeting(datetime.now())}, {display_name}")
-current_mode = "REAL"
+# Use the user's display name (fallback to username) for greeting
+_display_name = (user.get('display_name') or user.get('username') or '').strip() or 'Trader'
+st.markdown(f"### {get_greeting(_display_name)}")
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
     stock = get_single_stock(ticker)
