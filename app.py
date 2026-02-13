@@ -1228,16 +1228,9 @@ if not user: st.error("Session Expired"); st.stop()
 current_mode = st.query_params.get("mode", "REAL")
 if current_mode not in ["REAL", "PAPER"]: current_mode = "REAL"
 
-c1, c2 = st.columns([2, 1])
-with c1: st.markdown(f"### {get_greeting(user['display_name'])}")
-with c2:
-    is_paper = st.checkbox("Paper Trading", value=(current_mode=="PAPER"))
-    new_mode = "PAPER" if is_paper else "REAL"
-    if new_mode != current_mode: st.query_params["mode"] = new_mode; st.rerun()
-
-if current_mode == "PAPER":
-    st.markdown(f"<div style='background:#1e293b; padding:10px; border-radius:8px; color:#4ade80; font-weight:bold; text-align:center;'>💵 Balance: ${float(user['paper_balance']):,.2f}</div>", unsafe_allow_html=True)
-
+# Header
+st.markdown(f"### {get_greeting(datetime.now())}, {display_name}")
+current_mode = "REAL"
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
     stock = get_single_stock(ticker)
@@ -1392,6 +1385,32 @@ if tab == "home":
         cursor = conn.cursor()
 
         # Top movers from the user's ACTIVE portfolio tickers (no ±5% filter).
+        st.markdown("### Portfolio Overview")
+        portfolio = get_portfolio_details(user['username'], current_mode)
+        if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
+        else:
+            tickers = [r['ticker'] for r in portfolio]
+            data_map = get_cached_data_map(tickers)
+            valid_rows = [data_map[t] for t in tickers if t in data_map]
+            if valid_rows:
+                avg = sum([calculate_risk(x)[0] for x in valid_rows])/len(valid_rows)
+                st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
+                
+                # THE BIG 3 METRICS ROW
+                riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
+                volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
+                e_list = []
+                for r in valid_rows:
+                    d_val = parse_smart_date(r.get('next_earnings'))
+                    if d_val < 365: e_list.append((r['ticker'], d_val))
+                e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
+                st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div></div></div>""", unsafe_allow_html=True)
+                
+                render_horizontal_grid(data_map, token)
+                
+        w_date = get_watchlist_header_date()
+    
+
         cursor.execute(
             "SELECT DISTINCT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE",
             (user["username"],),
@@ -1501,19 +1520,16 @@ if tab == "home":
 
             st.markdown(
                 f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS (Top 3)</div>
-                    <div style="font-size:0.85rem; font-weight:800; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">GAINERS</div>
+                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL PICKS (Top 3)</div>
+                    <div style="font-size:0.85rem; font-weight:800; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">PICKS</div>
                     {gain_html}
-                    <div style="height:10px"></div>
-                    <div style="font-size:0.85rem; font-weight:800; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">LOSERS</div>
-                    {lose_html}
-                </div>""",
+</div>""",
                 unsafe_allow_html=True
             )
         else:
             st.markdown(
                 """<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS</div>
+                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL PICKS</div>
                     <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">No global data yet. Run <code>global_up.php</code> to populate <code>global_cache</code>.</div>
                 </div>""",
                 unsafe_allow_html=True
@@ -1522,34 +1538,6 @@ if tab == "home":
         pass
 
 
-    st.markdown("### Portfolio Overview")
-    portfolio = get_portfolio_details(user['username'], current_mode)
-    if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
-    else:
-        tickers = [r['ticker'] for r in portfolio]
-        data_map = get_cached_data_map(tickers)
-        valid_rows = [data_map[t] for t in tickers if t in data_map]
-        if valid_rows:
-            avg = sum([calculate_risk(x)[0] for x in valid_rows])/len(valid_rows)
-            st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
-            
-            # THE BIG 3 METRICS ROW
-            riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
-            volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
-            e_list = []
-            for r in valid_rows:
-                d_val = parse_smart_date(r.get('next_earnings'))
-                if d_val < 365: e_list.append((r['ticker'], d_val))
-            e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
-            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:0 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div></div></div>""", unsafe_allow_html=True)
-            
-            render_horizontal_grid(data_map, token)
-            
-    w_date = get_watchlist_header_date()
-    st.markdown(f"### {w_date} Watchlist")
-    candidates = get_watchlist_rows_for_home()
-    render_watchlist_pick_grid(candidates, token)
-    #render_compact_watchlist(candidates, token)
 
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
