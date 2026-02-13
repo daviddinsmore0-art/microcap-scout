@@ -636,7 +636,7 @@ def render_topbar(display_name: str = "User"):
         <div class="pp-brand">
           <div class="pplogo">
     <img src="logo.png">
-</div>
+        </div>
           <div class="pp-subpill">
             <span>{date_str}</span>
             <span class="pp-dot {dot_class}"></span>
