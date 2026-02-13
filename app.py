@@ -228,7 +228,11 @@ st.markdown("""
 
 </style>
 """, unsafe_allow_html=True)
-
+def get_greeting(name):
+    hour = datetime.now(pytz.timezone('America/Halifax')).hour
+    if hour < 12: return f"Good Morning, {name}"
+    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
+    else: return f"Good Evening, {name}"
 # Global Constants
 DB_CONFIG = {
     "host": "atlanticcanadaschoice.com", 
@@ -1185,12 +1189,7 @@ def render_horizontal_grid(rows_dict, current_token):
         )
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
-
-def get_greeting(name):
-    hour = datetime.now(pytz.timezone('America/Halifax')).hour
-    if hour < 12: return f"Good Morning, {name}"
-    elif 12 <= hour < 18: return f"Good Afternoon, {name}"
-    else: return f"Good Evening, {name}"
+    
 
 
 # =========================================================
