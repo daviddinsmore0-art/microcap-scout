@@ -17,10 +17,10 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
-st.markdown("""
+st.markdown(textwrap.dedent("""
     <style>
         /* REMOVE DEFAULT PADDING */
-        .block-container { padding-top: 0rem !important; padding-bottom: calc(8rem + env(safe-area-inset-bottom)) !important; }
+        .block-container { padding-top: 0rem !important; padding-bottom: calc(8rem + env(safe-area-inset-bottom).strip(), unsafe_allow_html=True) !important; }
         
         /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
@@ -227,7 +227,7 @@ st.markdown("""
 .scan-spark{ margin-top:10px; opacity:0.95; }
 
 </style>
-""", unsafe_allow_html=True)
+""").strip(), unsafe_allow_html=True)
 
 # Global Constants
 DB_CONFIG = {
@@ -846,7 +846,7 @@ def get_user_alerts(username):
 # --- UI Functions ---
 def render_navbar(token, mode):
     mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
-    st.markdown(f"""
+    st.markdown(textwrap.dedent(f"""
     <div class="nav-container">
         <a href="?token={token}&tab=home{mode_arg}" class="nav-link" target="_self">🏠</a>
         <a href="?token={token}&tab=portfolio{mode_arg}" class="nav-link" target="_self">📂</a>
@@ -854,7 +854,7 @@ def render_navbar(token, mode):
         <a href="?token={token}&tab=scanner{mode_arg}" class="nav-link" target="_self">📡</a>
         <a href="?token={token}&tab=settings{mode_arg}" class="nav-link" target="_self">⚙️</a>
     </div>
-    """, unsafe_allow_html=True)
+    """).strip(), unsafe_allow_html=True)
 
 def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
@@ -1129,7 +1129,7 @@ def render_watchlist_pick_grid(rows, current_token=None):
                 href = f"?token={current_token}&tab=portfolio&ticker={ticker}"
 
             with cols[j]:
-                st.markdown(f"""
+                st.markdown(textwrap.dedent(f"""
 <a href='{href}' style='text-decoration:none;'>
   <div class='card' style='padding:16px; min-height:118px; cursor:pointer;'>
     <div style='display:flex; align-items:flex-start; justify-content:space-between; gap:10px;'>
@@ -1145,7 +1145,7 @@ def render_watchlist_pick_grid(rows, current_token=None):
     </div>
   </div>
 </a>
-""", unsafe_allow_html=True)
+""").strip(), unsafe_allow_html=True)
 
 def render_simple_card(row, current_token):
     p = float(row['current_price']); ch = float(row['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"; arr = "▲" if ch>=0 else "▼"
@@ -1264,7 +1264,7 @@ if "ticker" in st.query_params:
             st.markdown("---")
 
         st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
-        st.markdown(f"""<div class='card' style='margin-top:12px; padding:18px;'>
+        st.markdown(textwrap.dedent(f"""<div class='card' style='margin-top:12px; padding:18px;'>
             <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:6px;'>CONFIDENCE</div>
             <div style='display:flex; align-items:center; gap:14px;'>
                 <div style='font-size:2rem; font-weight:bold; color:white; line-height:1;'>{confidence}</div>
@@ -1272,7 +1272,7 @@ if "ticker" in st.query_params:
                     <div style='width:{confidence}%; height:100%; background:linear-gradient(90deg, #ef4444 0%, #fbbf24 50%, #4ade80 100%);'></div>
                 </div>
             </div>
-        </div>""", unsafe_allow_html=True)
+        </div>""").strip(), unsafe_allow_html=True)
 
         play = generate_playbook(stock)
         if play:
@@ -1422,7 +1422,7 @@ if tab == "home":
                     box-shadow: 0 0 22px rgba(0,255,170,0.12);
                     background: radial-gradient(900px 280px at 18% 0%, rgba(0,255,170,0.10), transparent 60%),
                                 radial-gradient(700px 220px at 82% 0%, rgba(88,101,242,0.10), transparent 55%),
-                                linear-gradient(180deg, rgba(15,23,42,0.92), rgba(2,6,23,0.92));
+                                linear-gradient(180deg, rgba(15,23,42,0.92), rgba(2,6,23,0.92).strip(), unsafe_allow_html=True);
                 ">
                   <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
                     <div style="font-size:1.55rem; font-weight:900; color:#e5e7eb;">Portfolio Summary</div>
@@ -1465,7 +1465,8 @@ if tab == "home":
                     </div>
                   </div>
                 </div>
-                """).strip(), unsafe_allow_html=True)
+                """).strip(), unsafe_allow_html=True,
+            )
         except Exception:
             pass
 
@@ -1478,7 +1479,8 @@ if tab == "home":
                   </div>
                   <div style="font-size:0.85rem; opacity:0.75; color:#94a3b8;">Tap a ticker</div>
                 </div>
-                """).strip(), unsafe_allow_html=True)
+                """).strip(), unsafe_allow_html=True,
+            )
             render_horizontal_grid(data_map, token)
         except Exception:
             pass
@@ -1589,7 +1591,8 @@ if tab == "home":
                     </div>
                   </div>
                 </div>
-                """).strip(), unsafe_allow_html=True)
+                """).strip(), unsafe_allow_html=True,
+            )
         except Exception:
             pass
 
@@ -1646,7 +1649,7 @@ elif tab == "portfolio":
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
     c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
     c_day = "#4ade80" if day_pl >= 0 else "#ef4444"
-    st.markdown(f"""<div style="display:flex; gap:10px; margin-bottom:20px;"><div class="metric-box" style="flex:1;"><div class="metric-label">Total P/L</div><div class="metric-value" style="color:{c_pl}">${total_pl:,.2f}</div><div class="metric-sub" style="color:{c_pl}">({total_pct:+.2f}%)</div></div><div class="metric-box" style="flex:1;"><div class="metric-label">Today's P/L</div><div class="metric-value" style="color:{c_day}">${day_pl:,.2f}</div><div class="metric-sub" style="color:{c_day}">({day_pct:+.2f}%)</div></div></div>""", unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(f"""<div style="display:flex; gap:10px; margin-bottom:20px;"><div class="metric-box" style="flex:1;"><div class="metric-label">Total P/L</div><div class="metric-value" style="color:{c_pl}">${total_pl:,.2f}</div><div class="metric-sub" style="color:{c_pl}">({total_pct:+.2f}%)</div></div><div class="metric-box" style="flex:1;"><div class="metric-label">Today's P/L</div><div class="metric-value" style="color:{c_day}">${day_pl:,.2f}</div><div class="metric-sub" style="color:{c_day}">({day_pct:+.2f}%)</div></div></div>""").strip(), unsafe_allow_html=True)
 
     
     if current_mode == "REAL":
