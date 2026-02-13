@@ -247,6 +247,22 @@ token = st.query_params.get("token", None)
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
+
+def ensure_stock_cache_ticker(ticker: str):
+    """Ensure ticker exists in stock_cache so the updater/queries can populate prices."""
+    t = (ticker or "").strip().upper()
+    if not t:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    # Insert stub row if missing; rely on ticker being UNIQUE/PK
+    cursor.execute(
+        "INSERT INTO stock_cache (ticker) VALUES (%s) ON DUPLICATE KEY UPDATE ticker=ticker",
+        (t,)
+    )
+    conn.commit()
+    conn.close()
+
 def init_db():
     try:
         conn = get_connection()
@@ -742,17 +758,61 @@ def deactivate_stock(username, ticker, ptype):
     conn.commit()
     conn.close()
 
+
 def add_ticker_to_db(username, ticker, shares, price, ptype):
+    t = (ticker or "").strip().upper()
+    if not t:
+        return
+
+    # Ensure it exists in stock_cache so market data can populate
+    ensure_stock_cache_ticker(t)
+
     conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)", (username, ticker, shares, price, ptype))
+    cursor = conn.cursor(dictionary=True)
+
+    # If an active row already exists for this user/ticker/ptype, update it (prevents duplicates)
+    cursor.execute(
+        "SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s AND is_active=TRUE ORDER BY id DESC LIMIT 1",
+        (username, t, ptype)
+    )
+    existing = cursor.fetchone()
+
+    if existing and existing.get("id"):
+        cursor2 = conn.cursor()
+        cursor2.execute(
+            "UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE id=%s",
+            (shares, price, existing["id"])
+        )
+    else:
+        cursor2 = conn.cursor()
+        cursor2.execute(
+            "INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)",
+            (username, t, shares, price, ptype)
+        )
+
     conn.commit()
     conn.close()
+
 
 def update_ticker_in_db(username, ticker, shares, price, ptype):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
+    conn.commit()
+    conn.close()
+
+
+def update_position_by_id(pos_id, shares, price):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE id=%s", (shares, price, pos_id))
+    conn.commit()
+    conn.close()
+
+def deactivate_position_by_id(pos_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE id=%s", (pos_id,))
     conn.commit()
     conn.close()
 
@@ -1498,31 +1558,54 @@ elif tab == "portfolio":
     c_day = "#4ade80" if day_pl >= 0 else "#ef4444"
     st.markdown(f"""<div style="display:flex; gap:10px; margin-bottom:20px;"><div class="metric-box" style="flex:1;"><div class="metric-label">Total P/L</div><div class="metric-value" style="color:{c_pl}">${total_pl:,.2f}</div><div class="metric-sub" style="color:{c_pl}">({total_pct:+.2f}%)</div></div><div class="metric-box" style="flex:1;"><div class="metric-label">Today's P/L</div><div class="metric-value" style="color:{c_day}">${day_pl:,.2f}</div><div class="metric-sub" style="color:{c_day}">({day_pct:+.2f}%)</div></div></div>""", unsafe_allow_html=True)
 
+    
     if current_mode == "REAL":
         with st.expander("Manage Holdings", expanded=False):
             t1, t2, t3 = st.tabs(["Add Stock", "Edit Position", "Remove Stock"])
+
+            # --- Add ---
             with t1:
                 with st.form("add_stock"):
                     c1, c2, c3 = st.columns([2, 1, 1])
-                    new_t = c1.text_input("Ticker"); shares = c2.number_input("Shares"); price = c3.number_input("Avg Price")
+                    new_t = c1.text_input("Ticker")
+                    shares = c2.number_input("Shares", min_value=0.0, value=0.0, step=1.0)
+                    price = c3.number_input("Avg Price", min_value=0.0, value=0.0, step=0.01)
                     if st.form_submit_button("Add to Portfolio"):
-                        if new_t: add_ticker_to_db(user['username'], new_t.upper(), shares, price, 'REAL'); st.rerun()
+                        if new_t:
+                            add_ticker_to_db(user['username'], new_t.upper(), shares, price, 'REAL')
+                            st.rerun()
+
+            # --- Edit (by id, with defaults) ---
             with t2:
                 port_rows = get_portfolio_details(user['username'], 'REAL')
                 if port_rows:
+                    # Disambiguate duplicates by including id
+                    options = {f"{r['ticker']} (id {r.get('id')})": r for r in port_rows}
+                    label = st.selectbox("Select Position", list(options.keys()))
+                    sel = options[label]
+
                     with st.form("edit_pos"):
-                        edit_t = st.selectbox("Select Stock", [r['ticker'] for r in port_rows])
-                        c1, c2 = st.columns(2); new_s = c1.number_input("New Shares"); new_p = c2.number_input("New Avg Price")
+                        c1, c2 = st.columns(2)
+                        new_s = c1.number_input("New Shares", min_value=0.0, value=float(sel.get('shares') or 0.0), step=1.0)
+                        new_p = c2.number_input("New Avg Price", min_value=0.0, value=float(sel.get('entry_price') or 0.0), step=0.01)
                         if st.form_submit_button("Update Position"):
-                            update_ticker_in_db(user['username'], edit_t, new_s, new_p, 'REAL'); st.rerun()
-                else: st.info("Empty Portfolio")
+                            update_position_by_id(sel.get('id'), new_s, new_p)
+                            st.rerun()
+                else:
+                    st.info("Empty Portfolio")
+
+            # --- Remove (by id) ---
             with t3:
                 port_rows = get_portfolio_details(user['username'], 'REAL')
                 if port_rows:
-                    to_remove = st.selectbox("Select Stock to Remove", [r['ticker'] for r in port_rows])
-                    if st.button("Remove Selected", type="primary"):
-                        deactivate_stock(user['username'], to_remove, 'REAL'); st.rerun()
-                else: st.info("Portfolio is empty.")
+                    options = {f"{r['ticker']} (id {r.get('id')})": r for r in port_rows}
+                    label = st.selectbox("Select Position to Remove", list(options.keys()), key="rm_select")
+                    sel = options[label]
+                    if st.button("Remove Selected", type="primary", key="rm_btn"):
+                        deactivate_position_by_id(sel.get('id'))
+                        st.rerun()
+                else:
+                    st.info("Portfolio is empty.")
     
     st.divider()
     port_rows = get_portfolio_details(user['username'], current_mode)
