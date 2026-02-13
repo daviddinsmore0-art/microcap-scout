@@ -570,9 +570,13 @@ def render_topbar(display_name: str = "User"):
             gap: 10px;
             min-width: 0;
           }
-          .pplogo img {
-            height: 34px;
-              }
+          .pplogo {
+    background-image: url("logo.png");
+    background-size: contain;
+    background-repeat: no-repeat;
+    width: 160px;
+    height: 36px;
+}
           .pp-subpill {
             display: flex;
             align-items: center;
