@@ -226,140 +226,6 @@ st.markdown("""
 
 .scan-spark{ margin-top:10px; opacity:0.95; }
 
-
-        /* =========================================================
-           PENNY PULSE MOCKUP-STYLE DASHBOARD
-        ========================================================= */
-        .pp-topbar{
-            display:flex; align-items:center; justify-content:space-between;
-            gap:12px; padding:14px 6px 6px 6px;
-        }
-        .pp-brand{ display:flex; align-items:center; gap:10px; }
-        .pp-logo{ width:28px; height:28px; filter: drop-shadow(0 0 10px rgba(74,222,128,.45)); }
-        .pp-brandtext{ line-height:1; }
-        .pp-brandname{ font-weight:900; letter-spacing:1px; font-size:18px; color:#e5e7eb; }
-        .pp-green{ color:#4ade80; }
-
-        .pp-pill{
-            flex:1;
-            max-width:420px;
-            display:flex; align-items:center; justify-content:center;
-            gap:12px;
-            background: rgba(15,18,25,.6);
-            border:1px solid rgba(148,163,184,.25);
-            border-radius:999px;
-            padding:10px 14px;
-            box-shadow: 0 0 22px rgba(34,197,94,.08);
-            backdrop-filter: blur(10px);
-        }
-        .pp-pill-date{ color:#e5e7eb; font-weight:700; font-size:14px; }
-        .pp-pill-sep{ width:1px; height:16px; background: rgba(148,163,184,.35); }
-        .pp-pill-status{ color:#e5e7eb; font-weight:700; font-size:14px; display:flex; align-items:center; gap:8px;}
-        .pp-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; box-shadow: 0 0 14px rgba(34,197,94,.65); }
-
-        .pp-icons{ display:flex; align-items:center; gap:10px;}
-        .pp-icon{
-            width:36px; height:36px; border-radius:999px;
-            display:flex; align-items:center; justify-content:center;
-            background: rgba(15,18,25,.6);
-            border:1px solid rgba(148,163,184,.25);
-            box-shadow: 0 0 18px rgba(34,197,94,.08);
-        }
-        .pp-avatar{
-            width:40px; height:40px; border-radius:999px;
-            display:flex; align-items:center; justify-content:center;
-            background: rgba(15,18,25,.8);
-            border:1px solid rgba(148,163,184,.25);
-            font-weight:800; color:#e5e7eb;
-        }
-
-        .pp-greeting{
-            font-size:42px; font-weight:900; color:#e5e7eb;
-            margin: 6px 0 12px 0;
-            text-shadow: 0 0 20px rgba(34,197,94,.10);
-        }
-
-        .pp-card{
-            background: radial-gradient(1200px 420px at 10% 0%, rgba(34,197,94,.16), transparent 55%), rgba(15,18,25,.70);
-            border:1px solid rgba(148,163,184,.22);
-            border-radius:18px;
-            padding:16px;
-            box-shadow: 0 0 28px rgba(34,197,94,.10);
-            backdrop-filter: blur(10px);
-            margin-top: 10px;
-        }
-        .pp-card-title{
-            display:flex; align-items:center; justify-content:space-between;
-            color:#e5e7eb; font-weight:900;
-            font-size:20px;
-            margin-bottom: 10px;
-        }
-        .pp-card-title-right{
-            font-size:12px; letter-spacing:2px;
-            color:#9ca3af; font-weight:800;
-            display:flex; align-items:center; gap:8px;
-        }
-        .pp-link{ color:#e5e7eb; text-decoration:none; font-weight:800; }
-        .pp-link:hover{ text-decoration:underline; }
-
-        .pp-metric-label{ color:#9ca3af; font-weight:800; font-size:12px; letter-spacing:1px; }
-        .pp-metric-value{ color:#e5e7eb; font-weight:900; font-size:44px; margin-top:4px; }
-        .pp-metric-row{ display:flex; gap:10px; margin-top:10px; }
-        .pp-metric-box{
-            flex:1;
-            background: rgba(15,18,25,.60);
-            border:1px solid rgba(148,163,184,.20);
-            border-radius:14px;
-            padding:12px;
-        }
-        .pp-metric-sub{ color:#9ca3af; font-weight:800; font-size:12px; }
-        .pp-metric-money{ font-weight:900; font-size:20px; margin-top:6px; }
-        .pp-metric-pct{ font-weight:900; font-size:16px; opacity:.95; }
-
-        .pp-chip-row{ display:flex; gap:10px; margin-top:12px; }
-        .pp-chip{
-            flex:1;
-            background: rgba(15,18,25,.55);
-            border:1px solid rgba(148,163,184,.18);
-            border-radius:14px;
-            padding:12px;
-            display:flex; align-items:center; justify-content:space-between; gap:10px;
-        }
-        .pp-chip-label{ color:#9ca3af; font-weight:900; font-size:12px; }
-        .pp-chip-ticker{ color:#e5e7eb; font-weight:900; font-size:16px; }
-        .pp-chip-chg{ font-weight:900; font-size:14px; }
-
-        .pp-section-title{
-            font-size:18px; font-weight:900; color:#e5e7eb;
-            margin: 18px 0 6px 0;
-        }
-
-        .pp-table{ width:100%; }
-        .pp-table-head, .pp-table-row{
-            display:grid; grid-template-columns: 1fr 1fr 1fr;
-            gap:8px; align-items:center;
-        }
-        .pp-table-head{
-            color:#9ca3af; font-weight:900; font-size:12px; letter-spacing:1px;
-            padding:8px 4px;
-            border-bottom: 1px solid rgba(148,163,184,.18);
-            margin-bottom: 6px;
-        }
-        .pp-table-row{
-            padding:10px 4px;
-            border-bottom: 1px solid rgba(148,163,184,.12);
-            color:#e5e7eb;
-            font-weight:700;
-        }
-        .pp-td-strong{ font-weight:900; }
-
-        /* Make chips wrap on small screens */
-        @media (max-width: 540px){
-            .pp-greeting{ font-size:34px; }
-            .pp-pill{ display:none; }
-            .pp-chip-row{ flex-direction:column; }
-        }
-
 </style>
 """, unsafe_allow_html=True)
 def get_greeting(name: str = ""):
@@ -1511,245 +1377,531 @@ if "ticker" in st.query_params:
     render_navbar(token, current_mode); st.stop()
 
 tab = st.query_params.get("tab", "home")
+
 if tab == "home":
     # =========================================================
-    # HOME DASHBOARD (MOCKUP-STYLE)
+    # HOME (Mockup-style) — custom HTML/CSS while keeping Streamlit backend
     # =========================================================
-    def _market_status_now():
-        """
-        Rough 'Market Open' status for US equities (Mon–Fri, 9:30–16:00 ET).
-        Not a holiday calendar — keeps UI simple.
-        """
-        et = pytz.timezone("America/New_York")
-        now = datetime.now(et)
-        wd = now.weekday()  # 0=Mon
-        open_time = now.replace(hour=9, minute=30, second=0, microsecond=0)
-        close_time = now.replace(hour=16, minute=0, second=0, microsecond=0)
-        is_open = (wd <= 4) and (open_time <= now <= close_time)
-        return is_open, now
+    st.markdown("""
+    <style>
+      :root{
+        --bg:#070a10;
+        --panel:rgba(15,18,25,.72);
+        --panel2:rgba(20,26,35,.78);
+        --stroke:rgba(148,163,184,.22);
+        --text:#e5e7eb;
+        --muted:#94a3b8;
+        --green:#4ade80;
+        --red:#ef4444;
+        --amber:#fbbf24;
+        --glow:0 0 22px rgba(74,222,128,.22), 0 0 50px rgba(56,189,248,.10);
+      }
 
-    def _render_topbar():
-        is_open, now_et = _market_status_now()
-        date_str = now_et.strftime("%A, %b %d")
-        status_txt = "Market Open" if is_open else "Market Closed"
-        dot = "#22c55e" if is_open else "#f59e0b"
-        st.markdown(
-            f"""
-            <div class="pp-topbar">
-              <div class="pp-brand">
-                <img class="pp-logo" src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/bolt.svg" alt="logo" onerror="this.style.display='none'"/>
-                <div class="pp-brandtext">
-                  <div class="pp-brandname">PENNY</div>
-                  <div class="pp-brandname pp-green">PULSE</div>
-                </div>
-              </div>
+      /* tighten overall */
+      .block-container { max-width: 980px; padding-top: .6rem !important; }
 
-              <div class="pp-pill">
-                <div class="pp-pill-date">{date_str}</div>
-                <div class="pp-pill-sep"></div>
-                <div class="pp-pill-status"><span class="pp-dot" style="background:{dot};"></span>{status_txt}</div>
-              </div>
+      /* hide streamlit anchors spacing issues */
+      [data-testid="stMarkdownContainer"]{ line-height: 1.2; }
 
-              <div class="pp-icons">
-                <div class="pp-icon" title="Alerts">🔔</div>
-                <div class="pp-avatar" title="Profile">{(user.get("display_name") or user.get("username") or "U")[:2].upper()}</div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+      .pp-topbar{
+        display:flex; align-items:center; justify-content:space-between;
+        gap:12px; margin:2px 0 10px 0;
+      }
+      .pp-brand{
+        display:flex; align-items:center; gap:10px;
+      }
+      .pp-logo{
+        width:34px; height:34px; border-radius:10px;
+        background: radial-gradient(circle at 30% 30%, rgba(74,222,128,.35), rgba(0,0,0,0) 60%),
+                    rgba(15,18,25,.75);
+        border:1px solid var(--stroke);
+        box-shadow: var(--glow);
+        display:flex; align-items:center; justify-content:center;
+        overflow:hidden;
+      }
+      .pp-wordmark{
+        font-weight:900; letter-spacing:.06em;
+        font-size: 1.05rem;
+      }
+      .pp-wordmark span{ color: var(--green); }
+      .pp-right{
+        display:flex; align-items:center; gap:10px;
+      }
+      .pp-pill{
+        display:flex; align-items:center; gap:10px;
+        padding:8px 12px;
+        border-radius:999px;
+        background: rgba(15,18,25,.55);
+        border:1px solid var(--stroke);
+        backdrop-filter: blur(10px);
+      }
+      .pp-dot{
+        width:8px; height:8px; border-radius:999px;
+        background: var(--green);
+        box-shadow: 0 0 10px rgba(74,222,128,.55);
+      }
+      .pp-dot.closed{ background: var(--red); box-shadow: 0 0 10px rgba(239,68,68,.55); }
+      .pp-iconbtn{
+        width:44px; height:44px; border-radius:999px;
+        display:flex; align-items:center; justify-content:center;
+        background: rgba(15,18,25,.55);
+        border:1px solid var(--stroke);
+        box-shadow: 0 0 18px rgba(251,191,36,.12);
+      }
+      .pp-avatar{
+        width:44px; height:44px; border-radius:999px;
+        display:flex; align-items:center; justify-content:center;
+        background: rgba(15,18,25,.55);
+        border:1px solid var(--stroke);
+        font-weight:800;
+      }
 
-    def _card_open(title_left, title_right=None):
-        right = f"<div class='pp-card-title-right'>{title_right}</div>" if title_right else ""
-        st.markdown(f"<div class='pp-card'><div class='pp-card-title'><div>{title_left}</div>{right}</div>", unsafe_allow_html=True)
+      .pp-greeting{
+        font-size: 2.35rem;
+        font-weight: 900;
+        margin: 6px 0 12px 0;
+        text-shadow: 0 0 18px rgba(56,189,248,.12);
+      }
 
-    def _card_close():
-        st.markdown("</div>", unsafe_allow_html=True)
+      .pp-card{
+        background: linear-gradient(180deg, rgba(20,26,35,.82), rgba(10,12,18,.68));
+        border:1px solid rgba(148,163,184,.18);
+        border-radius: 22px;
+        box-shadow: 0 18px 60px rgba(0,0,0,.55), var(--glow);
+        overflow:hidden;
+      }
+      .pp-card .pp-card-hd{
+        padding:16px 18px;
+        background: linear-gradient(90deg, rgba(74,222,128,.14), rgba(0,0,0,0) 65%);
+        border-bottom:1px solid rgba(148,163,184,.12);
+        display:flex; justify-content:space-between; align-items:center; gap:10px;
+      }
+      .pp-card .pp-title{
+        font-size: 1.35rem; font-weight: 900;
+      }
+      .pp-card .pp-sub{
+        font-size:.78rem; color: var(--muted);
+        letter-spacing:.18em; font-weight: 800;
+        display:flex; align-items:center; gap:10px;
+      }
+      .pp-card .pp-body{
+        padding: 16px 18px 18px 18px;
+      }
 
-    _render_topbar()
+      .pp-grid{
+        display:grid;
+        grid-template-columns: 1.05fr .95fr;
+        gap:14px;
+      }
 
-    # Greeting
-    _display_name = (user.get("display_name") or user.get("username") or "").strip() or "Trader"
-    st.markdown(f"<div class='pp-greeting'>{get_greeting(_display_name)}</div>", unsafe_allow_html=True)
+      .pp-metrics .pp-value{
+        font-size: 2.35rem; font-weight: 950; margin: 2px 0 10px 0;
+      }
+      .pp-metrics .pp-label{ color: var(--muted); font-weight: 800; letter-spacing:.08em; font-size:.85rem; }
+      .pp-metrics .pp-duo{
+        display:grid; grid-template-columns: 1fr 1fr; gap:10px;
+        margin-top: 10px;
+      }
+      .pp-mini{
+        background: rgba(15,18,25,.55);
+        border:1px solid rgba(148,163,184,.14);
+        border-radius: 16px;
+        padding: 12px 12px;
+      }
+      .pp-mini .pp-mini-top{
+        display:flex; align-items:center; gap:8px;
+        color: var(--muted); font-weight: 800;
+      }
+      .pp-mini .pp-mini-main{
+        font-size: 1.55rem; font-weight: 950; margin-top: 6px;
+      }
+      .pp-mini .pp-mini-sub{
+        font-size: 1.05rem; font-weight: 900; margin-top: 2px;
+      }
 
-    # Load portfolio & cached quotes
-    portfolio = get_portfolio_details(user["username"], current_mode) or []
-    tickers = [r.get("ticker") for r in portfolio if r.get("ticker")]
-    data_map = get_cached_data_map(tickers) if tickers else {}
+      .pp-chips{
+        display:grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap:10px;
+        margin-top: 14px;
+      }
+      .pp-chip{
+        display:flex; align-items:center; justify-content:space-between;
+        gap:8px;
+        padding:10px 12px;
+        border-radius: 999px;
+        background: rgba(15,18,25,.55);
+        border: 1px solid rgba(148,163,184,.14);
+      }
+      .pp-chip .k{ color: var(--muted); font-weight: 850; font-size:.85rem; }
+      .pp-chip .v{ font-weight: 950; font-size:.95rem; }
 
-    # Portfolio summary numbers
-    total_value = 0.0
-    for row in portfolio:
-        t = row.get("ticker")
-        shares = float(row.get("shares") or 0)
-        quote = data_map.get(t) or {}
-        try:
-            px = float(quote.get("current_price") or 0)
-        except Exception:
-            px = 0.0
-        total_value += px * shares
+      .pp-section{
+        margin-top: 16px;
+      }
+      .pp-section-hd{
+        display:flex; justify-content:space-between; align-items:center;
+        margin: 14px 2px 10px 2px;
+      }
+      .pp-section-hd h3{
+        margin:0; font-size:1.15rem; font-weight: 950;
+      }
+      .pp-section-hd .pp-link{
+        color: var(--text);
+        opacity: .86;
+        text-decoration:none;
+        font-weight: 900;
+        background: rgba(15,18,25,.55);
+        border:1px solid rgba(148,163,184,.14);
+        padding:10px 12px;
+        border-radius: 999px;
+      }
 
-    total_pl_dollars, total_pl_pct, day_pl, day_pl_pct = get_portfolio_summary(user["username"], current_mode)
+      .pp-scroll{
+        overflow-x:auto;
+        display:flex; gap:12px;
+        padding: 12px 6px 4px 6px;
+        scroll-snap-type: x mandatory;
+      }
+      .pp-scroll::-webkit-scrollbar{ height:8px; }
+      .pp-scroll::-webkit-scrollbar-thumb{ background: rgba(148,163,184,.22); border-radius: 999px; }
 
-    # Risk score (average of per-ticker score) — reuse existing calculate_risk if available
-    risk_score = 0
-    risk_label = "LOW"
-    risk_color = "#22c55e"
-    if tickers and data_map:
-        scores = []
-        for t in tickers:
-            if t in data_map:
-                try:
-                    s = calculate_risk(data_map[t])[0]
-                    scores.append(float(s))
-                except Exception:
-                    pass
-        if scores:
-            risk_score = int(round(sum(scores) / len(scores)))
-            if risk_score >= 65:
-                risk_label = "HIGH"
-                risk_color = "#ef4444"
-            elif risk_score >= 45:
-                risk_label = "MEDIUM"
-                risk_color = "#f59e0b"
-            else:
-                risk_label = "LOW"
-                risk_color = "#22c55e"
+      .pp-tile{
+        min-width: 150px;
+        scroll-snap-align:start;
+        background: rgba(15,18,25,.55);
+        border:1px solid rgba(148,163,184,.14);
+        border-radius: 18px;
+        padding: 12px 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      }
+      .pp-tile .t{ font-weight: 950; font-size: 1.1rem; }
+      .pp-tile .p{ font-weight: 950; font-size: 1.35rem; margin-top: 6px; }
+      .pp-tile .d{ font-weight: 900; font-size: 1.05rem; margin-top: 6px; }
 
-    # ===== Portfolio Summary Card (matches mockup style) =====
-    _card_open("Portfolio Summary", "• PORTFOLIO RISK")
-    c1, c2 = st.columns([1.1, 1.3], gap="large")
-    with c1:
-        # Use existing gauge HTML but in a tighter container
-        st.markdown(
-            f"""
-            <div class="pp-gauge-wrap">
-              {create_gauge_html(risk_score, risk_label, risk_color, "big")}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c2:
-        tv = f"${total_value:,.2f}" if total_value else "$0.00"
-        today_sign = "+" if day_pl >= 0 else ""
-        tot_sign = "+" if total_pl_dollars >= 0 else ""
-        day_color = "#22c55e" if day_pl >= 0 else "#ef4444"
-        tot_color = "#22c55e" if total_pl_dollars >= 0 else "#ef4444"
+      .pp-movers{
+        display:grid; grid-template-columns: 1fr 1fr; gap:12px;
+      }
+      .pp-table{
+        width:100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        font-weight: 800;
+      }
+      .pp-table th{
+        text-align:left;
+        color: var(--muted);
+        font-size:.75rem;
+        letter-spacing:.14em;
+        padding: 10px 0 8px 0;
+        border-bottom: 1px solid rgba(148,163,184,.12);
+      }
+      .pp-table td{
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(148,163,184,.10);
+      }
+      .pp-table tr:last-child td{ border-bottom:none; }
+      .pp-pos{ color: var(--green); }
+      .pp-neg{ color: var(--red); }
 
-        st.markdown(
-            f"""
-            <div class="pp-metric">
-              <div class="pp-metric-label">Total Value</div>
-              <div class="pp-metric-value">{tv}</div>
-            </div>
+      /* bottom nav (visual + clickable) */
+      .pp-bottomnav{
+        position: fixed;
+        left: 0; right: 0;
+        bottom: 0;
+        padding: 10px 10px calc(10px + env(safe-area-inset-bottom)) 10px;
+        background: linear-gradient(180deg, rgba(7,10,16,0), rgba(7,10,16,.86) 35%, rgba(7,10,16,.96));
+        z-index: 999;
+      }
+      .pp-bottomnav .row{
+        max-width: 980px;
+        margin: 0 auto;
+        background: rgba(15,18,25,.62);
+        border:1px solid rgba(148,163,184,.16);
+        border-radius: 22px;
+        box-shadow: 0 18px 55px rgba(0,0,0,.6), var(--glow);
+        display:grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 6px;
+        padding: 10px 8px;
+        backdrop-filter: blur(10px);
+      }
+      .pp-navitem{
+        text-decoration:none;
+        color: rgba(229,231,235,.82);
+        display:flex; flex-direction:column; align-items:center; gap:6px;
+        font-weight: 900;
+        font-size: .78rem;
+        padding: 8px 6px;
+        border-radius: 18px;
+      }
+      .pp-navitem.active{
+        color: var(--green);
+        background: rgba(74,222,128,.10);
+        border:1px solid rgba(74,222,128,.22);
+        box-shadow: 0 0 22px rgba(74,222,128,.10);
+      }
 
-            <div class="pp-metric-row">
-              <div class="pp-metric-box">
-                <div class="pp-metric-sub">▲ Today</div>
-                <div class="pp-metric-money" style="color:{day_color};">{today_sign}${abs(day_pl):,.2f}</div>
-                <div class="pp-metric-pct" style="color:{day_color};">{today_sign}{abs(day_pl_pct):.2f}%</div>
-              </div>
-              <div class="pp-metric-box">
-                <div class="pp-metric-sub">▲ Unrealized</div>
-                <div class="pp-metric-money" style="color:{tot_color};">{tot_sign}${abs(total_pl_dollars):,.2f}</div>
-                <div class="pp-metric-pct" style="color:{tot_color};">{tot_sign}{abs(total_pl_pct):.2f}%</div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    # Top gainer / loser / most volatile chips (best effort)
-    top_gainer = None
-    top_loser = None
-    most_volatile = None
-    if tickers and data_map:
-        def _chg(t):
-            try:
-                return float((data_map.get(t) or {}).get("day_change") or 0)
-            except Exception:
-                return 0.0
-        most_volatile = max(tickers, key=lambda t: abs(_chg(t)), default=None)
-        top_gainer = max(tickers, key=lambda t: _chg(t), default=None)
-        top_loser = min(tickers, key=lambda t: _chg(t), default=None)
+      @media (max-width: 740px){
+        .pp-grid{ grid-template-columns: 1fr; }
+        .pp-movers{ grid-template-columns: 1fr; }
+        .pp-greeting{ font-size: 2.05rem; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
 
-    def _chip(label, ticker, positive=True):
-        if not ticker:
-            return ""
-        ch = 0.0
-        try:
-            ch = float((data_map.get(ticker) or {}).get("day_change") or 0)
-        except Exception:
-            ch = 0.0
-        arrow = "▲" if ch >= 0 else "▼"
-        col = "#22c55e" if ch >= 0 else "#ef4444"
-        return f"""
-          <div class="pp-chip">
-            <div class="pp-chip-label">{label}</div>
-            <div class="pp-chip-ticker">{ticker}</div>
-            <div class="pp-chip-chg" style="color:{col};">{arrow} {abs(ch):.1f}%</div>
-          </div>
-        """
+    # ---------- Header data ----------
+    tz = pytz.timezone("America/New_York")
+    now_et = datetime.now(tz)
+    date_str = now_et.strftime("%A, %b %-d") if hasattr(now_et, "strftime") else now_et.strftime("%A, %b %d")
+    # Market open check (simple)
+    is_weekday = now_et.weekday() < 5
+    minutes = now_et.hour * 60 + now_et.minute
+    market_open = is_weekday and (minutes >= (9*60+30)) and (minutes < (16*60))
+    market_label = "Market Open" if market_open else "Market Closed"
+    dot_class = "" if market_open else "closed"
+
+    # User greeting text
+    display_name = (user.get("display_name") or user.get("username") or "").strip() or "Trader"
+    greeting_txt = get_greeting(display_name)
+
+    # Attempt to inline logo.png if present (so it renders nicely in header)
+    import base64
+    import html as html
+    logo_html = ""
+    try:
+        if os.path.exists("logo.png"):
+            with open("logo.png", "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+            logo_html = f'<img src="data:image/png;base64,{b64}" style="height:28px; width:auto; display:block;" />'
+    except Exception:
+        logo_html = ""
+
+    initials = "".join([p[0] for p in display_name.split() if p]).upper()[:2] or "PP"
 
     st.markdown(
         f"""
-        <div class="pp-chip-row">
-          {_chip("Top Gainer", top_gainer)}
-          {_chip("Top Loser", top_loser)}
-          {_chip("Most Volatile", most_volatile)}
+        <div class="pp-topbar">
+          <div class="pp-brand">
+            <div class="pp-logo">{logo_html if logo_html else "⚡"}</div>
+            <div class="pp-wordmark">PENNY <span>PULSE</span></div>
+          </div>
+          <div class="pp-right">
+            <div class="pp-pill">
+              <div style="font-weight:900;">{date_str}</div>
+              <div style="width:1px; height:14px; background:rgba(148,163,184,.25);"></div>
+              <div class="pp-dot {dot_class}"></div>
+              <div style="font-weight:950;">{market_label}</div>
+            </div>
+            <div class="pp-iconbtn">🔔</div>
+            <div class="pp-avatar">{initials}</div>
+          </div>
+        </div>
+        <div class="pp-greeting">{greeting_txt}</div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # ---------- Portfolio calcs ----------
+    portfolio = get_portfolio_details(user["username"], current_mode)
+    if not portfolio:
+        st.info(f"Your {current_mode} portfolio is empty.")
+        render_navbar(token, current_mode)
+        st.stop()
+
+    tickers = [r["ticker"] for r in portfolio if r.get("ticker")]
+    data_map = get_cached_data_map(tickers)
+
+    rows = []
+    for r in portfolio:
+        t = r["ticker"]
+        s = data_map.get(t)
+        if not s:
+            continue
+        # merge basics used in calcs
+        merged = {**s, **r}
+        rows.append(merged)
+
+    if not rows:
+        st.warning("No price data yet. If you just added tickers, run your refresher / wait a moment.")
+        render_navbar(token, current_mode)
+        st.stop()
+
+    total_value = 0.0
+    cost_basis = 0.0
+    unreal = 0.0
+    day_pl = 0.0
+
+    for r in rows:
+        shares = float(r.get("shares") or 0)
+        entry = float(r.get("entry_price") or r.get("avg_price") or 0)
+        price = float(r.get("current_price") or 0)
+        day_chg_pct = float(r.get("day_change") or 0)
+
+        total_value += price * shares
+        cost_basis += entry * shares
+        unreal += (price - entry) * shares
+
+        # day P/L from pct change
+        prev = price / (1 + (day_chg_pct / 100.0)) if (1 + (day_chg_pct / 100.0)) != 0 else price
+        day_pl += (price - prev) * shares
+
+    day_pct = (day_pl / (total_value - day_pl) * 100.0) if (total_value - day_pl) != 0 else 0.0
+    unreal_pct = (unreal / cost_basis * 100.0) if cost_basis > 0 else 0.0
+
+    # risk score (avg)
+    avg_risk = int(sum([calculate_risk(r)[0] for r in rows]) / max(1, len(rows)))
+    risk_score, risk_label, risk_color, *_ = calculate_risk({**rows[0], "risk_override": avg_risk}) if False else (avg_risk, "MEDIUM" if avg_risk < 65 else "HIGH", "#fbbf24" if avg_risk < 65 else "#ef4444")
+
+    # top/loser/volatile
+    def _safe_pct(x):
+        try: return float(x)
+        except: return 0.0
+
+    top_g = max(rows, key=lambda r: _safe_pct(r.get("day_change", 0)))
+    top_l = min(rows, key=lambda r: _safe_pct(r.get("day_change", 0)))
+    top_v = max(rows, key=lambda r: abs(_safe_pct(r.get("day_change", 0))))
+
+    def fmt_money(v): return f"${v:,.2f}"
+    def fmt_pct(v): return f"{v:+.2f}%"
+
+    # Gauge HTML (reuse existing SVG gauge generator)
+    gauge_html = create_gauge_html(avg_risk, "MEDIUM" if avg_risk < 65 else "HIGH", "#fbbf24" if avg_risk < 65 else "#ef4444", "big")
+
+    st.markdown(
+        f"""
+        <div class="pp-card">
+          <div class="pp-card-hd">
+            <div class="pp-title">Portfolio Summary</div>
+            <div class="pp-sub"><span style="width:6px;height:6px;border-radius:999px;background:var(--green);display:inline-block;box-shadow:0 0 12px rgba(74,222,128,.45)"></span> PORTFOLIO RISK</div>
+          </div>
+          <div class="pp-body">
+            <div class="pp-grid">
+              <div>
+                {gauge_html}
+              </div>
+              <div class="pp-metrics">
+                <div class="pp-label">Total Value</div>
+                <div class="pp-value">{fmt_money(total_value)}</div>
+                <div class="pp-duo">
+                  <div class="pp-mini">
+                    <div class="pp-mini-top">▲ Today</div>
+                    <div class="pp-mini-main" style="color:{'#4ade80' if day_pl>=0 else '#ef4444'};">{fmt_money(day_pl)}</div>
+                    <div class="pp-mini-sub" style="color:{'#4ade80' if day_pl>=0 else '#ef4444'};">{fmt_pct(day_pct)}</div>
+                  </div>
+                  <div class="pp-mini">
+                    <div class="pp-mini-top">▲ Unrealized</div>
+                    <div class="pp-mini-main" style="color:{'#4ade80' if unreal>=0 else '#ef4444'};">{fmt_money(unreal)}</div>
+                    <div class="pp-mini-sub" style="color:{'#4ade80' if unreal>=0 else '#ef4444'};">{fmt_pct(unreal_pct)}</div>
+                  </div>
+                </div>
+
+                <div class="pp-chips">
+                  <div class="pp-chip"><div class="k">Top Gainer</div><div class="v">{html.escape(top_g['ticker'])} <span class="pp-pos">{fmt_pct(_safe_pct(top_g.get('day_change')))}</span></div></div>
+                  <div class="pp-chip"><div class="k">Top Loser</div><div class="v">{html.escape(top_l['ticker'])} <span class="pp-neg">{fmt_pct(_safe_pct(top_l.get('day_change')))}</span></div></div>
+                  <div class="pp-chip"><div class="k">Most Volatile</div><div class="v">{html.escape(top_v['ticker'])} <span style="color:var(--amber)">{fmt_pct(abs(_safe_pct(top_v.get('day_change'))))}</span></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="pp-section">
+              <div class="pp-section-hd">
+                <h3>Portfolio Ticker Scroller</h3>
+                <a class="pp-link" href="?token={token}&tab=portfolio">View All</a>
+              </div>
+              <div class="pp-scroll">
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Scroller tiles (clickable to ticker detail)
+    for r in rows[:20]:
+        t = r["ticker"]
+        price = float(r.get("current_price") or 0)
+        chg = _safe_pct(r.get("day_change") or 0)
+        cls = "pp-pos" if chg >= 0 else "pp-neg"
+        st.markdown(
+            f"""
+            <a href="?token={token}&ticker={t}" target="_self" style="text-decoration:none; color:inherit;">
+              <div class="pp-tile">
+                <div class="t">{html.escape(t)}</div>
+                <div class="p">{fmt_money(price)}</div>
+                <div class="d {cls}">{fmt_pct(chg)}</div>
+              </div>
+            </a>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("""</div></div>""", unsafe_allow_html=True)
+
+    # Movers tables
+    gainers = sorted(rows, key=lambda r: _safe_pct(r.get("day_change", 0)), reverse=True)[:3]
+    decliners = sorted(rows, key=lambda r: _safe_pct(r.get("day_change", 0)))[:3]
+
+    def table_rows(rs, neg=False):
+        out = []
+        for r in rs:
+            t = html.escape(r["ticker"])
+            price = float(r.get("current_price") or 0)
+            pct = _safe_pct(r.get("day_change") or 0)
+            cls = "pp-neg" if pct < 0 else "pp-pos"
+            out.append(f"<tr><td style='font-weight:950;'>{t}</td><td>{fmt_money(price)}</td><td class='{cls}'>{fmt_pct(pct)}</td></tr>")
+        return "\n".join(out)
+
+    st.markdown(
+        f"""
+        <div class="pp-section">
+          <div class="pp-section-hd">
+            <h3>Portfolio Movers</h3>
+          </div>
+          <div class="pp-movers">
+            <div class="pp-card">
+              <div class="pp-card-hd">
+                <div class="pp-title">Top 3 Gainers</div>
+              </div>
+              <div class="pp-body">
+                <table class="pp-table">
+                  <thead><tr><th>Ticker</th><th>Price</th><th>Today</th></tr></thead>
+                  <tbody>
+                    {table_rows(gainers)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="pp-card">
+              <div class="pp-card-hd">
+                <div class="pp-title">Top 3 Decliners</div>
+              </div>
+              <div class="pp-body">
+                <table class="pp-table">
+                  <thead><tr><th>Ticker</th><th>Price</th><th>Today</th></tr></thead>
+                  <tbody>
+                    {table_rows(decliners)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="height:120px;"></div>
+
+        <div class="pp-bottomnav">
+          <div class="row">
+            <a class="pp-navitem active" href="?token={token}&tab=home">Home</a>
+            <a class="pp-navitem" href="?token={token}&tab=portfolio">Portfolio</a>
+            <a class="pp-navitem" href="?token={token}&tab=alerts">Alerts</a>
+            <a class="pp-navitem" href="?token={token}&tab=scanner">Discover</a>
+            <a class="pp-navitem" href="?token={token}&tab=settings">Settings</a>
+          </div>
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
-    _card_close()
 
-    # ===== Portfolio ticker scroller (reuse your existing grid) =====
-    _card_open("📈 Portfolio Ticker Scroller", "<a class='pp-link' href='?token=" + token + "&tab=portfolio&mode=" + current_mode + "'>View All</a>")
-    if tickers:
-        render_horizontal_grid(data_map, token)
-    else:
-        st.info(f"Your {current_mode} portfolio is empty.")
-    _card_close()
-
-    # ===== Portfolio movers =====
-    if tickers:
-        # Top 3 gainers/decliners from cached map (quick + clean)
-        rows = []
-        for t in tickers:
-            q = data_map.get(t) or {}
-            try:
-                px = float(q.get("current_price") or 0)
-            except Exception:
-                px = 0.0
-            try:
-                ch = float(q.get("day_change") or 0)
-            except Exception:
-                ch = 0.0
-            rows.append((t, px, ch))
-        gainers = sorted(rows, key=lambda r: r[2], reverse=True)[:3]
-        losers = sorted(rows, key=lambda r: r[2])[:3]
-
-        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
-        st.markdown("<div class='pp-section-title'>💼 Portfolio Movers</div>", unsafe_allow_html=True)
-        cL, cR = st.columns(2, gap="medium")
-
-        def _movers_table(title, data, positive=True):
-            _card_open(title)
-            table = "<div class='pp-table'>"
-            table += "<div class='pp-table-head'><div>Ticker</div><div>Price</div><div>Today</div></div>"
-            for t, px, ch in data:
-                col = "#22c55e" if ch >= 0 else "#ef4444"
-                arrow = "▲" if ch >= 0 else "▼"
-                table += f"<div class='pp-table-row'><div class='pp-td-strong'>{t}</div><div>${px:,.2f}</div><div style='color:{col};'>{arrow} {abs(ch):.2f}%</div></div>"
-            table += "</div>"
-            st.markdown(table, unsafe_allow_html=True)
-            _card_close()
-
-        with cL:
-            _movers_table("📈 Top 3 Gainers", gainers)
-        with cR:
-            _movers_table("📉 Top 3 Decliners", losers)
-
-    render_navbar(token, current_mode)
+    st.stop()
 
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
