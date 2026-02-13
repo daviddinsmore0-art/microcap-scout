@@ -570,15 +570,9 @@ def render_topbar(display_name: str = "User"):
             gap: 10px;
             min-width: 0;
           }
-          .pp-logo {
-            font-weight: 800;
-            letter-spacing: 0.12em;
-            font-size: 14px;
-            line-height: 1;
-            color: rgba(230,235,245,0.95);
-            text-transform: uppercase;
-            white-space: nowrap;
-          }
+          .pplogo img {
+            height: 34px;
+              }
           .pp-subpill {
             display: flex;
             align-items: center;
