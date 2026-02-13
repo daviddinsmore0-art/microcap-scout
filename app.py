@@ -1228,10 +1228,10 @@ if not user: st.error("Session Expired"); st.stop()
 current_mode = "REAL"
 
 c1, c2 = st.columns([2, 1])
-with c1: st.markdown(f"### {get_greeting(user['display_name'])}")
+with c1:
+    st.markdown(f"### {get_greeting(user['display_name'])}")
 with c2:
-    # Paper trading removed
-    st.markdown("")
+    st.markdown("<div style='text-align:right; color:#94a3b8; font-weight:800; font-size:0.85rem; padding-top:8px;'>LIVE</div>", unsafe_allow_html=True)
 
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
@@ -1248,7 +1248,21 @@ if "ticker" in st.query_params:
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='margin:0; color:{cc}; font-size: 1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%) Today</span></h2>", unsafe_allow_html=True)
         
-        
+        if current_mode == "PAPER":
+            st.markdown("---")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Buy 10", use_container_width=True):
+                    ok, msg = execute_paper_trade(user['username'], ticker, "BUY", 10, p)
+                    if ok: st.success("Bought 10!"); st.rerun()
+                    else: st.error(msg)
+            with c2:
+                if st.button("Sell 10", use_container_width=True):
+                    ok, msg = execute_paper_trade(user['username'], ticker, "SELL", 10, p)
+                    if ok: st.success("Sold 10!"); st.rerun()
+                    else: st.error(msg)
+            st.markdown("---")
+
         st.markdown(create_gauge_html(s, l, c, "big"), unsafe_allow_html=True)
         st.markdown(f"""<div class='card' style='margin-top:12px; padding:18px;'>
             <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:6px;'>CONFIDENCE</div>
@@ -1357,175 +1371,243 @@ if "ticker" in st.query_params:
     render_navbar(token, current_mode); st.stop()
 
 tab = st.query_params.get("tab", "home")
+
 if tab == "home":
-    # =========================
-    # 1) PORTFOLIO OVERVIEW
-    # =========================
-    st.markdown("### Portfolio Overview")
-    portfolio = get_portfolio_details(user['username'], current_mode)
+    # ==============================
+    # HOME (Portfolio-first layout)
+    # ==============================
+    portfolio = get_portfolio_details(user["username"], current_mode)
+
     if not portfolio:
-        st.info("Your portfolio is empty.")
+        st.info(f"Your {current_mode} portfolio is empty.")
     else:
-        tickers = [r['ticker'] for r in portfolio]
+        tickers = [r["ticker"] for r in portfolio]
         data_map = get_cached_data_map(tickers)
         valid_rows = [data_map[t] for t in tickers if t in data_map]
 
-        if valid_rows:
-            # Risk gauge at the top
-            avg = sum([calculate_risk(x)[0] for x in valid_rows]) / len(valid_rows)
+        # --- Portfolio Summary (top card) ---
+        try:
+            # Risk + label
+            avg_risk = 0
+            if valid_rows:
+                avg_risk = int(sum([calculate_risk(x)[0] for x in valid_rows]) / len(valid_rows))
+            risk_label = "LOW" if avg_risk < 40 else ("MEDIUM" if avg_risk < 65 else "HIGH")
+            risk_color = "#4ade80" if avg_risk < 40 else ("#fbbf24" if avg_risk < 65 else "#ef4444")
+
+            # Totals
+            total_value = 0.0
+            for row in portfolio:
+                t = row["ticker"]
+                md = data_map.get(t)
+                if not md:
+                    continue
+                try:
+                    price = float(md.get("current_price") or 0)
+                except Exception:
+                    price = 0.0
+                try:
+                    shares = float(row.get("shares") or 0)
+                except Exception:
+                    shares = 0.0
+                total_value += shares * price
+
+            total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user["username"], current_mode)
+            day_c = "#4ade80" if day_pl >= 0 else "#ef4444"
+            total_c = "#4ade80" if total_pl >= 0 else "#ef4444"
+
             st.markdown(
-                create_gauge_html(
-                    int(avg),
-                    "MEDIUM" if avg < 65 else "HIGH",
-                    "#fbbf24" if avg < 65 else "#ef4444",
-                    "big",
-                ),
+                f"""
+                <div class="card" style="
+                    padding:18px;
+                    border: 1px solid rgba(46,255,170,0.25);
+                    box-shadow: 0 0 22px rgba(0,255,170,0.12);
+                    background: radial-gradient(900px 280px at 18% 0%, rgba(0,255,170,0.10), transparent 60%),
+                                radial-gradient(700px 220px at 82% 0%, rgba(88,101,242,0.10), transparent 55%),
+                                linear-gradient(180deg, rgba(15,23,42,0.92), rgba(2,6,23,0.92));
+                ">
+                  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
+                    <div style="font-size:1.55rem; font-weight:900; color:#e5e7eb;">Portfolio Summary</div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <div style="width:7px; height:7px; border-radius:99px; background:#4ade80;"></div>
+                      <div style="letter-spacing:2px; font-weight:800; font-size:0.75rem; color:#94a3b8;">PORTFOLIO RISK</div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex; gap:16px; align-items:stretch; flex-wrap:wrap;">
+                    <div style="flex: 1 1 300px; min-width: 260px;">
+                      {create_gauge_html(avg_risk, risk_label, risk_color, "big")}
+                    </div>
+
+                    <div style="flex: 1 1 260px; min-width: 240px; display:flex; flex-direction:column; justify-content:center;">
+                      <div style="opacity:0.85; color:#94a3b8; font-weight:700; letter-spacing:1px; font-size:0.75rem;">Total Value</div>
+                      <div style="font-size:2.3rem; font-weight:950; color:#e5e7eb; line-height:1.05; margin:4px 0 12px 0;">
+                        ${total_value:,.2f}
+                      </div>
+
+                      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:160px; background: rgba(15,23,42,0.55); border:1px solid rgba(148,163,184,0.18);
+                                    border-radius:14px; padding:12px;">
+                          <div style="opacity:0.8; color:#94a3b8; font-weight:800; font-size:0.75rem;">▲ Today</div>
+                          <div style="font-size:1.45rem; font-weight:900; color:{day_c}; margin-top:2px;">
+                            {day_pl:+,.2f}
+                          </div>
+                          <div style="font-size:1.05rem; font-weight:900; color:{day_c}; opacity:0.95;">{day_pct:+.2f}%</div>
+                        </div>
+
+                        <div style="flex:1; min-width:160px; background: rgba(15,23,42,0.55); border:1px solid rgba(148,163,184,0.18);
+                                    border-radius:14px; padding:12px;">
+                          <div style="opacity:0.8; color:#94a3b8; font-weight:800; font-size:0.75rem;">▲ Unrealized</div>
+                          <div style="font-size:1.45rem; font-weight:900; color:{total_c}; margin-top:2px;">
+                            {total_pl:+,.2f}
+                          </div>
+                          <div style="font-size:1.05rem; font-weight:900; color:{total_c}; opacity:0.95;">{total_pct:+.2f}%</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
-
-            # Ticker scroller directly under the gauge
-            render_horizontal_grid(data_map, token)
-
-            # Small "insights" row (kept, but below the scroller)
-            try:
-                riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
-                volatile = max(valid_rows, key=lambda x: abs(float(x.get('day_change') or 0)))
-                e_list = []
-                for r in valid_rows:
-                    d_val = parse_smart_date(r.get('next_earnings'))
-                    if d_val < 365:
-                        e_list.append((r['ticker'], d_val))
-                e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
-
-                st.markdown(
-                    f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:16px; margin-top:14px; margin-bottom:18px; border:1px solid #2d3748;">
-                        <div style="text-align:center; width:33%; border-right:1px solid #2d3748;">
-                            <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div>
-                            <div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div>
-                        </div>
-                        <div style="text-align:center; width:33%; border-right:1px solid #2d3748;">
-                            <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div>
-                            <div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div>
-                        </div>
-                        <div style="text-align:center; width:33%;">
-                            <div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div>
-                            <div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div>
-                        </div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
-            except Exception:
-                pass
-
-    # =========================
-    # 2) TOP/BOTTOM 3 PORTFOLIO (one block, left/right)
-    # =========================
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute(
-            "SELECT DISTINCT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE",
-            (user["username"],),
-        )
-        user_tickers = [r[0] for r in cursor.fetchall()]
-
-        gainers, losers = [], []
-        if user_tickers:
-            placeholders = ",".join(["%s"] * len(user_tickers))
-            params = tuple(user_tickers)
-
-            cursor.execute(
-                f"SELECT ticker, current_price, day_change "
-                f"FROM stock_cache "
-                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
-                f"ORDER BY day_change DESC "
-                f"LIMIT 3",
-                params,
-            )
-            gainers = cursor.fetchall() or []
-
-            cursor.execute(
-                f"SELECT ticker, current_price, day_change "
-                f"FROM stock_cache "
-                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
-                f"ORDER BY day_change ASC "
-                f"LIMIT 3",
-                params,
-            )
-            losers = cursor.fetchall() or []
-
-        conn.close()
-
-        def _fmt_mover_row(row):
-            t, price, chg = row
-            try:
-                chg = float(chg)
-            except Exception:
-                chg = 0.0
-            sign = "+" if chg >= 0 else ""
-            try:
-                price_txt = f"${float(price):.2f}"
-            except Exception:
-                price_txt = "-"
-            return (
-                "<div style='display:flex; justify-content:space-between; gap:10px; "
-                "font-size:16px; margin:6px 0;'>"
-                f"<div style='min-width:70px; font-weight:800;'>{t}</div>"
-                f"<div style='opacity:.85;'>{price_txt}</div>"
-                f"<div style='font-weight:900;'>{sign}{chg:.2f}%</div>"
-                "</div>"
-            )
-
-        gainers_html = "".join(_fmt_mover_row(r) for r in gainers) or "<div style='opacity:.7'>No gainers yet.</div>"
-        losers_html = "".join(_fmt_mover_row(r) for r in losers) or "<div style='opacity:.7'>No losers yet.</div>"
-
-        st.markdown(
-            f"""
-            <div class='card' style='padding:18px; border-left:6px solid #2f80ed; margin-bottom:18px;'>
-              <div style='letter-spacing:2px; font-weight:900; color:#57b3ff; margin-bottom:12px;'>
-                PORTFOLIO MOVERS (Top 3)
-              </div>
-              <div style='display:flex; gap:18px;'>
-                <div style='flex:1; min-width:0;'>
-                  <div style='font-size:18px; font-weight:900; margin-bottom:8px;'>📈 GAINERS</div>
-                  {gainers_html}
-                </div>
-                <div style='flex:1; min-width:0;'>
-                  <div style='font-size:18px; font-weight:900; margin-bottom:8px;'>📉 LOSERS</div>
-                  {losers_html}
-                </div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    except Exception:
-        pass
-
-    # =========================
-    # 3) GLOBAL ALERT PICKS
-    # =========================
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        # Only show rows that actually refreshed recently (prevents yesterday's % from lingering)
-        has_updated_at = False
-        try:
-            cursor.execute("SHOW COLUMNS FROM global_cache LIKE 'updated_at'")
-            has_updated_at = cursor.fetchone() is not None
         except Exception:
-            has_updated_at = False
+            pass
 
-        where_recent = " AND updated_at >= CURDATE()" if has_updated_at else ""
+        # --- Portfolio ticker scroller ---
+        try:
+            st.markdown(
+                """
+                <div style="display:flex; align-items:center; justify-content:space-between; margin:14px 2px 8px 2px;">
+                  <div style="font-size:1.05rem; font-weight:900; color:#e5e7eb;">
+                    📈 Portfolio Ticker Scroller
+                  </div>
+                  <div style="font-size:0.85rem; opacity:0.75; color:#94a3b8;">Tap a ticker</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            render_horizontal_grid(data_map, token)
+        except Exception:
+            pass
 
-        cursor.execute(
-            f"SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL{where_recent} ORDER BY day_change DESC LIMIT 3"
-        )
+        # --- Portfolio movers (Top 3 / Bottom 3) in one card, 2 columns responsive ---
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT DISTINCT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE",
+                (user["username"],),
+            )
+            user_tickers = [r[0] for r in cursor.fetchall()]
+
+            gainers, losers = [], []
+            if user_tickers:
+                placeholders = ",".join(["%s"] * len(user_tickers))
+                params = tuple(user_tickers)
+
+                cursor.execute(
+                    f"SELECT ticker, current_price, day_change "
+                    f"FROM stock_cache "
+                    f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
+                    f"ORDER BY day_change DESC "
+                    f"LIMIT 3",
+                    params,
+                )
+                gainers = cursor.fetchall() or []
+
+                cursor.execute(
+                    f"SELECT ticker, current_price, day_change "
+                    f"FROM stock_cache "
+                    f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
+                    f"ORDER BY day_change ASC "
+                    f"LIMIT 3",
+                    params,
+                )
+                losers = cursor.fetchall() or []
+
+            conn.close()
+
+            def _fmt_mover_row(row):
+                t, price, chg = row
+                try:
+                    chg = float(chg)
+                except Exception:
+                    chg = 0.0
+                sign = "+" if chg >= 0 else ""
+                try:
+                    price_txt = f"${float(price):.2f}"
+                except Exception:
+                    price_txt = "—"
+                pct_c = "#4ade80" if chg >= 0 else "#ef4444"
+                return (
+                    "<div class='pp-mrow'>"
+                    f"<div class='pp-mt'>{t}</div>"
+                    f"<div class='pp-mp'>{price_txt}</div>"
+                    f"<div class='pp-mc' style='color:{pct_c};'>{sign}{chg:.2f}%</div>"
+                    "</div>"
+                )
+
+            gainers_html = "".join(_fmt_mover_row(r) for r in gainers) or "<div style='opacity:.7'>No gainers yet.</div>"
+            losers_html = "".join(_fmt_mover_row(r) for r in losers) or "<div style='opacity:.7'>No losers yet.</div>"
+
+            st.markdown(
+                f"""
+                <style>
+                  .pp-mgrid {{
+                    display:grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 14px;
+                  }}
+                  @media (max-width: 640px) {{
+                    .pp-mgrid {{ grid-template-columns: 1fr; }}
+                  }}
+                  .pp-mcol-title {{
+                    display:flex; align-items:center; gap:10px;
+                    font-size:1.25rem; font-weight:950; color:#e5e7eb;
+                    margin-bottom:8px;
+                  }}
+                  .pp-mrow {{
+                    display:flex; justify-content:space-between; align-items:center;
+                    gap:10px; padding:7px 0; border-bottom: 1px solid rgba(148,163,184,0.12);
+                    font-size: 1.02rem;
+                  }}
+                  .pp-mrow:last-child {{ border-bottom:none; }}
+                  .pp-mt {{
+                    font-weight:900; color:#e5e7eb; min-width:76px;
+                    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+                  }}
+                  .pp-mp {{ color:#cbd5e1; min-width:86px; text-align:right; opacity:0.95; }}
+                  .pp-mc {{ font-weight:900; min-width:92px; text-align:right; }}
+                </style>
+
+                <div class='card' style='padding:18px; border-left:6px solid #2f80ed;'>
+                  <div style='letter-spacing:2px; font-weight:950; color:#57b3ff; margin-bottom:10px; font-size:0.9rem;'>
+                    PORTFOLIO MOVERS (Top 3)
+                  </div>
+
+                  <div class="pp-mgrid">
+                    <div>
+                      <div class="pp-mcol-title">📈 <span>GAINERS</span></div>
+                      {gainers_html}
+                    </div>
+                    <div>
+                      <div class="pp-mcol-title">📉 <span>LOSERS</span></div>
+                      {losers_html}
+                    </div>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        except Exception:
+            pass
+
+    # --- Global movers block (keep existing DB logic) ---
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change DESC LIMIT 3")
         gainers = cursor.fetchall() or []
-        cursor.execute(
-            "SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL{where_recent} ORDER BY day_change ASC LIMIT 3"
-        )
+        cursor.execute("SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change ASC LIMIT 3")
         losers = cursor.fetchall() or []
         conn.close()
 
@@ -1540,37 +1622,39 @@ if tab == "home":
                 chg = 0.0
             sign = "+" if chg >= 0 else ""
             price_txt = f"${p:,.2f}" if p is not None else ""
-            return f"""<div style='display:flex; justify-content:space-between; padding:6px 0;'>
-                        <div style='font-weight:800; color:#e5e7eb;'>{t}</div>
-                        <div style='color:#cbd5e1;'>{price_txt}</div>
-                        <div style='font-weight:900; color:#e5e7eb;'>{sign}{chg:.2f}%</div>
+            pct_c = "#4ade80" if chg >= 0 else "#ef4444"
+            return f"""<div style='display:flex; justify-content:space-between; padding:6px 0; gap:10px;'>
+                        <div style='font-weight:800; color:#e5e7eb; min-width:70px;'>{t}</div>
+                        <div style='color:#cbd5e1; text-align:right; min-width:90px;'>{price_txt}</div>
+                        <div style='font-weight:900; text-align:right; min-width:92px; color:{pct_c};'>{sign}{chg:.2f}%</div>
                     </div>"""
 
         if gainers or losers:
-            gain_html = "".join([_fmt_row(t, p, c) for (t, p, c) in gainers]) if gainers else "<div style='color:#94a3b8;'>No gainers.</div>"
-            lose_html = "".join([_fmt_row(t, p, c) for (t, p, c) in losers]) if losers else "<div style='color:#94a3b8;'>No losers.</div>"
+            gain_html = "".join([_fmt_row(t,p,c) for (t,p,c) in gainers]) if gainers else "<div style='color:#94a3b8;'>No gainers.</div>"
+            lose_html = "".join([_fmt_row(t,p,c) for (t,p,c) in losers]) if losers else "<div style='color:#94a3b8;'>No losers.</div>"
 
             st.markdown(
-                f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL ALERT PICKS (Top 3)</div>
+                f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 18px;">
+                    <div style="color:#facc15; font-size:0.85rem; font-weight:950; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS (Top 3)</div>
                     <div style="font-size:0.85rem; font-weight:900; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">GAINERS</div>
                     {gain_html}
                     <div style="height:10px"></div>
                     <div style="font-size:0.85rem; font-weight:900; letter-spacing:1px; margin-top:10px; color:#e5e7eb;">LOSERS</div>
                     {lose_html}
                 </div>""",
-                unsafe_allow_html=True,
+                unsafe_allow_html=True
             )
         else:
             st.markdown(
-                """<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                    <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL ALERT PICKS</div>
+                """<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 18px;">
+                    <div style="color:#facc15; font-size:0.85rem; font-weight:950; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOVERS</div>
                     <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">No global data yet. Run <code>global_up.php</code> to populate <code>global_cache</code>.</div>
                 </div>""",
-                unsafe_allow_html=True,
+                unsafe_allow_html=True
             )
-    except Exception:
+    except:
         pass
+
 
 elif tab == "portfolio":
     st.markdown(f"### My Stocks ({current_mode})")
