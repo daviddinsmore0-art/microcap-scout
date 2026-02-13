@@ -630,7 +630,9 @@ def render_topbar(display_name: str = "User"):
     html = f"""
       <div class="pp-topbar">
         <div class="pp-brand">
-          <div class="pp-logo">PENNY&nbsp;PULSE</div>
+          <div class="pplogo">
+    <img src="logo.png">
+</div>
           <div class="pp-subpill">
             <span>{date_str}</span>
             <span class="pp-dot {dot_class}"></span>
