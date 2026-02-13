@@ -521,7 +521,135 @@ def calculate_risk(row, ai_score=None):
 
     return final, label, color, "badge-mix", breakdown
 
+def render_topbar(display_name: str = "User"):
+    import datetime
 
+    # Simple market status (ET-ish by your server/runtime). If you already compute market state elsewhere,
+    # we can wire it in later. This version will not NameError.
+    now = datetime.datetime.now()
+    dow = now.weekday()  # 0=Mon
+    minutes = now.hour * 60 + now.minute
+
+    status = "Market Closed"
+    dot_class = "pp-dot-closed"
+
+    if dow < 5:
+        if 570 <= minutes < 960:          # 09:30 - 16:00
+            status = "Market Open"
+            dot_class = "pp-dot-open"
+        elif 240 <= minutes < 570:        # 04:00 - 09:30
+            status = "Pre-Market"
+            dot_class = "pp-dot-pre"
+        elif 960 <= minutes < 1200:       # 16:00 - 20:00
+            status = "After Hours"
+            dot_class = "pp-dot-post"
+
+    date_str = now.strftime("%A, %b %d")
+
+    st.markdown(
+        """
+        <style>
+          .pp-topbar {
+            width: 100%;
+            margin: 6px 0 14px 0;
+            padding: 10px 12px;
+            border-radius: 16px;
+            background: rgba(18, 22, 30, 0.55);
+            border: 1px solid rgba(255,255,255,0.08);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+          }
+          .pp-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+          }
+          .pp-logo {
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            font-size: 14px;
+            line-height: 1;
+            color: rgba(230,235,245,0.95);
+            text-transform: uppercase;
+            white-space: nowrap;
+          }
+          .pp-subpill {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: rgba(230,235,245,0.9);
+            font-size: 13px;
+            white-space: nowrap;
+          }
+          .pp-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+          .pp-dot-open { background: #21c55d; box-shadow: 0 0 0 4px rgba(33,197,93,0.14); }
+          .pp-dot-pre { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,0.14); }
+          .pp-dot-post { background: #60a5fa; box-shadow: 0 0 0 4px rgba(96,165,250,0.14); }
+          .pp-dot-closed { background: rgba(148,163,184,0.75); box-shadow: 0 0 0 4px rgba(148,163,184,0.10); }
+
+          .pp-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+          }
+          .pp-chip {
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.10);
+            display: grid;
+            place-items: center;
+            color: rgba(230,235,245,0.92);
+            font-weight: 700;
+            font-size: 12px;
+          }
+          .pp-bell {
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.10);
+            display: grid;
+            place-items: center;
+            color: rgba(230,235,245,0.92);
+            font-size: 14px;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
+
+    html = f"""
+      <div class="pp-topbar">
+        <div class="pp-brand">
+          <div class="pp-logo">PENNY&nbsp;PULSE</div>
+          <div class="pp-subpill">
+            <span>{date_str}</span>
+            <span class="pp-dot {dot_class}"></span>
+            <span>{status}</span>
+          </div>
+        </div>
+        <div class="pp-right">
+          <div class="pp-bell">!</div>
+          <div class="pp-chip">{initials}</div>
+        </div>
+      </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
@@ -1368,6 +1496,7 @@ if "ticker" in st.query_params:
 
 tab = st.query_params.get("tab", "home")
 if tab == "home":
+    render_topbar(user.get("display_name") or user.get("username") or "User")
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
     if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
