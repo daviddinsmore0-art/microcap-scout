@@ -570,13 +570,9 @@ def render_topbar(display_name: str = "User"):
             gap: 10px;
             min-width: 0;
           }
-           .pplogo {
-             background-image: url("logo.png");
-             background-size: contain;
-             background-repeat: no-repeat;
-             width: 160px;
-             height: 36px;
-          }
+           .pplogo img {
+             height: 34px;
+           }
           .pp-subpill {
             display: flex;
             align-items: center;
@@ -635,7 +631,7 @@ def render_topbar(display_name: str = "User"):
       <div class="pp-topbar">
         <div class="pp-brand">
           <div class="pplogo">
-    
+           <img src="logo.png" />
         </div>
           <div class="pp-subpill">
             <span>{date_str}</span>
