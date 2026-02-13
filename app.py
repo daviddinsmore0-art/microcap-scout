@@ -1390,7 +1390,7 @@ if tab == "home":
 
     
     #render_topbar(username)
-    🔖 build stamp so you can tell you're on the updated file (remove later if you want)
+    #🔖 build stamp so you can tell you're on the updated file (remove later if you want)
     st.caption("build: home_image2_v3")
 
     # Always REAL mode (paper trading removed)
