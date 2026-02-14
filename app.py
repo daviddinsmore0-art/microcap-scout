@@ -86,7 +86,7 @@ st.markdown("""
          font-family: Tahoma;
          font-size: 18px;
          font-weight: 400;
-         color: #b8f5c8;
+         color: #8fd988 ;
          letter-spacing: 0.3px;
          margin: 5px 0 0px 0;
 }
