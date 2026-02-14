@@ -1496,7 +1496,7 @@ if "ticker" in st.query_params:
 tab = st.query_params.get("tab", "home")
 if tab == "home":
     render_topbar(user.get("display_name") or user.get("username") or "User")
-    render_navbar(token, current_mode); st.stop()
+    render_navbar(token, current_mode)
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
     if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
