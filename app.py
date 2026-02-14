@@ -13,8 +13,12 @@ from datetime import datetime, timedelta
 import base64
 
 def get_logo_base64(path="logo.png"):
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception as e:
+        st.error(f"Logo load error: {e}")
+        return ""
 # =========================================================
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
