@@ -555,7 +555,7 @@ def render_topbar(display_name: str = "User"):
         <style>
           .pp-topbar {
             width: 100%;
-            margin: 6px 0 0px 0;
+            margin: 0px 0 10px 0;
             padding: 10px 12px;
             border-radius: 16px;
             background: rgba(18, 22, 30, 0.55);
