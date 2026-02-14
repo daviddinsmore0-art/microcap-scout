@@ -79,10 +79,10 @@ st.markdown("""
         a.nav-link:active { transform: scale(0.92); }
 
         .pp-greeting {
-         font-family: Georgia;
+         font-family: Tahoma;
          font-size: 18px;
          font-weight: 600;
-         color: #e5e7eb;
+         color: #002366;
          margin: 5px 0 0px 0;
 }
         /* Metric Boxes */
