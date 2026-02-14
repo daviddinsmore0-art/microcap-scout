@@ -80,7 +80,7 @@ st.markdown("""
 
         .pp-greeting {
          font-family: Verdana;
-         font-size: 16px;
+         font-size: 18px;
          font-weight: 600;
          color: #e5e7eb;
          margin: 5px 0 0px 0;
