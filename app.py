@@ -84,7 +84,7 @@ st.markdown("""
 
         .pp-greeting {
          font-family: Tahoma;
-         font-size: 18px;
+         font-size: 16px;
          font-weight: 600;
          color: #b8f5c8;
          letter-spacing: 0.3px;
