@@ -24,14 +24,6 @@ def get_logo_base64(path="logo_optimized.png"):
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-st.markdown("""
-<style>
-div[data-testid="stToolbar"],
-div[data-testid="stStatusWidget"] {
-    display: none !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
@@ -93,7 +85,18 @@ footer {visibility: hidden;}
             border-color: #4ade80 !important;
         }
         a.nav-link:active { transform: scale(0.92); }
+         /* Hide Streamlit header + toolbar completely */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
 
+div[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
          /* Hide Streamlit default header */
 header[data-testid="stHeader"] {
     display: none !important;
