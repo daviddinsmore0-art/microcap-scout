@@ -155,7 +155,7 @@ st.markdown("""
     margin-left: auto;
 }
       .block-container {
-    padding-top: 0.5rem !important;
+    padding-top: 0rem !important;
 }     
         /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
