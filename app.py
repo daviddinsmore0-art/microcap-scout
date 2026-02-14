@@ -79,7 +79,7 @@ st.markdown("""
         a.nav-link:active { transform: scale(0.92); }
 
         .pp-greeting {
-         font-family: Verdana;
+         font-family: Tahoma;
          font-size: 18px;
          font-weight: 600;
          color: #e5e7eb;
