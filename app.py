@@ -1496,6 +1496,7 @@ if "ticker" in st.query_params:
 tab = st.query_params.get("tab", "home")
 if tab == "home":
     render_topbar(user.get("display_name") or user.get("username") or "User")
+    st.markdown(f"### {get_greeting(user['display_name'])}")
     render_navbar(token, current_mode)
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
