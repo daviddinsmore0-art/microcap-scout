@@ -80,10 +80,10 @@ st.markdown("""
 
         .pp-greeting {
          font-family: Verdana;
-         font-size: 20px;
+         font-size: 16px;
          font-weight: 600;
          color: #e5e7eb;
-         margin: 5px 0 5px 0;
+         margin: 5px 0 0px 0;
 }
         /* Metric Boxes */
         .metric-box {
