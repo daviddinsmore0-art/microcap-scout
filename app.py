@@ -1512,7 +1512,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
     )
- render_navbar(token, current_mode)
+    render_navbar(token, current_mode)
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
     if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
