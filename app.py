@@ -24,24 +24,9 @@ def get_logo_base64(path="logo_optimized.png"):
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-/* --- Kill Streamlit chrome (newer builds) --- */
-header, footer { visibility: hidden; }          /* safe blanket */
-div[data-testid="stToolbar"] { display: none !important; }
-div[data-testid="stStatusWidget"] { display: none !important; }
-div[data-testid="stDecoration"] { display: none !important; }
-
-/* Sometimes these exist depending on host */
-div[data-testid="stDeployButton"] { display: none !important; }
-div[data-testid="stAppViewContainer"] > div:first-child { display:none !important; }
-
-/* --- Make sure your custom topbar sits ABOVE everything --- */
-.pp-topbar, .pp-topbar-wrap, .pp-topbar-container {
-  position: relative;
-  z-index: 999999 !important;
-}
-
-/* Optional: stop “ghost clicks” if something is still there */
-div[data-testid="stToolbar"], div[data-testid="stStatusWidget"] {
+/* Optional: stop ghost clicks if something is still there */
+div[data-testid="stToolbar"],
+div[data-testid="stStatusWidget"] {
   pointer-events: none !important;
 }
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
