@@ -630,7 +630,7 @@ def render_topbar(display_name: str = "User"):
             display: grid;
             place-items: center;
             color: rgba(230,235,245,0.92);
-            font-size: 14px;
+            font-size: 24px;
           }
         </style>
         """,
