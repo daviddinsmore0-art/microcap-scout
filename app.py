@@ -83,12 +83,12 @@ st.markdown("""
         a.nav-link:active { transform: scale(0.92); }
 
         .pp-greeting {
-         font-family: Tahoma;
-         font-size: 18px;
-         font-weight: 400;
-         color: #86EFAC;
-         letter-spacing: 0.5px;
-         margin: 16px 0 18px 0;
+    font-family: Tahoma;
+    font-size: 17px;
+    font-weight: 400;
+    color: #86EFAC;
+    letter-spacing: 0.5px;
+    margin: 36px 0 8px 0;
 }
         /* Metric Boxes */
         .metric-box {
