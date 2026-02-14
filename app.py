@@ -33,6 +33,9 @@ st.markdown("""
         
         /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
+
+         #MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
         
         /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
