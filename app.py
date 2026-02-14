@@ -11,11 +11,14 @@ import streamlit.components.v1 as components
 import textwrap
 from datetime import datetime, timedelta
 import base64
+import os
 
 def get_logo_base64(path="logo.png"):
     try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        full_path = path if os.path.isabs(path) else os.path.join(base_dir, path)
+        with open(full_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
     except Exception as e:
         st.error(f"Logo load error: {e}")
         return ""
