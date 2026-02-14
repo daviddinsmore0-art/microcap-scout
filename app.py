@@ -1355,7 +1355,6 @@ if not user: st.error("Session Expired"); st.stop()
 
 current_mode = "REAL"
 
-st.markdown(f"### {get_greeting(user['display_name'])}")
 
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
