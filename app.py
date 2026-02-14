@@ -11,16 +11,14 @@ import streamlit.components.v1 as components
 import textwrap
 from datetime import datetime, timedelta
 import base64
-import os
+from pathlib import Path
 
-def get_logo_base64(path="logo.png"):
+def get_logo_base64(path="logo_optimized.png"):
     try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        full_path = path if os.path.isabs(path) else os.path.join(base_dir, path)
-        with open(full_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
+        p = Path(__file__).parent / path
+        return base64.b64encode(p.read_bytes()).decode("utf-8")  # <- decode!
     except Exception as e:
-        st.error(f"Logo load error: {e}")
+        # st.error(f"Logo load error: {e}")  # optional (comment out if annoying)
         return ""
 # =========================================================
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
@@ -590,9 +588,12 @@ def render_topbar(display_name: str = "User"):
             gap: 10px;
             min-width: 0;
           }
-           .pplogo img {
-             height: 34px;
-           }
+           .pplogo{
+  height: 34px;
+  width: auto;
+  display: block;
+  opacity: 0.95;
+}
           .pp-subpill {
             display: flex;
             align-items: center;
