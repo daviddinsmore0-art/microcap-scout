@@ -1512,8 +1512,6 @@ if "ticker" in st.query_params:
 tab = st.query_params.get("tab", "home")
 if tab == "home":
     render_topbar(user.get("display_name"))
-    def render_topbar(name):
-    st.write("TOPBAR TEST")
     greeting = get_greeting(user["display_name"])
 
     st.markdown(
