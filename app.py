@@ -97,11 +97,23 @@ div[data-testid="stToolbar"] {
 div[data-testid="stDecoration"] {
     display: none !important;
 }
-         /* Hide Streamlit default header */
+
+/* Kill Streamlit header + toolbar completely */
 header[data-testid="stHeader"] {
     display: none !important;
 }
 
+div[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+#MainMenu {
+    visibility: hidden;
+}
 /* Remove extra top padding caused by header */
 .block-container {
     padding-top: 0rem !important;
