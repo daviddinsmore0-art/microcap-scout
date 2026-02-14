@@ -10,7 +10,11 @@ import xml.etree.ElementTree as ET
 import streamlit.components.v1 as components
 import textwrap
 from datetime import datetime, timedelta
+import base64
 
+def get_logo_base64(path="logo.png"):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
 # =========================================================
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
@@ -626,12 +630,12 @@ def render_topbar(display_name: str = "User"):
     )
 
     initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
-
+    logo_data = get_logo_base64("logo.png")
     html = f"""
       <div class="pp-topbar">
         <div class="pp-brand">
           <div class="pplogo">
-           <img src="/app/static/logo.png">
+           <img src="data:image/png;base64,{logo_data}">
         </div>
           <div class="pp-subpill">
             <span>{date_str}</span>
