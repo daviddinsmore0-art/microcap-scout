@@ -24,7 +24,7 @@ def get_logo_base64(path="logo_optimized.png"):
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-/* Optional: stop ghost clicks if something is still there */
+
 div[data-testid="stToolbar"],
 div[data-testid="stStatusWidget"] {
   pointer-events: none !important;
