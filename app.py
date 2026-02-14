@@ -83,6 +83,15 @@ st.markdown("""
         }
         a.nav-link:active { transform: scale(0.92); }
 
+         /* Hide Streamlit default header */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
+
+/* Remove extra top padding caused by header */
+.block-container {
+    padding-top: 0rem !important;
+}
         .pp-greeting {
     font-family: Tahoma;
     font-size: 17px;
