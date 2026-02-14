@@ -1635,15 +1635,15 @@ if tab == "home":
         cursor = conn.cursor()
 
         # Detect whether alert columns exist
-        cursor.execute("SHOW COLUMNS FROM global_cache LIKE 'alert_active'")
+        cursor.execute("SHOW COLUMNS FROM global_setup_fired LIKE 'storm_type'")
         has_alert_cols = cursor.fetchone() is not None
 
         if has_alert_cols:
             cursor.execute(
-                "SELECT ticker, price, day_change, alert_setup, alert_price, alert_day_change, alert_at "
-                "FROM global_cache "
-                "WHERE alert_active=1 AND alert_at IS NOT NULL AND DATE(alert_at)=CURDATE() "
-                "ORDER BY alert_at DESC LIMIT 8"
+                "SELECT ticker, storm_type, created_at "
+                "FROM global_setup_fired "
+                "WHERE storm_type IS NOT NULL AND DATE(created_at)=CURDATE() "
+                "ORDER BY created_at DESC LIMIT 4"
             )
             rows = cursor.fetchall() or []
 
