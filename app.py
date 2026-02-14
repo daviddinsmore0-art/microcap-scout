@@ -87,7 +87,7 @@ st.markdown("""
          font-size: 18px;
          font-weight: 400;
          color: #8fd988 ;
-         letter-spacing: 0.3px;
+         letter-spacing: 0.4px;
          margin: 28px 0 20px 0;
 }
         /* Metric Boxes */
