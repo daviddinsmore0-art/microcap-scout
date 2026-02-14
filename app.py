@@ -82,7 +82,7 @@ st.markdown("""
          font-family: Tahoma;
          font-size: 18px;
          font-weight: 600;
-         color: #002366;
+         color: #B2F2BB;
          margin: 5px 0 0px 0;
 }
         /* Metric Boxes */
