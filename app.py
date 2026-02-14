@@ -589,7 +589,7 @@ def render_topbar(display_name: str = "User"):
             min-width: 0;
           }
            .pplogo{
-  height: 34px;
+  height: 28px;
   width: auto;
   display: block;
   opacity: 0.95;
