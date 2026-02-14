@@ -630,7 +630,7 @@ def render_topbar(display_name: str = "User"):
     )
 
     initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
-    logo_data = get_logo_base64("logo.png")
+    logo_data = get_logo_base64("logo.png")    
     html = f"""
        <div class="pp-topbar">
        <div class="pp-brand">
@@ -648,8 +648,8 @@ def render_topbar(display_name: str = "User"):
         <div class="pp-chip">{initials}</div>
          </div>
          </div>
-      """
-      st.markdown(html, unsafe_allow_html=True)
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
