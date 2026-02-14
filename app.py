@@ -593,7 +593,7 @@ def render_topbar(display_name: str = "User"):
             border-radius: 999px;
             background: rgba(255,255,255,0.06);
             border: 1px solid rgba(255,255,255,0.08);
-            color: rgba(230,235,245,0.9);
+            color: #B2F2BB;
             font-size: 13px;
             white-space: nowrap;
           }
