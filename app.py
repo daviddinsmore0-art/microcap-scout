@@ -619,7 +619,7 @@ def render_topbar(display_name: str = "User"):
             place-items: center;
             color: rgba(230,235,245,0.92);
             font-weight: 700;
-            font-size: 24px;
+            font-size: 14px;
           }
           .pp-bell {
             width: 34px;
@@ -630,7 +630,7 @@ def render_topbar(display_name: str = "User"):
             display: grid;
             place-items: center;
             color: rgba(230,235,245,0.92);
-            font-size: 24px;
+            font-size: 14px;
           }
         </style>
         """,
