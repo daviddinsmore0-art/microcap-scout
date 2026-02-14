@@ -1492,11 +1492,11 @@ if "ticker" in st.query_params:
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
             st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
     else: st.error("Data missing.")
-    render_navbar(token, current_mode); st.stop()
 
 tab = st.query_params.get("tab", "home")
 if tab == "home":
     render_topbar(user.get("display_name") or user.get("username") or "User")
+    render_navbar(token, current_mode); st.stop()
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
     if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
