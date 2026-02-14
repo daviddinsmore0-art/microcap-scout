@@ -78,7 +78,12 @@ st.markdown("""
         }
         a.nav-link:active { transform: scale(0.92); }
 
-        
+        .pp-greeting {
+    font-size: 28px;
+    font-weight: 600;
+    color: #e5e7eb;
+    margin: 14px 0 10px 0;
+}
         /* Metric Boxes */
         .metric-box {
             background-color: #1e293b;
@@ -637,7 +642,7 @@ def render_topbar(display_name: str = "User"):
        <div class="pp-topbar">
        <div class="pp-brand">
         <div class="pplogo">
-        <img src="data:image/png;base64,{logo_data}" />
+        <img src="data:image/png;base64,{logo_data}">
         </div>
         <div class="pp-subpill">
         <span>{date_str}</span>
@@ -1497,7 +1502,16 @@ if "ticker" in st.query_params:
 tab = st.query_params.get("tab", "home")
 if tab == "home":
     render_topbar(user.get("display_name") or user.get("username") or "User")
-    st.markdown(f"### {get_greeting(user['display_name'])}")
+    greeting = get_greeting(user['display_name'])
+
+st.markdown(
+    f"""
+    <div class="pp-greeting">
+        {greeting}
+    </div>
+    """,
+    unsafe_allow_html=True
+    )
     render_navbar(token, current_mode)
     st.markdown("### Portfolio Overview")
     portfolio = get_portfolio_details(user['username'], current_mode)
