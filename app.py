@@ -79,9 +79,9 @@ st.markdown("""
         a.nav-link:active { transform: scale(0.92); }
 
         .pp-greeting {
-         font-family: Tahoma;
+         font-family: Georgia;
          font-size: 18px;
-         font-weight: 600;
+         font-weight: 400;
          color: #e5e7eb;
          margin: 5px 0 0px 0;
 }
