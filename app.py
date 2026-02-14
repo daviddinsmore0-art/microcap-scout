@@ -1504,7 +1504,7 @@ if tab == "home":
     render_topbar(user.get("display_name") or user.get("username") or "User")
     greeting = get_greeting(user['display_name'])
 
-st.markdown(
+    st.markdown(
     f"""
     <div class="pp-greeting">
         {greeting}
