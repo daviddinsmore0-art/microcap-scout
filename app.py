@@ -682,8 +682,8 @@ def render_topbar(display_name: str = "User"):
          </div>
          </div>
         <div class="pp-right">
-        <div class="pp-bell">!</div>
-        <div class="pp-chip">{initials}</div>
+        <div class="pp-bell"></div>
+        <div class="pp-chip"></div>
          </div>
          </div>
     """
