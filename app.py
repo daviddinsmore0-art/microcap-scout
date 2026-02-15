@@ -632,7 +632,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pp-topbar{
   width:100%;
   margin:0px 0 10px 0;
-  padding:10px 12px;
+  padding:0px 12px;
   border-radius:16px;
   background:rgba(18,22,30,0.55);
   border:1px solid rgba(255,255,255,0.08);
