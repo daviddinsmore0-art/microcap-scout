@@ -200,7 +200,7 @@ div[data-testid="stDecoration"] {
             scroll-behavior: smooth;
             gap: 12px;
             padding-top:10px;
-            padding-bottom: 20px;
+            padding-bottom: 40px;
             -ms-overflow-style: none; 
             scrollbar-width: none; 
         }
