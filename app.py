@@ -27,7 +27,7 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered",
 st.set_page_config(layout="wide")
 st.markdown("""
 <style>
-/* ---- Kill Streamlit chrome ---- */
+/* Hide Streamlit chrome */
 header[data-testid="stHeader"],
 div[data-testid="stToolbar"],
 div[data-testid="stDecoration"]{
@@ -35,7 +35,7 @@ div[data-testid="stDecoration"]{
   height:0 !important;
 }
 
-/* ---- True "flush to top" (override all your other padding rules) ---- */
+/* Hard override Streamlit top padding (THIS is what stops the dropping) */
 div[data-testid="stAppViewBlockContainer"],
 section.main > div.block-container,
 .block-container{
@@ -43,23 +43,21 @@ section.main > div.block-container,
   margin-top: 0 !important;
 }
 
-/* Keep side breathing room */
+/* Keep normal side padding so it doesn't feel cramped */
 section.main > div.block-container,
 .block-container{
   padding-left: 16px !important;
   padding-right: 16px !important;
 }
 
-/* DO NOT crush the layout spacing (this is why it feels cramped) */
-.stVerticalBlock{
-  gap: 0.85rem !important;   /* tweak: 0.6rem tighter, 1rem roomier */
-}
+/* Restore spacing between sections (your "cramped" issue is gap:0) */
+.stVerticalBlock{ gap: 0.85rem !important; }
 
-/* Your topbar spacing (pushes content down a bit, but still "at the top") */
+/* Topbar spacing with safe-area (NOT huge) */
 .pp-topbar{
   margin-top: 0 !important;
-  margin-bottom: 18px !important;
-  padding-top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
+  margin-bottom: 16px !important;
 }
 </style>
 """, unsafe_allow_html=True)
