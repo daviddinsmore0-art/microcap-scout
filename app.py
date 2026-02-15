@@ -26,7 +26,6 @@ def get_logo_base64(path="logo_optimized.png"):
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 st.set_page_config(layout="wide")
 st.markdown("""
-st.markdown("""
 <style>
 /* --- Kill the native Streamlit header bar space --- */
 header[data-testid="stHeader"] { 
@@ -34,7 +33,7 @@ header[data-testid="stHeader"] {
 }
 
 /* --- Remove the default top padding from the main content container (new + old Streamlit) --- */
-div[data-testid="stAppViewBlockContainer"]{
+  div[data-testid="stAppViewBlockContainer"]{
   padding-top: 0rem !important;
 }
 section.main > div.block-container{
