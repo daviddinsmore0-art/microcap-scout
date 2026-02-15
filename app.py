@@ -574,150 +574,204 @@ def calculate_risk(row, ai_score=None):
 
     return final, label, color, "badge-mix", breakdown
 
+def render_topbar(display_name: str = "User"):
+    import datetime
 
-def render_topbar(display_name: str | None = None):
-    """
-    Top rounded bar with: left brand (logo), center date+status pill, right optional icons/initials.
-    This function only renders HTML/CSS for the topbar.
-    """
-    display_name = display_name or ""
-    parts = [p for p in display_name.strip().split() if p]
-    initials = "".join([p[0].upper() for p in parts[:2]]) if parts else ""
+    # Simple market status (ET-ish by your server/runtime). If you already compute market state elsewhere,
+    # we can wire it in later. This version will not NameError.
+    now = datetime.datetime.now()
+    dow = now.weekday()  # 0=Mon
+    minutes = now.hour * 60 + now.minute
 
-    date_str, status, dot_class = get_market_status_label()
+    status = "Market Closed"
+    dot_class = "pp-dot-closed"
 
-    # Inline CSS (keep it clean + single source of truth)
+    if dow < 5:
+        if 570 <= minutes < 960:          # 09:30 - 16:00
+            status = "Market Open"
+            dot_class = "pp-dot-open"
+        elif 240 <= minutes < 570:        # 04:00 - 09:30
+            status = "Pre-Market"
+            dot_class = "pp-dot-pre"
+        elif 960 <= minutes < 1200:       # 16:00 - 20:00
+            status = "After Hours"
+            dot_class = "pp-dot-post"
+
+    date_str = now.strftime("%A, %b %d")
+
     st.markdown(
         """
         <style>
-          /* --- Topbar layout --- */
           .pp-topbar {
+            width: 100%;
+            margin: 0px 0 10px 0;
+            padding: 10px 12px;
+            border-radius: 16px;
+            background: rgba(18, 22, 30, 0.55);
+            border: 1px solid rgba(255,255,255,0.08);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.28);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 14px;
-            padding: 14px 16px;
-            border-radius: 28px;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.07);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-            margin: 10px 0 18px 0;
-            width: 100%;
-            overflow: hidden; /* keep pills from bleeding outside */
+            gap: 10px;
           }
-
           .pp-brand {
             display: flex;
             align-items: center;
             gap: 10px;
-            flex: 0 0 auto;
             min-width: 0;
           }
+           .pplogo {
+    height: 28px;        /* adjust 34–42 until perfect */
+    width: auto;
+    display: block;
+}
+          .pp-subpill{
+  flex:1;
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  white-space:nowrap;
+  overflow:hidden;
+}
 
-          .pplogo {
-            height: 28px;
-            width: auto;
-            display: block;
-            opacity: 0.95;
-            filter: drop-shadow(0 4px 10px rgba(0,0,0,0.35));
-          }
+/* Only truncate the LONGEST piece (date) */
+.pp-subpill span:first-child{
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
 
-          .pp-subpill {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            padding: 10px 14px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.06);
-            color: rgba(245, 248, 255, 0.92);
-            font-size: 16px;
-            line-height: 1;
-            white-space: nowrap;
-            flex: 1 1 auto;      /* center area grows */
-            min-width: 0;        /* allows ellipsis */
-            overflow: hidden;
-          }
-
-          .pp-subpill span {
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-
-          .pp-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 999px;
-            display: inline-block;
-            background: rgba(255,255,255,0.25);
-            flex: 0 0 auto;
-          }
-          .pp-dot.open { background: rgba(45, 212, 191, 0.95); }
-          .pp-dot.closed { background: rgba(148, 163, 184, 0.75); }
-          .pp-dot.pre { background: rgba(250, 204, 21, 0.95); }
+.pp-dot{
+  flex:0 0 auto;
+}0 0 auto;
+}
+          .pp-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+          .pp-dot-open { background: #21c55d; box-shadow: 0 0 0 4px rgba(33,197,93,0.14); }
+          .pp-dot-pre { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,0.14); }
+          .pp-dot-post { background: #60a5fa; box-shadow: 0 0 0 4px rgba(96,165,250,0.14); }
+          .pp-dot-closed { background: rgba(148,163,184,0.75); box-shadow: 0 0 0 4px rgba(148,163,184,0.10); }
 
           .pp-right {
-            display: flex;
+            display: none;
             align-items: center;
             gap: 10px;
-            flex: 0 0 auto;
+            flex-shrink: 0;
           }
-
-          /* Optional initials chip (you removed this earlier, but leaving styles is harmless) */
           .pp-chip {
             width: 34px;
             height: 34px;
             border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.10);
             display: grid;
             place-items: center;
+            color: rgba(230,235,245,0.92);
             font-weight: 700;
             font-size: 14px;
-            color: rgba(255,255,255,0.9);
+          }
+          .pp-bell {
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
             background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.10);
+            display: grid;
+            place-items: center;
+            color: rgba(230,235,245,0.92);
+            font-size: 14px;
           }
+          /* ===== TOPBAR LAYOUT FIX (paste at bottom) ===== */
 
-          /* Mobile squeeze: keep everything inside the bar */
-          @media (max-width: 520px) {
-            .pplogo { height: 24px; }
-            .pp-topbar { padding: 12px 14px; gap: 10px; }
-            .pp-subpill { font-size: 15px; padding: 9px 12px; }
-          }
+.pp-topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:nowrap;
+}
+
+.pp-brand{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+
+.pplogo{
+  display:block;
+  height:22px;         /* tweak if you want */
+  width:auto;
+  object-fit:contain;
+  opacity:0.85;
+}
+
+/* The date/status pill */
+.pp-subpill{
+  flex:1 1 auto;
+  min-width:0;
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+
+  white-space:nowrap;
+  overflow:hidden;      /* keeps it inside topbar */
+}
+
+/* Make ONLY the text parts ellipsis, not the dot */
+.pp-subpill > span:not(.pp-dot){
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:48%;
+  display:block;
+}
+
+/* The dot */
+.pp-dot{
+  flex:0 0 auto;
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.25);
+}
+
+/* If you still render right-side icons/chip */
+.pp-right{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    logo_b64 = get_logo_base64("logo.png")
-
-    brand_html = ""
-    if logo_b64:
-        brand_html = f'<img class="pplogo" src="data:image/png;base64,{logo_b64}" alt="PennyPulse" />'
-    else:
-        brand_html = '<div style="font-weight:700; color: rgba(255,255,255,0.9);">PennyPulse</div>'
-
-    # NOTE: pp-subpill is a SIBLING of pp-brand now (prevents the pill from "growing" inside the brand)
+    initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
+    logo_data = get_logo_base64("logo.png")    
     html = f"""
-      <div class="pp-topbar">
-        <div class="pp-brand">{brand_html}</div>
-
+       <div class="pp-topbar">
+       <div class="pp-brand">
+        <img class="pplogo" src="data:image/png;base64,{logo_data}" alt="PennyPulse" />
         <div class="pp-subpill">
-          <span>{date_str}</span>
-          <span class="pp-dot {dot_class}"></span>
-          <span>{status}</span>
-        </div>
-
+        <span>{date_str}</span>
+        <span class="pp-dot {dot_class}"></span>
+        <span>{status}</span>
+         </div>
+         </div>
         <div class="pp-right">
-          {"<div class='pp-chip'>" + initials + "</div>" if initials else ""}
-        </div>
-      </div>
+        
+         </div>
+         </div>
     """
-
     st.markdown(html, unsafe_allow_html=True)
 
-def calculate_confidence(
-row, ai_score=None):
+def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
 
     This is intentionally not just (100 - risk). It adds small bonuses for
