@@ -1729,19 +1729,24 @@ if tab == "home":
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
 
-        # Optional columns (only if you added them later)
-        cursor.execute("SHOW COLUMNS FROM global_setup_fired LIKE 'fired_price'")
-        has_fired_price = cursor.fetchone() is not None
+        # Optional columns (if present in your table)
+        # We'll use the first one that exists: price_at_fire, fire_price, or fired_price
+        fired_col = None
+        for candidate in ("price_at_fire", "fire_price", "fired_price"):
+            cursor.execute(f"SHOW COLUMNS FROM global_setup_fired LIKE '{candidate}'")
+            if cursor.fetchone() is not None:
+                fired_col = candidate
+                break
 
         # Prefer alerts fired today; if none, fall back to most recent 5 overall
-        select_fired_price = ", f.fired_price AS fired_price" if has_fired_price else ""
+        select_fired_price = f"f.{fired_col} AS fired_price," if fired_col else ""
 
         cursor.execute(
             f"""
             SELECT
                 f.ticker,
                 f.storm_type,
-                f.created_at
+                f.created_at,
                 {select_fired_price}
                 gc.price AS current_price,
                 gc.day_change AS current_change
@@ -1760,8 +1765,8 @@ if tab == "home":
                 SELECT
                     f.ticker,
                     f.storm_type,
-                    f.created_at
-                    {select_fired_price},
+                    f.created_at,
+                    {select_fired_price}
                     gc.price AS current_price,
                     gc.day_change AS current_change
                 FROM global_setup_fired f
@@ -1779,7 +1784,7 @@ if tab == "home":
                 created_at = row.get("created_at")
 
                 # Fired price (optional)
-                fired_price = row.get("fired_price") if has_fired_price else None
+                fired_price = row.get("fired_price") if fired_col else None
 
                 # Current snapshot from global_cache
                 cur_price = row.get("current_price")
@@ -1798,7 +1803,7 @@ if tab == "home":
                 chg_color = "#46f08a" if isinstance(cur_chg, (int, float)) and cur_chg >= 0 else "#ff4d4d"
 
                 fired_text = ""
-                if isinstance(fired_price, (int, float)):
+                if fired_col and isinstance(fired_price, (int, float)):
                     fired_text = f" • fired ${fired_price:.2f}"
 
                 st.markdown(
