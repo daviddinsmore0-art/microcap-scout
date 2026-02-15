@@ -29,7 +29,6 @@ st.markdown("""
         /* 1. Hide the top toolbar/header completely */
         header[data-testid="stHeader"] {
             visibility: hidden;
-            height: 0%;
         }
 
         /* 2. Remove padding from the main container */
