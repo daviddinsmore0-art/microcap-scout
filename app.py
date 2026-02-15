@@ -34,7 +34,7 @@ st.markdown("""
 
         /* 2. Remove padding from the main container */
         .BlockContainer {
-            padding-top: 1.2rem !important;
+            padding-top: 0rem !important;
             padding-bottom: 0rem !important;
             margin-top: 0rem !important;
         }
