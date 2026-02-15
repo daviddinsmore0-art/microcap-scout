@@ -26,13 +26,27 @@ def get_logo_base64(path="logo_optimized.png"):
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 st.markdown("""
     <style>
-           .block-container {
-                padding-top: 0rem;
-                padding-bottom: 0rem;
-                margin-top: 0rem;
-            }
+        /* 1. Hide the top toolbar/header completely */
+        header[data-testid="stHeader"] {
+            visibility: hidden;
+            height: 0%;
+        }
+
+        /* 2. Remove padding from the main container */
+        .stAppViewBlockContainer {
+            padding-top: 0rem !important;
+            padding-bottom: 0rem !important;
+            margin-top: 0rem !important;
+        }
+
+        /* 3. Optional: Remove extra gap from vertical blocks if needed */
+        .stVerticalBlock {
+            gap: 0rem !important;
+        }
     </style>
     """, unsafe_allow_html=True)
+
+st.title("Page is now flush to the top")
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
