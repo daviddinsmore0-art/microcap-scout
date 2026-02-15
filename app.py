@@ -27,37 +27,40 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered",
 st.set_page_config(layout="wide")
 st.markdown("""
 <style>
-
-/* --- Hide Streamlit header --- */
-header[data-testid="stHeader"] {
-    visibility: hidden;
-    height: 0;
+/* ---- Kill Streamlit chrome ---- */
+header[data-testid="stHeader"],
+div[data-testid="stToolbar"],
+div[data-testid="stDecoration"]{
+  display:none !important;
+  height:0 !important;
 }
 
-/* --- Remove Streamlit default top padding --- */
+/* ---- True "flush to top" (override all your other padding rules) ---- */
 div[data-testid="stAppViewBlockContainer"],
-section.main > div.block-container {
-    padding-top: 0 !important;
-    margin-top: 0 !important;
-
-    /* keep normal side breathing room */
-    padding-left: 16px !important;
-    padding-right: 16px !important;
+section.main > div.block-container,
+.block-container{
+  padding-top: 0 !important;
+  margin-top: 0 !important;
 }
 
-/* --- Remove vertical block gaps if needed --- */
-.stVerticalBlock {
-    gap: 0 !important;
+/* Keep side breathing room */
+section.main > div.block-container,
+.block-container{
+  padding-left: 16px !important;
+  padding-right: 16px !important;
 }
 
-/* --- Topbar breathing room (SAFE AREA FIX) --- */
-/* --- Topbar breathing room (SAFE AREA FIX) --- */
-.pp-topbar {
-    margin-top: 0 !important;
-    margin-bottom: 24px !important;   /* <-- this fixes cramped look */
-    padding-top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+/* DO NOT crush the layout spacing (this is why it feels cramped) */
+.stVerticalBlock{
+  gap: 0.85rem !important;   /* tweak: 0.6rem tighter, 1rem roomier */
 }
 
+/* Your topbar spacing (pushes content down a bit, but still "at the top") */
+.pp-topbar{
+  margin-top: 0 !important;
+  margin-bottom: 18px !important;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
