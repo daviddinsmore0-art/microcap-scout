@@ -683,6 +683,70 @@ def render_topbar(display_name: str = "User"):
             color: rgba(230,235,245,0.92);
             font-size: 14px;
           }
+          /* ===== TOPBAR LAYOUT FIX (paste at bottom) ===== */
+
+.pp-topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:nowrap;
+}
+
+.pp-brand{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+
+.pplogo{
+  display:block;
+  height:22px;         /* tweak if you want */
+  width:auto;
+  object-fit:contain;
+  opacity:0.85;
+}
+
+/* The date/status pill */
+.pp-subpill{
+  flex:1 1 auto;
+  min-width:0;
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+
+  white-space:nowrap;
+  overflow:hidden;      /* keeps it inside topbar */
+}
+
+/* Make ONLY the text parts ellipsis, not the dot */
+.pp-subpill > span:not(.pp-dot){
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:48%;
+  display:block;
+}
+
+/* The dot */
+.pp-dot{
+  flex:0 0 auto;
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.25);
+}
+
+/* If you still render right-side icons/chip */
+.pp-right{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
         </style>
         """,
         unsafe_allow_html=True,
