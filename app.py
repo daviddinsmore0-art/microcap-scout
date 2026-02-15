@@ -82,7 +82,7 @@ footer {visibility: hidden;}
             border-radius: 16px; 
             padding: 20px; 
             margin-top: 50px;
-            margin-bottom: 50px; 
+            margin-bottom: 10px; 
             border: 1px solid #2d3748; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
             transition: transform 0.1s ease, border-color 0.1s ease;
