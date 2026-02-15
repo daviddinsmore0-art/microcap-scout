@@ -50,7 +50,7 @@ st.markdown("""
         }
 /* 3. Optional: Remove extra gap from vertical blocks if needed */
         .stVerticalBlock {
-            gap: 0.5rem !important;
+            gap: 0rem !important;
         }
          #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
@@ -134,7 +134,7 @@ div[data-testid="stDecoration"] {
 }
 /* Remove extra top padding caused by header */
 .block-container {
-    padding-top: 0rem !important;
+    padding-top: 0.5rem !important;
 }
         .pp-greeting {
     font-family: Tahoma;
