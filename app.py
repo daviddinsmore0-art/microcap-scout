@@ -46,11 +46,8 @@ section.main > div.block-container{
 
 /* --- Lock your custom topbar to the top --- */
 .pp-topbar{
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 9999;
+    margin-top: 0 !important;   /* remove outer gap */
+    padding-top: 8px;           /* keep small breathing room */
 }
 
 /* --- Push page content down so it doesn't hide under fixed bar --- */
