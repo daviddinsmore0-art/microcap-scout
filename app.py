@@ -1726,7 +1726,7 @@ if tab == "home":
     )
 
     try:
-        conn = get_db_connection()
+        conn = get_connection()
         cursor = conn.cursor(dictionary=True)
 
         # Optional columns (only if you added them later)
