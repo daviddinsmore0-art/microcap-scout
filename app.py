@@ -59,11 +59,8 @@ section.main > div.block-container,
   padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
   margin-bottom: 16px !important;
 }
-</style>
-""", unsafe_allow_html=True)
+
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
-st.markdown("""
-    <style>
         /* REMOVE DEFAULT PADDING */
         
         
@@ -84,9 +81,7 @@ footer {visibility: hidden;}
             padding: 10px;
         }
         div[data-baseweb="input"] { background-color: transparent !important; border: none; }
-        .block-container{
-    padding-top: 0.25rem !important;
-}
+        
         /* Dropdowns & Select Boxes (FIXED) */
         div[data-baseweb="select"] > div { 
             background-color: #1e293b !important; 
