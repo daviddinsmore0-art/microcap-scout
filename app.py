@@ -1716,114 +1716,120 @@ if tab == "home":
 
 
     # ============================================
-    # GLOBAL MOMENTUM PICKS (ACTIVE ALERTS)
-    # ============================================
+    # GLOBAL MOMENTUM PICKS (last 5)
+    st.markdown(
+        """
+        <div class=\"pp-alert-card pp-alert-yellow\" style=\"margin-top:14px;\">
+          <h4 style=\"margin:0; font-size:15px; letter-spacing:1px;\">GLOBAL MOMENTUM PICKS</h4>
+        """,
+        unsafe_allow_html=True,
+    )
+
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
 
-        # Detect whether alert columns exist
-        cursor.execute("SHOW COLUMNS FROM global_setup_fired LIKE 'storm_type'")
-        has_alert_cols = cursor.fetchone() is not None
+        # Optional columns (only if you added them later)
+        cursor.execute("SHOW COLUMNS FROM global_setup_fired LIKE 'fired_price'")
+        has_fired_price = cursor.fetchone() is not None
 
-        if has_alert_cols:
+        # Prefer alerts fired today; if none, fall back to most recent 5 overall
+        select_fired_price = ", f.fired_price AS fired_price" if has_fired_price else ""
+
+        cursor.execute(
+            f"""
+            SELECT
+                f.ticker,
+                f.storm_type,
+                f.created_at
+                {select_fired_price}
+                gc.price AS current_price,
+                gc.day_change AS current_change
+            FROM global_setup_fired f
+            LEFT JOIN global_cache gc ON gc.ticker = f.ticker
+            WHERE DATE(f.created_at) = CURDATE()
+            ORDER BY f.created_at DESC
+            LIMIT 5
+            """
+        )
+        fired = cursor.fetchall() or []
+
+        if not fired:
             cursor.execute(
-                "SELECT ticker, storm_type, created_at "
-                "FROM global_setup_fired "
-                "WHERE storm_type IS NOT NULL AND DATE(created_at)=CURDATE() "
-                "ORDER BY created_at DESC LIMIT 4"
+                f"""
+                SELECT
+                    f.ticker,
+                    f.storm_type,
+                    f.created_at
+                    {select_fired_price},
+                    gc.price AS current_price,
+                    gc.day_change AS current_change
+                FROM global_setup_fired f
+                LEFT JOIN global_cache gc ON gc.ticker = f.ticker
+                ORDER BY f.created_at DESC
+                LIMIT 5
+                """
             )
-            rows = cursor.fetchall() or []
+            fired = cursor.fetchall() or []
 
-            if rows:
-                items = []
-                for (t, price, now_pct, setup, a_price, a_pct, a_at) in rows:
-                    try:
-                        now_pct_f = float(now_pct or 0)
-                    except Exception:
-                        now_pct_f = 0.0
-                    try:
-                        a_pct_f = float(a_pct or 0)
-                    except Exception:
-                        a_pct_f = 0.0
-                    perf = now_pct_f - a_pct_f
+        if fired:
+            for row in fired:
+                ticker = (row.get("ticker") or "").upper()
+                storm_type = row.get("storm_type") or ""
+                created_at = row.get("created_at")
 
-                    # time string
-                    try:
-                        a_at_str = a_at.strftime("%I:%M %p").lstrip("0")
-                    except Exception:
-                        a_at_str = str(a_at)[:16] if a_at else ""
+                # Fired price (optional)
+                fired_price = row.get("fired_price") if has_fired_price else None
 
-                    items.append(
-                        f"""<div style='display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-top:1px solid rgba(255,255,255,0.06);'>
-                                <div>
-                                  <div style='font-weight:900; font-size:1.05rem; color:#facc15;'>{t}</div>
-                                  <div style='font-size:0.78rem; color:#9ca3af; letter-spacing:0.06em; text-transform:uppercase;'>
-                                    Alert {a_at_str}{(' • ' + str(setup)) if setup else ''}
-                                  </div>
-                                  <div style='font-size:0.85rem; color:#e5e7eb; margin-top:2px;'>
-                                    At alert: <b>{a_pct_f:+.2f}%</b> • Now: <b>{now_pct_f:+.2f}%</b> • Since: <b>{perf:+.2f}%</b>
-                                  </div>
-                                </div>
-                                <div style='text-align:right;'>
-                                  <div style='font-weight:800; color:white;'>{f'${float(price):.2f}' if price is not None else ''}</div>
-                                </div>
-                              </div>"""
-                    )
+                # Current snapshot from global_cache
+                cur_price = row.get("current_price")
+                cur_chg = row.get("current_change")
+
+                # Format pieces safely
+                ts = ""
+                try:
+                    if created_at:
+                        ts = created_at.strftime("%b %d %H:%M")
+                except Exception:
+                    ts = str(created_at) if created_at else ""
+
+                price_text = f"${cur_price:.2f}" if isinstance(cur_price, (int, float)) else (f"${cur_price}" if cur_price else "—")
+                chg_text = f"{cur_chg:+.2f}%" if isinstance(cur_chg, (int, float)) else (str(cur_chg) if cur_chg is not None else "")
+                chg_color = "#46f08a" if isinstance(cur_chg, (int, float)) and cur_chg >= 0 else "#ff4d4d"
+
+                fired_text = ""
+                if isinstance(fired_price, (int, float)):
+                    fired_text = f" • fired ${fired_price:.2f}"
 
                 st.markdown(
-                    f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                            <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
-                              GLOBAL MOMENTUM PICKS (Active)
-                            </div>
-                            {''.join(items)}
-                          </div>""",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    """<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                            <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
-                              GLOBAL MOMENTUM PICKS
-                            </div>
-                            <div style="font-size:0.95rem; line-height:1.5; color:#e0e6ed;">
-                              No active global alerts yet today.
-                            </div>
-                          </div>""",
-                    unsafe_allow_html=True
+                    f"""
+                    <div style=\"display:flex; align-items:flex-start; justify-content:space-between; padding:10px 0; border-top:1px solid rgba(255,255,255,0.06);\">
+                      <div style=\"min-width:0;\">
+                        <div style=\"font-weight:800; letter-spacing:0.5px;\">{ticker}</div>
+                        <div style=\"opacity:0.75; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;\">{storm_type}{fired_text}</div>
+                        <div style=\"opacity:0.55; font-size:11px; margin-top:2px;\">{ts}</div>
+                      </div>
+                      <div style=\"text-align:right;\">
+                        <div style=\"font-weight:800;\">{price_text}</div>
+                        <div style=\"font-weight:700; color:{chg_color};\">{chg_text}</div>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
         else:
-            # Fallback: show top 3 global gainers from global_cache
-            cursor.execute(
-                "SELECT ticker, price, day_change FROM global_cache WHERE price IS NOT NULL ORDER BY day_change DESC LIMIT 3"
+            st.markdown(
+                "<div style='margin-top:10px; opacity:0.8;'>No active global alerts yet today.</div>",
+                unsafe_allow_html=True,
             )
-            gainers = cursor.fetchall() or []
-            if gainers:
-                rows_html = ""
-                for t, p, chg in gainers:
-                    try:
-                        chg_f = float(chg or 0)
-                    except Exception:
-                        chg_f = 0.0
-                    cls = "#4ade80" if chg_f >= 0 else "#fb7185"
-                    rows_html += f"""<div style="display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid rgba(255,255,255,0.06);">
-                                     <div style="font-weight:900; color:white;">{t}</div>
-                                     <div style="font-weight:900; color:{cls};">{chg_f:+.2f}%</div>
-                                   </div>"""
-                st.markdown(
-                    f"""<div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                            <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">
-                              GLOBAL MOVERS (Top 3)
-                            </div>
-                            {rows_html}
-                          </div>""",
-                    unsafe_allow_html=True
-                )
 
+        cursor.close()
         conn.close()
-    except Exception:
-        pass
 
+    except Exception as e:
+        st.error(f"Global picks error: {e}")
+
+    st.markdown("</div>", unsafe_allow_html=True)
 elif tab == "portfolio":
     render_topbar(user.get("display_name"))
     st.markdown(f"### My Stocks ({current_mode})")
