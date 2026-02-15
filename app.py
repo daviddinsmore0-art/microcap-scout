@@ -37,42 +37,25 @@ div[data-testid="stToolbar"],
 div[data-testid="stDecoration"] {
   display: none !important;
 }
-/* --- Kill ALL Streamlit top spacing (this is what makes it drop) --- */
-div[data-testid="stAppViewBlockContainer"]{
-  padding-top: 0 !important;
-  margin-top: 0 !important;
-}
-section.main > div.block-container{
-  padding-top: 0 !important;
-  margin-top: 0 !important;
-}
+        /* --- Remove Streamlit top padding (mobile) --- */
+        div[data-testid="stAppViewContainer"],
+        div[data-testid="stAppViewBlockContainer"],
+        section.main > div.block-container {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+        }
 
-/* --- If you’re hiding header, do it like this (safe) --- */
-header[data-testid="stHeader"]{
-  display: none !important;
-}
+        /* Keep normal side padding */
+        section.main > div.block-container {
+            padding-left: 16px !important;
+            padding-right: 16px !important;
+            padding-bottom: 0 !important;
+        }
 
-/* --- Hard reset your topbar so it can’t push itself down --- */
-.pp-topbar, .topbar{
-  margin-top: 0 !important;
-  padding-top: 0 !important;
-}
-
-/* OPTIONAL: add a tiny safe-area breathing room WITHOUT pushing it down a mile */
-.pp-topbar, .topbar{
-  padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
-}
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-
-/* Remove top padding + keep side padding */
-div[data-testid="stAppViewBlockContainer"] { padding-top: 0rem !important; }
-section.main > div.block-container { padding-left: 16px !important; padding-right: 16px !important; padding-top: 0rem !important; }
-
-
-         /* Hide Streamlit header */
-/* Remove ONLY top padding from main container */
-/* Keep normal side padding */
+        /* Default vertical spacing (avoid cramped) */
+        .stVerticalBlock {
+            gap: 1rem !important;
+        }
 
         /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
