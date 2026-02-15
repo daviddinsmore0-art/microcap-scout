@@ -1061,7 +1061,7 @@ def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
     vb = "0 0 200 120" if size == "big" else "0 0 160 100"
     fill = (score / 100) * (3.14159 * rad)
-    header = f'<div style="text-align:center; color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
+    header = f'<div style="text-align:center; color:#94a3b8; font-size:0.9rem; font-weight:bold; letter-spacing:3px; margin-bottom:5px;">PORTFOLIO RISK</div>' if size == "big" else ""
     svg = f"""
     <svg viewBox="{vb}" style="width:100%; height:auto;">
         <defs>
