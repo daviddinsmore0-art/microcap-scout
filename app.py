@@ -27,26 +27,29 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered",
 st.set_page_config(layout="wide")
 
 st.markdown("""
-    <style>
-        /* 1. Hide the top toolbar/header completely */
-        header[data-testid="stHeader"] {
-            visibility: hidden;
-            height: 0%;
-        }
+st.markdown("""
+<style>
 
-        /* 2. Remove padding from the main container */
-        .stAppViewBlockContainer {
-            padding-top: 0rem !important;
-            padding-bottom: 0rem !important;
-            margin-top: 0rem !important;
-        }
+/* your existing header hide */
+header[data-testid="stHeader"] { ... }
 
-        /* 3. Optional: Remove extra gap from vertical blocks if needed */
-        .stVerticalBlock {
-            gap: 0rem !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+/* your padding removal */
+div[data-testid="stAppViewBlockContainer"] { ... }
+
+section.main > div.block-container { ... }
+
+/* 👇 ADD THIS HERE */
+:root{
+  --pp-topbar-h: 86px;
+}
+
+div[data-testid="stAppViewBlockContainer"],
+section.main > div.block-container{
+  padding-top: var(--pp-topbar-h) !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
