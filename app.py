@@ -639,9 +639,9 @@ div[data-testid="stToolbar"] { display: none !important; }
 }
 
 .pplogo{
-  height:24px;           /* bump to 24–28 if you want bigger */
+  height:26px;           /* bump to 24–28 if you want bigger */
   width:auto;
-  max-width: 120px;
+  max-width: 100px;
   display:block;
   object-fit:contain;
 }
