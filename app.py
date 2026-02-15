@@ -69,7 +69,8 @@ footer {visibility: hidden;}
         li[role="option"] { color: white !important; background-color: #1e293b !important; }
         li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
         div[data-baseweb="popover"] { background-color: #1e293b !important; }
-        
+        header {visibility: hidden;} /* Hides the top toolbar entirely */
+
         /* Cards WITH CLICK EFFECT ADDED */
         .card { 
             background-color: #1a1f2b; 
