@@ -24,7 +24,15 @@ def get_logo_base64(path="logo_optimized.png"):
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-
+st.markdown("""
+    <style>
+           .block-container {
+                padding-top: 0rem;
+                padding-bottom: 0rem;
+                margin-top: 0rem;
+            }
+    </style>
+    """, unsafe_allow_html=True)
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
