@@ -25,13 +25,301 @@ def get_logo_base64(path="logo_optimized.png"):
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 st.set_page_config(layout="wide")
+st.markdown("""
+<style>
+/* Hide Streamlit chrome */
+header[data-testid="stHeader"],
+div[data-testid="stToolbar"],
+div[data-testid="stDecoration"]{
+  display:none !important;
+  height:0 !important;
+}
 
+/* Hard override Streamlit top padding (THIS is what stops the dropping) */
+div[data-testid="stAppViewBlockContainer"],
+section.main > div.block-container,
+.block-container{
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
 
+/* Keep normal side padding so it doesn't feel cramped */
+section.main > div.block-container,
+.block-container{
+  padding-left: 16px !important;
+  padding-right: 16px !important;
+}
 
+/* Restore spacing between sections (your "cramped" issue is gap:0) */
+.stVerticalBlock{ gap: 0.85rem !important; }
+
+/* Topbar spacing with safe-area (NOT huge) */
+.pp-topbar{
+  margin-top: 0 !important;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
+  margin-bottom: 16px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
+st.markdown("""
+    <style>
+        /* REMOVE DEFAULT PADDING */
+        
+        
+        /* Force Dark Background */
+        .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
+         header[data-testid="stHeader"] {
+  display: none !important;
+}
+         #MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+        
+        /* Input Fields */
+        input[type="text"], input[type="password"], input[type="number"] { 
+            background-color: #1e293b !important; 
+            color: white !important; 
+            border: 1px solid #4ade80 !important; 
+            border-radius: 8px; 
+            padding: 10px;
+        }
+        div[data-baseweb="input"] { background-color: transparent !important; border: none; }
+        .block-container{
+    padding-top: 0.25rem !important;
+}
+        /* Dropdowns & Select Boxes (FIXED) */
+        div[data-baseweb="select"] > div { 
+            background-color: #1e293b !important; 
+            color: white !important; 
+            border: 1px solid #4ade80 !important; 
+        }
+        div[role="listbox"] ul { background-color: #1e293b !important; }
+        li[role="option"] { color: white !important; background-color: #1e293b !important; }
+        li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
+        div[data-baseweb="popover"] { background-color: #1e293b !important; }
+        header {visibility: hidden;} /* Hides the top toolbar entirely */
 
+        /* Cards WITH CLICK EFFECT ADDED */
+        .card { 
+            background-color: #1a1f2b; 
+            border-radius: 16px; 
+            padding: 20px; 
+            margin-bottom: 10px; 
+            border: 1px solid #2d3748; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
+            transition: transform 0.1s ease, border-color 0.1s ease;
+        }
+        .card:active {
+            transform: scale(0.97);
+            border-color: #4ade80 !important;
+        }
 
+        /* Portfolio reorder animation helper */
+        .port-row { will-change: transform; }
 
+        /* Clickable tiles (button-like press feedback) */
+        .click-tile {
+            transition: transform 0.1s ease, border-color 0.1s ease;
+        }
+        .click-tile:active {
+            transform: scale(0.97);
+            border-color: #4ade80 !important;
+        }
+        a.nav-link:active { transform: scale(0.92); }
+         /* Hide Streamlit header + toolbar completely */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
+
+div[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+/* Kill Streamlit header + toolbar completely */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
+
+div[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+#MainMenu {
+    visibility: hidden;
+}
+
+        .pp-greeting {
+    font-family: Tahoma;
+    font-size: 17px;
+    font-weight: 400;
+    color: #A7F3D0;
+    letter-spacing: 0.5px;
+    margin: 0px 0 0px 0;
+}
+        /* Metric Boxes */
+        .metric-box {
+            background-color: #1e293b;
+            border: 1px solid #2d3748;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+        .metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
+        .metric-sub { font-size: 0.9rem; font-weight: bold; }
+        
+        /* Buttons */
+        div.stButton > button {
+            background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
+            color: white !important; 
+            border: none; 
+            border-radius: 8px; 
+            font-weight: bold;
+            width: 100%;
+            padding: 12px 20px;
+        }
+        
+        /* Delete/Remove Buttons */
+        button[kind="secondary"] {
+            background: #334155 !important;
+            border: 1px solid #ef4444 !important;
+            color: #ef4444 !important;
+        }
+
+        h1, h2, h3, p, label, span, div { color: #e0e6ed; }
+
+        /* HEADLINE COLOR FIX */
+        a { color: #ffffff !important; text-decoration: none !important; }
+        a:hover { color: #4ade80 !important; }
+        
+        /* Navigation */
+        .nav-container { 
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; 
+            background-color: #0f1219; border-top: 1px solid #2d3748; 
+            display: flex; justify-content: space-around; align-items: center; z-index: 99999; 
+        }
+        a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
+        a.nav-link:hover { transform: scale(1.1); }
+        /* Add safe spacing around the whole page */
+
+        /* Scrolling Wrapper */
+        .scrolling-wrapper { 
+            display: flex; 
+            flex-wrap: nowrap; 
+            overflow-x: auto; 
+            scroll-behavior: smooth;
+            gap: 12px; 
+            padding-bottom: 10px; 
+            -ms-overflow-style: none; 
+            scrollbar-width: none; 
+        }
+        .scrolling-wrapper::-webkit-scrollbar { display: none; }
+        .scrolling-card { 
+            flex: 0 0 auto; 
+            width: 130px; 
+            background-color: #1a1f2b; 
+            border: 1px solid #2d3748; 
+            border-radius: 12px; 
+            padding: 15px; 
+        }
+
+        .price-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+    gap: 2px;
+    margin-left: auto;
+}
+      .block-container {
+    padding-top: 0rem !important;
+}     
+        /* Risk Pills */
+        .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+        .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
+        
+        /* Hide default header/footer */
+        header {visibility: hidden;} footer {visibility: hidden;} 
+    
+  /* Make whole card tappable */
+  a.card-link { display:block; text-decoration:none; color:inherit; -webkit-tap-highlight-color: transparent; }
+  a.card-link:visited { color:inherit; }
+
+/* ===== Market Scanner Trading Tiles (scanner-only classes) ===== */
+.scan-grid{display:grid;grid-template-columns:1fr;gap:14px;}
+@media (min-width: 780px){.scan-grid{grid-template-columns:1fr 1fr;}}
+
+.scan-card{
+  background:#0f1722;
+  border-radius:22px;
+  padding:18px 18px;
+  margin:14px 0;
+  border:1px solid rgba(255,255,255,0.08);
+  box-shadow:0 14px 28px rgba(0,0,0,0.28);
+  position:relative;
+  overflow:hidden;
+}
+.scan-card:active{ transform:scale(0.992); }
+
+.scan-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.scan-left{ min-width:0; }
+.scan-ticker{ font-size:30px; font-weight:900; letter-spacing:1px; line-height:1.0; color:#f1f5f9;  white-space:nowrap; }
+.scan-sub{ margin-top:6px; font-size:13px; color:#94a3b8; letter-spacing:0.7px; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:62vw; }
+
+.scan-right{ text-align:right; min-width:120px; }
+.scan-price{ font-size:24px; font-weight:900; color:#f8fafc; line-height:1.05; }
+.scan-day{ margin-top:6px; font-size:15px; font-weight:900; }
+
+.scan-row{ display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; align-items:center; }
+.scan-chip{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:9px 14px; border-radius:999px;
+  font-size:14px; font-weight:900; letter-spacing:0.4px;
+  background:rgba(148,163,184,0.10);
+  border:1px solid rgba(255,255,255,0.12);
+  color:#e2e8f0;
+}
+.scan-chip.good{ background:rgba(74,222,128,0.12); border-color:rgba(74,222,128,0.35); color:#4ade80; }
+.scan-chip.warn{ background:rgba(251,191,36,0.12); border-color:rgba(251,191,36,0.35); color:#fbbf24; }
+.scan-chip.bad { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.35); color:#ef4444; }
+
+.scan-badge{
+  display:inline-block;
+  margin-top:12px;
+  padding:9px 14px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#fbbf24,#f59e0b);
+  color:#111827;
+  font-weight:900;
+  font-size:13px;
+  letter-spacing:0.3px;
+  box-shadow:0 8px 18px rgba(0,0,0,0.25);
+}
+
+.scan-divider{ margin-top:14px; border-top:1px solid rgba(255,255,255,0.08); }
+
+.scan-mini{
+  display:flex; justify-content:space-between; gap:10px;
+  margin-top:12px; font-size:13px; color:#cbd5e1;
+}
+.scan-mini span{ color:#94a3b8; margin-right:6px; }
+
+.scan-spark{ margin-top:10px; opacity:0.95; }
+
+</style>
+""", unsafe_allow_html=True)
 
 # Global Constants
 DB_CONFIG = {
@@ -353,68 +641,44 @@ def render_topbar(display_name: str = "User"):
     st.markdown(
         """
         <style>
-/* =============================
-   Streamlit layout tweaks
-   ============================= */
+/* --- Streamlit chrome: reduce top gap (can't go truly 0 on all hosts) --- */
+header[data-testid="stHeader"] { display: none !important; }
+div[data-testid="stDecoration"] { display: none !important; }
+div[data-testid="stToolbar"] { display: none !important; }
+.block-container { padding-top: 0rem !important; }
 
-/* Hide Streamlit chrome (header / toolbar / decoration bar) */
-header[data-testid="stHeader"],
-div[data-testid="stToolbar"],
-div[data-testid="stDecoration"]{
-  display:none !important;
-  height:0 !important;
-}
-
-/* Remove Streamlit's default top padding so our topbar can sit higher */
-div[data-testid="stAppViewBlockContainer"],
-section.main > div.block-container{
-  padding-top:0rem !important;
-  margin-top:0rem !important;
-}
-
-/* Keep normal side breathing room (mobile-friendly) */
-section.main > div.block-container{
-  padding-left:16px !important;
-  padding-right:16px !important;
-}
-
-/* Optional: reduce extra vertical gaps between Streamlit blocks */
-.stVerticalBlock{
-  gap:0rem !important;
-}
-
-/* =============================
-   PennyPulse Topbar
-   ============================= */
-
+/* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
+  margin:20px 0 30px 0;
+  padding:10px 12px;
+  border-radius:16px;
+  background:rgba(18,22,30,0.55);
+  border:1px solid rgba(255,255,255,0.08);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:0 10px 30px rgba(0,0,0,0.28);
+
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:14px;
-
-  /* visually */
-  background:rgba(255,255,255,0.03);
-  border:1px solid rgba(255,255,255,0.06);
-  box-shadow:0 10px 30px rgba(0,0,0,0.35);
-  border-radius:20px;
-  padding:12px 14px;
-
-  /* position: closer to the top, but respect phone safe-area (notches) */
-  margin: calc(env(safe-area-inset-top, 0px) + 8px) 0 28px 0;
+  gap:12px;
+  box-sizing:border-box;
+  overflow:hidden; /* keeps pill inside on small screens */
 }
 
 .pp-brand{
   display:flex;
   align-items:center;
-  gap:12px;
+  gap:10px;
   min-width:0;
+  flex:1 1 auto;
 }
 
 .pplogo{
-  height:24px;
+  height:28px;            /* safe bump */
   width:auto;
+  max-width:140px;        /* prevents pill push */
   display:block;
   object-fit:contain;
 }
@@ -422,34 +686,40 @@ section.main > div.block-container{
 .pp-subpill{
   display:flex;
   align-items:center;
-  gap:10px;
-  padding:8px 12px;
+  gap:8px;
+  padding:6px 10px;       /* tighter = more room */
   border-radius:999px;
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.08);
   color:rgba(230,235,245,0.90);
-  font-size:13px;
+  font-size:12.5px;
+
+  flex:0 1 auto;          /* 🔥 key change */
+  min-width:0;
   white-space:nowrap;
+  overflow:hidden;
+  box-sizing:border-box;
 }
 
-.pp-dot{
-  width:10px;
-  height:10px;
-  border-radius:999px;
-  background:rgba(255,255,255,0.35);
-  box-shadow:0 0 0 2px rgba(0,0,0,0.25) inset;
+/* Truncate date/status instead of expanding out of the rounded bar */
+.pp-subpill > span:first-child,
+.pp-subpill > span:last-child{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  display:block;
+  max-width:48%;
 }
-.pp-dot.open{ background:#22c55e; }
-.pp-dot.closed{ background:#94a3b8; }
 
-.pp-right{ display:flex; align-items:center; gap:10px; }
+.pp-dot{ width:9px; height:9px; border-radius:50%; display:inline-block; flex:0 0 auto; }
+.pp-dot-open  { background:#21c55d; box-shadow:0 0 0 4px rgba(33,197,93,0.14); }
+.pp-dot-pre   { background:#f59e0b; box-shadow:0 0 0 4px rgba(245,158,11,0.14); }
+.pp-dot-post  { background:#60a5fa; box-shadow:0 0 0 4px rgba(96,165,250,0.14); }
+.pp-dot-closed{ background:rgba(148,163,184,0.75); box-shadow:0 0 0 4px rgba(148,163,184,0.10); }
 
-/* Slightly tighten on very small screens */
-@media (max-width: 420px){
-  .pp-topbar{ gap:10px; padding:10px 12px; }
-  .pp-subpill{ font-size:12px; padding:7px 10px; gap:8px; }
-  .pplogo{ height:22px; }
-}
+/* you removed these; keep them off */
+.pp-right{ display:none !important; }
+.pp-bell{ display:none !important; }
+.pp-chip{ display:none !important; }
 </style>
         """,
         unsafe_allow_html=True,
