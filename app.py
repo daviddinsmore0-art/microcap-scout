@@ -628,18 +628,17 @@ def render_topbar(display_name: str = "User"):
     width: auto;
     display: block;
 }
-          .pp-subpill {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 12px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.08);
-            color: #B2F2BB;
-            font-size: 13px;
-            white-space: nowrap;
-          }
+          ..pp-subpill {
+  flex: 1 1 auto;
+  min-width: 0;       /* 🔥 critical for flex shrinking */
+  max-width: 100%;
+}
+
+.pp-subpill span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;  /* 🔥 prevents stretching */
+}
           .pp-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
           .pp-dot-open { background: #21c55d; box-shadow: 0 0 0 4px rgba(33,197,93,0.14); }
           .pp-dot-pre { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,0.14); }
