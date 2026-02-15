@@ -35,21 +35,23 @@ st.markdown("""
          header[data-testid="stHeader"] {
   display: none !important;
 }
-/* REMOVE DEFAULT PADDING */
-        /* 1. Hide the top toolbar/header completely */
-        header[data-testid="stHeader"] {
-            visibility: hidden;
-            height: 0%;
-        }
 
-        /* 2. Remove padding from the main container */
-        .stAppViewBlockContainer {
-            padding-top: 1.0rem !important;
-            padding-bottom: 2.0rem !important;
-            margin-top: 1.0rem !important;
-        }
+     /* Hide Streamlit header */
+header[data-testid="stHeader"] {
+    visibility: hidden;
+    height: 0;
+}
 
-        
+/* Remove ONLY top padding from main container */
+div[data-testid="stAppViewBlockContainer"] {
+    padding-top: 0rem !important;
+}
+
+/* Keep normal side padding */
+section.main > div.block-container {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+}   
          #MainMenu {visibility: hidden;}footer {visibility: hidden;}
         
         /* Input Fields */
@@ -633,7 +635,6 @@ div[data-testid="stToolbar"] { display: none !important; }
   backdrop-filter:blur(10px);
   -webkit-backdrop-filter:blur(10px);
   box-shadow:0 10px 30px rgba(0,0,0,0.28);
-
   display:flex;
   align-items:center;
   justify-content:space-between;
