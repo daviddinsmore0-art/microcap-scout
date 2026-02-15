@@ -153,7 +153,7 @@ div[data-testid="stDecoration"] {
             padding: 15px;
             text-align: center;
             margin-bottom: 10px;
-            padding-top:4px;
+            padding-top:10px;
         }
         .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
         .metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
@@ -200,7 +200,8 @@ div[data-testid="stDecoration"] {
             scroll-behavior: smooth;
             gap: 12px;
             padding-top:10px;
-            padding-bottom: 20px; 
+            padding-bottom: 20px;
+            padding-left:10px;
             -ms-overflow-style: none; 
             scrollbar-width: none; 
         }
