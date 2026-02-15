@@ -81,7 +81,7 @@ footer {visibility: hidden;}
             background-color: #1a1f2b; 
             border-radius: 16px; 
             padding: 20px; 
-            margin-top: 30px;
+            margin-top: 40px;
             margin-bottom: 30px; 
             border: 1px solid #2d3748; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
