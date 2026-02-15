@@ -654,7 +654,6 @@ def render_topbar(display_name: str = "User"):
 .pp-bell{ display:none !important; }
 .pp-chip{ display:none !important; }
 </style>
-        </style>
     """, unsafe_allow_html=True)
 
     initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
