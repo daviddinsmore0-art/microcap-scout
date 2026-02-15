@@ -197,7 +197,8 @@ div[data-testid="stDecoration"] {
             flex-wrap: nowrap; 
             overflow-x: auto; 
             scroll-behavior: smooth;
-            gap: 12px; 
+            gap: 12px;
+            padding-top:10px;
             padding-bottom: 20px; 
             -ms-overflow-style: none; 
             scrollbar-width: none; 
