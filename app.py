@@ -153,6 +153,7 @@ div[data-testid="stDecoration"] {
             padding: 15px;
             text-align: center;
             margin-bottom: 10px;
+            padding-top:4px;
         }
         .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
         .metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
