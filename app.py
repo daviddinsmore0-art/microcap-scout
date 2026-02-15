@@ -196,7 +196,17 @@ div[data-testid="stDecoration"] {
         }
         a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
         a.nav-link:hover { transform: scale(1.1); }
-        
+        /* Add safe spacing around the whole page */
+.block-container {
+    padding-top: 1.2rem !important;
+    padding-left: 1.2rem !important;
+    padding-right: 1.2rem !important;
+}
+
+/* Add breathing room under topbar */
+.pp-topbar {
+    margin-bottom: 18px;
+}
         /* Scrolling Wrapper */
         .scrolling-wrapper { 
             display: flex; 
