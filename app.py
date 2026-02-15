@@ -641,7 +641,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pplogo{
   height:26px;           /* bump to 24–28 if you want bigger */
   width:auto;
-  max-width: 140px;
+  max-width: 120px;
   display:block;
   object-fit:contain;
 }
