@@ -642,7 +642,6 @@ div[data-testid="stToolbar"] { display: none !important; }
   display:block;
   object-fit:contain;
   opacity:0.85;
-  padding-left:4px;
 }
 
 .pp-subpill{
