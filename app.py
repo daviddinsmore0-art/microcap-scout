@@ -53,8 +53,7 @@ st.markdown("""
         .stVerticalBlock {
             gap: 0rem !important;
         }
-         #MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
+         #MainMenu {visibility: hidden;}footer {visibility: hidden;}
         
         /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
@@ -65,9 +64,7 @@ footer {visibility: hidden;}
             padding: 10px;
         }
         div[data-baseweb="input"] { background-color: transparent !important; border: none; }
-        .block-container{
-    padding-top: 0.25rem !important;
-}
+        
         /* Dropdowns & Select Boxes (FIXED) */
         div[data-baseweb="select"] > div { 
             background-color: #1e293b !important; 
@@ -143,7 +140,7 @@ div[data-testid="stDecoration"] {
     font-weight: 400;
     color: #A7F3D0;
     letter-spacing: 0.5px;
-    margin: 0px 0 0px 0;
+    margin: 0px 0 10px 0;
 }
         /* Metric Boxes */
         .metric-box {
