@@ -1564,7 +1564,7 @@ if "ticker" in st.query_params:
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
             st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
     else: st.error("Data missing.")
-    render_topbar(user.get("display_name"))
+
 tab = st.query_params.get("tab", "home")
 if tab == "home":
     render_topbar(user.get("display_name"))
@@ -1802,6 +1802,7 @@ if tab == "home":
         pass
 
 elif tab == "portfolio":
+     render_topbar(user.get("display_name"))
     st.markdown(f"### My Stocks ({current_mode})")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
     c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
@@ -1871,6 +1872,7 @@ elif tab == "portfolio":
 
 
 elif tab == "alerts":
+    render_topbar(user.get("display_name"))
     st.markdown("## Alerts")
     st.caption("Simple toggles. Portfolio-first. Optional: include your PennyPulse Global List.")
 
@@ -2080,7 +2082,7 @@ elif tab == "alerts":
 
 
 elif tab == "scanner":
-
+    render_topbar(user.get("display_name"))
     st.markdown("## Market Scanner")
     st.caption("Your portfolio only — biggest signals first. (Your alerts banner still shows your last 5.)")
 
@@ -2268,7 +2270,7 @@ elif tab == "scanner":
                     render_signal_card(r, badge_text=badge)
 
 elif tab == "settings":
-
+    render_topbar(user.get("display_name"))
     st.markdown("### Settings")
     with st.form("settings_form"):
         new_name = st.text_input("Display Name", value=user['display_name'])
