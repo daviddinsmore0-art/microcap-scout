@@ -54,7 +54,7 @@ section.main > div.block-container {
 /* --- Topbar breathing room (SAFE AREA FIX) --- */
 .pp-topbar {
     margin-top: 0 !important;
-    margin-bottom: 20px !important;   /* <-- this fixes cramped look */
+    margin-bottom: 24px !important;   /* <-- this fixes cramped look */
     padding-top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
 }
 
