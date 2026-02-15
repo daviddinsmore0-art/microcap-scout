@@ -28,31 +28,27 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered",
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
-        
-        /* Force Dark Background */
+/* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
-         header[data-testid="stHeader"] {
+
+/* Streamlit chrome */
+header[data-testid="stHeader"],
+div[data-testid="stToolbar"],
+div[data-testid="stDecoration"] {
   display: none !important;
 }
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
 
-     /* Hide Streamlit header */
-header[data-testid="stHeader"] {
-    visibility: hidden;
-    height: 0;
-}
+/* Remove top padding + keep side padding */
+div[data-testid="stAppViewBlockContainer"] { padding-top: 0rem !important; }
+section.main > div.block-container { padding-left: 16px !important; padding-right: 16px !important; padding-top: 0rem !important; }
 
+
+         /* Hide Streamlit header */
 /* Remove ONLY top padding from main container */
-div[data-testid="stAppViewBlockContainer"] {
-    padding-top: 0rem !important;
-}
-
 /* Keep normal side padding */
-section.main > div.block-container {
-    padding-left: 16px !important;
-    padding-right: 16px !important;
-}   
-         #MainMenu {visibility: hidden;}footer {visibility: hidden;}
-        
+
         /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
             background-color: #1e293b !important; 
@@ -103,34 +99,7 @@ section.main > div.block-container {
         }
         a.nav-link:active { transform: scale(0.92); }
          /* Hide Streamlit header + toolbar completely */
-header[data-testid="stHeader"] {
-    display: none !important;
-}
-
-div[data-testid="stToolbar"] {
-    display: none !important;
-}
-
-div[data-testid="stDecoration"] {
-    display: none !important;
-}
-
 /* Kill Streamlit header + toolbar completely */
-header[data-testid="stHeader"] {
-    display: none !important;
-}
-
-div[data-testid="stToolbar"] {
-    display: none !important;
-}
-
-div[data-testid="stDecoration"] {
-    display: none !important;
-}
-
-#MainMenu {
-    visibility: hidden;
-}
 
     .pp-greeting {
     font-family: Tahoma;
@@ -216,10 +185,7 @@ div[data-testid="stDecoration"] {
     gap: 2px;
     margin-left: auto;
 }
-      .block-container {
-    padding-top: 0rem !important;
-}     
-        /* Risk Pills */
+      /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
@@ -293,7 +259,6 @@ div[data-testid="stDecoration"] {
 .scan-mini span{ color:#94a3b8; margin-right:6px; }
 
 .scan-spark{ margin-top:10px; opacity:0.95; }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -614,15 +579,8 @@ def render_topbar(display_name: str = "User"):
 
     date_str = now.strftime("%A, %b %d")
 
-    st.markdown(
-        """
+    st.markdown("""
         <style>
-/* --- Streamlit chrome: reduce top gap (can't go truly 0 on all hosts) --- */
-header[data-testid="stHeader"] { display: none !important; }
-div[data-testid="stDecoration"] { display: none !important; }
-div[data-testid="stToolbar"] { display: none !important; }
-.block-container { padding-top: 0rem !important; }
-
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
@@ -696,9 +654,8 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pp-bell{ display:none !important; }
 .pp-chip{ display:none !important; }
 </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        </style>
+    """, unsafe_allow_html=True)
 
     initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
     logo_data = get_logo_base64("logo.png")    
