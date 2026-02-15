@@ -637,11 +637,12 @@ div[data-testid="stToolbar"] { display: none !important; }
 }
 
 .pplogo{
-  height:24px;           /* bump to 24–28 if you want bigger */
+  height:T6px;           /* bump to 24–28 if you want bigger */
   width:auto;
   display:block;
   object-fit:contain;
   opacity:0.85;
+  padding-left:4px;
 }
 
 .pp-subpill{
