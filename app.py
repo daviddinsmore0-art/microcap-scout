@@ -26,31 +26,39 @@ def get_logo_base64(path="logo_optimized.png"):
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 st.set_page_config(layout="wide")
 st.markdown("""
+st.markdown("""
 <style>
-
-/* Hide Streamlit header */
-header[data-testid="stHeader"] {
-    visibility: hidden;
-    height: 0%;
+/* --- Kill the native Streamlit header bar space --- */
+header[data-testid="stHeader"] { 
+  display: none !important;
 }
 
-/* Remove ONLY top padding */
-.stAppViewBlockContainer {
-    padding-top: 0rem !important;
+/* --- Remove the default top padding from the main content container (new + old Streamlit) --- */
+div[data-testid="stAppViewBlockContainer"]{
+  padding-top: 0rem !important;
+}
+section.main > div.block-container{
+  padding-top: 0rem !important;
 }
 
-/* Restore comfortable page padding */
-.block-container {
-    padding-left: 1.2rem !important;
-    padding-right: 1.2rem !important;
-    padding-bottom: 1.2rem !important;
+/* --- Now add YOUR padding back (so it doesn't look jammed) --- */
+:root{
+  --pp-page-pad-top: 14px;
+  --pp-page-pad-x: 18px;
+  --pp-page-pad-bottom: 18px;
 }
 
-/* Add spacing under your custom topbar */
-.pp-topbar {
-    margin-bottom: 18px;
+div[data-testid="stAppViewBlockContainer"],
+section.main > div.block-container{
+  padding-left: var(--pp-page-pad-x) !important;
+  padding-right: var(--pp-page-pad-x) !important;
+  padding-bottom: var(--pp-page-pad-bottom) !important;
 }
 
+/* Space UNDER your custom topbar so "Good Evening" isn't glued to it */
+.pp-topbar{
+  margin-bottom: var(--pp-page-pad-top) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
