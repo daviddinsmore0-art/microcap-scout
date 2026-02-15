@@ -24,43 +24,10 @@ def get_logo_base64(path="logo_optimized.png"):
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-st.set_page_config(layout="wide")
-st.markdown("""
-<style>
-/* Hide Streamlit chrome */
-header[data-testid="stHeader"],
-div[data-testid="stToolbar"],
-div[data-testid="stDecoration"]{
-  display:none !important;
-  height:0 !important;
-}
-
-/* Hard override Streamlit top padding (THIS is what stops the dropping) */
-div[data-testid="stAppViewBlockContainer"],
-section.main > div.block-container,
-.block-container{
-  padding-top: 0 !important;
-  margin-top: 0 !important;
-}
-
-/* Keep normal side padding so it doesn't feel cramped */
-section.main > div.block-container,
-.block-container{
-  padding-left: 16px !important;
-  padding-right: 16px !important;
-}
-
-/* Restore spacing between sections (your "cramped" issue is gap:0) */
-.stVerticalBlock{ gap: 0.85rem !important; }
-
-/* Topbar spacing with safe-area (NOT huge) */
-.pp-topbar{
-  margin-top: 0 !important;
-  padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
-  margin-bottom: 16px !important;
-}
 
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
+st.markdown("""
+    <style>
         /* REMOVE DEFAULT PADDING */
         
         
@@ -81,7 +48,9 @@ footer {visibility: hidden;}
             padding: 10px;
         }
         div[data-baseweb="input"] { background-color: transparent !important; border: none; }
-        
+        .block-container{
+    padding-top: 0.25rem !important;
+}
         /* Dropdowns & Select Boxes (FIXED) */
         div[data-baseweb="select"] > div { 
             background-color: #1e293b !important; 
@@ -92,8 +61,7 @@ footer {visibility: hidden;}
         li[role="option"] { color: white !important; background-color: #1e293b !important; }
         li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
         div[data-baseweb="popover"] { background-color: #1e293b !important; }
-        header {visibility: hidden;} /* Hides the top toolbar entirely */
-
+        
         /* Cards WITH CLICK EFFECT ADDED */
         .card { 
             background-color: #1a1f2b; 
@@ -150,7 +118,10 @@ div[data-testid="stDecoration"] {
 #MainMenu {
     visibility: hidden;
 }
-
+/* Remove extra top padding caused by header */
+.block-container {
+    padding-top: 0rem !important;
+}
         .pp-greeting {
     font-family: Tahoma;
     font-size: 17px;
@@ -204,8 +175,7 @@ div[data-testid="stDecoration"] {
         }
         a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
         a.nav-link:hover { transform: scale(1.1); }
-        /* Add safe spacing around the whole page */
-
+        
         /* Scrolling Wrapper */
         .scrolling-wrapper { 
             display: flex; 
@@ -645,7 +615,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
-  margin:20px 0 30px 0;
+  margin:0px 0 10px 0;
   padding:10px 12px;
   border-radius:16px;
   background:rgba(18,22,30,0.55);
