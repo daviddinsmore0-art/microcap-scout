@@ -24,7 +24,6 @@ def get_logo_base64(path="logo_optimized.png"):
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
-st.set_page_config(layout="wide")
 
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
@@ -133,7 +132,7 @@ div[data-testid="stDecoration"] {
     visibility: hidden;
 }
 
-        .pp-greeting {
+    .pp-greeting {
     font-family: Tahoma;
     font-size: 17px;
     font-weight: 400;
