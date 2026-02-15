@@ -33,14 +33,14 @@ st.markdown("""
         }
 
         /* 2. Remove padding from the main container */
-        .stAppViewBlockContainer {
+        .BlockContainer {
             padding-top: 1.2rem !important;
             padding-bottom: 0rem !important;
             margin-top: 0rem !important;
         }
 
         /* 3. Optional: Remove extra gap from vertical blocks if needed */
-        .stVerticalBlock {
+        .VerticalBlock {
             gap: 0rem !important;
         }
     </style>
