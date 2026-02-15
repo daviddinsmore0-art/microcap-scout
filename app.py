@@ -606,85 +606,83 @@ def render_topbar(display_name: str = "User"):
     st.markdown(
         """
         <style>
-/* --- Streamlit chrome: reduce top gap (can't go truly 0 on all hosts) --- */
-header[data-testid="stHeader"] { display: none !important; }
-div[data-testid="stDecoration"] { display: none !important; }
+/* ===== PennyPulse Topbar (mobile-friendly) ===== */
+
+/* Remove Streamlit's top padding so the bar can sit at the top */
+div[data-testid="stAppViewContainer"] > section.main { padding-top: 0 !important; }
+section.main > div.block-container { padding-top: 0.75rem !important; }
+
+/* Hide Streamlit chrome (optional but helps reduce dead space) */
 div[data-testid="stToolbar"] { display: none !important; }
-.block-container { padding-top: 0rem !important; }
+div[data-testid="stDecoration"] { display: none !important; }
+header[data-testid="stHeader"] { display: none !important; }
 
-/* --- PennyPulse Topbar --- */
+/* Topbar container */
 .pp-topbar{
-  width:100%;
-  margin:0px 0 10px 0;
-  padding:10px 12px;
-  border-radius:16px;
-  background:rgba(18,22,30,0.55);
-  border:1px solid rgba(255,255,255,0.08);
-  backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);
-  box-shadow:0 10px 30px rgba(0,0,0,0.28);
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  margin: 0 0 14px 0;
 
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  box-sizing:border-box;
-  overflow:hidden; /* keeps pill inside on small screens */
+  border-radius: 22px;
+  background: rgba(18, 22, 31, 0.55);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+  backdrop-filter: blur(10px);
 }
 
+/* Left: logo */
 .pp-brand{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  min-width:0;
-  flex:1 1 auto;
+  display: flex;
+  align-items: center;
+  min-width: 0;
 }
-
 .pplogo{
-  height:28px;            /* safe bump */
-  width:auto;
-  max-width:140px;        /* prevents pill push */
-  display:block;
-  object-fit:contain;
+  height: 24px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+  opacity: 0.92;
 }
 
+/* Right: status pill */
 .pp-subpill{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  padding:6px 10px;       /* tighter = more room */
-  border-radius:999px;
-  background:rgba(255,255,255,0.06);
-  border:1px solid rgba(255,255,255,0.08);
-  color:rgba(230,235,245,0.90);
-  font-size:12.5px;
-
-  flex:0 1 auto;          /* 🔥 key change */
-  min-width:0;
-  white-space:nowrap;
-  overflow:hidden;
-  box-sizing:border-box;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(230,235,245,0.92);
+  font-size: 13px;
+  max-width: 62%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Truncate date/status instead of expanding out of the rounded bar */
-.pp-subpill > span:first-child,
-.pp-subpill > span:last-child{
-  overflow:hidden;
-  text-overflow:ellipsis;
-  display:block;
-  max-width:48%;
+.pp-date, .pp-status{
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.pp-dot{ width:9px; height:9px; border-radius:50%; display:inline-block; flex:0 0 auto; }
-.pp-dot-open  { background:#21c55d; box-shadow:0 0 0 4px rgba(33,197,93,0.14); }
-.pp-dot-pre   { background:#f59e0b; box-shadow:0 0 0 4px rgba(245,158,11,0.14); }
-.pp-dot-post  { background:#60a5fa; box-shadow:0 0 0 4px rgba(96,165,250,0.14); }
-.pp-dot-closed{ background:rgba(148,163,184,0.75); box-shadow:0 0 0 4px rgba(148,163,184,0.10); }
-
-/* you removed these; keep them off */
-.pp-right{ display:none !important; }
-.pp-bell{ display:none !important; }
-.pp-chip{ display:none !important; }
+.pp-dot{
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 8px;
+  background: rgba(160,170,185,0.65);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.25) inset;
+}
+.pp-dot.open{ background: #38d468; }
+.pp-dot.closed{ background: rgba(160,170,185,0.55); }
 </style>
         """,
         unsafe_allow_html=True,
@@ -693,21 +691,19 @@ div[data-testid="stToolbar"] { display: none !important; }
     initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
     logo_data = get_logo_base64("logo.png")    
     html = f"""
-       <div class="pp-topbar">
-       <div class="pp-brand">
-        <img class="pplogo" src="data:image/png;base64,{logo_data}" alt="PennyPulse" />
-        <div class="pp-subpill">
-        <span>{date_str}</span>
-        <span class="pp-dot {dot_class}"></span>
-        <span>{status}</span>
-         </div>
-         </div>
-        <div class="pp-right">
-        
-         </div>
-         </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
+<div class="pp-topbar">
+  <div class="pp-brand">
+    <img class="pplogo" src="data:image/png;base64,{logo_data}" alt="PennyPulse" />
+  </div>
+
+  <div class="pp-subpill">
+    <span class="pp-date">{date_str}</span>
+    <span class="pp-dot {dot_class}"></span>
+    <span class="pp-status">{status}</span>
+  </div>
+</div>
+"""
+st.markdown(html, unsafe_allow_html=True)
 
 def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
