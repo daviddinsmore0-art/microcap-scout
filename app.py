@@ -81,6 +81,7 @@ footer {visibility: hidden;}
             background-color: #1a1f2b; 
             border-radius: 16px; 
             padding: 20px; 
+            margin-top: 10px;
             margin-bottom: 10px; 
             border: 1px solid #2d3748; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
@@ -219,9 +220,7 @@ div[data-testid="stDecoration"] {
     gap: 2px;
     margin-left: auto;
 }
-      .block-container {
-    padding-top: 1.0rem !important;
-}     
+      
         /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
