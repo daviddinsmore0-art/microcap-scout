@@ -142,7 +142,7 @@ div[data-testid="stDecoration"] {
     font-weight: 400;
     color: #A7F3D0;
     letter-spacing: 0.5px;
-    margin: 20px 0 20px 0;
+    margin: 10px 0 20px 0;
 }
         /* Metric Boxes */
         .metric-box {
@@ -220,7 +220,7 @@ div[data-testid="stDecoration"] {
     margin-left: auto;
 }
       .block-container {
-    padding-top: 0rem !important;
+    padding-top: 1.0rem !important;
 }     
         /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
