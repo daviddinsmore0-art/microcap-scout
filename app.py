@@ -641,9 +641,9 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pplogo{
   height:24px;           /* bump to 24–28 if you want bigger */
   width:auto;
+  max-width: 140px;
   display:block;
   object-fit:contain;
-  opacity:0.85;
 }
 
 .pp-subpill{
