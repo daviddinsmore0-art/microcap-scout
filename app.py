@@ -140,7 +140,7 @@ div[data-testid="stDecoration"] {
     font-weight: 400;
     color: #A7F3D0;
     letter-spacing: 0.5px;
-    margin: 0px 0 10px 0;
+    margin: 0px 0 20px 0;
 }
         /* Metric Boxes */
         .metric-box {
