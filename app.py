@@ -50,7 +50,7 @@ st.markdown("""
         }
 /* 3. Optional: Remove extra gap from vertical blocks if needed */
         .stVerticalBlock {
-            gap: 0.2rem !important;
+            gap: 0.5rem !important;
         }
          #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
@@ -64,9 +64,7 @@ footer {visibility: hidden;}
             padding: 10px;
         }
         div[data-baseweb="input"] { background-color: transparent !important; border: none; }
-        .block-container{
-    padding-top: 0.25rem !important;
-}
+        
         /* Dropdowns & Select Boxes (FIXED) */
         div[data-baseweb="select"] > div { 
             background-color: #1e293b !important; 
