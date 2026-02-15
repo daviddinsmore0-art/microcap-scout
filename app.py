@@ -24,55 +24,57 @@ def get_logo_base64(path="logo_optimized.png"):
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(layout="wide")
+st.markdown("""
+<style>
+/* Hide Streamlit chrome */
+header[data-testid="stHeader"],
+div[data-testid="stToolbar"],
+div[data-testid="stDecoration"]{
+  display:none !important;
+  height:0 !important;
+}
 
+/* Hard override Streamlit top padding (THIS is what stops the dropping) */
+div[data-testid="stAppViewBlockContainer"],
+section.main > div.block-container,
+.block-container{
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* Keep normal side padding so it doesn't feel cramped */
+section.main > div.block-container,
+.block-container{
+  padding-left: 16px !important;
+  padding-right: 16px !important;
+}
+
+/* Restore spacing between sections (your "cramped" issue is gap:0) */
+.stVerticalBlock{ gap: 0.85rem !important; }
+
+/* Topbar spacing with safe-area (NOT huge) */
+.pp-topbar{
+  margin-top: 0 !important;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
+  margin-bottom: 16px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
-/* Force Dark Background */
+        /* REMOVE DEFAULT PADDING */
+        
+        
+        /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
-/* 1. Hide the top toolbar/header completely */
-        header[data-testid="stHeader"] {
-            visibility: hidden;
-            height: 0%;
-        }
-
-        /* 2. Remove padding from the main container */
-        .stAppViewBlockContainer {
-            padding-top: 0rem !important;
-            padding-bottom: 0rem !important;
-            margin-top: 0rem !important;
-        }
-
-        /* 3. Optional: Remove extra gap from vertical blocks if needed */
-        .stVerticalBlock {
-            gap: 0rem !important;
-        }
-/* Streamlit chrome */
-header[data-testid="stHeader"],
-div[data-testid="stToolbar"],
-div[data-testid="stDecoration"] {
+         header[data-testid="stHeader"] {
   display: none !important;
 }
-        /* --- Remove Streamlit top padding (mobile) --- */
-        div[data-testid="stAppViewContainer"],
-        div[data-testid="stAppViewBlockContainer"],
-        section.main > div.block-container {
-            padding-top: 0 !important;
-            margin-top: 0 !important;
-        }
-
-        /* Keep normal side padding */
-        section.main > div.block-container {
-            padding-left: 16px !important;
-            padding-right: 16px !important;
-            padding-bottom: 0 !important;
-        }
-
-        /* Default vertical spacing (avoid cramped) */
-        .stVerticalBlock {
-            gap: 1rem !important;
-        }
-
+         #MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+        
         /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
             background-color: #1e293b !important; 
@@ -82,7 +84,9 @@ div[data-testid="stDecoration"] {
             padding: 10px;
         }
         div[data-baseweb="input"] { background-color: transparent !important; border: none; }
-        
+        .block-container{
+    padding-top: 0.25rem !important;
+}
         /* Dropdowns & Select Boxes (FIXED) */
         div[data-baseweb="select"] > div { 
             background-color: #1e293b !important; 
@@ -123,15 +127,42 @@ div[data-testid="stDecoration"] {
         }
         a.nav-link:active { transform: scale(0.92); }
          /* Hide Streamlit header + toolbar completely */
-/* Kill Streamlit header + toolbar completely */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
 
-    .pp-greeting {
+div[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+/* Kill Streamlit header + toolbar completely */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
+
+div[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+#MainMenu {
+    visibility: hidden;
+}
+
+        .pp-greeting {
     font-family: Tahoma;
     font-size: 17px;
     font-weight: 400;
     color: #A7F3D0;
     letter-spacing: 0.5px;
-    margin: 0px 0 20px 0;
+    margin: 0px 0 0px 0;
 }
         /* Metric Boxes */
         .metric-box {
@@ -209,7 +240,10 @@ div[data-testid="stDecoration"] {
     gap: 2px;
     margin-left: auto;
 }
-      /* Risk Pills */
+      .block-container {
+    padding-top: 0rem !important;
+}     
+        /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
@@ -283,6 +317,7 @@ div[data-testid="stDecoration"] {
 .scan-mini span{ color:#94a3b8; margin-right:6px; }
 
 .scan-spark{ margin-top:10px; opacity:0.95; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -603,12 +638,19 @@ def render_topbar(display_name: str = "User"):
 
     date_str = now.strftime("%A, %b %d")
 
-    st.markdown("""
+    st.markdown(
+        """
         <style>
+/* --- Streamlit chrome: reduce top gap (can't go truly 0 on all hosts) --- */
+header[data-testid="stHeader"] { display: none !important; }
+div[data-testid="stDecoration"] { display: none !important; }
+div[data-testid="stToolbar"] { display: none !important; }
+.block-container { padding-top: 0rem !important; }
+
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
-  margin:0px 0 20px 0;
+  margin:20px 0 30px 0;
   padding:10px 12px;
   border-radius:16px;
   background:rgba(18,22,30,0.55);
@@ -616,6 +658,7 @@ def render_topbar(display_name: str = "User"):
   backdrop-filter:blur(10px);
   -webkit-backdrop-filter:blur(10px);
   box-shadow:0 10px 30px rgba(0,0,0,0.28);
+
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -678,7 +721,9 @@ def render_topbar(display_name: str = "User"):
 .pp-bell{ display:none !important; }
 .pp-chip{ display:none !important; }
 </style>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
 
     initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
     logo_data = get_logo_base64("logo.png")    
@@ -1660,6 +1705,12 @@ if tab == "home":
         )
     except Exception:
         pass
+
+
+
+    
+
+
 
 
     # ============================================
