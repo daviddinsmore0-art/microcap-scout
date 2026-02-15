@@ -1668,7 +1668,7 @@ if tab == "home":
 
         st.markdown(
             f"""
-            <div class='card' style='padding:18px; border-left:3px solid #2f80ed;'>
+            <div class='card' style='padding:18px; border-left:4px solid #2f80ed;'>
               <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
                 BIG MOVERS (Top 3)
               </div>
