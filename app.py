@@ -30,7 +30,23 @@ st.set_page_config(layout="wide")
 st.markdown("""
     <style>
         /* REMOVE DEFAULT PADDING */
-        
+        /* 1. Hide the top toolbar/header completely */
+        header[data-testid="stHeader"] {
+            visibility: hidden;
+            height: 0%;
+        }
+
+        /* 2. Remove padding from the main container */
+        .stAppViewBlockContainer {
+            padding-top: 0rem !important;
+            padding-bottom: 0rem !important;
+            margin-top: 0rem !important;
+        }
+
+        /* 3. Optional: Remove extra gap from vertical blocks if needed */
+        .stVerticalBlock {
+            gap: 0rem !important;
+        }
         
         /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
