@@ -24,7 +24,35 @@ def get_logo_base64(path="logo_optimized.png"):
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(layout="wide")
+st.markdown("""
+<style>
 
+/* Hide Streamlit header */
+header[data-testid="stHeader"] {
+    visibility: hidden;
+    height: 0%;
+}
+
+/* Remove ONLY top padding */
+.stAppViewBlockContainer {
+    padding-top: 0rem !important;
+}
+
+/* Restore comfortable page padding */
+.block-container {
+    padding-left: 1.2rem !important;
+    padding-right: 1.2rem !important;
+    padding-bottom: 1.2rem !important;
+}
+
+/* Add spacing under your custom topbar */
+.pp-topbar {
+    margin-bottom: 18px;
+}
+
+</style>
+""", unsafe_allow_html=True)
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
