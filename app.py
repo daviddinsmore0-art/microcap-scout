@@ -23,383 +23,13 @@ def get_logo_base64(path="logo_optimized.png"):
 # =========================================================
 # 1. CONFIGURATION & CSS (MUST BE FIRST)
 # =========================================================
-st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
-st.markdown("""
-<style>
-/* REMOVE DEFAULT PADDING */
+st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(layout="wide")
 
 
-/* Force Dark Background */
-.stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
-header[data-testid="stHeader"] {
-display: none !important;
-}
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-
-/* Input Fields */
-input[type="text"], input[type="password"], input[type="number"] { 
-background-color: #1e293b !important; 
-color: white !important; 
-border: 1px solid #4ade80 !important; 
-border-radius: 8px; 
-padding: 10px;
-}
-div[data-baseweb="input"] { background-color: transparent !important; border: none; }
-.block-container{
-padding-top: 0.25rem !important;
-}
-/* Dropdowns & Select Boxes (FIXED) */
-div[data-baseweb="select"] > div { 
-background-color: #1e293b !important; 
-color: white !important; 
-border: 1px solid #4ade80 !important; 
-}
-div[role="listbox"] ul { background-color: #1e293b !important; }
-li[role="option"] { color: white !important; background-color: #1e293b !important; }
-li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
-div[data-baseweb="popover"] { background-color: #1e293b !important; }
-header {visibility: hidden;} /* Hides the top toolbar entirely */
-
-/* Cards WITH CLICK EFFECT ADDED */
-.card { 
-background-color: #1a1f2b; 
-border-radius: 16px; 
-padding: 20px; 
-margin-bottom: 10px; 
-border: 1px solid #2d3748; 
-box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
-transition: transform 0.1s ease, border-color 0.1s ease;
-}
-.card:active {
-transform: scale(0.97);
-border-color: #4ade80 !important;
-}
-
-/* Portfolio reorder animation helper */
-.port-row { will-change: transform; }
-
-/* Clickable tiles (button-like press feedback) */
-.click-tile {
-transition: transform 0.1s ease, border-color 0.1s ease;
-}
-.click-tile:active {
-transform: scale(0.97);
-border-color: #4ade80 !important;
-}
-a.nav-link:active { transform: scale(0.92); }
-/* Hide Streamlit header + toolbar completely */
-header[data-testid="stHeader"] {
-display: none !important;
-}
-
-div[data-testid="stToolbar"] {
-display: none !important;
-}
-
-div[data-testid="stDecoration"] {
-display: none !important;
-}
-
-/* Kill Streamlit header + toolbar completely */
-header[data-testid="stHeader"] {
-display: none !important;
-}
-
-div[data-testid="stToolbar"] {
-display: none !important;
-}
-
-div[data-testid="stDecoration"] {
-display: none !important;
-}
-
-#MainMenu {
-visibility: hidden;
-}
-
-.pp-greeting {
-font-family: Tahoma;
-font-size: 17px;
-font-weight: 400;
-color: #A7F3D0;
-letter-spacing: 0.5px;
-margin: 0px 0 0px 0;
-}
-/* Metric Boxes */
-.metric-box {
-background-color: #1e293b;
-border: 1px solid #2d3748;
-border-radius: 12px;
-padding: 15px;
-text-align: center;
-margin-bottom: 10px;
-}
-.metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
-.metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
-.metric-sub { font-size: 0.9rem; font-weight: bold; }
-
-/* Buttons */
-div.stButton > button {
-background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
-color: white !important; 
-border: none; 
-border-radius: 8px; 
-font-weight: bold;
-width: 100%;
-padding: 12px 20px;
-}
-
-/* Delete/Remove Buttons */
-button[kind="secondary"] {
-background: #334155 !important;
-border: 1px solid #ef4444 !important;
-color: #ef4444 !important;
-}
-
-h1, h2, h3, p, label, span, div { color: #e0e6ed; }
-
-/* HEADLINE COLOR FIX */
-a { color: #ffffff !important; text-decoration: none !important; }
-a:hover { color: #4ade80 !important; }
-
-/* Navigation */
-.nav-container { 
-position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; 
-background-color: #0f1219; border-top: 1px solid #2d3748; 
-display: flex; justify-content: space-around; align-items: center; z-index: 99999; 
-}
-a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
-a.nav-link:hover { transform: scale(1.1); }
-/* Add safe spacing around the whole page */
-
-/* Scrolling Wrapper */
-.scrolling-wrapper { 
-display: flex; 
-flex-wrap: nowrap; 
-overflow-x: auto; 
-scroll-behavior: smooth;
-gap: 12px; 
-padding-bottom: 10px; 
--ms-overflow-style: none; 
-scrollbar-width: none; 
-}
-.scrolling-wrapper::-webkit-scrollbar { display: none; }
-.scrolling-card { 
-flex: 0 0 auto; 
-width: 130px; 
-background-color: #1a1f2b; 
-border: 1px solid #2d3748; 
-border-radius: 12px; 
-padding: 15px; 
-}
-
-.price-block {
-display: flex;
-flex-direction: column;
-align-items: flex-end;
-text-align: right;
-gap: 2px;
-margin-left: auto;
-}
-.block-container {
-padding-top: 0rem !important;
-}     
-/* Risk Pills */
-.risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
-.pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-.pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-.pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-.risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
-
-/* Hide default header/footer */
-header {visibility: hidden;} footer {visibility: hidden;} 
-
-/* Make whole card tappable */
-a.card-link { display:block; text-decoration:none; color:inherit; -webkit-tap-highlight-color: transparent; }
-a.card-link:visited { color:inherit; }
-
-/* ===== Market Scanner Trading Tiles (scanner-only classes) ===== */
-.scan-grid{display:grid;grid-template-columns:1fr;gap:14px;}
-@media (min-width: 780px){.scan-grid{grid-template-columns:1fr 1fr;}}
-
-.scan-card{
-background:#0f1722;
-border-radius:22px;
-padding:18px 18px;
-margin:14px 0;
-border:1px solid rgba(255,255,255,0.08);
-box-shadow:0 14px 28px rgba(0,0,0,0.28);
-position:relative;
-overflow:hidden;
-}
-.scan-card:active{ transform:scale(0.992); }
-
-.scan-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-.scan-left{ min-width:0; }
-.scan-ticker{ font-size:30px; font-weight:900; letter-spacing:1px; line-height:1.0; color:#f1f5f9;  white-space:nowrap; }
-.scan-sub{ margin-top:6px; font-size:13px; color:#94a3b8; letter-spacing:0.7px; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:62vw; }
-
-.scan-right{ text-align:right; min-width:120px; }
-.scan-price{ font-size:24px; font-weight:900; color:#f8fafc; line-height:1.05; }
-.scan-day{ margin-top:6px; font-size:15px; font-weight:900; }
-
-.scan-row{ display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; align-items:center; }
-.scan-chip{
-display:inline-flex; align-items:center; justify-content:center;
-padding:9px 14px; border-radius:999px;
-font-size:14px; font-weight:900; letter-spacing:0.4px;
-background:rgba(148,163,184,0.10);
-border:1px solid rgba(255,255,255,0.12);
-color:#e2e8f0;
-}
-.scan-chip.good{ background:rgba(74,222,128,0.12); border-color:rgba(74,222,128,0.35); color:#4ade80; }
-.scan-chip.warn{ background:rgba(251,191,36,0.12); border-color:rgba(251,191,36,0.35); color:#fbbf24; }
-.scan-chip.bad { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.35); color:#ef4444; }
-
-.scan-badge{
-display:inline-block;
-margin-top:12px;
-padding:9px 14px;
-border-radius:999px;
-background:linear-gradient(90deg,#fbbf24,#f59e0b);
-color:#111827;
-font-weight:900;
-font-size:13px;
-letter-spacing:0.3px;
-box-shadow:0 8px 18px rgba(0,0,0,0.25);
-}
-
-.scan-divider{ margin-top:14px; border-top:1px solid rgba(255,255,255,0.08); }
-
-.scan-mini{
-display:flex; justify-content:space-between; gap:10px;
-margin-top:12px; font-size:13px; color:#cbd5e1;
-}
-.scan-mini span{ color:#94a3b8; margin-right:6px; }
-
-.scan-spark{ margin-top:10px; opacity:0.95; }
-
-/* ===== PennyPulse CSS Consolidated ===== */
-
-/* --- Streamlit chrome: reduce top gap (can't go truly 0 on all hosts) --- */
-header[data-testid="stHeader"] { display: none !important; }
-div[data-testid="stDecoration"] { display: none !important; }
-div[data-testid="stToolbar"] { display: none !important; }
-.block-container { padding-top: 0rem !important; }
-
-/* --- PennyPulse Topbar --- */
-.pp-topbar{
-width:100%;
-margin:20px 0 30px 0;
-padding:10px 12px;
-border-radius:16px;
-background:rgba(18,22,30,0.55);
-border:1px solid rgba(255,255,255,0.08);
-backdrop-filter:blur(10px);
--webkit-backdrop-filter:blur(10px);
-box-shadow:0 10px 30px rgba(0,0,0,0.28);
-
-display:flex;
-align-items:center;
-justify-content:space-between;
-gap:12px;
-box-sizing:border-box;
-overflow:hidden; /* keeps pill inside on small screens */
-}
-
-.pp-brand{
-display:flex;
-align-items:center;
-gap:10px;
-min-width:0;
-flex:1 1 auto;
-}
-
-.pplogo{
-height:28px;            /* safe bump */
-width:auto;
-max-width:140px;        /* prevents pill push */
-display:block;
-object-fit:contain;
-}
-
-.pp-subpill{
-display:flex;
-align-items:center;
-gap:8px;
-padding:6px 10px;       /* tighter = more room */
-border-radius:999px;
-background:rgba(255,255,255,0.06);
-border:1px solid rgba(255,255,255,0.08);
-color:rgba(230,235,245,0.90);
-font-size:12.5px;
-
-flex:0 1 auto;          /* 🔥 key change */
-min-width:0;
-white-space:nowrap;
-overflow:hidden;
-box-sizing:border-box;
-}
-
-/* Truncate date/status instead of expanding out of the rounded bar */
-.pp-subpill > span:first-child,
-.pp-subpill > span:last-child{
-overflow:hidden;
-text-overflow:ellipsis;
-display:block;
-max-width:48%;
-}
-
-.pp-dot{ width:9px; height:9px; border-radius:50%; display:inline-block; flex:0 0 auto; }
-.pp-dot-open  { background:#21c55d; box-shadow:0 0 0 4px rgba(33,197,93,0.14); }
-.pp-dot-pre   { background:#f59e0b; box-shadow:0 0 0 4px rgba(245,158,11,0.14); }
-.pp-dot-post  { background:#60a5fa; box-shadow:0 0 0 4px rgba(96,165,250,0.14); }
-.pp-dot-closed{ background:rgba(148,163,184,0.75); box-shadow:0 0 0 4px rgba(148,163,184,0.10); }
-
-/* you removed these; keep them off */
-.pp-right{ display:none !important; }
-.pp-bell{ display:none !important; }
-.pp-chip{ display:none !important; }
-
-/* ===== PennyPulse CSS Consolidated ===== */
-
-/* Hide Streamlit chrome */
-header[data-testid="stHeader"],
-div[data-testid="stToolbar"],
-div[data-testid="stDecoration"]{
-display:none !important;
-height:0 !important;
-}
-
-/* Hard override Streamlit top padding (THIS is what stops the dropping) */
-div[data-testid="stAppViewBlockContainer"],
-section.main > div.block-container,
-.block-container{
-padding-top: 0 !important;
-margin-top: 0 !important;
-}
-
-/* Keep normal side padding so it doesn't feel cramped */
-section.main > div.block-container,
-.block-container{
-padding-left: 16px !important;
-padding-right: 16px !important;
-}
-
-/* Restore spacing between sections (your "cramped" issue is gap:0) */
-.stVerticalBlock{ gap: 0.85rem !important; }
-
-/* Topbar spacing with safe-area (NOT huge) */
-.pp-topbar{
-margin-top: 0 !important;
-padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
-margin-bottom: 16px !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
+
 
 
 
@@ -720,8 +350,462 @@ def render_topbar(display_name: str = "User"):
 
     date_str = now.strftime("%A, %b %d")
 
-    
+    st.markdown(
+        """
+        <style>
+/* =============================
+   Streamlit layout tweaks
+   ============================= */
 
+/* Hide Streamlit chrome (header / toolbar / decoration bar) */
+header[data-testid="stHeader"],
+div[data-testid="stToolbar"],
+div[data-testid="stDecoration"]{
+  display:none !important;
+  height:0 !important;
+}
+
+/* Remove Streamlit's default top padding so our topbar can sit higher */
+div[data-testid="stAppViewBlockContainer"],
+section.main > div.block-container{
+  padding-top:0rem !important;
+  margin-top:0rem !important;
+}
+
+/* Keep normal side breathing room (mobile-friendly) */
+section.main > div.block-container{
+  padding-left:16px !important;
+  padding-right:16px !important;
+}
+
+/* Optional: reduce extra vertical gaps between Streamlit blocks */
+.stVerticalBlock{
+  gap:0rem !important;
+}
+
+/* =============================
+   PennyPulse Topbar
+   ============================= */
+
+.pp-topbar{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+
+  /* visually */
+  background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.06);
+  box-shadow:0 10px 30px rgba(0,0,0,0.35);
+  border-radius:20px;
+  padding:12px 14px;
+
+  /* position: closer to the top, but respect phone safe-area (notches) */
+  margin: calc(env(safe-area-inset-top, 0px) + 8px) 0 28px 0;
+}
+
+.pp-brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+}
+
+.pplogo{
+  height:24px;
+  width:auto;
+  display:block;
+  object-fit:contain;
+}
+
+.pp-subpill{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.08);
+  color:rgba(230,235,245,0.90);
+  font-size:13px;
+  white-space:nowrap;
+}
+
+.pp-dot{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.35);
+  box-shadow:0 0 0 2px rgba(0,0,0,0.25) inset;
+}
+.pp-dot.open{ background:#22c55e; }
+.pp-dot.closed{ background:#94a3b8; }
+
+.pp-right{ display:flex; align-items:center; gap:10px; }
+
+/* Slightly tighten on very small screens */
+@media (max-width: 420px){
+  .pp-topbar{ gap:10px; padding:10px 12px; }
+  .pp-subpill{ font-size:12px; padding:7px 10px; gap:8px; }
+  .pplogo{ height:22px; }
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
+    logo_data = get_logo_base64("logo.png")    
+    html = f"""
+       <div class="pp-topbar">
+       <div class="pp-brand">
+        <img class="pplogo" src="data:image/png;base64,{logo_data}" alt="PennyPulse" />
+        <div class="pp-subpill">
+        <span>{date_str}</span>
+        <span class="pp-dot {dot_class}"></span>
+        <span>{status}</span>
+         </div>
+         </div>
+        <div class="pp-right">
+        
+         </div>
+         </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+def calculate_confidence(row, ai_score=None):
+    """Return a 0-100 confidence score (higher = cleaner/healthier setup).
+
+    This is intentionally not just (100 - risk). It adds small bonuses for
+    healthy conditions (uptrend + mid RSI) and small penalties for very high
+    volatility / extremes.
+    """
+    risk, _, _, _, _ = calculate_risk(row, ai_score)
+
+    confidence = 100 - int(risk)
+
+    trend = (row.get("trend_status") or "NEUTRAL").upper()
+    rsi = float(row.get("rsi_14") or 50)
+    vol = float(row.get("volatility") or 0)
+
+    if trend == "UPTREND":
+        confidence += 6
+    elif trend == "DOWNTREND":
+        confidence -= 4
+
+    if 40 <= rsi <= 60:
+        confidence += 6
+    elif rsi >= 80 or rsi <= 20:
+        confidence -= 6
+
+    if vol >= 6:
+        confidence -= 10
+    elif vol >= 4:
+        confidence -= 6
+    elif vol >= 2:
+        confidence -= 2
+
+    if ai_score is not None:
+        confidence += int((float(ai_score) - 50) * 0.15)
+
+    return max(0, min(100, int(confidence)))
+
+
+def calculate_confidence(row, ai_score=None):
+    """Confidence is 'opportunity / setup quality' (0-100)."""
+    conf = 50.0
+
+    trend = (row.get("trend_status") or "NEUTRAL").upper()
+    if trend == "UPTREND":
+        conf += 15
+    elif trend == "DOWNTREND":
+        conf -= 10
+
+    rsi = float(row.get("rsi_14") or 50)
+    # Prefer RSI in the middle (room to run, not extreme)
+    if 40 <= rsi <= 60:
+        conf += 8
+    elif 30 <= rsi < 40 or 60 < rsi <= 70:
+        conf += 4
+    elif rsi >= 80 or rsi <= 20:
+        conf -= 8
+
+    vol = float(row.get("volatility") or 0)
+    if vol < 2:
+        conf += 6
+    elif vol >= 6:
+        conf -= 12
+    elif vol >= 4:
+        conf -= 8
+
+    # Volume status (if present in cache)
+    vs = (row.get("volume_status") or "").lower()
+    if "unusual" in vs or "surge" in vs:
+        conf += 6
+    elif "low" in vs:
+        conf -= 3
+
+    # Range location (if 0-100): higher can be good *if* trend is up
+    try:
+        rl = float(row.get("range_loc") or 0)
+        if trend == "UPTREND" and rl >= 70:
+            conf += 4
+    except:
+        pass
+
+    if ai_score is not None:
+        conf += (float(ai_score) - 50) * 0.2
+
+    final = max(0, min(100, int(round(conf))))
+    return final
+
+
+def get_watchlist_date_for_home():
+    """Show NEXT day's watchlist after market close (4pm NY)."""
+    now_ny = datetime.now(pytz.timezone("America/New_York"))
+    if now_ny.hour >= 16:
+        return (now_ny + timedelta(days=1)).date()
+    return now_ny.date()
+
+def get_watchlist_header_date():
+    d = get_watchlist_date_for_home()
+    return datetime(d.year, d.month, d.day).strftime("%b %d")
+
+def get_daily_watchlist(date_obj):
+    """Return up to 4 rows for the given date from daily_watchlist.
+    Expects table: daily_watchlist(watch_date DATE, rank_num INT, ticker VARCHAR, label VARCHAR, score DECIMAL, created_at TIMESTAMP)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT rank_num AS rank, ticker, label, score FROM daily_watchlist WHERE watch_date=%s ORDER BY rank_num ASC LIMIT 4",
+            (date_obj.strftime("%Y-%m-%d"),)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return rows or []
+    except Exception:
+        return []
+
+def get_watchlist_rows_for_home():
+    """Home watchlist comes from daily_watchlist only (no dynamic fallback)."""
+    d = get_watchlist_date_for_home()
+    rows = get_daily_watchlist(d)
+
+    if not rows:
+        return []
+
+    # Try to enrich with stock_cache price/change for nicer tiles
+    tickers = [r["ticker"] for r in rows]
+    cache_map = get_cached_data_map(tickers)
+
+    out = []
+    for r in rows:
+        t = r["ticker"]
+        label = (r.get("label") or "Momentum")
+        score = r.get("score")
+        if t in cache_map:
+            row = cache_map[t]
+            row["signal_tag"] = label
+            row["_watchlist_score"] = score
+            out.append(row)
+        else:
+            out.append({
+                "ticker": t,
+                "signal_tag": label,
+                "current_price": None,
+                "day_change": float(score or 0),
+                "_watchlist_score": score
+            })
+    return out[:4]
+
+
+def get_cached_data_map(tickers):
+    if not tickers: return {}
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    format_strings = ','.join(['%s'] * len(tickers))
+    cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers))
+    rows = cursor.fetchall()
+    conn.close()
+    return {row['ticker']: row for row in rows}
+
+def get_single_stock(ticker):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s", (ticker,))
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+def get_portfolio_details(username, ptype):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=TRUE", (username, ptype))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def get_portfolio_summary(username, ptype):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT SUM(realized_pl) as realized FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=FALSE", (username, ptype))
+    realized_row = cursor.fetchone()
+    realized = float(realized_row['realized'] or 0)
+    
+    cursor.execute("SELECT p.shares, p.entry_price, s.current_price, s.day_change FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.portfolio_type=%s AND p.is_active=TRUE", (username, ptype))
+    active_rows = cursor.fetchall()
+    
+    unrealized = 0.0; day_pl = 0.0; active_cost_basis = 0.0; current_portfolio_value = 0.0
+    for r in active_rows:
+        if r['current_price']:
+            curr = float(r['current_price']); entry = float(r['entry_price']); shares = float(r['shares'])
+            unrealized += ((curr * shares) - (entry * shares))
+            active_cost_basis += (entry * shares)
+            current_portfolio_value += (curr * shares)
+            pct = float(r['day_change'] or 0)
+            prev = curr / (1 + (pct/100))
+            day_pl += (curr - prev) * shares
+    conn.close()
+    
+    total_pl_dollars = realized + unrealized
+    total_pl_pct = (total_pl_dollars / active_cost_basis) * 100 if active_cost_basis > 0 else 0
+    day_pl_pct = (day_pl / (current_portfolio_value - day_pl)) * 100 if (current_portfolio_value - day_pl) > 0 else 0
+    return total_pl_dollars, total_pl_pct, day_pl, day_pl_pct
+
+def execute_paper_trade(username, ticker, action, qty, price):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
+    row = cursor.fetchone()
+    if not row: conn.close(); return False, "User not found"
+    
+    balance = float(row[0])
+    total_cost = float(qty) * float(price)
+    
+    if action == "BUY":
+        if balance < total_cost: conn.close(); return False, "Insufficient Balance"
+        cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance - %s WHERE username=%s", (total_cost, username))
+        cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s, %s, %s, %s, 'PAPER', 1)", (username, ticker, qty, price))
+        conn.commit(); conn.close()
+        return True, f"Bought {qty} shares of {ticker}"
+        
+    elif action == "SELL":
+        cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance + %s WHERE username=%s", (total_cost, username))
+        conn.commit(); conn.close()
+        return True, f"Sold {qty} shares of {ticker}"
+
+def deactivate_stock(username, ticker, ptype):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT p.shares, p.entry_price, s.current_price FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.ticker=%s AND p.portfolio_type=%s", (username, ticker, ptype))
+    row = cursor.fetchone()
+    if row:
+        shares, entry, curr = row
+        final_pl = (float(curr or 0) - float(entry)) * float(shares)
+        cursor.execute("UPDATE user_portfolio SET is_active=FALSE, realized_pl=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (final_pl, username, ticker, ptype))
+    conn.commit()
+    conn.close()
+
+
+def add_ticker_to_db(username, ticker, shares, price, ptype):
+    t = (ticker or "").strip().upper()
+    if not t:
+        return
+
+    # Ensure it exists in stock_cache so market data can populate
+    ensure_stock_cache_ticker(t)
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # If an active row already exists for this user/ticker/ptype, update it (prevents duplicates)
+    cursor.execute(
+        "SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s AND is_active=TRUE ORDER BY id DESC LIMIT 1",
+        (username, t, ptype)
+    )
+    existing = cursor.fetchone()
+
+    if existing and existing.get("id"):
+        cursor2 = conn.cursor()
+        cursor2.execute(
+            "UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE id=%s",
+            (shares, price, existing["id"])
+        )
+    else:
+        cursor2 = conn.cursor()
+        cursor2.execute(
+            "INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)",
+            (username, t, shares, price, ptype)
+        )
+
+    conn.commit()
+    conn.close()
+
+
+def update_ticker_in_db(username, ticker, shares, price, ptype):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
+    conn.commit()
+    conn.close()
+
+
+def update_position_by_id(pos_id, shares, price):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE id=%s", (shares, price, pos_id))
+    conn.commit()
+    conn.close()
+
+def deactivate_position_by_id(pos_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE id=%s", (pos_id,))
+    conn.commit()
+    conn.close()
+
+def remove_ticker_from_db(username, ticker, ptype):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
+    conn.commit()
+    conn.close()
+
+def add_alert(username, ticker, condition, price):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
+    except: pass
+    conn.commit(); conn.close()
+
+def delete_alert(alert_id):
+    conn = get_connection()
+    conn.cursor().execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,))
+    conn.commit(); conn.close()
+
+def get_user_alerts(username):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+# --- UI Functions ---
+def render_navbar(token, mode):
+    mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
+    st.markdown(f"""
+    <div class="nav-container">
+        <a href="?token={token}&tab=home{mode_arg}" class="nav-link" target="_self">🏠</a>
+        <a href="?token={token}&tab=portfolio{mode_arg}" class="nav-link" target="_self">📂</a>
+        <a href="?token={token}&tab=alerts{mode_arg}" class="nav-link" target="_self">🔔</a>
+        <a href="?token={token}&tab=scanner{mode_arg}" class="nav-link" target="_self">📡</a>
+        <a href="?token={token}&tab=settings{mode_arg}" class="nav-link" target="_self">⚙️</a>
+    </div>
+    """, unsafe_allow_html=True)
 
 def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
