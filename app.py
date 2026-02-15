@@ -48,7 +48,10 @@ st.markdown("""
             padding-bottom: 0rem !important;
             margin-top: 0rem !important;
         }
-
+/* 3. Optional: Remove extra gap from vertical blocks if needed */
+        .stVerticalBlock {
+            gap: 0.5rem !important;
+        }
          #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
         
