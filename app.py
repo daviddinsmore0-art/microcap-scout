@@ -29,13 +29,13 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered",
 st.markdown("""
     <style>
         /* REMOVE DEFAULT PADDING */
-        .block-container {
-    padding-top: 0rem !important;
-}
+        
         
         /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
-
+         header[data-testid="stHeader"] {
+  display: none !important;
+}
          #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
         
