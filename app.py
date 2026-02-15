@@ -49,10 +49,7 @@ st.markdown("""
             margin-top: 1.0rem !important;
         }
 
-        /* 3. Optional: Remove extra gap from vertical blocks if needed */
-        .stVerticalBlock {
-            gap: 0rem !important;
-        }
+        
          #MainMenu {visibility: hidden;}footer {visibility: hidden;}
         
         /* Input Fields */
