@@ -1564,7 +1564,7 @@ if "ticker" in st.query_params:
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
             st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
     else: st.error("Data missing.")
-
+    render_topbar(user.get("display_name"))
 tab = st.query_params.get("tab", "home")
 if tab == "home":
     render_topbar(user.get("display_name"))
