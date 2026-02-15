@@ -35,31 +35,25 @@ header[data-testid="stHeader"] {
 }
 
 /* --- Remove Streamlit default top padding --- */
-div[data-testid="stAppViewBlockContainer"]{
+div[data-testid="stAppViewBlockContainer"],
+section.main > div.block-container {
     padding-top: 0 !important;
+    margin-top: 0 !important;
+
+    /* keep normal side breathing room */
+    padding-left: 16px !important;
+    padding-right: 16px !important;
 }
 
-/* Some Streamlit versions use this container */
-section.main > div.block-container{
-    padding-top: 0 !important;
+/* --- Remove vertical block gaps if needed --- */
+.stVerticalBlock {
+    gap: 0 !important;
 }
 
-/* --- Lock your custom topbar to the top --- */
-.pp-topbar{
-    .pp-topbar{
-  margin-top: 0 !important;
-  padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
-}
-}
-
-/* --- Push page content down so it doesn't hide under fixed bar --- */
-div[data-testid="stAppViewBlockContainer"]{
-    padding-top: 88px !important;  /* adjust 76–96px if needed */
-}
-
-/* Optional: remove extra vertical gaps */
-.stVerticalBlock{
-    gap: 0rem !important;
+/* --- Topbar breathing room (SAFE AREA FIX) --- */
+.pp-topbar {
+    margin-top: 0 !important;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
 }
 
 </style>
