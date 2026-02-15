@@ -1164,6 +1164,7 @@ def render_portfolio_row(row, data, token):
     conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
     price = float(data['current_price'])
     change = float(data['day_change'])
+    extended_html = format_extended_change(data)
     change_color = "#4ade80" if change >= 0 else "#ef4444"
     arrow = "▲" if change >= 0 else "▼"
     shares = float(row['shares'])
@@ -1205,6 +1206,7 @@ def render_portfolio_row(row, data, token):
         <div style="text-align:right; padding-top:2px;">
           <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
           <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
+          {extended_html}
         </div>
       </div>
     </a>
