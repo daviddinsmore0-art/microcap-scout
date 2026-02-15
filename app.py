@@ -647,7 +647,7 @@ def render_topbar(display_name: str = "User"):
           .pp-dot-closed { background: rgba(148,163,184,0.75); box-shadow: 0 0 0 4px rgba(148,163,184,0.10); }
 
           .pp-right {
-            display: flex;
+            display: none;
             align-items: center;
             gap: 10px;
             flex-shrink: 0;
