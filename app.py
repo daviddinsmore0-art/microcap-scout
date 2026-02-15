@@ -838,7 +838,28 @@ def get_daily_watchlist(date_obj):
         return rows or []
     except Exception:
         return []
+def format_extended_change(row):
+    """
+    Returns formatted pre/post change string if available.
+    Assumes your PHP updater populates:
+    pre_change_pct
+    post_change_pct
+    """
+    try:
+        pre = float(row.get("pre_change_pct") or 0)
+        post = float(row.get("post_change_pct") or 0)
+    except:
+        return ""
 
+    if abs(pre) > 0:
+        color = "#4ade80" if pre > 0 else "#ef4444"
+        return f"<div style='font-size:0.75rem; color:{color};'>Pre {pre:+.2f}%</div>"
+
+    if abs(post) > 0:
+        color = "#4ade80" if post > 0 else "#ef4444"
+        return f"<div style='font-size:0.75rem; color:{color};'>Post {post:+.2f}%</div>"
+
+    return ""
 def get_watchlist_rows_for_home():
     """Home watchlist comes from daily_watchlist only (no dynamic fallback)."""
     d = get_watchlist_date_for_home()
