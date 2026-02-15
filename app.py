@@ -45,8 +45,6 @@ st.markdown("""
         }
     </style>
     """, unsafe_allow_html=True)
-
-st.title("Page is now flush to the top")
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
