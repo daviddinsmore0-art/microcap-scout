@@ -35,6 +35,24 @@ st.markdown("""
          header[data-testid="stHeader"] {
   display: none !important;
 }
+/* REMOVE DEFAULT PADDING */
+        /* 1. Hide the top toolbar/header completely */
+        header[data-testid="stHeader"] {
+            visibility: hidden;
+            height: 0%;
+        }
+
+        /* 2. Remove padding from the main container */
+        .stAppViewBlockContainer {
+            padding-top: 0rem !important;
+            padding-bottom: 0rem !important;
+            margin-top: 0rem !important;
+        }
+
+        /* 3. Optional: Remove extra gap from vertical blocks if needed */
+        .stVerticalBlock {
+            gap: 0rem !important;
+        }
          #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
         
