@@ -25,42 +25,7 @@ def get_logo_base64(path="logo_optimized.png"):
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 st.set_page_config(layout="wide")
-st.markdown("""
-<style>
-/* Hide Streamlit chrome */
-header[data-testid="stHeader"],
-div[data-testid="stToolbar"],
-div[data-testid="stDecoration"]{
-  display:none !important;
-  height:0 !important;
-}
 
-/* Hard override Streamlit top padding (THIS is what stops the dropping) */
-div[data-testid="stAppViewBlockContainer"],
-section.main > div.block-container,
-.block-container{
-  padding-top: 0 !important;
-  margin-top: 0 !important;
-}
-
-/* Keep normal side padding so it doesn't feel cramped */
-section.main > div.block-container,
-.block-container{
-  padding-left: 16px !important;
-  padding-right: 16px !important;
-}
-
-/* Restore spacing between sections (your "cramped" issue is gap:0) */
-.stVerticalBlock{ gap: 0.85rem !important; }
-
-/* Topbar spacing with safe-area (NOT huge) */
-.pp-topbar{
-  margin-top: 0 !important;
-  padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
-  margin-bottom: 16px !important;
-}
-</style>
-""", unsafe_allow_html=True)
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
