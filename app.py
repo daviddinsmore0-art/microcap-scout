@@ -623,11 +623,10 @@ def render_topbar(display_name: str = "User"):
             gap: 10px;
             min-width: 0;
           }
-           .pplogo{
-  height: 20px;
-  width: auto;
-  display: block;
-  opacity: 0.95;
+           .pplogo {
+    height: 28px;        /* adjust 34–42 until perfect */
+    width: auto;
+    display: block;
 }
           .pp-subpill {
             display: flex;
