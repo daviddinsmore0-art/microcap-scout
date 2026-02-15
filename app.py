@@ -628,7 +628,7 @@ def render_topbar(display_name: str = "User"):
     width: auto;
     display: block;
 }
-          ..pp-subpill {
+          .pp-subpill {
   flex: 1 1 auto;
   min-width: 0;       /* 🔥 critical for flex shrinking */
   max-width: 100%;
