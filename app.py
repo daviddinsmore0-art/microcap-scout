@@ -629,27 +629,24 @@ def render_topbar(display_name: str = "User"):
     display: block;
 }
           .pp-subpill{
-  flex:1 1 auto;
+  flex:1;
   min-width:0;
-  max-width:100%;
-  display:flex;              /* ✅ keep it horizontal */
+  display:flex;
   align-items:center;
   gap:10px;
-  white-space:nowrap;        /* ✅ prevent wrap */
-  overflow:hidden;           /* ✅ keep inside bar */
-}
-
-/* Clamp each text chunk so it doesn’t force wrap */
-.pp-subpill span{
   white-space:nowrap;
   overflow:hidden;
-  text-overflow:ellipsis;
-  display:block;
 }
 
-/* Keep dot from shrinking weird */
+/* Only truncate the LONGEST piece (date) */
+.pp-subpill span:first-child{
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
 .pp-dot{
   flex:0 0 auto;
+}0 0 auto;
 }
           .pp-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
           .pp-dot-open { background: #21c55d; box-shadow: 0 0 0 4px rgba(33,197,93,0.14); }
