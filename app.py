@@ -26,24 +26,42 @@ def get_logo_base64(path="logo_optimized.png"):
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 st.set_page_config(layout="wide")
 st.markdown("""
+st.markdown("""
 <style>
 
-/* your existing header hide */
-header[data-testid="stHeader"] { ... }
-
-/* your padding removal */
-div[data-testid="stAppViewBlockContainer"] { ... }
-
-section.main > div.block-container { ... }
-
-/* 👇 ADD THIS HERE */
-:root{
-  --pp-topbar-h: 86px;
+/* --- Hide Streamlit header --- */
+header[data-testid="stHeader"] {
+    visibility: hidden;
+    height: 0;
 }
 
-div[data-testid="stAppViewBlockContainer"],
+/* --- Remove Streamlit default top padding --- */
+div[data-testid="stAppViewBlockContainer"]{
+    padding-top: 0 !important;
+}
+
+/* Some Streamlit versions use this container */
 section.main > div.block-container{
-  padding-top: var(--pp-topbar-h) !important;
+    padding-top: 0 !important;
+}
+
+/* --- Lock your custom topbar to the top --- */
+.pp-topbar{
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+}
+
+/* --- Push page content down so it doesn't hide under fixed bar --- */
+div[data-testid="stAppViewBlockContainer"]{
+    padding-top: 88px !important;  /* adjust 76–96px if needed */
+}
+
+/* Optional: remove extra vertical gaps */
+.stVerticalBlock{
+    gap: 0rem !important;
 }
 
 </style>
