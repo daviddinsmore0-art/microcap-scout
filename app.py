@@ -639,8 +639,9 @@ div[data-testid="stToolbar"] { display: none !important; }
 }
 
 .pplogo{
-  height:24px;           /* bump to 24–28 if you want bigger */
+  height:26px;            /* safe bump */
   width:auto;
+  max-width:140px;        /* prevents pill push */
   display:block;
   object-fit:contain;
 }
@@ -648,16 +649,16 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pp-subpill{
   display:flex;
   align-items:center;
-  gap:10px;
-  padding:8px 12px;
+  gap:8px;
+  padding:6px 10px;       /* tighter = more room */
   border-radius:999px;
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.08);
   color:rgba(230,235,245,0.90);
-  font-size:13px;
+  font-size:12.5px;
 
+  flex:0 1 auto;          /* 🔥 key change */
   min-width:0;
-  flex:1 1 auto;
   white-space:nowrap;
   overflow:hidden;
   box-sizing:border-box;
