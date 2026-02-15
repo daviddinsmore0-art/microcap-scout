@@ -602,152 +602,86 @@ def render_topbar(display_name: str = "User"):
     st.markdown(
         """
         <style>
-          .pp-topbar {
-            width: 100%;
-            margin: 0px 0 10px 0;
-            padding: 10px 12px;
-            border-radius: 16px;
-            background: rgba(18, 22, 30, 0.55);
-            border: 1px solid rgba(255,255,255,0.08);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.28);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-          }
-          .pp-brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            min-width: 0;
-          }
-           .pplogo {
-    height: 28px;        /* adjust 34–42 until perfect */
-    width: auto;
-    display: block;
-}
-          .pp-subpill{
-  flex:1;
-  min-width:0;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  white-space:nowrap;
-  overflow:hidden;
-}
+/* --- Streamlit chrome: reduce top gap (can't go truly 0 on all hosts) --- */
+header[data-testid="stHeader"] { display: none !important; }
+div[data-testid="stDecoration"] { display: none !important; }
+div[data-testid="stToolbar"] { display: none !important; }
+.block-container { padding-top: 0rem !important; }
 
-/* Only truncate the LONGEST piece (date) */
-.pp-subpill span:first-child{
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-
-.pp-dot{
-  flex:0 0 auto;
-}0 0 auto;
-}
-          .pp-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-          .pp-dot-open { background: #21c55d; box-shadow: 0 0 0 4px rgba(33,197,93,0.14); }
-          .pp-dot-pre { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,0.14); }
-          .pp-dot-post { background: #60a5fa; box-shadow: 0 0 0 4px rgba(96,165,250,0.14); }
-          .pp-dot-closed { background: rgba(148,163,184,0.75); box-shadow: 0 0 0 4px rgba(148,163,184,0.10); }
-
-          .pp-right {
-            display: none;
-            align-items: center;
-            gap: 10px;
-            flex-shrink: 0;
-          }
-          .pp-chip {
-            width: 34px;
-            height: 34px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.10);
-            display: grid;
-            place-items: center;
-            color: rgba(230,235,245,0.92);
-            font-weight: 700;
-            font-size: 14px;
-          }
-          .pp-bell {
-            width: 34px;
-            height: 34px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.10);
-            display: grid;
-            place-items: center;
-            color: rgba(230,235,245,0.92);
-            font-size: 14px;
-          }
-          /* ===== TOPBAR LAYOUT FIX (paste at bottom) ===== */
-
+/* --- PennyPulse Topbar --- */
 .pp-topbar{
+  width:100%;
+  margin:0px 0 10px 0;
+  padding:10px 12px;
+  border-radius:16px;
+  background:rgba(18,22,30,0.55);
+  border:1px solid rgba(255,255,255,0.08);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:0 10px 30px rgba(0,0,0,0.28);
+
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:12px;
-  flex-wrap:nowrap;
+  box-sizing:border-box;
+  overflow:hidden; /* keeps pill inside on small screens */
 }
 
 .pp-brand{
-  flex:0 0 auto;
   display:flex;
   align-items:center;
   gap:10px;
   min-width:0;
+  flex:1 1 auto;
 }
 
 .pplogo{
-  display:block;
-  height:22px;         /* tweak if you want */
+  height:22px;           /* bump to 24–28 if you want bigger */
   width:auto;
+  display:block;
   object-fit:contain;
   opacity:0.85;
 }
 
-/* The date/status pill */
 .pp-subpill{
-  flex:1 1 auto;
-  min-width:0;
-
   display:flex;
   align-items:center;
-  justify-content:center;
   gap:10px;
+  padding:8px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.08);
+  color:rgba(230,235,245,0.90);
+  font-size:13px;
 
+  min-width:0;
+  flex:1 1 auto;
   white-space:nowrap;
-  overflow:hidden;      /* keeps it inside topbar */
+  overflow:hidden;
+  box-sizing:border-box;
 }
 
-/* Make ONLY the text parts ellipsis, not the dot */
-.pp-subpill > span:not(.pp-dot){
+/* Truncate date/status instead of expanding out of the rounded bar */
+.pp-subpill > span:first-child,
+.pp-subpill > span:last-child{
   overflow:hidden;
   text-overflow:ellipsis;
-  max-width:48%;
   display:block;
+  max-width:48%;
 }
 
-/* The dot */
-.pp-dot{
-  flex:0 0 auto;
-  width:10px;
-  height:10px;
-  border-radius:50%;
-  background:rgba(255,255,255,0.25);
-}
+.pp-dot{ width:9px; height:9px; border-radius:50%; display:inline-block; flex:0 0 auto; }
+.pp-dot-open  { background:#21c55d; box-shadow:0 0 0 4px rgba(33,197,93,0.14); }
+.pp-dot-pre   { background:#f59e0b; box-shadow:0 0 0 4px rgba(245,158,11,0.14); }
+.pp-dot-post  { background:#60a5fa; box-shadow:0 0 0 4px rgba(96,165,250,0.14); }
+.pp-dot-closed{ background:rgba(148,163,184,0.75); box-shadow:0 0 0 4px rgba(148,163,184,0.10); }
 
-/* If you still render right-side icons/chip */
-.pp-right{
-  flex:0 0 auto;
-  display:flex;
-  align-items:center;
-  gap:10px;
-}
-        </style>
+/* you removed these; keep them off */
+.pp-right{ display:none !important; }
+.pp-bell{ display:none !important; }
+.pp-chip{ display:none !important; }
+</style>
         """,
         unsafe_allow_html=True,
     )
