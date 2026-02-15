@@ -639,7 +639,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 }
 
 .pplogo{
-  height:26px;            /* safe bump */
+  height:28px;            /* safe bump */
   width:auto;
   max-width:140px;        /* prevents pill push */
   display:block;
