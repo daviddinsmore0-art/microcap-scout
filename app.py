@@ -64,13 +64,14 @@ section.main > div.block-container,
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
-<style>
         /* REMOVE DEFAULT PADDING */
         
         
         /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
-         
+         header[data-testid="stHeader"] {
+  display: none !important;
+}
          #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
         
@@ -126,6 +127,9 @@ footer {visibility: hidden;}
         }
         a.nav-link:active { transform: scale(0.92); }
          /* Hide Streamlit header + toolbar completely */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
 
 div[data-testid="stToolbar"] {
     display: none !important;
@@ -136,6 +140,17 @@ div[data-testid="stDecoration"] {
 }
 
 /* Kill Streamlit header + toolbar completely */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
+
+div[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
 
 #MainMenu {
     visibility: hidden;
@@ -303,7 +318,6 @@ div[data-testid="stDecoration"] {
 
 .scan-spark{ margin-top:10px; opacity:0.95; }
 
-</style>
 </style>
 """, unsafe_allow_html=True)
 
@@ -627,8 +641,12 @@ def render_topbar(display_name: str = "User"):
     st.markdown(
         """
         <style>
-<style>
 /* --- Streamlit chrome: reduce top gap (can't go truly 0 on all hosts) --- */
+header[data-testid="stHeader"] { display: none !important; }
+div[data-testid="stDecoration"] { display: none !important; }
+div[data-testid="stToolbar"] { display: none !important; }
+.block-container { padding-top: 0rem !important; }
+
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
@@ -702,355 +720,6 @@ def render_topbar(display_name: str = "User"):
 .pp-right{ display:none !important; }
 .pp-bell{ display:none !important; }
 .pp-chip{ display:none !important; }
-</style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    initials = "".join([p[0].upper() for p in str(display_name).split()[:2] if p]) or "U"
-    logo_data = get_logo_base64("logo.png")    
-    html = f"""
-       <div class="pp-topbar">
-       <div class="pp-brand">
-        <img class="pplogo" src="data:image/png;base64,{logo_data}" alt="PennyPulse" />
-        <div class="pp-subpill">
-        <span>{date_str}</span>
-        <span class="pp-dot {dot_class}"></span>
-        <span>{status}</span>
-         </div>
-         </div>
-        <div class="pp-right">
-        
-         </div>
-         </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-
-def calculate_confidence(row, ai_score=None):
-    """Return a 0-100 confidence score (higher = cleaner/healthier setup).
-
-    This is intentionally not just (100 - risk). It adds small bonuses for
-    healthy conditions (uptrend + mid RSI) and small penalties for very high
-    volatility / extremes.
-    """
-    risk, _, _, _, _ = calculate_risk(row, ai_score)
-
-    confidence = 100 - int(risk)
-
-    trend = (row.get("trend_status") or "NEUTRAL").upper()
-    rsi = float(row.get("rsi_14") or 50)
-    vol = float(row.get("volatility") or 0)
-
-    if trend == "UPTREND":
-        confidence += 6
-    elif trend == "DOWNTREND":
-        confidence -= 4
-
-    if 40 <= rsi <= 60:
-        confidence += 6
-    elif rsi >= 80 or rsi <= 20:
-        confidence -= 6
-
-    if vol >= 6:
-        confidence -= 10
-    elif vol >= 4:
-        confidence -= 6
-    elif vol >= 2:
-        confidence -= 2
-
-    if ai_score is not None:
-        confidence += int((float(ai_score) - 50) * 0.15)
-
-    return max(0, min(100, int(confidence)))
-
-def calculate_confidence(row, ai_score=None):
-    """Confidence is 'opportunity / setup quality' (0-100)."""
-    conf = 50.0
-
-    trend = (row.get("trend_status") or "NEUTRAL").upper()
-    if trend == "UPTREND":
-        conf += 15
-    elif trend == "DOWNTREND":
-        conf -= 10
-
-    rsi = float(row.get("rsi_14") or 50)
-    # Prefer RSI in the middle (room to run, not extreme)
-    if 40 <= rsi <= 60:
-        conf += 8
-    elif 30 <= rsi < 40 or 60 < rsi <= 70:
-        conf += 4
-    elif rsi >= 80 or rsi <= 20:
-        conf -= 8
-
-    vol = float(row.get("volatility") or 0)
-    if vol < 2:
-        conf += 6
-    elif vol >= 6:
-        conf -= 12
-    elif vol >= 4:
-        conf -= 8
-
-    # Volume status (if present in cache)
-    vs = (row.get("volume_status") or "").lower()
-    if "unusual" in vs or "surge" in vs:
-        conf += 6
-    elif "low" in vs:
-        conf -= 3
-
-    # Range location (if 0-100): higher can be good *if* trend is up
-    try:
-        rl = float(row.get("range_loc") or 0)
-        if trend == "UPTREND" and rl >= 70:
-            conf += 4
-    except:
-        pass
-
-    if ai_score is not None:
-        conf += (float(ai_score) - 50) * 0.2
-
-    final = max(0, min(100, int(round(conf))))
-    return final
-
-def get_watchlist_date_for_home():
-    """Show NEXT day's watchlist after market close (4pm NY)."""
-    now_ny = datetime.now(pytz.timezone("America/New_York"))
-    if now_ny.hour >= 16:
-        return (now_ny + timedelta(days=1)).date()
-    return now_ny.date()
-
-def get_watchlist_header_date():
-    d = get_watchlist_date_for_home()
-    return datetime(d.year, d.month, d.day).strftime("%b %d")
-
-def get_daily_watchlist(date_obj):
-    """Return up to 4 rows for the given date from daily_watchlist.
-    Expects table: daily_watchlist(watch_date DATE, rank_num INT, ticker VARCHAR, label VARCHAR, score DECIMAL, created_at TIMESTAMP)
-    """
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT rank_num AS rank, ticker, label, score FROM daily_watchlist WHERE watch_date=%s ORDER BY rank_num ASC LIMIT 4",
-            (date_obj.strftime("%Y-%m-%d"),)
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        return rows or []
-    except Exception:
-        return []
-
-def get_watchlist_rows_for_home():
-    """Home watchlist comes from daily_watchlist only (no dynamic fallback)."""
-    d = get_watchlist_date_for_home()
-    rows = get_daily_watchlist(d)
-
-    if not rows:
-        return []
-
-    # Try to enrich with stock_cache price/change for nicer tiles
-    tickers = [r["ticker"] for r in rows]
-    cache_map = get_cached_data_map(tickers)
-
-    out = []
-    for r in rows:
-        t = r["ticker"]
-        label = (r.get("label") or "Momentum")
-        score = r.get("score")
-        if t in cache_map:
-            row = cache_map[t]
-            row["signal_tag"] = label
-            row["_watchlist_score"] = score
-            out.append(row)
-        else:
-            out.append({
-                "ticker": t,
-                "signal_tag": label,
-                "current_price": None,
-                "day_change": float(score or 0),
-                "_watchlist_score": score
-            })
-    return out[:4]
-
-def get_cached_data_map(tickers):
-    if not tickers: return {}
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    format_strings = ','.join(['%s'] * len(tickers))
-    cursor.execute(f"SELECT * FROM stock_cache WHERE ticker IN ({format_strings})", tuple(tickers))
-    rows = cursor.fetchall()
-    conn.close()
-    return {row['ticker']: row for row in rows}
-
-def get_single_stock(ticker):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM stock_cache WHERE ticker=%s", (ticker,))
-    row = cursor.fetchone()
-    conn.close()
-    return row
-
-def get_portfolio_details(username, ptype):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=TRUE", (username, ptype))
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-def get_portfolio_summary(username, ptype):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT SUM(realized_pl) as realized FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=FALSE", (username, ptype))
-    realized_row = cursor.fetchone()
-    realized = float(realized_row['realized'] or 0)
-    
-    cursor.execute("SELECT p.shares, p.entry_price, s.current_price, s.day_change FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.portfolio_type=%s AND p.is_active=TRUE", (username, ptype))
-    active_rows = cursor.fetchall()
-    
-    unrealized = 0.0; day_pl = 0.0; active_cost_basis = 0.0; current_portfolio_value = 0.0
-    for r in active_rows:
-        if r['current_price']:
-            curr = float(r['current_price']); entry = float(r['entry_price']); shares = float(r['shares'])
-            unrealized += ((curr * shares) - (entry * shares))
-            active_cost_basis += (entry * shares)
-            current_portfolio_value += (curr * shares)
-            pct = float(r['day_change'] or 0)
-            prev = curr / (1 + (pct/100))
-            day_pl += (curr - prev) * shares
-    conn.close()
-    
-    total_pl_dollars = realized + unrealized
-    total_pl_pct = (total_pl_dollars / active_cost_basis) * 100 if active_cost_basis > 0 else 0
-    day_pl_pct = (day_pl / (current_portfolio_value - day_pl)) * 100 if (current_portfolio_value - day_pl) > 0 else 0
-    return total_pl_dollars, total_pl_pct, day_pl, day_pl_pct
-
-def execute_paper_trade(username, ticker, action, qty, price):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
-    row = cursor.fetchone()
-    if not row: conn.close(); return False, "User not found"
-    
-    balance = float(row[0])
-    total_cost = float(qty) * float(price)
-    
-    if action == "BUY":
-        if balance < total_cost: conn.close(); return False, "Insufficient Balance"
-        cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance - %s WHERE username=%s", (total_cost, username))
-        cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s, %s, %s, %s, 'PAPER', 1)", (username, ticker, qty, price))
-        conn.commit(); conn.close()
-        return True, f"Bought {qty} shares of {ticker}"
-        
-    elif action == "SELL":
-        cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance + %s WHERE username=%s", (total_cost, username))
-        conn.commit(); conn.close()
-        return True, f"Sold {qty} shares of {ticker}"
-
-def deactivate_stock(username, ticker, ptype):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT p.shares, p.entry_price, s.current_price FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.ticker=%s AND p.portfolio_type=%s", (username, ticker, ptype))
-    row = cursor.fetchone()
-    if row:
-        shares, entry, curr = row
-        final_pl = (float(curr or 0) - float(entry)) * float(shares)
-        cursor.execute("UPDATE user_portfolio SET is_active=FALSE, realized_pl=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (final_pl, username, ticker, ptype))
-    conn.commit()
-    conn.close()
-
-def add_ticker_to_db(username, ticker, shares, price, ptype):
-    t = (ticker or "").strip().upper()
-    if not t:
-        return
-
-    # Ensure it exists in stock_cache so market data can populate
-    ensure_stock_cache_ticker(t)
-
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    # If an active row already exists for this user/ticker/ptype, update it (prevents duplicates)
-    cursor.execute(
-        "SELECT id FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s AND is_active=TRUE ORDER BY id DESC LIMIT 1",
-        (username, t, ptype)
-    )
-    existing = cursor.fetchone()
-
-    if existing and existing.get("id"):
-        cursor2 = conn.cursor()
-        cursor2.execute(
-            "UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE id=%s",
-            (shares, price, existing["id"])
-        )
-    else:
-        cursor2 = conn.cursor()
-        cursor2.execute(
-            "INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s,%s,%s,%s,%s, TRUE)",
-            (username, t, shares, price, ptype)
-        )
-
-    conn.commit()
-    conn.close()
-
-def update_ticker_in_db(username, ticker, shares, price, ptype):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE username=%s AND ticker=%s AND portfolio_type=%s", (shares, price, username, ticker, ptype))
-    conn.commit()
-    conn.close()
-
-def update_position_by_id(pos_id, shares, price):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE user_portfolio SET shares=%s, entry_price=%s WHERE id=%s", (shares, price, pos_id))
-    conn.commit()
-    conn.close()
-
-def deactivate_position_by_id(pos_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE user_portfolio SET is_active=FALSE WHERE id=%s", (pos_id,))
-    conn.commit()
-    conn.close()
-
-def remove_ticker_from_db(username, ticker, ptype):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM user_portfolio WHERE username=%s AND ticker=%s AND portfolio_type=%s", (username, ticker, ptype))
-    conn.commit()
-    conn.close()
-
-def add_alert(username, ticker, condition, price):
-    conn = get_connection()
-    cursor = conn.cursor()
-    try: cursor.execute("INSERT INTO user_alerts (username, ticker, condition_type, target_price) VALUES (%s, %s, %s, %s)", (username, ticker, condition, price))
-    except: pass
-    conn.commit(); conn.close()
-
-def delete_alert(alert_id):
-    conn = get_connection()
-    conn.cursor().execute("DELETE FROM user_alerts WHERE id = %s", (alert_id,))
-    conn.commit(); conn.close()
-
-def get_user_alerts(username):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM user_alerts WHERE username = %s ORDER BY is_triggered ASC, created_at DESC", (username,))
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-# --- UI Functions ---
-def render_navbar(token, mode):
-    mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
-    st.markdown(f"""
-    <div class="nav-container">
-        <a href="?token={token}&tab=home{mode_arg}" class="nav-link" target="_self">🏠</a>
-        <a href="?token={token}&tab=portfolio{mode_arg}" class="nav-link" target="_self">📂</a>
-        <a href="?token={token}&tab=alerts{mode_arg}" class="nav-link" target="_self">🔔</a>
-        <a href="?token={token}&tab=scanner{mode_arg}" class="nav-link" target="_self">📡</a>
-        <a href="?token={token}&tab=settings{mode_arg}" class="nav-link" target="_self">⚙️</a>
-    </div>
 </style>
         """,
         unsafe_allow_html=True,
