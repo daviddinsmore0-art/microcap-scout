@@ -1673,10 +1673,10 @@ if tab == "home":
               <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
                 BIG MOVERS (Top 3)
               </div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>📈 GAINERS</div>
+              <div style='font-size:20px; font-weight:900; margin-bottom:8px;'>📈 GAINERS</div>
               {gainers_html}
               <div style='height:10px'></div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>📉 LOSERS</div>
+              <div style='font-size:20px; font-weight:900; margin-bottom:8px;'>📉 LOSERS</div>
               {losers_html}
             </div>
             """,
