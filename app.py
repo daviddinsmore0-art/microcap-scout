@@ -1802,7 +1802,7 @@ if tab == "home":
         pass
 
 elif tab == "portfolio":
-     render_topbar(user.get("display_name"))
+    render_topbar(user.get("display_name"))
     st.markdown(f"### My Stocks ({current_mode})")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
     c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
