@@ -1723,10 +1723,10 @@ if tab == "home":
               <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
                 PORTFOLIO MOVERS
               </div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#4ade80'>GAINERS</div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>GAINERS</div>
               {gainers_html}
               <div style='height:10px'></div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#ef4444>LOSERS</div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>LOSERS</div>
               {losers_html}
             </div>
             """,
