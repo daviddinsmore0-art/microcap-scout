@@ -1771,7 +1771,7 @@ if tab == "home":
                     """
                     <div class='card border-gold' style='padding: 18px 18px;'>
                       <div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:8px;'>
-                        GLOBAL MOMENTUM PICKS
+                        GLOBAL ALERTS
                       </div>
                       <div style='opacity:.8;'>No active global alerts yet today.</div>
                     </div>
