@@ -621,7 +621,11 @@ def render_topbar(display_name: str = "User"):
 
     # Simple market status (ET-ish by your server/runtime). If you already compute market state elsewhere,
     # we can wire it in later. This version will not NameError.
-    now = datetime.datetime.now()
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        now = datetime.datetime.now()
     dow = now.weekday()  # 0=Mon
     minutes = now.hour * 60 + now.minute
 
@@ -1610,6 +1614,11 @@ if "ticker" in st.query_params:
         if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
             st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
     else: st.error("Data missing.")
+
+
+# If we are on a ticker detail page, stop here so Home does not render underneath.
+if "ticker" in st.query_params:
+    st.stop()
 
 tab = st.query_params.get("tab", "home")
 if tab == "home":
