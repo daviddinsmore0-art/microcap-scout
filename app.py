@@ -213,8 +213,7 @@ div[data-testid="stDecoration"] {
             background-color: #1a1f2b; 
             border: 1px solid #2d3748; 
             border-radius: 12px; 
-            padding: 15px;
-            padding-left:5px;
+            padding: 25px;
         }
 
         .price-block {
