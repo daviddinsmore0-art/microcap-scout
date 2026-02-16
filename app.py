@@ -1721,12 +1721,12 @@ if tab == "home":
             f"""
             <div class='card' style='padding:18px; border-left:4px solid #2f80ed;'>
               <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
-                BIG MOVERS (Top 3)
+                PORTFOLIO MOVERS
               </div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>GAINERS</div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#008000'>GAINERS</div>
               {gainers_html}
               <div style='height:10px'></div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>LOSERS</div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#FF2C2C'>LOSERS</div>
               {losers_html}
             </div>
             """,
