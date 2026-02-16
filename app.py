@@ -1232,7 +1232,7 @@ def render_navbar(token, mode):
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   box-shadow: 0 18px 60px rgba(0,0,0,0.55);
-}
+
 }}
 
 .pp-nav-item {{
