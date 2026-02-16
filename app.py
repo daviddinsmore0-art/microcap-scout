@@ -709,27 +709,92 @@ div[data-testid="stToolbar"] { display: none !important; }
   overflow:hidden;
   box-sizing:border-box;
 }
+/* --- PennyPulse Topbar --- */
+.pp-topbar{
+  width:100%;
+  margin:0 0 20px 0;
+  padding:10px 14px;
+  border-radius:16px;
+  background:rgba(18,22,30,0.55);
+  border:1px solid rgba(255,255,255,0.08);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:0 10px 30px rgba(0,0,0,0.28);
 
-/* Truncate date/status instead of expanding out of the rounded bar */
-.pp-subpill > span:first-child,
-.pp-subpill > span:last-child{
-  overflow:hidden;
-  text-overflow:ellipsis;
-  display:block;
-  max-width:48%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  box-sizing:border-box;
 }
 
-.pp-dot{ width:9px; height:9px; border-radius:50%; display:inline-block; flex:0 0 auto; }
+.pp-brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex:1 1 auto;
+  min-width:0;
+}
+
+.pplogo{
+  height:28px;
+  width:auto;
+  max-width:140px;
+  object-fit:contain;
+  flex:0 0 auto;
+}
+
+.pp-subpill{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.08);
+  color:rgba(230,235,245,0.90);
+  font-size:12.5px;
+
+  flex:0 1 auto;
+  min-width:0;
+  max-width:65vw;     /* prevents pushing off screen */
+  overflow:hidden;
+}
+
+/* date + status shrink correctly */
+.pp-date,
+.pp-status{
+  flex:1 1 0;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.pp-date{
+  opacity:0.9;
+}
+
+.pp-status{
+  font-weight:600;
+}
+
+.pp-dot{
+  width:9px;
+  height:9px;
+  border-radius:50%;
+  flex:0 0 auto;
+}
+
 .pp-dot-open  { background:#21c55d; box-shadow:0 0 0 4px rgba(33,197,93,0.14); }
 .pp-dot-pre   { background:#f59e0b; box-shadow:0 0 0 4px rgba(245,158,11,0.14); }
 .pp-dot-post  { background:#60a5fa; box-shadow:0 0 0 4px rgba(96,165,250,0.14); }
 .pp-dot-closed{ background:rgba(148,163,184,0.75); box-shadow:0 0 0 4px rgba(148,163,184,0.10); }
 
-/* you removed these; keep them off */
+/* remove unused right section */
 .pp-right{ display:none !important; }
 .pp-bell{ display:none !important; }
 .pp-chip{ display:none !important; }
-</style>
         """,
         unsafe_allow_html=True,
     )
@@ -741,10 +806,10 @@ div[data-testid="stToolbar"] { display: none !important; }
        <div class="pp-brand">
         <img class="pplogo" src="data:image/png;base64,{logo_data}" alt="PennyPulse" />
         <div class="pp-subpill">
-        <span>{date_str}</span>
-        <span class="pp-dot {dot_class}"></span>
-        <span>{status}</span>
-         </div>
+    <span class="pp-date">{date_str}</span>
+    <span class="pp-dot {dot_class}"></span>
+    <span class="pp-status">{status}</span>
+</div>
          </div>
         <div class="pp-right">
         
