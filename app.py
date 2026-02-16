@@ -599,9 +599,9 @@ def calculate_risk(row, ai_score=None):
     if ai_score is not None:
         adj = (50 - float(ai_score)) * 0.25
         risk += adj
-        breakdown.append(("AI sentiment adjust", round(adj, 1)))
+        breakdown.append(("AI sentiment adjustment", round(adj, 1)))
     else:
-        breakdown.append(("AI sentiment adjust", 0))
+        breakdown.append(("AI sentiment adjustment", 0))
 
     final = max(0, min(100, int(round(risk))))
 
