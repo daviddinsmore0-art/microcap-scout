@@ -429,7 +429,13 @@ def parse_smart_date(date_str):
             target = datetime.strptime(str(date_str), "%Y-%m-%d")
         return (target - now).days
     except: return 999
-
+        
+def _to_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+        
 def login_user(u, p):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
