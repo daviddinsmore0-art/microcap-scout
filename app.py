@@ -1794,7 +1794,7 @@ if tab == "home":
 
                 parts = []
                 parts.append("<div class='card border-gold' style='padding: 18px 18px;'>")
-                parts.append("<div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:10px;'>GLOBAL MOMENTUM PICKS</div>")
+                parts.append("<div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:10px;'>GLOBAL ALERTS</div>")
 
                 for i, p in enumerate(picks):
                     ticker = (p.get('ticker') or '').upper()
