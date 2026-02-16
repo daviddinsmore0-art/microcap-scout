@@ -1719,7 +1719,7 @@ if tab == "home":
 
         st.markdown(
             f"""
-            <div class='card' style='padding:18px; border-left:4px solid #2f80ed;'>
+            <div class='card' style='padding:18px; border-left:4px solid #2f80ed; margin-botton:15px;'>
               <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
                 PORTFOLIO MOVERS
               </div>
@@ -1743,7 +1743,7 @@ if tab == "home":
 
 
     # Global Momentum Picks (from global list)
-    st.markdown("<div class='section-divider';>y</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-divider';></div>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
 
     try:
