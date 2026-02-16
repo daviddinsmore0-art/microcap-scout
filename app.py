@@ -1799,7 +1799,15 @@ if tab == "home":
                 cur_chg = row.get("current_change")
                 fired_price = row.get("fired_price")
                 pct_at_fire = row.get("pct_at_fire")
+                from datetime import datetime
 
+try:
+    fired_dt = row["fired_at"]
+    if isinstance(fired_dt, str):
+        fired_dt = datetime.strptime(fired_dt, "%Y-%m-%d %H:%M:%S")
+    fired_text = fired_dt.strftime("%b %d %H:%M")
+except:
+    fired_text = ""
                 price_text = _fmt_price(cur_price)
 
                 chg_val = _to_float(cur_chg)
