@@ -242,7 +242,9 @@ div[data-testid="stDecoration"] {
 /* ===== Market Scanner Trading Tiles (scanner-only classes) ===== */
 .scan-grid{display:grid;grid-template-columns:1fr;gap:14px;}
 @media (min-width: 780px){.scan-grid{grid-template-columns:1fr 1fr;}}
-
+.section-divider{
+margin-top:15px;
+}
 .scan-card{
   background:#0f1722;
   border-radius:22px;
@@ -1719,7 +1721,7 @@ if tab == "home":
 
         st.markdown(
             f"""
-            <div class='card' style='padding:18px; border-left:4px solid #2f80ed; margin-botton:15px;'>
+            <div class='card' style='padding:18px; border-left:4px solid #2f80ed;'>
               <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
                 PORTFOLIO MOVERS
               </div>
