@@ -702,7 +702,7 @@ div[data-testid="stToolbar"] { display: none !important; }
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.08);
   color:rgba(230,235,245,0.90);
-  font-size:13px;
+  font-size:14px;
   font-weight:500;
   flex:0 1 auto;          /* 🔥 key change */
   min-width:0;
