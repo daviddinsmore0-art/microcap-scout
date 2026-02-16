@@ -1611,10 +1611,6 @@ if "ticker" in st.query_params:
                 st.markdown(f"<a href='{item['link']}' target='_blank' style='text-decoration:none;'><div style='font-size:0.95rem; font-weight:bold; color:#ffffff; margin-bottom:5px;'>{item['title']}</div><div style='font-size:0.75rem; color:#64748b; margin-bottom:15px;'>{item['time']} • {item['pub']}</div></a><div style='border-bottom:1px solid #2d3748; margin-bottom:15px;'></div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
         
-        if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
-            st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
-    else: st.error("Data missing.")
-
 
 # If we are on a ticker detail page, stop here so Home does not render underneath.
 if "ticker" in st.query_params:
