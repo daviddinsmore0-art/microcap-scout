@@ -139,13 +139,13 @@ div[data-testid="stDecoration"] {
     padding-top: 0.25rem !important;
 }
         .pp-greeting {
-    font-family: Tahoma;
-    font-size: 16px;
-    font-weight: 300;
-    color: #A7F3D0;
-    letter-spacing: 0.5px;
-    margin: 20px 0 30px 0;
-}
+          font-family: Tahoma;
+          font-size: 16px;
+          font-weight: 300;
+          color: #A7F3D0;
+          letter-spacing: 0.5px;
+          margin: 20px 0 30px 0;
+        }
         /* Metric Boxes */
         .metric-box {
             background-color: #1e293b;
@@ -217,13 +217,13 @@ div[data-testid="stDecoration"] {
         }
 
         .price-block {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    text-align: right;
-    gap: 2px;
-    margin-left: auto;
-}
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          text-align: right;
+          gap: 2px;
+          margin-left: auto;
+         }
       
         /* Risk Pills */
         .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
@@ -1964,7 +1964,7 @@ elif tab == "alerts":
 
     st.markdown(
         """
-        <div class="card" style="border-left:4px solid #fbbf24; margin-bottom:14px;">
+        <div class="card" style="border-left:4px solid #fbbf24; margin-top: 10px; margin-bottom:24px;">
           <div style="color:#fbbf24; font-size:0.8rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">
             SCAN SCOPE
           </div>
@@ -2118,7 +2118,7 @@ elif tab == "alerts":
 
 
 elif tab == "scanner":
-    st.markdown("## Market Scanner")
+    st.markdown("")
     st.caption("Your portfolio only — biggest signals first. (Your alerts banner still shows your last 5.)")
 
     portfolio_rows = get_portfolio_details(user["username"], current_mode)
