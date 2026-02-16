@@ -1743,7 +1743,7 @@ if tab == "home":
 
 
     # Global Momentum Picks (from global list)
-    st.markdown("<div class='section-divider' margin-top:15px;></div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-divider';>y</div>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
 
     try:
