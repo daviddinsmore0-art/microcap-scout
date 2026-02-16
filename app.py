@@ -1160,65 +1160,45 @@ def get_user_alerts(username):
     conn.close()
     return rows
 
+import textwrap
+import streamlit as st
+
 # --- UI Functions ---
 def render_navbar(token, mode):
     mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
     current_tab = st.query_params.get("tab", "home")
 
-    # Minimal, consistent inline SVG icons (stroke=2)
     ICONS = {
         "home": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                     <path d="M3 10.5 12 3l9 7.5"></path><path d="M5 10v10h14V10"></path>
-                   </svg>""",
+            stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 10v10h14V10"></path></svg>""",
         "portfolio": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                         <path d="M10 6h4"></path><path d="M9 6V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1"></path>
-                         <rect x="3" y="6" width="18" height="15" rx="2"></rect>
-                       </svg>""",
+            stroke-linecap="round" stroke-linejoin="round"><path d="M9 6V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1"></path><rect x="3" y="6" width="18" height="15" rx="2"></rect></svg>""",
         "alerts": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                       <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"></path>
-                       <path d="M13.7 21a2 2 0 01-3.4 0"></path>
-                     </svg>""",
+            stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"></path><path d="M13.7 21a2 2 0 01-3.4 0"></path></svg>""",
         "scanner": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M4 19v-7"></path><path d="M8 19V5"></path><path d="M12 19v-9"></path>
-                        <path d="M16 19v-4"></path><path d="M20 19V8"></path>
-                      </svg>""",
+            stroke-linecap="round" stroke-linejoin="round"><path d="M4 19v-7"></path><path d="M8 19V5"></path><path d="M12 19v-9"></path><path d="M16 19v-4"></path><path d="M20 19V8"></path></svg>""",
         "settings": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                         <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path>
-                         <path d="M19.4 15a7.9 7.9 0 0 0 .1-6l2-1.2-2-3.4-2.3 1a8.2 8.2 0 0 0-5.2-2L11.5 1h-4L7 3.4a8.2 8.2 0 0 0-5.2 2L-.5 4.4l-2 3.4 2 1.2a7.9 7.9 0 0 0 .1 6l-2 1.2 2 3.4 2.3-1a8.2 8.2 0 0 0 5.2 2L7.5 23h4l.5-2.4a8.2 8.2 0 0 0 5.2-2l2.3 1 2-3.4-2-1.2Z"></path>
-                       </svg>""",
+            stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path><path d="M19.4 15a7.9 7.9 0 0 0 .1-6l2-1.2-2-3.4-2.3 1a8.2 8.2 0 0 0-5.2-2L11.5 1h-4L7 3.4a8.2 8.2 0 0 0-5.2 2L-.5 4.4l-2 3.4 2 1.2a7.9 7.9 0 0 0 .1 6l-2 1.2 2 3.4 2.3-1a8.2 8.2 0 0 0 5.2 2L7.5 23h4l.5-2.4a8.2 8.2 0 0 0 5.2-2l2.3 1 2-3.4-2-1.2Z"></path></svg>""",
     }
 
     def nav_item(tab, label):
         active = " active" if tab == current_tab else ""
-        icon = ICONS[tab]
         return f"""
-          <a href="?token={token}&tab={tab}{mode_arg}" class="pp-nav-item{active}" target="_self" aria-label="{label}">
-            <span class="pp-nav-ic">{icon}</span>
-            <span class="pp-nav-txt">{label}</span>
-          </a>
-        """
+<a href="?token={token}&tab={tab}{mode_arg}" class="pp-nav-item{active}" target="_self" aria-label="{label}">
+  <span class="pp-nav-ic">{ICONS[tab]}</span>
+  <span class="pp-nav-txt">{label}</span>
+</a>
+"""
 
-    st.markdown(
-        f"""
+    html = f"""
 <style>
-/* --- PennyPulse Bottom Nav (Pro) --- */
 .pp-nav {{
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
+  position: fixed; left: 0; right: 0; bottom: 0;
   height: 68px;
   padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  gap: 6px;
-  z-index: 1000;
-
-  background: rgba(18, 22, 30, 0.72);
+  display: flex; align-items: center; justify-content: space-around; gap: 6px;
+  z-index: 99999;
+  background: rgba(18,22,30,0.72);
   border-top: 1px solid rgba(255,255,255,0.08);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -1230,37 +1210,20 @@ def render_navbar(token, mode):
   flex: 1 1 0;
   max-width: 96px;
   text-decoration: none !important;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 4px;
-
   color: rgba(230,235,245,0.60);
-  transition: transform .15s ease, color .15s ease, opacity .15s ease;
+  transition: transform .15s ease, color .15s ease;
 }}
 
-.pp-nav-ic {{
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-}}
-
-.pp-nav-ic svg {{
-  width: 22px;
-  height: 22px;
-}}
+.pp-nav-ic {{ width: 22px; height: 22px; display: grid; place-items: center; }}
+.pp-nav-ic svg {{ width: 22px; height: 22px; }}
 
 .pp-nav-txt {{
   font-size: 11px;
   letter-spacing: .06em;
   text-transform: uppercase;
   opacity: 0.85;
-}}
-
-.pp-nav-item:hover {{
-  color: rgba(230,235,245,0.88);
 }}
 
 .pp-nav-item.active {{
@@ -1275,13 +1238,12 @@ def render_navbar(token, mode):
   width: 22px;
   height: 3px;
   border-radius: 999px;
-  background: rgba(250, 204, 21, 0.95); /* gold accent */
+  background: rgba(250, 204, 21, 0.95);
   box-shadow: 0 0 18px rgba(250, 204, 21, 0.35);
 }}
-/* Prevent content hidden behind fixed nav */
-section.main > div.block-container {{
-  padding-bottom: 84px !important;
-}}
+
+/* Keep content from being hidden behind fixed nav */
+section.main > div.block-container {{ padding-bottom: 90px !important; }}
 </style>
 
 <div class="pp-nav">
@@ -1291,9 +1253,10 @@ section.main > div.block-container {{
   {nav_item("scanner","Monitor")}
   {nav_item("settings","Settings")}
 </div>
-        """,
-        unsafe_allow_html=True,
-)
+"""
+
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+
 
 def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
