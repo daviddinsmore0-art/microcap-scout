@@ -1159,9 +1159,8 @@ def get_user_alerts(username):
     rows = cursor.fetchall()
     conn.close()
     return rows
-
-
-  import textwrap
+    
+import textwrap
 import streamlit as st
 
 def render_navbar(token, mode):
