@@ -144,7 +144,7 @@ div[data-testid="stDecoration"] {
     font-weight: 300;
     color: #A7F3D0;
     letter-spacing: 0.5px;
-    margin: 10px 0 30px 0;
+    margin: 20px 0 30px 0;
 }
         /* Metric Boxes */
         .metric-box {
@@ -154,7 +154,7 @@ div[data-testid="stDecoration"] {
             padding: 15px;
             text-align: center;
             margin-bottom: 10px;
-            padding-top:10px;
+            padding-top:40px;
         }
         .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
         .metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
