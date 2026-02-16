@@ -153,7 +153,7 @@ div[data-testid="stDecoration"] {
             border-radius: 12px;
             padding: 15px;
             text-align: center;
-            margin-top: 10px;
+            margin-top: 20px;
             margin-bottom: 10px;
             padding-top:10px;
         }
