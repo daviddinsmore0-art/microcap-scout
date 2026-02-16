@@ -1227,7 +1227,7 @@ def render_navbar(token, mode):
   gap: 8px;
   z-index: 99999;
   background: rgba(18,22,30,0.75);
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 2px solid rgba(255,255,255,0.06);
   border-radius: 18px;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
@@ -1262,6 +1262,7 @@ def render_navbar(token, mode):
 .pp-nav-item.active {{
   color: #facc15;
   transform: translateY(-2px);
+  transform: scale(0.94);
   filter: drop-shadow(0 0 6px rgba(250,204,21,0.35));
 }}
 
