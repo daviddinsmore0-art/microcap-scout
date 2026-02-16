@@ -179,8 +179,8 @@ div[data-testid="stDecoration"] {
             color: #ef4444 !important;
         }
 
-        h1, h2, p, label, span, div { color: #e0e6ed; }
-        h3 { font-size: 12px; }
+        p, label, span, div { color: #e0e6ed; }
+        h1, h2, h3 { font-size: 12px; }
 
         /* HEADLINE COLOR FIX */
         a { color: #ffffff !important; text-decoration: none !important; }
