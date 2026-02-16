@@ -230,7 +230,7 @@ div[data-testid="stDecoration"] {
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
         .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .risk-row { display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0; border-bottom: 1px solid #2d3748; padding-bottom: 15px; }
+        .risk-row { display: flex; justify-content: space-between; align-items: center; margin: 30px 0 10px 0; border-bottom: 1px solid #2d3748; padding-bottom: 15px; }
         
         /* Hide default header/footer */
         header {visibility: hidden;} footer {visibility: hidden;} 
