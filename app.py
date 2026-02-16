@@ -201,7 +201,7 @@ div[data-testid="stDecoration"] {
             overflow-x: auto; 
             scroll-behavior: smooth;
             gap: 12px;
-            padding-top:20px;
+            padding-top:0px;
             padding-bottom: 40px;
             -ms-overflow-style: none; 
             scrollbar-width: none; 
