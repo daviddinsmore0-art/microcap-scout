@@ -1773,7 +1773,7 @@ if tab == "home":
         if not picks:
                 st.markdown(
                     """
-                    <div class='card border-gold' style='padding: 18px 18px;'>
+                    <div class='card border-gold' style='padding: 18px;'>
                       <div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:8px;'>
                         GLOBAL ALERTS
                       </div>
@@ -1840,7 +1840,7 @@ if tab == "home":
     except Exception as e:
         st.error(f"Global picks error: {e}")
 elif tab == "portfolio":
-    st.markdown(f"### My Stocks ({current_mode})")
+    st.markdown(f"")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
     c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
     c_day = "#4ade80" if day_pl >= 0 else "#ef4444"
