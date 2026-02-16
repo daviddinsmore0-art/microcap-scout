@@ -230,7 +230,7 @@ div[data-testid="stDecoration"] {
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
         .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
+        .risk-row { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 10px 0; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
         
         /* Hide default header/footer */
         header {visibility: hidden;} footer {visibility: hidden;} 
@@ -1562,7 +1562,7 @@ if "ticker" in st.query_params:
 </div>
 """), unsafe_allow_html=True
             )
-        st.markdown(f"<div class='card' style='margin-top:0px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='card' style='margin:0px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
             if type=="debt": return "pill-high" if val > 150 else "pill-low", "HIGH" if val > 150 else "LOW"
