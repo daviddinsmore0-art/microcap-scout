@@ -300,6 +300,21 @@ div[data-testid="stDecoration"] {
 
 .scan-spark{ margin-top:10px; opacity:0.95; }
 
+
+
+/* Section cards with colored left borders */
+.card.border-blue { border-left: 4px solid #2b6cb0; }
+.card.border-gold { border-left: 4px solid #f6c343; }
+
+/* Global picks row layout (single HTML block) */
+.global-picks-row { display:flex; justify-content:space-between; align-items:flex-start; padding:14px 6px; }
+.global-picks-left .ticker { font-weight:800; letter-spacing:2px; font-size:28px; margin:0; }
+.global-picks-left .type { opacity:.6; font-size:16px; margin-top:2px; }
+.global-picks-left .meta { opacity:.45; font-size:14px; margin-top:6px; }
+.global-picks-right { text-align:right; }
+.global-picks-right .price { font-weight:800; font-size:28px; margin:0; }
+.global-picks-right .chg { font-weight:800; font-size:22px; margin-top:4px; }
+.global-picks-divider { height:1px; background:rgba(255,255,255,.06); margin:0 6px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1752,75 +1767,71 @@ if tab == "home":
         conn.close()
 
         if not picks:
-            st.markdown(
-                """
-                <div class="card" style="border-left: 4px solid #facc15; margin-bottom: 20px;">
-                            <div style="color:#facc15; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;">GLOBAL MOMENTUM PICKS</div>
-                  <div class='alert-card-text'>No active global alerts yet today.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown("<div class='card'>", unsafe_allow_html=True)
-            for row in picks:
-                ticker = (row.get("ticker") or "").upper()
-                storm = (row.get("storm_type") or "").lower()
-                fired_at = row.get("fired_at")
-                fired_text = ""
-                if fired_at:
-                    try:
-                        fired_text = fired_at.strftime("%b %d %H:%M")
-                    except Exception:
-                        fired_text = str(fired_at)
-
-                current_price = _to_float(row.get("current_price"))
-                price_at_fire = _to_float(row.get("price_at_fire"))
-                current_change = _to_float(row.get("current_change"))
-                pct_at_fire = _to_float(row.get("pct_at_fire"))
-
-                # Prefer "since fired" % (more meaningful), else fall back to current day_change
-                since_fire_pct = None
-                if current_price is not None and price_at_fire not in (None, 0):
-                    since_fire_pct = ((current_price - price_at_fire) / price_at_fire) * 100.0
-
-                right_change = since_fire_pct if since_fire_pct is not None else current_change
-                right_change_color = "#38d06e" if (right_change or 0) >= 0 else "#ff5a5a"
-                right_change_text = ""
-                if right_change is not None:
-                    right_change_text = f"{right_change:+.2f}%"
-
-                # Small context line: at-fire price + at-fire % if available
-                fired_ctx_parts = []
-                if price_at_fire is not None:
-                    fired_ctx_parts.append(f"@ ${price_at_fire:.4f}" if price_at_fire < 10 else f"@ ${price_at_fire:.2f}")
-                if pct_at_fire is not None:
-                    fired_ctx_parts.append(f"({pct_at_fire:+.2f}%)")
-                fired_ctx = " ".join(fired_ctx_parts)
-
-                price_text = "—"
-                if current_price is not None:
-                    price_text = f"${current_price:.4f}" if current_price < 10 else f"${current_price:.2f}"
-
                 st.markdown(
-                    f"""
-                    <div style='padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.06);'>
-                      <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
-                        <div>
-                          <div style='font-size:20px; font-weight:800; letter-spacing:1px;'>{ticker}</div>
-                          <div style='font-size:13px; opacity:0.75; text-transform:lowercase;'>{storm}</div>
-                          <div style='font-size:12px; opacity:0.55; margin-top:6px;'>{fired_text} {fired_ctx}</div>
-                        </div>
-                        <div style='text-align:right;'>
-                          <div style='font-size:20px; font-weight:800;'>{price_text}</div>
-                          <div style='font-size:16px; font-weight:800; color:{right_change_color}; margin-top:2px;'>{right_change_text}</div>
-                        </div>
+                    """
+                    <div class='card border-gold' style='padding: 18px 18px;'>
+                      <div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:8px;'>
+                        GLOBAL MOMENTUM PICKS
                       </div>
+                      <div style='opacity:.8;'>No active global alerts yet today.</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
-            st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                # IMPORTANT: Render as ONE HTML block (Streamlit won't reliably nest <div> across multiple st.markdown calls)
+                def _to_float(v, default=0.0):
+                    try:
+                        if v is None:
+                            return default
+                        return float(v)
+                    except Exception:
+                        return default
+
+                parts = []
+                parts.append("<div class='card border-gold' style='padding: 18px 18px;'>")
+                parts.append("<div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:10px;'>GLOBAL MOMENTUM PICKS</div>")
+
+                for i, p in enumerate(picks):
+                    ticker = (p.get('ticker') or '').upper()
+                    storm_type = (p.get('storm_type') or '').lower()
+                    fired_at = p.get('fired_at')
+                    fired_price = _to_float(p.get('price_at_fire'), 0.0)
+                    fired_pct = _to_float(p.get('pct_at_fire'), 0.0)
+
+                    current_price = _to_float(p.get('current_price'), 0.0)
+                    current_change = _to_float(p.get('current_change'), 0.0)
+
+                    # e.g. "Feb 13 22:46 @ $195.85 (+13.07%)"
+                    fired_text = ""
+                    if fired_at:
+                        try:
+                            fired_text = fired_at.strftime('%b %d %H:%M')
+                        except Exception:
+                            fired_text = str(fired_at)
+
+                    fired_line = f"{fired_text} @ ${fired_price:,.2f} ({fired_pct:+.2f}%)" if fired_text else f"@ ${fired_price:,.2f} ({fired_pct:+.2f}%)"
+
+                    chg_class = "pos" if current_change >= 0 else "neg"
+
+                    parts.append("<div class='global-picks-row'>")
+                    parts.append("  <div class='global-picks-left'>")
+                    parts.append(f"    <div class='ticker'>{ticker}</div>")
+                    parts.append(f"    <div class='type'>{storm_type}</div>")
+                    parts.append(f"    <div class='meta'>{fired_line}</div>")
+                    parts.append("  </div>")
+                    parts.append("  <div class='global-picks-right'>")
+                    parts.append(f"    <div class='price'>${current_price:,.2f}</div>")
+                    parts.append(f"    <div class='chg {chg_class}'>{current_change:+.2f}%</div>")
+                    parts.append("  </div>")
+                    parts.append("</div>")
+
+                    if i < len(picks) - 1:
+                        parts.append("<div class='global-picks-divider'></div>")
+
+                parts.append("</div>")
+                st.markdown(''.join(parts), unsafe_allow_html=True)
+
 
     except Exception as e:
         st.error(f"Global picks error: {e}")
