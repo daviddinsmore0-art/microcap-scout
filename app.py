@@ -1821,7 +1821,7 @@ if tab == "home":
                     parts.append("<div class='global-picks-row'>")
                     parts.append("  <div class='global-picks-left'>")
                     parts.append(f"    <div class='ticker'>{ticker}</div>")
-                    parts.append(f"    <div class='type'>{storm_type}</div>")
+                    parts.append(f"    <div class='type'>{storm_type} alert fired</div>")
                     parts.append(f"    <div class='meta'>{fired_line}</div>")
                     parts.append("  </div>")
                     parts.append("  <div class='global-picks-right'>")
