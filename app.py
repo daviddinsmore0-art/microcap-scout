@@ -1754,8 +1754,8 @@ if tab == "home":
         if not picks:
             st.markdown(
                 """
-                <div class='card alert-card yellow'>
-                  <div class='alert-card-title'>GLOBAL MOMENTUM PICKS</div>
+                <div class='card' style='padding:18px; border-left:4px solid #2f80ed;'>
+              <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>GLOBAL MOMENTUM PICKS</div>
                   <div class='alert-card-text'>No active global alerts yet today.</div>
                 </div>
                 """,
