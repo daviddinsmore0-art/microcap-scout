@@ -243,7 +243,7 @@ div[data-testid="stDecoration"] {
 .scan-grid{display:grid;grid-template-columns:1fr;gap:14px;}
 @media (min-width: 780px){.scan-grid{grid-template-columns:1fr 1fr;}}
 .section-divider{
-margin-top:15px;
+margin-top:100px;
 }
 .scan-card{
   background:#0f1722;
