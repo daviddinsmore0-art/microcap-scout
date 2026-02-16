@@ -1477,7 +1477,7 @@ user = get_user_from_token(token)
 if not user: st.error("Session Expired"); st.stop()
 
 current_mode = "REAL"
-
+render_topbar(user.get("display_name"))
 
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
