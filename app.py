@@ -1491,7 +1491,8 @@ if "ticker" in st.query_params:
         confidence = calculate_confidence(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
         
-        st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>" {company}, unsafe_allow_html=True)
+        st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='margin:0; color:{cc}; font-size: 1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%) Today</span></h2>", unsafe_allow_html=True)
         
         if current_mode == "PAPER":
