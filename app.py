@@ -153,7 +153,7 @@ div[data-testid="stDecoration"] {
             border-radius: 12px;
             padding: 15px;
             text-align: center;
-            margin-top: 20px;
+            margin-top: 10px;
             margin-bottom: 10px;
             padding-top:10px;
         }
@@ -209,7 +209,7 @@ div[data-testid="stDecoration"] {
         .scrolling-wrapper::-webkit-scrollbar { display: none; }
         .scrolling-card { 
             flex: 0 0 auto; 
-            width: 130px; 
+            width: 100px; 
             background-color: #1a1f2b; 
             border: 1px solid #2d3748; 
             border-radius: 12px; 
