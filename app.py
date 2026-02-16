@@ -1778,7 +1778,7 @@ if tab == "home":
                     """,
                     unsafe_allow_html=True,
                 )
-            else:
+        else:
                 # IMPORTANT: Render as ONE HTML block (Streamlit won't reliably nest <div> across multiple st.markdown calls)
                 def _to_float(v, default=0.0):
                     try:
