@@ -308,12 +308,12 @@ div[data-testid="stDecoration"] {
 
 /* Global picks row layout (single HTML block) */
 .global-picks-row { display:flex; justify-content:space-between; align-items:flex-start; padding:14px 6px; }
-.global-picks-left .ticker { font-weight:800; letter-spacing:2px; font-size:20px; margin:0; }
+.global-picks-left .ticker { font-weight:800; letter-spacing:2px; font-size:16px; margin:0; }
 .global-picks-left .type { opacity:.6; font-size:16px; margin-top:2px; }
 .global-picks-left .meta { opacity:.45; font-size:14px; margin-top:6px; }
 .global-picks-right { text-align:right; }
-.global-picks-right .price { font-weight:800; font-size:20px; margin:0; }
-.global-picks-right .chg { font-weight:800; font-size:16px; margin-top:4px; }
+.global-picks-right .price { font-weight:800; font-size:16px; margin:0; }
+.global-picks-right .chg { font-weight:800; font-size:14px; margin-top:4px; }
 .global-picks-divider { height:1px; background:rgba(255,255,255,.06); margin:0 6px; }
 </style>
 """, unsafe_allow_html=True)
