@@ -135,8 +135,8 @@ div[data-testid="stDecoration"] {
     visibility: hidden;
 }
 /* Remove extra top padding caused by header */
-.block-container {
-    padding-top: 0.5rem !important;
+.block-container{
+    padding-top: 0.25rem !important;
 }
         .pp-greeting {
     font-family: Tahoma;
