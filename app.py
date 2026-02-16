@@ -12,6 +12,8 @@ import textwrap
 from datetime import datetime, timedelta
 import base64
 from pathlib import Path
+from decimal import Decimal
+import numbers
 
 def get_logo_base64(path="logo_optimized.png"):
     try:
@@ -81,8 +83,8 @@ footer {visibility: hidden;}
             background-color: #1a1f2b; 
             border-radius: 16px; 
             padding: 20px; 
-            margin-top: 20px;
-            margin-bottom: 20px; 
+            margin-top: 10px;
+            margin-bottom: 10px; 
             border: 1px solid #2d3748; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
             transition: transform 0.1s ease, border-color 0.1s ease;
@@ -135,7 +137,7 @@ div[data-testid="stDecoration"] {
 }
 /* Remove extra top padding caused by header */
 .block-container {
-    padding-top: 0.8rem !important;
+    padding-top: 0.5rem !important;
 }
         .pp-greeting {
     font-family: Tahoma;
@@ -1789,23 +1791,35 @@ if tab == "home":
                 # Current snapshot from global_cache
                 cur_price = row.get("current_price")
                 cur_chg = row.get("current_change")
+                fired_price = row.get("fired_price")
+                pct_at_fire = row.get("pct_at_fire")
 
-                # Format pieces safely
-                ts = ""
-                try:
-                    if created_at:
-                        ts = created_at.strftime("%b %d %H:%M")
-                except Exception:
-                    ts = str(created_at) if created_at else ""
+                price_text = _fmt_price(cur_price)
 
-                price_text = f"${cur_price:.2f}" if isinstance(cur_price, (int, float)) else (f"${cur_price}" if cur_price else "—")
-                chg_text = f"{cur_chg:+.2f}%" if isinstance(cur_chg, (int, float)) else (str(cur_chg) if cur_chg is not None else "")
-                chg_color = "#46f08a" if isinstance(cur_chg, (int, float)) and cur_chg >= 0 else "#ff4d4d"
+                chg_val = _to_float(cur_chg)
+                if chg_val is None:
+                    chg_text = str(cur_chg) if cur_chg is not None else "—"
+                    chg_color = "#F87171"
+                else:
+                    chg_text = f"{chg_val:+.2f}%"
+                    chg_color = "#4ADE80" if chg_val >= 0 else "#F87171"
 
-                fired_text = ""
-                if fired_col and isinstance(fired_price, (int, float)):
-                    fired_text = f" • fired ${fired_price:.2f}"
+                # Since-fire performance (uses fired_price snapshot + current price)
+                since_fire_text = ""
+                fp = _to_float(fired_price)
+                cp = _to_float(cur_price)
+                if fp is not None and fp > 0 and cp is not None:
+                    since_pct = ((cp - fp) / fp) * 100.0
+                    since_fire_text = f"Since alert: {since_pct:+.2f}%  ({_fmt_price(fp)} → {price_text})"
+                elif pct_at_fire is not None:
+                    paf = _to_float(pct_at_fire)
+                    if paf is not None:
+                        since_fire_text = f"Triggered at: {paf:+.2f}%"
 
+                since_fire_html = (
+                    f'<div style="opacity:0.55; font-size:11px; margin-top:2px;">{since_fire_text}</div>'
+                    if since_fire_text else ""
+                )
                 st.markdown(
                     f"""
                     <div style=\"display:flex; align-items:flex-start; justify-content:space-between; padding:10px 0; border-top:1px solid rgba(255,255,255,0.06);\">
@@ -1813,6 +1827,7 @@ if tab == "home":
                         <div style=\"font-weight:800; letter-spacing:0.5px;\">{ticker}</div>
                         <div style=\"opacity:0.75; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;\">{storm_type}{fired_text}</div>
                         <div style=\"opacity:0.55; font-size:11px; margin-top:2px;\">{ts}</div>
+                        {since_fire_html}
                       </div>
                       <div style=\"text-align:right;\">
                         <div style=\"font-weight:800;\">{price_text}</div>
