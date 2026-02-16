@@ -179,8 +179,7 @@ div[data-testid="stDecoration"] {
             color: #ef4444 !important;
         }
 
-        label, span, div { color: #e0e6ed; }
-        h1, h2, h3, p { font-size: 12px; }
+        h1, h2, h3, p, label, span, div { color: #e0e6ed; }
 
         /* HEADLINE COLOR FIX */
         a { color: #ffffff !important; text-decoration: none !important; }
@@ -658,7 +657,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
-  margin:0px 0 10px 0;
+  margin:0px 0 20px 0;
   padding:10px 12px;
   border-radius:16px;
   background:rgba(18,22,30,0.55);
