@@ -209,7 +209,7 @@ div[data-testid="stDecoration"] {
         .scrolling-wrapper::-webkit-scrollbar { display: none; }
         .scrolling-card { 
             flex: 0 0 auto; 
-            width: 120px; 
+            width: 110px; 
             background-color: #1a1f2b; 
             border: 1px solid #2d3748; 
             border-radius: 12px; 
