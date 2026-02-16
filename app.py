@@ -307,7 +307,7 @@ div[data-testid="stDecoration"] {
 .card.border-gold { border-left: 4px solid #f6c343; }
 
 /* Global picks row layout (single HTML block) */
-.global-picks-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
+.global-picks-row { display:flex; justify-content:space-between; align-items:flex-start; padding-bottom:10px; }
 .global-picks-left .ticker { font-weight:800; letter-spacing:2px; font-size:16px; margin:0; }
 .global-picks-left .type { opacity:.85; font-size:16px; margin-top:2px; }
 .global-picks-left .meta { opacity:.75; font-size:14px; margin-top:6px; }
