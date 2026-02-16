@@ -1618,7 +1618,6 @@ if "ticker" in st.query_params:
 
 tab = st.query_params.get("tab", "home")
 if tab == "home":
-    render_topbar(user.get("display_name"))
     greeting = get_greeting(user["display_name"])
 
     st.markdown(
@@ -1841,7 +1840,6 @@ if tab == "home":
     except Exception as e:
         st.error(f"Global picks error: {e}")
 elif tab == "portfolio":
-    render_topbar(user.get("display_name"))
     st.markdown(f"### My Stocks ({current_mode})")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
     c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
@@ -1911,7 +1909,6 @@ elif tab == "portfolio":
 
 
 elif tab == "alerts":
-    render_topbar(user.get("display_name"))
     st.markdown("## Alerts")
     st.caption("Simple toggles. Portfolio-first. Optional: include your PennyPulse Global List.")
 
@@ -2121,7 +2118,6 @@ elif tab == "alerts":
 
 
 elif tab == "scanner":
-    render_topbar(user.get("display_name"))
     st.markdown("## Market Scanner")
     st.caption("Your portfolio only — biggest signals first. (Your alerts banner still shows your last 5.)")
 
@@ -2309,7 +2305,6 @@ elif tab == "scanner":
                     render_signal_card(r, badge_text=badge)
 
 elif tab == "settings":
-    render_topbar(user.get("display_name"))
     st.markdown("### Settings")
     with st.form("settings_form"):
         new_name = st.text_input("Display Name", value=user['display_name'])
