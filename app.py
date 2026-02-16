@@ -153,8 +153,9 @@ div[data-testid="stDecoration"] {
             border-radius: 12px;
             padding: 15px;
             text-align: center;
+            margin-top: 10px;
             margin-bottom: 10px;
-            padding-top:40px;
+            padding-top:10px;
         }
         .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
         .metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
@@ -200,7 +201,7 @@ div[data-testid="stDecoration"] {
             overflow-x: auto; 
             scroll-behavior: smooth;
             gap: 12px;
-            padding-top:10px;
+            padding-top:20px;
             padding-bottom: 40px;
             -ms-overflow-style: none; 
             scrollbar-width: none; 
@@ -307,12 +308,12 @@ div[data-testid="stDecoration"] {
 
 /* Global picks row layout (single HTML block) */
 .global-picks-row { display:flex; justify-content:space-between; align-items:flex-start; padding:14px 6px; }
-.global-picks-left .ticker { font-weight:800; letter-spacing:2px; font-size:28px; margin:0; }
+.global-picks-left .ticker { font-weight:800; letter-spacing:2px; font-size:20px; margin:0; }
 .global-picks-left .type { opacity:.6; font-size:16px; margin-top:2px; }
 .global-picks-left .meta { opacity:.45; font-size:14px; margin-top:6px; }
 .global-picks-right { text-align:right; }
-.global-picks-right .price { font-weight:800; font-size:28px; margin:0; }
-.global-picks-right .chg { font-weight:800; font-size:22px; margin-top:4px; }
+.global-picks-right .price { font-weight:800; font-size:20px; margin:0; }
+.global-picks-right .chg { font-weight:800; font-size:16px; margin-top:4px; }
 .global-picks-divider { height:1px; background:rgba(255,255,255,.06); margin:0 6px; }
 </style>
 """, unsafe_allow_html=True)
