@@ -695,7 +695,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pp-subpill{
   display:flex;
   align-items:center;
-  transform: translateY(2px);
+  transform: translateY(3px);
   gap:8px;
   padding:6px 10px;       /* tighter = more room */
   border-radius:999px;
@@ -703,7 +703,7 @@ div[data-testid="stToolbar"] { display: none !important; }
   border:1px solid rgba(255,255,255,0.08);
   color:rgba(230,235,245,0.90);
   font-size:13px;
-
+  font-weight:500;
   flex:0 1 auto;          /* 🔥 key change */
   min-width:0;
   white-space:nowrap;
