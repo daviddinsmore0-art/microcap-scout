@@ -695,7 +695,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pp-subpill{
   display:flex;
   align-items:center;
-  transform: translateY(-2px);
+  transform: translateY(2px);
   gap:8px;
   padding:6px 10px;       /* tighter = more room */
   border-radius:999px;
