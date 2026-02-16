@@ -1216,7 +1216,7 @@ def render_navbar(token, mode):
 .pp-nav {{
   position: fixed;
   left: 50%;
-  bottom: 16px;
+  bottom: 10px;
   transform: translateX(-50%);
   width: min(92vw, 560px);
   height: 68px;
