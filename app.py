@@ -1218,7 +1218,7 @@ def render_navbar(token, mode):
   left: 50%;
   bottom: 0px;
   transform: translateX(-50%);
-  width: min(92vw, 560px);
+  width: min(92vw, 620px);
   height: 68px;
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
   display: flex;
@@ -1228,7 +1228,7 @@ def render_navbar(token, mode):
   z-index: 99999;
   background: rgba(18,22,30,0.75);
   border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 22px;
+  border-radius: 18px;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   box-shadow: 0 18px 60px rgba(0,0,0,0.55);
