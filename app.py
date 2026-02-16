@@ -1723,147 +1723,107 @@ if tab == "home":
 
 
 
-    # ============================================
-    # GLOBAL MOMENTUM PICKS (last 5)
-    st.markdown(
-        """
-        <div class=\"pp-alert-card pp-alert-yellow\" style=\"margin-top:14px;\">
-          <h4 style=\"margin:0; font-size:15px; letter-spacing:1px;\">GLOBAL MOMENTUM PICKS</h4>
-        """,
-        unsafe_allow_html=True,
-    )
+    # Global Momentum Picks (from global list)
+    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>GLOBAL MOMENTUM PICKS</div>", unsafe_allow_html=True)
 
     try:
         conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
-
-        # Optional columns (if present in your table)
-        # We'll use the first one that exists: price_at_fire, fire_price, or fired_price
-        fired_col = None
-        for candidate in ("price_at_fire", "fire_price", "fired_price"):
-            cursor.execute(f"SHOW COLUMNS FROM global_setup_fired LIKE '{candidate}'")
-            if cursor.fetchone() is not None:
-                fired_col = candidate
-                break
-
-        # Prefer alerts fired today; if none, fall back to most recent 5 overall
-        select_fired_price = f"f.{fired_col} AS fired_price," if fired_col else ""
-
-        cursor.execute(
-            f"""
+        cur = conn.cursor(dictionary=True)
+        cur.execute(
+            """
             SELECT
-                f.ticker,
-                f.storm_type,
-                f.created_at,
-                {select_fired_price}
+                gsf.ticker,
+                gsf.storm_type,
+                gsf.fired_at,
+                gsf.price_at_fire,
+                gsf.pct_at_fire,
+                gsf.reason,
                 gc.price AS current_price,
                 gc.day_change AS current_change
-            FROM global_setup_fired f
-            LEFT JOIN global_cache gc ON gc.ticker = f.ticker
-            WHERE DATE(f.created_at) = CURDATE()
-            ORDER BY f.created_at DESC
+            FROM global_setup_fired gsf
+            LEFT JOIN global_cache gc ON gc.ticker = gsf.ticker
+            ORDER BY gsf.fired_at DESC
             LIMIT 5
             """
         )
-        fired = cursor.fetchall() or []
+        picks = cur.fetchall() or []
+        cur.close()
+        conn.close()
 
-        if not fired:
-            cursor.execute(
-                f"""
-                SELECT
-                    f.ticker,
-                    f.storm_type,
-                    f.created_at,
-                    {select_fired_price}
-                    gc.price AS current_price,
-                    gc.day_change AS current_change
-                FROM global_setup_fired f
-                LEFT JOIN global_cache gc ON gc.ticker = f.ticker
-                ORDER BY f.created_at DESC
-                LIMIT 5
+        if not picks:
+            st.markdown(
                 """
+                <div class='card alert-card yellow'>
+                  <div class='alert-card-title'>GLOBAL MOMENTUM PICKS</div>
+                  <div class='alert-card-text'>No active global alerts yet today.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-            fired = cursor.fetchall() or []
-
-        if fired:
-            for row in fired:
+        else:
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+            for row in picks:
                 ticker = (row.get("ticker") or "").upper()
-                storm_type = row.get("storm_type") or ""
-                created_at = row.get("created_at")
+                storm = (row.get("storm_type") or "").lower()
+                fired_at = row.get("fired_at")
+                fired_text = ""
+                if fired_at:
+                    try:
+                        fired_text = fired_at.strftime("%b %d %H:%M")
+                    except Exception:
+                        fired_text = str(fired_at)
 
-                # Fired price (optional)
-                fired_price = row.get("fired_price") if fired_col else None
+                current_price = _to_float(row.get("current_price"))
+                price_at_fire = _to_float(row.get("price_at_fire"))
+                current_change = _to_float(row.get("current_change"))
+                pct_at_fire = _to_float(row.get("pct_at_fire"))
 
-                # Current snapshot from global_cache
-                cur_price = row.get("current_price")
-                cur_chg = row.get("current_change")
-                fired_price = row.get("fired_price")
-                pct_at_fire = row.get("pct_at_fire")
-                from datetime import datetime
+                # Prefer "since fired" % (more meaningful), else fall back to current day_change
+                since_fire_pct = None
+                if current_price is not None and price_at_fire not in (None, 0):
+                    since_fire_pct = ((current_price - price_at_fire) / price_at_fire) * 100.0
 
-try:
-    fired_dt = row["fired_at"]
-    if isinstance(fired_dt, str):
-        fired_dt = datetime.strptime(fired_dt, "%Y-%m-%d %H:%M:%S")
-    fired_text = fired_dt.strftime("%b %d %H:%M")
-except:
-    fired_text = ""
-                price_text = _fmt_price(cur_price)
+                right_change = since_fire_pct if since_fire_pct is not None else current_change
+                right_change_color = "#38d06e" if (right_change or 0) >= 0 else "#ff5a5a"
+                right_change_text = ""
+                if right_change is not None:
+                    right_change_text = f"{right_change:+.2f}%"
 
-                chg_val = _to_float(cur_chg)
-                if chg_val is None:
-                    chg_text = str(cur_chg) if cur_chg is not None else "—"
-                    chg_color = "#F87171"
-                else:
-                    chg_text = f"{chg_val:+.2f}%"
-                    chg_color = "#4ADE80" if chg_val >= 0 else "#F87171"
+                # Small context line: at-fire price + at-fire % if available
+                fired_ctx_parts = []
+                if price_at_fire is not None:
+                    fired_ctx_parts.append(f"@ ${price_at_fire:.4f}" if price_at_fire < 10 else f"@ ${price_at_fire:.2f}")
+                if pct_at_fire is not None:
+                    fired_ctx_parts.append(f"({pct_at_fire:+.2f}%)")
+                fired_ctx = " ".join(fired_ctx_parts)
 
-                # Since-fire performance (uses fired_price snapshot + current price)
-                since_fire_text = ""
-                fp = _to_float(fired_price)
-                cp = _to_float(cur_price)
-                if fp is not None and fp > 0 and cp is not None:
-                    since_pct = ((cp - fp) / fp) * 100.0
-                    since_fire_text = f"Since alert: {since_pct:+.2f}%  ({_fmt_price(fp)} → {price_text})"
-                elif pct_at_fire is not None:
-                    paf = _to_float(pct_at_fire)
-                    if paf is not None:
-                        since_fire_text = f"Triggered at: {paf:+.2f}%"
+                price_text = "—"
+                if current_price is not None:
+                    price_text = f"${current_price:.4f}" if current_price < 10 else f"${current_price:.2f}"
 
-                since_fire_html = (
-                    f'<div style="opacity:0.55; font-size:11px; margin-top:2px;">{since_fire_text}</div>'
-                    if since_fire_text else ""
-                )
                 st.markdown(
                     f"""
-                    <div style=\"display:flex; align-items:flex-start; justify-content:space-between; padding:10px 0; border-top:1px solid rgba(255,255,255,0.06);\">
-                      <div style=\"min-width:0;\">
-                        <div style=\"font-weight:800; letter-spacing:0.5px;\">{ticker}</div>
-                        <div style=\"opacity:0.75; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;\">{storm_type}{fired_text}</div>
-                        <div style=\"opacity:0.55; font-size:11px; margin-top:2px;\">{ts}</div>
-                        {since_fire_html}
-                      </div>
-                      <div style=\"text-align:right;\">
-                        <div style=\"font-weight:800;\">{price_text}</div>
-                        <div style=\"font-weight:700; color:{chg_color};\">{chg_text}</div>
+                    <div style='padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.06);'>
+                      <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
+                        <div>
+                          <div style='font-size:20px; font-weight:800; letter-spacing:1px;'>{ticker}</div>
+                          <div style='font-size:13px; opacity:0.75; text-transform:lowercase;'>{storm}</div>
+                          <div style='font-size:12px; opacity:0.55; margin-top:6px;'>{fired_text} {fired_ctx}</div>
+                        </div>
+                        <div style='text-align:right;'>
+                          <div style='font-size:20px; font-weight:800;'>{price_text}</div>
+                          <div style='font-size:16px; font-weight:800; color:{right_change_color}; margin-top:2px;'>{right_change_text}</div>
+                        </div>
                       </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
-        else:
-            st.markdown(
-                "<div style='margin-top:10px; opacity:0.8;'>No active global alerts yet today.</div>",
-                unsafe_allow_html=True,
-            )
-
-        cursor.close()
-        conn.close()
+            st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Global picks error: {e}")
-
-    st.markdown("</div>", unsafe_allow_html=True)
 elif tab == "portfolio":
     render_topbar(user.get("display_name"))
     st.markdown(f"### My Stocks ({current_mode})")
