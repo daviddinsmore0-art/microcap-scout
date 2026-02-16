@@ -1740,7 +1740,7 @@ if tab == "home":
 
     # Global Momentum Picks (from global list)
     st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>GLOBAL MOMENTUM PICKS</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
 
     try:
         conn = get_connection()
