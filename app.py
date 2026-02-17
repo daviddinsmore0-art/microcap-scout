@@ -933,7 +933,6 @@ def get_daily_watchlist(date_obj):
         return rows or []
     except Exception:
         return []
-def format_extended_change(row):
 def _to_float(x):
     try:
         if x is None or x == "":
@@ -941,16 +940,19 @@ def _to_float(x):
         return float(x)
     except Exception:
         return None
+
+
 def format_extended_change(row):
-    pre  = _to_float(row.get("pre_market_change"))
+    pre = _to_float(row.get("pre_market_change"))
     post = _to_float(row.get("post_market_change"))
 
-    # Prefer after-hours if present
+    # Prefer after-hours first
     if post is not None and abs(post) > 0:
         color = "#4ade80" if post > 0 else "#ef4444"
         arrow = "▲" if post > 0 else "▼"
         return (
-            f"<div style='margin-top:3px; font-size:0.80rem; color:{color}; opacity:0.85;'>"
+            f"<div style='margin-top:3px; font-size:0.80rem; "
+            f"color:{color}; opacity:0.85;'>"
             f"AH {arrow} {post:.2f}%"
             f"</div>"
         )
@@ -959,7 +961,8 @@ def format_extended_change(row):
         color = "#4ade80" if pre > 0 else "#ef4444"
         arrow = "▲" if pre > 0 else "▼"
         return (
-            f"<div style='margin-top:3px; font-size:0.80rem; color:{color}; opacity:0.85;'>"
+            f"<div style='margin-top:3px; font-size:0.80rem; "
+            f"color:{color}; opacity:0.85;'>"
             f"PRE {arrow} {pre:.2f}%"
             f"</div>"
         )
