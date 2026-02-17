@@ -2458,8 +2458,9 @@ card_html = f"""
 </div>
 """.strip()
 
-st.markdown(card_html, unsafe_allow_html=True)
-def render_rank_card(r, badge_text=None):
+  st.markdown(card_html, unsafe_allow_html=True)
+  def render_rank_card(r, badge_text=None):
+  
 elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
