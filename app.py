@@ -2320,190 +2320,127 @@ elif tab == "alerts":
 
 elif tab == "scanner":
     st.markdown("")
-    st.caption("Your portfolio only — biggest signals first. (Your alerts banner still shows your last 5.)")
+    st.caption("Global rankings — biggest signals first.")
 
-    portfolio_rows = get_portfolio_details(user["username"], current_mode)
-    tickers = [r["ticker"] for r in portfolio_rows if r.get("ticker")]
-
-    if not tickers:
-        st.info("No tickers in your portfolio yet. Add a few to see scanner signals.")
-    else:
-        data_map = get_cached_data_map(tickers)
-        rows = list(data_map.values())
-
-        def _f(v, default=0.0):
-            try:
-                if v is None:
-                    return default
-                return float(v)
-            except Exception:
+    def _f(v, default=0.0):
+        try:
+            if v is None:
                 return default
+            return float(v)
+        except Exception:
+            return default
 
-        def signal_score(r):
-            day = _f(r.get("day_change"))
-            rsi = _f(r.get("rsi_14"), 50.0)
-            rvol = _f(r.get("rvol"), 1.0)
-            trend = (r.get("trend_status") or "").upper()
-
-            score = abs(day) * 2.0
-            if rvol >= 2:
-                score += (rvol - 1.0) * 10.0
-            if rsi <= 40:
-                score += 20.0 + (40.0 - rsi)
-            if rsi >= 70:
-                score += 20.0 + (rsi - 70.0)
-            if trend in ("UPTREND", "DOWNTREND"):
-                score += 15.0
-            return score
-
-        def is_strong_momentum(r):
-            day = _f(r.get("day_change"))
-            rvol = _f(r.get("rvol"), 1.0)
-            trend = (r.get("trend_status") or "").upper()
-            return day >= 4.0 and rvol >= 1.8 and trend == "UPTREND"
-
-        def is_weakness(r):
-            day = _f(r.get("day_change"))
-            rvol = _f(r.get("rvol"), 1.0)
-            trend = (r.get("trend_status") or "").upper()
-            return day <= -4.0 and rvol >= 1.8 and trend == "DOWNTREND"
-
-        def is_big_up(r):
-            return _f(r.get("day_change")) >= 7.0
-
-        def is_big_down(r):
-            return _f(r.get("day_change")) <= -7.0
-
-        def is_oversold(r):
-            return _f(r.get("rsi_14"), 50.0) < 40.0
-
-        def is_overbought(r):
-            return _f(r.get("rsi_14"), 50.0) > 70.0
-
-        def is_high_rvol(r):
-            return _f(r.get("rvol"), 1.0) >= 3.0
-
-        # Buckets (rows can appear in multiple buckets)
-        buckets = [
-            ("🚀 Strong Momentum", is_strong_momentum),
-            ("🧯 Weakness Building", is_weakness),
-            ("📈 Big Move Up", is_big_up),
-            ("📉 Big Move Down", is_big_down),
-            ("🧊 Oversold (RSI < 40)", is_oversold),
-            ("🔥 Overbought (RSI > 70)", is_overbought),
-            ("🌪 High Relative Volume", is_high_rvol),
-        ]
-
-        # Keep only tickers that have *some* signal
-        any_signal_rows = []
-        for r in rows:
-            if r.get("ticker") is None or r.get("current_price") is None:
-                continue
-            if any(fn(r) for _, fn in buckets):
-                any_signal_rows.append(r)
-
-        if not any_signal_rows:
-            st.info("No big signals right now for your portfolio. Check back soon.")
+    def chip_class(v, kind="score"):
+        # Simple pill coloring for 0-100 style scores or RVOL
+        if kind == "rvol":
+            if v >= 2.0:
+                return "scan-chip good"
+            if v >= 1.3:
+                return "scan-chip warn"
+            return "scan-chip"
         else:
-            any_signal_rows.sort(key=signal_score, reverse=True)
-            def render_signal_card(r, *, badge_text=None):
-                ticker = (r.get("ticker") or "").upper()
-                price = _f(r.get("current_price"), 0.0)
-                day = _f(r.get("day_change"), 0.0)
+            if v >= 70:
+                return "scan-chip good"
+            if v >= 40:
+                return "scan-chip warn"
+            return "scan-chip"
 
-                arrow = "▲" if day >= 0 else "▼"
-                day_txt = f"{arrow} {abs(day):.2f}%"
-                chg_color = "#4ade80" if day >= 0 else "#ef4444"
+    def fetch_rank_rows(order_sql: str, limit: int):
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+        cur.execute(f"""
+            SELECT
+                r.ticker,
+                COALESCE(r.cumulative_score,
+                         COALESCE(r.momentum_score,0) + COALESCE(r.quality_score,0)
+                ) AS total_score,
+                COALESCE(r.momentum_score,0) AS momentum_score,
+                COALESCE(r.quality_score,0)  AS quality_score,
+                COALESCE(r.rvol,0)           AS rvol,
+                COALESCE(r.breakout,0)       AS breakout,
+                gc.price                     AS price,
+                gc.day_change                AS day_change,
+            FROM rankings_daily r
+            LEFT JOIN global_cache gc ON gc.ticker = r.ticker
+            ORDER BY {order_sql}
+            LIMIT %s
+        """, (int(limit),))
+        rows = cur.fetchall() or []
+        cur.close()
+        conn.close()
+        return rows
 
-                trend = (r.get("trend_status") or "NEUTRAL").upper()
-                rsi = _f(r.get("rsi_14"), 50.0)
-                rvol = _f(r.get("rvol"), 1.0)
+    def render_rank_card(r, badge_text=None):
+        ticker = (r.get("ticker") or "").upper()
+        price = _f(r.get("price"), 0.0)
+        day = _f(r.get("day_change"), 0.0)
 
-                # calculate_risk() returns: (score, label, color, badge, breakdown)
-                risk_score, risk_label, *_ = calculate_risk(r)
-                conf = calculate_confidence(r)
+        total = _f(r.get("total_score"), 0.0)
+        momo = _f(r.get("momentum_score"), 0.0)
+        qual = _f(r.get("quality_score"), 0.0)
+        rvol = _f(r.get("rvol"), 0.0)
+        breakout = int(_f(r.get("breakout"), 0.0))
 
-                def chip_class(v, kind="conf"):
-                    try:
-                        v = float(v)
-                    except Exception:
-                        return "scan-chip"
-                    if kind == "risk":
-                        return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
-                    return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
+        trend = (r.get("trend_status") or "—").upper()
+        rsi = _f(r.get("rsi_14"), 0.0)
 
-                # Accent rail color
-                rail = "#38bdf8"
-                if trend == "UPTREND":
-                    rail = "#4ade80"
-                elif trend == "DOWNTREND":
-                    rail = "#ef4444"
-                if rsi <= 30:
-                    rail = "#fbbf24"
-                elif rsi >= 70:
-                    rail = "#a78bfa"
+        chg_color = "#4ade80" if day >= 0 else "#ef4444"
+        day_txt = f"{day:+.2f}%"
 
-                badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
+        badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
 
-                # Keep navigation exactly as your app uses it (query params)
-                link = f"?token={token}&ticker={ticker}"
+        # Breakout chip text
+        brk_txt = "BRK" if breakout == 1 else "—"
 
-                card_html = "\n".join([
-                    f'<a href="{link}" class="card-link" target="_self">',
-                    f'<div class="scan-card" style="border-left:5px solid {rail};">',
-                    '<div class="scan-top">',
-                    '<div class="scan-left">',
-                    f'<div class="scan-ticker">{ticker}</div>',
-                    f'<div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>',
-                    '</div>',
-                    '<div class="scan-right">',
-                    f'<div class="scan-price">${price:.2f}</div>',
-                    f'<div class="scan-day" style="color:{chg_color};">{day_txt}</div>',
-                    '</div>',
-                    '</div>',
-                    '<div class="scan-row">',
-                    f'<div class="{chip_class(risk_score, "risk")}">RISK {int(risk_score)}</div>',
-                    f'<div class="scan-chip">{risk_label}</div>',
-                    f'<div class="{chip_class(conf, "conf")}">CONF {int(conf)}</div>',
-                    '</div>',
-                    badge_html,
-                    '<div class="scan-divider"></div>',
-                    '<div class="scan-mini">',
-                    f'<div><span>Range</span> {_f(r.get("range_pct"), 0.0):.0f}%</div>',
-                    f'<div><span>Volatility</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
-                    f'<div><span>Debt Ratio</span> {_f(r.get("debt_ratio"), 0.0):.0f} %</div>',
-                    '</div>',
-                    '</div>',
-                    '</a>',
-                ]).strip()
+        card_html = "\n".join([
+            '<div class="scan-card">',
+            '<div class="scan-top">',
+            '<div class="scan-left">',
+            f'<div class="scan-ticker">{ticker}</div>',
+            f'<div class="scan-sub">{trend} • RSI {rsi:.0f}</div>',
+            '</div>',
+            '<div class="scan-right">',
+            f'<div class="scan-price">${price:.2f}</div>',
+            f'<div class="scan-day" style="color:{chg_color};">{day_txt}</div>',
+            '</div>',
+            '</div>',
+            '<div class="scan-row">',
+            f'<div class="{chip_class(total)}">TOTAL {int(total)}</div>',
+            f'<div class="{chip_class(momo)}">MOM {int(momo)}</div>',
+            f'<div class="{chip_class(qual)}">QUAL {int(qual)}</div>',
+            f'<div class="{chip_class(rvol, "rvol")}">RVOL {rvol:.2f}</div>',
+            f'<div class="scan-chip">{brk_txt}</div>',
+            '</div>',
+            badge_html,
+            '</div>',
+        ]).strip()
 
-                st.markdown(card_html, unsafe_allow_html=True)
+        st.markdown(card_html, unsafe_allow_html=True)
 
+    # --- Top 5 (Total) ---
+    top5 = fetch_rank_rows("total_score DESC", 5)
+    if not top5:
+        st.info("No rankings yet (rankings_daily is empty).")
+    else:
+        st.markdown("### Top 5 — Ranked")
+        st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
+        for i, r in enumerate(top5, start=1):
+            render_rank_card(r, badge_text="Top ranked" if i == 1 else None)
+        st.markdown('</div>', unsafe_allow_html=True)
 
+        # --- Under Top 5: Top 3 blocks ---
+        st.markdown("---")
+        st.markdown("### Top 3 Momentum")
+        for r in fetch_rank_rows("momentum_score DESC", 3):
+            render_rank_card(r)
 
-            # Top ranked list (all signals)
-            st.markdown("### 🔥 Biggest Signals (Ranked)")
-            st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
-            top_n = min(3, len(any_signal_rows))
-            for i, r in enumerate(any_signal_rows[:top_n], start=1):
-                badge = "Watch this one!" if i <= 3 else None
-                render_signal_card(r, badge_text=badge)
+        st.markdown("### Top 3 Quality")
+        for r in fetch_rank_rows("quality_score DESC", 3):
+            render_rank_card(r)
 
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # Category sections
-            st.markdown("---")
-            st.markdown("### Categories")
-
-            for title, fn in buckets:
-                bucket_rows = [r for r in any_signal_rows if fn(r)]
-                if not bucket_rows:
-                    continue
-                bucket_rows.sort(key=signal_score, reverse=True)
-                st.markdown(f"#### {title}")
-                for i, r in enumerate(bucket_rows[:15], start=1):
-                    badge = "Watch this one!" if i == 1 else None
-                    render_signal_card(r, badge_text=badge)
+        st.markdown("### Top 3 Volume (RVOL)")
+        for r in fetch_rank_rows("rvol DESC", 3):
+            render_rank_card(r)
 
 elif tab == "settings":
     st.markdown("### Settings")
