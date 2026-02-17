@@ -2359,7 +2359,7 @@ elif tab == "scanner":
                 COALESCE(r.rvol,0)           AS rvol,
                 COALESCE(r.breakout,0)       AS breakout,
                 gc.price                     AS price,
-                gc.day_change                AS day_change,
+                gc.day_change                AS day_change
             FROM rankings_daily r
             LEFT JOIN global_cache gc ON gc.ticker = r.ticker
             ORDER BY {order_sql}
