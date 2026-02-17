@@ -2418,7 +2418,7 @@ elif tab == "scanner":
         st.markdown(card_html, unsafe_allow_html=True)
 
     # --- Top 5 (Total) ---
-    top5 = fetch_rank_rows("total_score DESC", 5)
+    top5 = fetch_rank_rows("cumulative_score DESC", 5)
     if not top5:
         st.info("No rankings yet (rankings_daily is empty).")
     else:
