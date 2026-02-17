@@ -2459,13 +2459,13 @@ elif tab == "scanner":
               </div>
             </div>
 
-            <div class="pill-row">
-              <div class="pill"><strong>COMP</strong> {comp}</div>
-              <div class="pill"><strong>MOM</strong> {mom}</div>
-              <div class="pill"><strong>QUAL</strong> {qual}</div>
-              <div class="pill"><strong>VAL</strong> {val}</div>
-              <div class="pill"><strong>STAB</strong> {stab}</div>
-            </div>
+            #<div class="pill-row">
+             # <div class="pill"><strong>COMP</strong> {comp}</div>
+             # <div class="pill"><strong>MOM</strong> {mom}</div>
+              #<div class="pill"><strong>QUAL</strong> {qual}</div>
+            #  <div class="pill"><strong>VAL</strong> {val}</div>
+             # <div class="pill"><strong>STAB</strong> {stab}</div>
+           # </div>
 
             <div class="bars">
               <div class="bar-row">
