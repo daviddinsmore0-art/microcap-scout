@@ -2481,7 +2481,7 @@ elif tab == "scanner":
     </div>
     <div class="rank-val">{stab}</div>
 </div>
-            </div>
+        
         
         """
 
