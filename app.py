@@ -2431,9 +2431,9 @@ elif tab == "scanner":
         ticker = (r.get("ticker") or "").upper()
         comp = _int0(r.get("composite_score"))
         mom = int(r["momentum_score"] or 0)
-qual = int(r["quality_score"] or 0)
-val = int(r["value_score"] or 0)
-stab = int(r["stability_score"] or 0)
+        qual = int(r["quality_score"] or 0)
+        val = int(r["value_score"] or 0)
+        stab = int(r["stability_score"] or 0)
 
         # headline: optional badge + confidence if present
         conf = (r.get("confidence") or "")
