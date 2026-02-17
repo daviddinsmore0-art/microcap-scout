@@ -937,12 +937,12 @@ def format_extended_change(row):
     """
     Returns formatted pre/post change string if available.
     Assumes your PHP updater populates:
-    pre_change_pct
-    post_change_pct
+    pre_market_change
+    post_market_change
     """
     try:
-        pre = float(row.get("pre_change_pct") or 0)
-        post = float(row.get("post_change_pct") or 0)
+        pre = float(row.get("pre_market_change") or 0)
+        post = float(row.get("post_market_change") or 0)
     except:
         return ""
 
