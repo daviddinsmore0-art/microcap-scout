@@ -2430,10 +2430,10 @@ elif tab == "scanner":
     def render_rank_card(r: dict, badge: str | None = None):
         ticker = (r.get("ticker") or "").upper()
         comp = _int0(r.get("composite_score"))
-        mom  = _int0(r.get("momentum_score"))
-        qual = _int0(r.get("quality_score"))
-        val  = _int0(r.get("value_score"))
-        stab = _int0(r.get("stability_score"))
+        mom = int(r["momentum_score"] or 0)
+qual = int(r["quality_score"] or 0)
+val = int(r["value_score"] or 0)
+stab = int(r["stability_score"] or 0)
 
         # headline: optional badge + confidence if present
         conf = (r.get("confidence") or "")
