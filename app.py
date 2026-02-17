@@ -2482,7 +2482,7 @@ elif tab == "scanner":
     <div class="rank-val">{stab}</div>
 </div>
             </div>
-          </div>
+        
         """
 
         st.markdown(html, unsafe_allow_html=True)
