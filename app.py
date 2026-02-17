@@ -2375,7 +2375,7 @@ elif tab == "scanner":
         price = _f(r.get("price"), 0.0)
         day = _f(r.get("day_change"), 0.0)
 
-        total = _f(r.get("total_score"), 0.0)
+        total = _f(r.get("cumulative_score"), 0.0)
         momo = _f(r.get("momentum_score"), 0.0)
         qual = _f(r.get("quality_score"), 0.0)
         rvol = _f(r.get("rvol"), 0.0)
