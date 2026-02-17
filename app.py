@@ -933,8 +933,8 @@ def get_daily_watchlist(date_obj):
         return rows or []
     except Exception:
         return []
-def format_extended_change(row):
-def _to_float(x):
+ def format_extended_change(row):
+ def _to_float(x):
     try:
         if x is None or x == "":
             return None
@@ -942,7 +942,7 @@ def _to_float(x):
     except Exception:
         return None
 
-def format_extended_change(row):
+ def format_extended_change(row):
     pre  = _to_float(row.get("pre_market_change"))
     post = _to_float(row.get("post_market_change"))
 
