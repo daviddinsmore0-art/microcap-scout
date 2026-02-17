@@ -279,22 +279,6 @@ margin-top:40px;
 .scan-chip.warn{ background:rgba(251,191,36,0.12); border-color:rgba(251,191,36,0.35); color:#fbbf24; }
 .scan-chip.bad { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.35); color:#ef4444; }
 
-.rank-card { padding: 14px 14px 12px 14px; }
-.rank-head { display:flex; justify-content:space-between; align-items:flex-start; }
-.rank-ticker { font-size: 18px; font-weight: 800; letter-spacing: 0.2px; }
-.rank-score { text-align:right; line-height: 1; }
-.rank-score-num { font-size: 26px; font-weight: 900; }
-.rank-score-den { font-size: 13px; color: rgba(255,255,255,0.45); margin-left: 2px; font-weight: 700; }
-
-.rank-divider { height:1px; background: rgba(255,255,255,0.08); margin: 10px 0 10px 0; }
-
-.rank-row { display:grid; grid-template-columns: 92px 1fr 34px; gap: 10px; align-items:center; margin: 10px 0; }
-.rank-label { font-size: 12px; color: rgba(255,255,255,0.70); font-weight: 600; }
-.rank-val { font-size: 12px; color: rgba(255,255,255,0.75); font-weight: 700; text-align:right; }
-
-.rank-bar { height: 4px; background: rgba(255,255,255,0.10); border-radius: 999px; overflow:hidden; }
-.rank-bar-fill { height: 100%; border-radius: 999px; }
-
 .scan-badge{
   display:inline-block;
   margin-top:12px;
@@ -2335,50 +2319,107 @@ elif tab == "alerts":
 
 
 elif tab == "scanner":
-    st.markdown("")
-    st.caption("Global rankings — biggest signals first.")
+    st.markdown("Global rankings — biggest signals first.")
 
-    def _f(v, default=0.0):
+    st.markdown(
+        """
+        <style>
+          .rank-wrap { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
+          .rank-card {
+            background: linear-gradient(180deg, rgba(17,24,39,0.92), rgba(15,23,42,0.92));
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 22px;
+            padding: 16px 16px 14px 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+          }
+          .rank-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
+          .rank-ticker { font-size: 44px; font-weight: 800; letter-spacing: 0.5px; line-height: 1; }
+          .rank-sub { color: rgba(255,255,255,0.55); font-size: 14px; margin-top: 4px; }
+          .rank-right { display:flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+          .ring {
+            width: 66px; height: 66px; border-radius: 999px;
+            display:flex; align-items:center; justify-content:center;
+            background: conic-gradient(#22c55e var(--p), rgba(255,255,255,0.10) 0);
+            border: 1px solid rgba(255,255,255,0.10);
+          }
+          .ring-inner {
+            width: 54px; height: 54px; border-radius: 999px;
+            background: rgba(2,6,23,0.65);
+            display:flex; align-items:center; justify-content:center;
+            font-weight: 800; font-size: 18px;
+          }
+          .pill-row { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+          .pill {
+            padding: 7px 10px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            font-weight: 700;
+            font-size: 12px;
+            letter-spacing: 0.3px;
+          }
+          .pill strong { opacity: 0.9; }
+          .bars { margin-top: 12px; display:flex; flex-direction: column; gap: 10px; }
+          .bar-row { display:flex; align-items:center; justify-content: space-between; gap: 10px; }
+          .bar-label { width: 86px; color: rgba(255,255,255,0.70); font-size: 12px; font-weight: 700; }
+          .bar {
+            flex: 1;
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.10);
+            overflow: hidden;
+          }
+          .bar > span {
+            display:block; height:100%;
+            width: var(--w);
+            background: linear-gradient(90deg, rgba(34,197,94,0.95), rgba(250,204,21,0.95));
+            border-radius: 999px;
+          }
+          .bar-val { width: 34px; text-align:right; font-size: 12px; font-weight: 800; }
+          .section-title { margin-top: 18px; margin-bottom: 6px; font-size: 22px; font-weight: 800; }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    def _int0(x):
         try:
-            if v is None:
-                return default
-            return float(v)
+            return int(round(float(x)))
         except Exception:
-            return default
+            return 0
 
-    def chip_class(v, kind="score"):
-        # Simple pill coloring for 0-100 style scores or RVOL
-        if kind == "rvol":
-            if v >= 2.0:
-                return "scan-chip good"
-            if v >= 1.3:
-                return "scan-chip warn"
-            return "scan-chip"
-        else:
-            if v >= 70:
-                return "scan-chip good"
-            if v >= 40:
-                return "scan-chip warn"
-            return "scan-chip"
+    def _clamp01(x):
+        try:
+            x = float(x)
+        except Exception:
+            x = 0.0
+        if x < 0: x = 0
+        if x > 100: x = 100
+        return x
 
-    def fetch_rank_rows(order_sql: str, limit: int):
+    def fetch_rank_rows(order_col: str, limit: int):
+        # whitelist only known columns
+        allowed = {"composite_score","momentum_score","quality_score","value_score","stability_score"}
+        if order_col not in allowed:
+            order_col = "composite_score"
+
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
         cur.execute(f"""
             SELECT
-                r.ticker,
-                COALESCE(r.composite_score,
-                         COALESCE(r.momentum_score,0) + COALESCE(r.quality_score,0)
-                ) AS total_score,
-                COALESCE(r.momentum_score,0) AS momentum_score,
-                COALESCE(r.quality_score,0)  AS quality_score,
-                COALESCE(r.rvol,0)           AS rvol,
-                COALESCE(r.breakout,0)       AS breakout,
-                gc.price                     AS price,
-                gc.day_change                AS day_change
-            FROM rankings_daily r
-            LEFT JOIN global_cache gc ON gc.ticker = r.ticker
-            ORDER BY {order_sql}
+                ticker,
+                asof_date,
+                composite_score,
+                momentum_score,
+                quality_score,
+                value_score,
+                stability_score,
+                confidence,
+                why_json
+            FROM rankings_daily
+            WHERE asof_date = (SELECT MAX(asof_date) FROM rankings_daily)
+            ORDER BY {order_col} DESC
             LIMIT %s
         """, (int(limit),))
         rows = cur.fetchall() or []
@@ -2386,81 +2427,91 @@ elif tab == "scanner":
         conn.close()
         return rows
 
-    def render_rank_card(r, badge_text=None):
+    def render_rank_card(r: dict, badge: str | None = None):
         ticker = (r.get("ticker") or "").upper()
-        price = _f(r.get("price"), 0.0)
-        day = _f(r.get("day_change"), 0.0)
+        comp = _int0(r.get("composite_score"))
+        mom  = _int0(r.get("momentum_score"))
+        qual = _int0(r.get("quality_score"))
+        val  = _int0(r.get("value_score"))
+        stab = _int0(r.get("stability_score"))
 
-        total = _f(r.get("composite_score"), 0.0)
-        momo = _f(r.get("momentum_score"), 0.0)
-        qual = _f(r.get("quality_score"), 0.0)
-        rvol = _f(r.get("rvol"), 0.0)
-        breakout = int(_f(r.get("breakout"), 0.0))
+        # headline: optional badge + confidence if present
+        conf = (r.get("confidence") or "")
+        sub_bits = []
+        if badge:
+            sub_bits.append(str(badge))
+        if conf:
+            sub_bits.append(f"CONF {conf.upper()}")
+        sub = " • ".join(sub_bits) if sub_bits else "—"
 
-        ticker = r.get("ticker", "—")
+        # Use 3 visuals: Momentum / Quality / Stability bars
+        html = f"""
+          <div class="rank-card">
+            <div class="rank-top">
+              <div>
+                <div class="rank-ticker">{ticker}</div>
+                <div class="rank-sub">{sub}</div>
+              </div>
+              <div class="rank-right">
+                <div class="ring" style="--p:{_clamp01(comp)}%;">
+                  <div class="ring-inner">{comp}</div>
+                </div>
+              </div>
+            </div>
 
-comp = int(r.get("composite_score") or 0)
-momo = int(r.get("momentum_score") or 0)
-qual = int(r.get("quality_score") or 0)
-val  = int(r.get("value_score") or 0)
-stab = int(r.get("stability_score") or 0)
+            <div class="pill-row">
+              <div class="pill"><strong>COMP</strong> {comp}</div>
+              <div class="pill"><strong>MOM</strong> {mom}</div>
+              <div class="pill"><strong>QUAL</strong> {qual}</div>
+              <div class="pill"><strong>VAL</strong> {val}</div>
+              <div class="pill"><strong>STAB</strong> {stab}</div>
+            </div>
 
-def tint(score: int) -> str:
-    # sleek dynamic (muted)
-    if score >= 85: return "#34d399"  # emerald
-    if score >= 70: return "#2dd4bf"  # teal
-    if score >= 50: return "#9ca3af"  # neutral
-    return "#f87171"                  # muted red
+            <div class="bars">
+              <div class="bar-row">
+                <div class="bar-label">Momentum</div>
+                <div class="bar" style="--w:{_clamp01(mom)}%;"><span></span></div>
+                <div class="bar-val">{mom}</div>
+              </div>
+              <div class="bar-row">
+                <div class="bar-label">Quality</div>
+                <div class="bar" style="--w:{_clamp01(qual)}%;"><span></span></div>
+                <div class="bar-val">{qual}</div>
+              </div>
+              <div class="bar-row">
+                <div class="bar-label">Stability</div>
+                <div class="bar" style="--w:{_clamp01(stab)}%;"><span></span></div>
+                <div class="bar-val">{stab}</div>
+              </div>
+            </div>
+          </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)
 
-def bar(score: int) -> str:
-    score = max(0, min(100, score))
-    fill = tint(score)
-    return f"""
-    <div class="rank-bar">
-      <div class="rank-bar-fill" style="width:{score}%; background:{fill};"></div>
-    </div>
-    """
+    # --- Top 5 ranked by composite_score ---
+    top5 = fetch_rank_rows("composite_score", 5)
+    if not top5:
+        st.info("No rankings yet (rankings_daily is empty).")
+    else:
+        st.markdown('<div class="section-title">Top 5 — Ranked</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rank-wrap">', unsafe_allow_html=True)
+        for i, r in enumerate(top5, start=1):
+            render_rank_card(r, badge="Top ranked" if i == 1 else None)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-card_html = f"""
-<div class="scan-card rank-card">
-  <div class="rank-head">
-    <div class="rank-ticker">{ticker}</div>
-    <div class="rank-score" style="color:{tint(comp)};">
-      <span class="rank-score-num">{comp}</span><span class="rank-score-den">/100</span>
-    </div>
-  </div>
+        st.markdown("---")
 
-  <div class="rank-divider"></div>
+        st.markdown('<div class="section-title">Top 3 Momentum</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("momentum_score", 3):
+            render_rank_card(r)
 
-  <div class="rank-row">
-    <div class="rank-label">Momentum</div>
-    {bar(momo)}
-    <div class="rank-val">{momo}</div>
-  </div>
+        st.markdown('<div class="section-title">Top 3 Quality</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("quality_score", 3):
+            render_rank_card(r)
 
-  <div class="rank-row">
-    <div class="rank-label">Quality</div>
-    {bar(qual)}
-    <div class="rank-val">{qual}</div>
-  </div>
-
-  <div class="rank-row">
-    <div class="rank-label">Value</div>
-    {bar(val)}
-    <div class="rank-val">{val}</div>
-  </div>
-
-  <div class="rank-row">
-    <div class="rank-label">Stability</div>
-    {bar(stab)}
-    <div class="rank-val">{stab}</div>
-  </div>
-</div>
-""".strip()
-
-  st.markdown(card_html, unsafe_allow_html=True)
-  def render_rank_card(r, badge_text=None):
-  
+        st.markdown('<div class="section-title">Top 3 Stability</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("stability_score", 3):
+            render_rank_card(r)
 elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
