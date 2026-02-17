@@ -2375,7 +2375,7 @@ elif tab == "scanner":
         price = _f(r.get("price"), 0.0)
         day = _f(r.get("day_change"), 0.0)
 
-        total = _f(r.get("cumulative_score"), 0.0)
+        total = _f(r.get("composite_score"), 0.0)
         momo = _f(r.get("momentum_score"), 0.0)
         qual = _f(r.get("quality_score"), 0.0)
         rvol = _f(r.get("rvol"), 0.0)
@@ -2418,7 +2418,7 @@ elif tab == "scanner":
         st.markdown(card_html, unsafe_allow_html=True)
 
     # --- Top 5 (Total) ---
-    top5 = fetch_rank_rows("cumulative_score DESC", 5)
+    top5 = fetch_rank_rows("composite_score DESC", 5)
     if not top5:
         st.info("No rankings yet (rankings_daily is empty).")
     else:
