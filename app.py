@@ -2450,21 +2450,12 @@ elif tab == "scanner":
             <div class="rank-top">
               <div>
                 <div class="rank-ticker">{ticker}</div>
-                <div class="rank-sub">{sub}</div>
               </div>
               <div class="rank-right">
                 <div class="ring" style="--p:{_clamp01(comp)}%;">
                   <div class="ring-inner">{comp}</div>
                 </div>
               </div>
-            </div>
-
-            <div class="pill-row">
-             <div class="pill"><strong>COMP</strong> {comp}</div>
-              <div class="pill"><strong>MOM</strong> {mom}</div>
-              <div class="pill"><strong>QUAL</strong> {qual}</div>
-             <div class="pill"><strong>VAL</strong> {val}</div>
-             <div class="pill"><strong>STAB</strong> {stab}</div>
             </div>
 
             <div class="bars">
@@ -2479,13 +2470,14 @@ elif tab == "scanner":
                 <div class="bar-val">{qual}</div>
               </div>
               <div class="bar-row">
-                <div class="bar-label">Stability</div>
-                <div class="bar" style="--w:{_clamp01(stab)}%;"><span></span></div>
-                <div class="bar-val">{stab}</div>
+                <div class="bar-label">Value</div>
+                <div class="bar" style="--w:{_clamp01(val)}%;"><span></span></div>
+                <div class="bar-val">{val}</div>
               </div>
             </div>
           </div>
         """
+
         st.markdown(html, unsafe_allow_html=True)
 
     # --- Top 5 ranked by composite_score ---
