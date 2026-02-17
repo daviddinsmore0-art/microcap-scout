@@ -934,25 +934,36 @@ def get_daily_watchlist(date_obj):
     except Exception:
         return []
 def format_extended_change(row):
-    """
-    Returns formatted pre/post change string if available.
-    Assumes your PHP updater populates:
-    pre_market_change
-    post_market_change
-    """
+def _to_float(x):
     try:
-        pre = float(row.get("pre_market_change") or 0)
-        post = float(row.get("post_market_change") or 0)
-    except:
-        return ""
+        if x is None or x == "":
+            return None
+        return float(x)
+    except Exception:
+        return None
 
-    if abs(pre) > 0:
-        color = "#4ade80" if pre > 0 else "#ef4444"
-        return f"<div style='font-size:0.75rem; color:{color};'>Pre {pre:+.2f}%</div>"
+def format_extended_change(row):
+    pre  = _to_float(row.get("pre_market_change"))
+    post = _to_float(row.get("post_market_change"))
 
-    if abs(post) > 0:
+    # Prefer after-hours if present
+    if post is not None and abs(post) > 0:
         color = "#4ade80" if post > 0 else "#ef4444"
-        return f"<div style='font-size:0.75rem; color:{color};'>Post {post:+.2f}%</div>"
+        arrow = "▲" if post > 0 else "▼"
+        return (
+            f"<div style='margin-top:3px; font-size:0.80rem; color:{color}; opacity:0.85;'>"
+            f"AH {arrow} {post:.2f}%"
+            f"</div>"
+        )
+
+    if pre is not None and abs(pre) > 0:
+        color = "#4ade80" if pre > 0 else "#ef4444"
+        arrow = "▲" if pre > 0 else "▼"
+        return (
+            f"<div style='margin-top:3px; font-size:0.80rem; color:{color}; opacity:0.85;'>"
+            f"PRE {arrow} {pre:.2f}%"
+            f"</div>"
+        )
 
     return ""
 def get_watchlist_rows_for_home():
