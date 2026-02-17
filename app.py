@@ -2430,62 +2430,49 @@ elif tab == "scanner":
     def render_rank_card(r: dict, badge: str | None = None):
         ticker = (r.get("ticker") or "").upper()
 
-        # IMPORTANT: use direct dict access for scores (prevents silent .get() failures -> 0s)
-        comp = _int0(r.get("composite_score"))
-        mom  = int((r.get("momentum_score") if "momentum_score" in r else r.get("momentum")) or 0)
-        qual = int(r["quality_score"] or 0) if "quality_score" in r else 0
-        val  = int(r["value_score"] or 0) if "value_score" in r else 0
-        stab = int(r["stability_score"] or 0) if "stability_score" in r else 0
+        # Pull scores (fail loudly if key missing)
+        comp = int(r.get("composite_score") or 0)
+        mom  = int(r["momentum_score"] or 0)
+        qual = int(r["quality_score"] or 0)
+        val  = int(r["value_score"] or 0)
+        stab = int(r["stability_score"] or 0)
 
-        # subtitle (optional)
-        sub_bits = []
-        if badge:
-            sub_bits.append(str(badge))
-        conf = (r.get("confidence") or "")
-        if conf:
-            sub_bits.append(f"CONF {str(conf).upper()}")
-        sub = " • ".join(sub_bits) if sub_bits else "—"
+        html = f"""<div class="rank-card">
+  <div class="rank-top">
+    <div class="rank-ticker">{ticker}</div>
+    <div class="rank-right">
+      <div class="ring" style="--p:{_clamp01(comp)}%;">
+        <div class="ring-inner">{comp}</div>
+      </div>
+    </div>
+  </div>
 
-        html_lines = [
-            '<div class="rank-card">',
-            '  <div class="rank-top">',
-            '    <div>',
-            f'      <div class="rank-ticker">{ticker}</div>',
-            f'      <div class="rank-sub">{sub}</div>',
-            '    </div>',
-            '    <div class="rank-right">',
-            f'      <div class="ring" style="--p:{_clamp01(comp)}%;">',
-            f'        <div class="ring-inner">{comp}</div>',
-            '      </div>',
-            '    </div>',
-            '  </div>',
-            '',
-            '  <div class="bars">',
-            '    <div class="bar-row">',
-            '      <div class="bar-label">Momentum</div>',
-            f'      <div class="bar" style="--w:{_clamp01(mom)}%;"><span></span></div>',
-            f'      <div class="bar-val">{mom}</div>',
-            '    </div>',
-            '    <div class="bar-row">',
-            '      <div class="bar-label">Quality</div>',
-            f'      <div class="bar" style="--w:{_clamp01(qual)}%;"><span></span></div>',
-            f'      <div class="bar-val">{qual}</div>',
-            '    </div>',
-            '    <div class="bar-row">',
-            '      <div class="bar-label">Value</div>',
-            f'      <div class="bar" style="--w:{_clamp01(val)}%;"><span></span></div>',
-            f'      <div class="bar-val">{val}</div>',
-            '    </div>',
-            '    <div class="bar-row">',
-            '      <div class="bar-label">Stability</div>',
-            f'      <div class="bar" style="--w:{_clamp01(stab)}%;"><span></span></div>',
-            f'      <div class="bar-val">{stab}</div>',
-            '    </div>',
-            '  </div>',
-            '</div>',
-        ]
-        html = "\n".join(html_lines).strip()
+  <div class="bars">
+    <div class="bar-row">
+      <div class="bar-label">Momentum</div>
+      <div class="bar" style="--w:{_clamp01(mom)}%;"><span></span></div>
+      <div class="bar-val">{mom}</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Quality</div>
+      <div class="bar" style="--w:{_clamp01(qual)}%;"><span></span></div>
+      <div class="bar-val">{qual}</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Value</div>
+      <div class="bar" style="--w:{_clamp01(val)}%;"><span></span></div>
+      <div class="bar-val">{val}</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Stability</div>
+      <div class="bar" style="--w:{_clamp01(stab)}%;"><span></span></div>
+      <div class="bar-val">{stab}</div>
+    </div>
+  </div>
+</div>"""
+
         st.markdown(html, unsafe_allow_html=True)
+
 
     # --- Top 5 ranked by composite_score ---
     top5 = fetch_rank_rows("composite_score", 5)
