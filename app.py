@@ -279,6 +279,22 @@ margin-top:40px;
 .scan-chip.warn{ background:rgba(251,191,36,0.12); border-color:rgba(251,191,36,0.35); color:#fbbf24; }
 .scan-chip.bad { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.35); color:#ef4444; }
 
+.rank-card { padding: 14px 14px 12px 14px; }
+.rank-head { display:flex; justify-content:space-between; align-items:flex-start; }
+.rank-ticker { font-size: 18px; font-weight: 800; letter-spacing: 0.2px; }
+.rank-score { text-align:right; line-height: 1; }
+.rank-score-num { font-size: 26px; font-weight: 900; }
+.rank-score-den { font-size: 13px; color: rgba(255,255,255,0.45); margin-left: 2px; font-weight: 700; }
+
+.rank-divider { height:1px; background: rgba(255,255,255,0.08); margin: 10px 0 10px 0; }
+
+.rank-row { display:grid; grid-template-columns: 92px 1fr 34px; gap: 10px; align-items:center; margin: 10px 0; }
+.rank-label { font-size: 12px; color: rgba(255,255,255,0.70); font-weight: 600; }
+.rank-val { font-size: 12px; color: rgba(255,255,255,0.75); font-weight: 700; text-align:right; }
+
+.rank-bar { height: 4px; background: rgba(255,255,255,0.10); border-radius: 999px; overflow:hidden; }
+.rank-bar-fill { height: 100%; border-radius: 999px; }
+
 .scan-badge{
   display:inline-block;
   margin-top:12px;
@@ -2381,66 +2397,68 @@ elif tab == "scanner":
         rvol = _f(r.get("rvol"), 0.0)
         breakout = int(_f(r.get("breakout"), 0.0))
 
-        trend = (r.get("trend_status") or "—").upper()
-        rsi = _f(r.get("rsi_14"), 0.0)
+        ticker = r.get("ticker", "—")
 
-        chg_color = "#4ade80" if day >= 0 else "#ef4444"
-        day_txt = f"{day:+.2f}%"
+comp = int(r.get("composite_score") or 0)
+momo = int(r.get("momentum_score") or 0)
+qual = int(r.get("quality_score") or 0)
+val  = int(r.get("value_score") or 0)
+stab = int(r.get("stability_score") or 0)
 
-        badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
+def tint(score: int) -> str:
+    # sleek dynamic (muted)
+    if score >= 85: return "#34d399"  # emerald
+    if score >= 70: return "#2dd4bf"  # teal
+    if score >= 50: return "#9ca3af"  # neutral
+    return "#f87171"                  # muted red
 
-        # Breakout chip text
-        brk_txt = "BRK" if breakout == 1 else "—"
+def bar(score: int) -> str:
+    score = max(0, min(100, score))
+    fill = tint(score)
+    return f"""
+    <div class="rank-bar">
+      <div class="rank-bar-fill" style="width:{score}%; background:{fill};"></div>
+    </div>
+    """
 
-        card_html = "\n".join([
-            '<div class="scan-card">',
-            '<div class="scan-top">',
-            '<div class="scan-left">',
-            f'<div class="scan-ticker">{ticker}</div>',
-            f'<div class="scan-sub">{trend} • RSI {rsi:.0f}</div>',
-            '</div>',
-            '<div class="scan-right">',
-            f'<div class="scan-price">${price:.2f}</div>',
-            f'<div class="scan-day" style="color:{chg_color};">{day_txt}</div>',
-            '</div>',
-            '</div>',
-            '<div class="scan-row">',
-            f'<div class="{chip_class(total)}">TOTAL {int(total)}</div>',
-            f'<div class="{chip_class(momo)}">MOM {int(momo)}</div>',
-            f'<div class="{chip_class(qual)}">QUAL {int(qual)}</div>',
-            f'<div class="{chip_class(rvol, "rvol")}">RVOL {rvol:.2f}</div>',
-            f'<div class="scan-chip">{brk_txt}</div>',
-            '</div>',
-            badge_html,
-            '</div>',
-        ]).strip()
+card_html = f"""
+<div class="scan-card rank-card">
+  <div class="rank-head">
+    <div class="rank-ticker">{ticker}</div>
+    <div class="rank-score" style="color:{tint(comp)};">
+      <span class="rank-score-num">{comp}</span><span class="rank-score-den">/100</span>
+    </div>
+  </div>
 
-        st.markdown(card_html, unsafe_allow_html=True)
+  <div class="rank-divider"></div>
 
-    # --- Top 5 (Total) ---
-    top5 = fetch_rank_rows("composite_score DESC", 5)
-    if not top5:
-        st.info("No rankings yet (rankings_daily is empty).")
-    else:
-        st.markdown("### Top 5 — Ranked")
-        st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
-        for i, r in enumerate(top5, start=1):
-            render_rank_card(r, badge_text="Top ranked" if i == 1 else None)
-        st.markdown('</div>', unsafe_allow_html=True)
+  <div class="rank-row">
+    <div class="rank-label">Momentum</div>
+    {bar(momo)}
+    <div class="rank-val">{momo}</div>
+  </div>
 
-        # --- Under Top 5: Top 3 blocks ---
-        st.markdown("---")
-        st.markdown("### Top 3 Momentum")
-        for r in fetch_rank_rows("momentum_score DESC", 3):
-            render_rank_card(r)
+  <div class="rank-row">
+    <div class="rank-label">Quality</div>
+    {bar(qual)}
+    <div class="rank-val">{qual}</div>
+  </div>
 
-        st.markdown("### Top 3 Quality")
-        for r in fetch_rank_rows("quality_score DESC", 3):
-            render_rank_card(r)
+  <div class="rank-row">
+    <div class="rank-label">Value</div>
+    {bar(val)}
+    <div class="rank-val">{val}</div>
+  </div>
 
-        st.markdown("### Top 3 Volume (RVOL)")
-        for r in fetch_rank_rows("rvol DESC", 3):
-            render_rank_card(r)
+  <div class="rank-row">
+    <div class="rank-label">Stability</div>
+    {bar(stab)}
+    <div class="rank-val">{stab}</div>
+  </div>
+</div>
+""".strip()
+
+st.markdown(card_html, unsafe_allow_html=True)
 
 elif tab == "settings":
     st.markdown("### Settings")
