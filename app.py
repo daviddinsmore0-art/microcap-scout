@@ -2474,6 +2474,13 @@ stab = int(r["stability_score"] or 0)
                 <div class="bar" style="--w:{_clamp01(val)}%;"><span></span></div>
                 <div class="bar-val">{val}</div>
               </div>
+              <div class="rank-row">
+               <div class="rank-label">Stability</div>
+               <div class="rank-bar">
+              <div class="rank-fill" style="width:{stab}%;"></div>
+               </div>
+              <div class="rank-val">{stab}</div>
+              </div>
             </div>
           </div>
         """
