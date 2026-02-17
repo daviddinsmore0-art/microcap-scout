@@ -2351,7 +2351,7 @@ elif tab == "scanner":
         cur.execute(f"""
             SELECT
                 r.ticker,
-                COALESCE(r.cumulative_score,
+                COALESCE(r.composite_score,
                          COALESCE(r.momentum_score,0) + COALESCE(r.quality_score,0)
                 ) AS total_score,
                 COALESCE(r.momentum_score,0) AS momentum_score,
