@@ -338,7 +338,24 @@ token = st.query_params.get("token", None)
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
+st.subheader("🏆 Sector Leaders")
 
+leaders = get_sector_leaders()
+
+if leaders:
+    current_sector = None
+    for row in leaders:
+        if row["sector"] != current_sector:
+            current_sector = row["sector"]
+            st.markdown(f"### {current_sector}")
+
+        st.write(
+            f"#{row['sector_rank']} {row['ticker']} "
+            f"({row['sector_percentile']:.1f}%)"
+        )
+else:
+    st.info("No sector rankings yet.")
+    
 def ensure_stock_cache_ticker(ticker: str):
     """Ensure ticker exists in stock_cache AND in global_universe."""
     t = (ticker or "").strip().upper()
