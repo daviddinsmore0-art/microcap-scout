@@ -340,29 +340,33 @@ def get_connection():
 
 
 def ensure_stock_cache_ticker(ticker: str):
-    """Ensure ticker exists in stock_cache so the updater/queries can populate prices."""
+    """Ensure ticker exists in stock_cache AND in global_universe."""
     t = (ticker or "").strip().upper()
     if not t:
         return
+
     conn = get_connection()
     cursor = conn.cursor()
-    # Insert stub row if missing; rely on ticker being UNIQUE/PK
-    cursor.execute(
-    "INSERT INTO stock_cache (ticker) VALUES (%s) ON DUPLICATE KEY UPDATE ticker = ticker",
-    (t,)
-       )
 
-  # --- Ensure ticker exists in global_universe ---
-   cursor.execute(
-    """
-    INSERT INTO global_universe (ticker, enabled, added_at)
-    VALUES (%s, 1, NOW())
-    ON DUPLICATE KEY UPDATE ticker = ticker
-    """,
-    (t,)
-     )
-   conn.commit()
-   conn.close()
+    try:
+        # 1) Ensure stock_cache has a stub row (so cron/updater can fill it)
+        cursor.execute(
+            "INSERT INTO stock_cache (ticker) VALUES (%s) "
+            "ON DUPLICATE KEY UPDATE ticker = ticker",
+            (t,)
+        )
+
+        # 2) Ensure global_universe includes this ticker (so it can be ranked/featured)
+        cursor.execute(
+            "INSERT INTO global_universe (ticker, enabled, added_at) "
+            "VALUES (%s, 1, NOW()) "
+            "ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)",
+            (t,)
+        )
+
+        conn.commit()
+    finally:
+        conn.close()
 
 def init_db():
     try:
