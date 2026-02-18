@@ -2327,7 +2327,7 @@ elif tab == "scanner":
           .rank-wrap { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
           .rank-card {
             background: linear-gradient(180deg, rgba(17,24,39,0.92), rgba(15,23,42,0.92));
-            border: 1px solid rgba(255,255,255,0.08);
+            border: 1px solid  color:#4ade80;
             border-radius: 22px;
             padding: 16px 16px 16px 16px;
             margin-top:10px;
