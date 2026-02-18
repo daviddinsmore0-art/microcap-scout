@@ -1569,7 +1569,8 @@ def get_rank_color(label: str):
         return "#f87171"  # soft red
     else:
         return "#cbd5e1"  # soft neutral
-
+        global_color = get_rank_color(global_label)
+        sector_color = get_rank_color(sector_label)
 def _strength_from_percentile(p):
     """p: 0-100 where higher is better."""
     try:
