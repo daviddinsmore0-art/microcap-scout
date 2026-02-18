@@ -2330,7 +2330,8 @@ elif tab == "scanner":
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 22px;
             padding: 16px 16px 16px 16px;
-            margin-bottom:40px;
+            margin-top:10px;
+            margin-bottom:30px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
           }
           .rank-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
