@@ -12,6 +12,8 @@ import textwrap
 from datetime import datetime, timedelta
 import base64
 from pathlib import Path
+from decimal import Decimal
+import numbers
 
 def get_logo_base64(path="logo_optimized.png"):
     try:
@@ -45,7 +47,7 @@ st.markdown("""
         /* 2. Remove padding from the main container */
         .stAppViewBlockContainer {
             padding-top: 0rem !important;
-            padding-bottom: 0rem !important;
+            padding-bottom: 1rem !important;
             margin-top: 0rem !important;
         }
 /* 3. Optional: Remove extra gap from vertical blocks if needed */
@@ -81,8 +83,7 @@ footer {visibility: hidden;}
             background-color: #1a1f2b; 
             border-radius: 16px; 
             padding: 20px; 
-            margin-top: 10px;
-            margin-bottom: 10px; 
+            margin-bottom: 20px; 
             border: 1px solid #2d3748; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
             transition: transform 0.1s ease, border-color 0.1s ease;
@@ -134,17 +135,17 @@ div[data-testid="stDecoration"] {
     visibility: hidden;
 }
 /* Remove extra top padding caused by header */
-.block-container {
-    padding-top: 0.5rem !important;
+.block-container{
+    padding-top: 0.25rem !important;
 }
         .pp-greeting {
-    font-family: Tahoma;
-    font-size: 16px;
-    font-weight: 300;
-    color: #A7F3D0;
-    letter-spacing: 0.5px;
-    margin: 10px 0 20px 0;
-}
+          font-family: Tahoma;
+          font-size: 16px;
+          font-weight: 300;
+          color: #A7F3D0;
+          letter-spacing: 0.5px;
+          margin: 10px 0 40px 0;
+        }
         /* Metric Boxes */
         .metric-box {
             background-color: #1e293b;
@@ -152,6 +153,7 @@ div[data-testid="stDecoration"] {
             border-radius: 12px;
             padding: 15px;
             text-align: center;
+            margin-top: 10px;
             margin-bottom: 10px;
             padding-top:10px;
         }
@@ -199,7 +201,7 @@ div[data-testid="stDecoration"] {
             overflow-x: auto; 
             scroll-behavior: smooth;
             gap: 12px;
-            padding-top:10px;
+            padding-top:0px;
             padding-bottom: 40px;
             -ms-overflow-style: none; 
             scrollbar-width: none; 
@@ -207,28 +209,28 @@ div[data-testid="stDecoration"] {
         .scrolling-wrapper::-webkit-scrollbar { display: none; }
         .scrolling-card { 
             flex: 0 0 auto; 
-            width: 130px; 
+            width: 110px; 
             background-color: #1a1f2b; 
             border: 1px solid #2d3748; 
             border-radius: 12px; 
-            padding: 15px; 
+            padding: 25px;
         }
 
         .price-block {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    text-align: right;
-    gap: 2px;
-    margin-left: auto;
-}
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          text-align: right;
+          gap: 2px;
+          margin-left: auto;
+         }
       
         /* Risk Pills */
-        .risk-pill { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+        .risk-pill { padding: 4px 4px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
         .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .risk-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #2d3748; padding-bottom: 5px; }
+        .risk-row { display: flex; justify-content: space-between; align-items: center; margin: 30px 0 10px 0; border-bottom: 1px solid #2d3748; padding-left:20px; padding-bottom: 5px; }
         
         /* Hide default header/footer */
         header {visibility: hidden;} footer {visibility: hidden;} 
@@ -240,7 +242,9 @@ div[data-testid="stDecoration"] {
 /* ===== Market Scanner Trading Tiles (scanner-only classes) ===== */
 .scan-grid{display:grid;grid-template-columns:1fr;gap:14px;}
 @media (min-width: 780px){.scan-grid{grid-template-columns:1fr 1fr;}}
-
+.section-divider{
+margin-top:40px;
+}
 .scan-card{
   background:#0f1722;
   border-radius:22px;
@@ -298,6 +302,21 @@ div[data-testid="stDecoration"] {
 
 .scan-spark{ margin-top:10px; opacity:0.95; }
 
+
+
+/* Section cards with colored left borders */
+.card.border-blue { border-left: 4px solid #2b6cb0; }
+.card.border-gold { border-left: 4px solid #f6c343; }
+
+/* Global picks row layout (single HTML block) */
+.global-picks-row { display:flex; justify-content:space-between; align-items:flex-start; margin-top:5px; margin-bottom:15px; }
+.global-picks-left .ticker { font-weight:800; font-size:16px; margin:0; }
+.global-picks-left .type { opacity:.65; font-size:16px; margin-top:2px; }
+.global-picks-left .meta { opacity:.55; font-size:14px; margin-top:6px; }
+.global-picks-right { text-align:right; }
+.global-picks-right .price { font-weight:800; font-size:16px; margin:0; }
+.global-picks-right .chg { font-weight:800; font-size:14px; margin-top:4px; }
+.global-picks-divider { height:1px; background:rgba(255,255,255,.06); margin:0 6px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -318,22 +337,115 @@ token = st.query_params.get("token", None)
 
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
-
-
-def ensure_stock_cache_ticker(ticker: str):
-    """Ensure ticker exists in stock_cache so the updater/queries can populate prices."""
+    
+def ensure_stock_cache_ticker(ticker):
+    """Ensure ticker exists in stock cache table (if you use one)."""
     t = (ticker or "").strip().upper()
     if not t:
         return
+
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+
+    try:
+        # If your cache table is named differently, update this query.
+        cur.execute("SELECT ticker FROM global_cache WHERE ticker=%s LIMIT 1", (t,))
+        row = cur.fetchone()
+        if not row:
+            cur.execute("INSERT INTO global_cache (ticker) VALUES (%s)", (t,))
+            conn.commit()
+    finally:
+        try:
+            cur.close()
+        except:
+            pass
+        conn.close()
+
+def get_latest_rank_asof():
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT GREATEST(IFNULL(MAX(asof_date),'0000-00-00'), '0000-00-00') AS latest FROM rankings_global_daily")
+    row = cur.fetchone()
+    conn.close()
+    return row["latest"] if row and row["latest"] else None
+
+
+def get_rank_map_for_tickers(tickers):
+    """
+    Returns dict keyed by ticker:
+    {
+      "AAPL": {"global_rank":..., "global_percentile":..., "sector":..., "sector_rank":..., "sector_percentile":..., "composite_score":...},
+      ...
+    }
+    """
+    tickers = [t.upper().strip() for t in tickers if t]
+    if not tickers:
+        return {}
+
+    asof = get_latest_rank_asof()
+    if not asof:
+        return {}
+
+    placeholders = ",".join(["%s"] * len(tickers))
+
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+
+    # Pull global ranks
+    cur.execute(f"""
+        SELECT ticker, global_rank, global_percentile, composite_score
+        FROM rankings_global_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    g_rows = cur.fetchall()
+
+    # Pull sector ranks
+    cur.execute(f"""
+        SELECT ticker, sector, sector_rank, sector_percentile
+        FROM rankings_sector_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    s_rows = cur.fetchall()
+
+    conn.close()
+
+    out = {t: {} for t in tickers}
+    for r in g_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+    for r in s_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+
+    out["_asof"] = asof  # handy
+    return out
+    
+def ensure_stock_cache_ticker(ticker: str):
+    """Ensure ticker exists in stock_cache AND in global_universe."""
+    t = (ticker or "").strip().upper()
+    if not t:
+        return
+
     conn = get_connection()
     cursor = conn.cursor()
-    # Insert stub row if missing; rely on ticker being UNIQUE/PK
-    cursor.execute(
-        "INSERT INTO stock_cache (ticker) VALUES (%s) ON DUPLICATE KEY UPDATE ticker=ticker",
-        (t,)
-    )
-    conn.commit()
-    conn.close()
+
+    try:
+        # 1) Ensure stock_cache has a stub row (so cron/updater can fill it)
+        cursor.execute(
+            "INSERT INTO stock_cache (ticker) VALUES (%s) "
+            "ON DUPLICATE KEY UPDATE ticker = ticker",
+            (t,)
+        )
+
+        # 2) Ensure global_universe includes this ticker (so it can be ranked/featured)
+        cursor.execute(
+            "INSERT INTO global_universe (ticker, enabled, added_at) "
+            "VALUES (%s, 1, NOW()) "
+            "ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)",
+            (t,)
+        )
+
+        conn.commit()
+    finally:
+        conn.close()
 
 def init_db():
     try:
@@ -427,7 +539,13 @@ def parse_smart_date(date_str):
             target = datetime.strptime(str(date_str), "%Y-%m-%d")
         return (target - now).days
     except: return 999
-
+        
+def _to_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+        
 def login_user(u, p):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -480,7 +598,7 @@ def get_news_data(ticker):
         resp = requests.get(url, headers=headers, timeout=5)
         if resp.status_code == 200:
             root = ET.fromstring(resp.content)
-            for item in root.findall('.//item')[:3]:
+            for item in root.findall('.//item')[:5]:
                 title = item.find('title').text if item.find('title') is not None else "No Title"
                 link = item.find('link').text if item.find('link') is not None else "#"
                 news_results.append({'title': title, 'link': link, 'pub': "Yahoo", 'time': "Recent"})
@@ -576,9 +694,9 @@ def calculate_risk(row, ai_score=None):
     if ai_score is not None:
         adj = (50 - float(ai_score)) * 0.25
         risk += adj
-        breakdown.append(("AI sentiment adjust", round(adj, 1)))
+        breakdown.append(("AI sentiment adjustment", round(adj, 1)))
     else:
-        breakdown.append(("AI sentiment adjust", 0))
+        breakdown.append(("AI sentiment adjustment", 0))
 
     final = max(0, min(100, int(round(risk))))
 
@@ -598,7 +716,11 @@ def render_topbar(display_name: str = "User"):
 
     # Simple market status (ET-ish by your server/runtime). If you already compute market state elsewhere,
     # we can wire it in later. This version will not NameError.
-    now = datetime.datetime.now()
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        now = datetime.datetime.now()
     dow = now.weekday()  # 0=Mon
     minutes = now.hour * 60 + now.minute
 
@@ -630,7 +752,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
-  margin:0px 0 10px 0;
+  margin:0px 0 20px 0;
   padding:10px 12px;
   border-radius:16px;
   background:rgba(18,22,30,0.55);
@@ -666,41 +788,107 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pp-subpill{
   display:flex;
   align-items:center;
+  transform: translateY(3px);
   gap:8px;
   padding:6px 10px;       /* tighter = more room */
   border-radius:999px;
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.08);
   color:rgba(230,235,245,0.90);
-  font-size:12.5px;
-
+  font-size:14px;
+  font-weight:500;
   flex:0 1 auto;          /* 🔥 key change */
   min-width:0;
   white-space:nowrap;
   overflow:hidden;
   box-sizing:border-box;
 }
+/* --- PennyPulse Topbar --- */
+.pp-topbar{
+  width:100%;
+  margin:0 0 20px 0;
+  padding:10px 14px;
+  border-radius:16px;
+  background:rgba(18,22,30,0.55);
+  border:1px solid rgba(255,255,255,0.08);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:0 10px 30px rgba(0,0,0,0.28);
 
-/* Truncate date/status instead of expanding out of the rounded bar */
-.pp-subpill > span:first-child,
-.pp-subpill > span:last-child{
-  overflow:hidden;
-  text-overflow:ellipsis;
-  display:block;
-  max-width:48%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  box-sizing:border-box;
 }
 
-.pp-dot{ width:9px; height:9px; border-radius:50%; display:inline-block; flex:0 0 auto; }
+.pp-brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex:1 1 auto;
+  min-width:0;
+}
+
+.pplogo{
+  height:28px;
+  width:auto;
+  max-width:140px;
+  object-fit:contain;
+  flex:0 0 auto;
+}
+
+.pp-subpill{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.08);
+  color:rgba(230,235,245,0.90);
+  font-size:12.5px;
+
+  flex:0 1 auto;
+  min-width:0;
+  max-width:65vw;     /* prevents pushing off screen */
+  overflow:hidden;
+}
+
+/* date + status shrink correctly */
+.pp-date,
+.pp-status{
+  flex:1 1 0;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.pp-date{
+  opacity:0.9;
+}
+
+.pp-status{
+  font-weight:600;
+}
+
+.pp-dot{
+  width:9px;
+  height:9px;
+  border-radius:50%;
+  flex:0 0 auto;
+}
+
 .pp-dot-open  { background:#21c55d; box-shadow:0 0 0 4px rgba(33,197,93,0.14); }
 .pp-dot-pre   { background:#f59e0b; box-shadow:0 0 0 4px rgba(245,158,11,0.14); }
 .pp-dot-post  { background:#60a5fa; box-shadow:0 0 0 4px rgba(96,165,250,0.14); }
 .pp-dot-closed{ background:rgba(148,163,184,0.75); box-shadow:0 0 0 4px rgba(148,163,184,0.10); }
 
-/* you removed these; keep them off */
+/* remove unused right section */
 .pp-right{ display:none !important; }
 .pp-bell{ display:none !important; }
 .pp-chip{ display:none !important; }
-</style>
         """,
         unsafe_allow_html=True,
     )
@@ -712,10 +900,10 @@ div[data-testid="stToolbar"] { display: none !important; }
        <div class="pp-brand">
         <img class="pplogo" src="data:image/png;base64,{logo_data}" alt="PennyPulse" />
         <div class="pp-subpill">
-        <span>{date_str}</span>
-        <span class="pp-dot {dot_class}"></span>
-        <span>{status}</span>
-         </div>
+    <span class="pp-date">{date_str}</span>
+    <span class="pp-dot {dot_class}"></span>
+    <span class="pp-status">{status}</span>
+</div>
          </div>
         <div class="pp-right">
         
@@ -838,26 +1026,39 @@ def get_daily_watchlist(date_obj):
         return rows or []
     except Exception:
         return []
-def format_extended_change(row):
-    """
-    Returns formatted pre/post change string if available.
-    Assumes your PHP updater populates:
-    pre_change_pct
-    post_change_pct
-    """
+def _to_float(x):
     try:
-        pre = float(row.get("pre_change_pct") or 0)
-        post = float(row.get("post_change_pct") or 0)
-    except:
-        return ""
+        if x is None or x == "":
+            return None
+        return float(x)
+    except Exception:
+        return None
 
-    if abs(pre) > 0:
-        color = "#4ade80" if pre > 0 else "#ef4444"
-        return f"<div style='font-size:0.75rem; color:{color};'>Pre {pre:+.2f}%</div>"
 
-    if abs(post) > 0:
+def format_extended_change(row):
+    pre = _to_float(row.get("pre_market_change"))
+    post = _to_float(row.get("post_market_change"))
+
+    # Prefer after-hours first
+    if post is not None and abs(post) > 0:
         color = "#4ade80" if post > 0 else "#ef4444"
-        return f"<div style='font-size:0.75rem; color:{color};'>Post {post:+.2f}%</div>"
+        arrow = "▲" if post > 0 else "▼"
+        return (
+            f"<div style='margin-top:3px; font-size:0.80rem; "
+            f"color:{color}; opacity:0.85;'>"
+            f"AH {arrow} {post:.2f}%"
+            f"</div>"
+        )
+
+    if pre is not None and abs(pre) > 0:
+        color = "#4ade80" if pre > 0 else "#ef4444"
+        arrow = "▲" if pre > 0 else "▼"
+        return (
+            f"<div style='margin-top:3px; font-size:0.80rem; "
+            f"color:{color}; opacity:0.85;'>"
+            f"PRE {arrow} {pre:.2f}%"
+            f"</div>"
+        )
 
     return ""
 def get_watchlist_rows_for_home():
@@ -1064,19 +1265,139 @@ def get_user_alerts(username):
     rows = cursor.fetchall()
     conn.close()
     return rows
+    
+import textwrap
+import streamlit as st
 
-# --- UI Functions ---
 def render_navbar(token, mode):
     mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
-    st.markdown(f"""
-    <div class="nav-container">
-        <a href="?token={token}&tab=home{mode_arg}" class="nav-link" target="_self">🏠</a>
-        <a href="?token={token}&tab=portfolio{mode_arg}" class="nav-link" target="_self">📂</a>
-        <a href="?token={token}&tab=alerts{mode_arg}" class="nav-link" target="_self">🔔</a>
-        <a href="?token={token}&tab=scanner{mode_arg}" class="nav-link" target="_self">📡</a>
-        <a href="?token={token}&tab=settings{mode_arg}" class="nav-link" target="_self">⚙️</a>
-    </div>
-    """, unsafe_allow_html=True)
+    current_tab = st.query_params.get("tab", "home")
+
+    ICONS = {
+        "home": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 10.5 12 3l9 7.5"></path>
+            <path d="M5 10v10h14V10"></path>
+        </svg>""",
+
+        "portfolio": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="6" width="18" height="14" rx="2"></rect>
+            <path d="M3 10h18"></path>
+        </svg>""",
+
+        "alerts": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"></path>
+            <path d="M13.7 21a2 2 0 01-3.4 0"></path>
+        </svg>""",
+
+        "scanner": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19v-7"></path>
+            <path d="M8 19V5"></path>
+            <path d="M12 19v-9"></path>
+            <path d="M16 19v-4"></path>
+            <path d="M20 19V8"></path>
+        </svg>""",
+
+        "settings": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V22a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H2a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V2a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H22a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>
+        </svg>""",
+    }
+
+    def nav_item(tab, label):
+        active = " active" if tab == current_tab else ""
+        return f"""
+<a href="?token={token}&tab={tab}{mode_arg}" class="pp-nav-item{active}" target="_self">
+  <span class="pp-nav-ic">{ICONS[tab]}</span>
+  <span class="pp-nav-txt">{label}</span>
+</a>
+"""
+
+    html = f"""
+<style>
+.pp-nav {{
+  position: fixed;
+  left: 50%;
+  bottom: 0px;
+  transform: translateX(-50%);
+  width: min(92vw, 620px);
+  height: 68px;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 8px;
+  z-index: 99999;
+  background: rgba(18,22,30,0.75);
+  border: 2px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+
+}}
+
+.pp-nav-item {{
+  flex: 1;
+  text-align: center;
+  text-decoration: none !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: rgba(230,235,245,0.55);
+  transition: all 0.2s ease;
+}}
+
+.pp-nav-ic svg {{
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.8;
+}}
+
+.pp-nav-txt {{
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}}
+
+.pp-nav-item.active {{
+  color: #facc15;
+  transform: translateY(-2px);
+  transform: scale(0.94);
+  filter: drop-shadow(0 0 6px rgba(250,204,21,0.35));
+}}
+
+.pp-nav-item.active::after {{
+  content: "";
+  position: absolute;
+  top: -7px;
+  width: 22px;
+  height: 3px;
+  border-radius: 999px;
+  background: #facc15;
+}}
+
+section.main > div.block-container {{
+  padding-bottom: 110px !important;
+}}
+</style>
+
+<div class="pp-nav">
+  {nav_item("home","Home")}
+  {nav_item("portfolio","Stocks")}
+  {nav_item("alerts","Alerts")}
+  {nav_item("scanner","Monitor")}
+  {nav_item("settings","Settings")}
+</div>
+"""
+
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+
 
 def create_gauge_html(score, label, color, size="big"):
     rad = 80 if size == "big" else 60
@@ -1158,63 +1479,74 @@ def generate_playbook(stock_row):
     }
 
 
-def render_portfolio_row(row, data, token):
-    risk, label, color, _, _ = calculate_risk(data)
-    conf = calculate_confidence(data)
-    conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
-    price = float(data['current_price'])
-    change = float(data['day_change'])
-    extended_html = format_extended_change(data)
-    change_color = "#4ade80" if change >= 0 else "#ef4444"
-    arrow = "▲" if change >= 0 else "▼"
-    shares = float(row['shares'])
-    entry = float(row['entry_price'])
+def render_portfolio_row(row, data, token=None, rank_map=None):
+    """Render a single portfolio holding card.
 
-    pl_html = ""
-    if shares > 0 and entry > 0:
-        pl = (shares * price) - (shares * entry)
-        pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
-        pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = (
-            f"<div style='color:{pl_c}; font-size:0.90rem; margin-top:2px;'>"
-            f"{int(shares)} @ ${entry:.2f} Total PL $ {pl:,.2f} ({pl_pct:.1f}%)"
-            f"</div>"
-        )
-
-    company = (row.get('company_name') or row.get('company') or data.get('company_name') or '').strip()
-    company_html = (
-        f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
-        if company else ""
-    )
-    link = f"?token={token}&ticker={row['ticker']}"
-
-    # Make the whole card tappable on mobile (no <a>, use onclick)
-    html = f"""
-    <a href="{link}" class="card-link" target="_self">
-      <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-        <div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="font-size:0.7rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
-              <div style="font-size:0.7rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
-            </div>
-          </div>
-          <div style="font-size:0.75rem; color:#b0b0b0; margin-top:2px;">{company}</div>
-          {pl_html}
-        </div>
-        <div style="text-align:right; padding-top:2px;">
-          <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
-          <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
-          {extended_html}
-        </div>
-      </div>
-    </a>
+    - Removes Risk/Conf badges
+    - Adds ranking + shares + P/L as compact badges
     """
+    price = float(data.get('current_price') or 0)
+    change = float(data.get('day_change') or 0)
+    extended_html = format_extended_change(data)
+
+    change_color = "#4ade80" if change >= 0 else "#ef4444"
+    shares = float(row.get('shares') or 0)
+    entry_price = float(row.get('entry_price') or 0)
+    total_pl = float(row.get('total_pl') or 0)
+    total_pct = float(row.get('total_pct') or 0)
+
+    pl_color = "#4ade80" if total_pl >= 0 else "#ef4444"
+
+    # Pull ranks (precomputed in portfolio tab for efficiency)
+    tkr = (row.get('ticker') or '').upper()
+    rinfo = (rank_map or {}).get(tkr, {}) if isinstance(rank_map, dict) else {}
+    g_rank = rinfo.get('global_rank')
+    s_rank = rinfo.get('sector_rank')
+    sector = rinfo.get('sector') or ''
+
+    def pill(text, bg, fg):
+        return f"<span style='background:{bg}; color:{fg}; padding:5px 10px; border-radius:999px; font-weight:800; font-size:12px; letter-spacing:.2px;'>{text}</span>"
+
+    pills = []
+    if g_rank not in (None, '', 0):
+        pills.append(pill(f"G #{int(g_rank)}", "#60a5fa", "#0b1220"))
+    if s_rank not in (None, '', 0):
+        label = f"{sector} #{int(s_rank)}" if sector else f"S #{int(s_rank)}"
+        pills.append(pill(label, "#a78bfa", "#0b1220"))
+
+    if shares > 0 and entry_price > 0:
+        pills.append(pill(f"{shares:g} @ ${entry_price:,.2f}", "#111827", "#e5e7eb"))
+
+    # Always show P/L pill (colored)
+    pills.append(pill(f"P/L ${total_pl:,.2f} ({total_pct:+.1f}%)", pl_color, "#0b1220"))
+
+    pills_html = "<div style='display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;'>" + "".join(pills) + "</div>"
+
+    html = f"""
+<a href='/Stocks?t={tkr}&mode=REAL{('&token=' + token) if token else ''}' style='text-decoration:none;'>
+  <div class='portfolio-card' style='display:flex; justify-content:space-between; align-items:flex-start; padding:16px 16px 14px 16px; border-radius:20px; margin-bottom:14px; background:linear-gradient(180deg,#0f172a,#0b1220); border:1px solid rgba(255,255,255,.06); box-shadow:0 10px 30px rgba(0,0,0,.35); position:relative; overflow:hidden;'>
+    <div style='position:absolute; left:0; top:0; bottom:0; width:6px; background:{pl_color};'></div>
+    <div style='flex:1; padding-left:10px;'>
+      <div style='display:flex; align-items:center; gap:10px; flex-wrap:wrap;'>
+        <div style='font-size:26px; font-weight:900; letter-spacing:.5px; color:#ffffff;'>{tkr}</div>
+      </div>
+      <div style='margin-top:4px; color:#9ca3af; font-size:15px;'>{data.get('name','')}</div>
+      {pills_html}
+    </div>
+
+    <div style='text-align:right; min-width:110px;'>
+      <div style='font-size:30px; font-weight:900; color:#ffffff;'>${price:,.2f}</div>
+      <div style='margin-top:8px; font-size:18px; font-weight:800; color:{change_color};'>{'+' if change>=0 else ''}{change:.2f}%</div>
+      <div style='margin-top:6px;'>{extended_html}</div>
+    </div>
+  </div>
+</a>
+"""
 
     # IMPORTANT: strip leading spaces so Streamlit doesn't render this as a code block on mobile
     html = "\n".join(line.lstrip() for line in html.splitlines()).strip()
     st.markdown(html, unsafe_allow_html=True)
+
 
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
@@ -1450,7 +1782,7 @@ user = get_user_from_token(token)
 if not user: st.error("Session Expired"); st.stop()
 
 current_mode = "REAL"
-
+render_topbar(user.get("display_name"))
 
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
@@ -1535,7 +1867,7 @@ if "ticker" in st.query_params:
 </div>
 """), unsafe_allow_html=True
             )
-        st.markdown(f"<div class='card' style='margin-top:15px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='card' style='margin:0px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
             if type=="debt": return "pill-high" if val > 150 else "pill-low", "HIGH" if val > 150 else "LOW"
@@ -1584,13 +1916,13 @@ if "ticker" in st.query_params:
                 st.markdown(f"<a href='{item['link']}' target='_blank' style='text-decoration:none;'><div style='font-size:0.95rem; font-weight:bold; color:#ffffff; margin-bottom:5px;'>{item['title']}</div><div style='font-size:0.75rem; color:#64748b; margin-bottom:15px;'>{item['time']} • {item['pub']}</div></a><div style='border-bottom:1px solid #2d3748; margin-bottom:15px;'></div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
         
-        if st.button(f"🔔 Set Alert for {ticker}", key="alert_action_btn"):
-            st.query_params["tab"] = "alerts"; del st.query_params["ticker"]; st.rerun()
-    else: st.error("Data missing.")
+
+# If we are on a ticker detail page, stop here so Home does not render underneath.
+if "ticker" in st.query_params:
+    st.stop()
 
 tab = st.query_params.get("tab", "home")
 if tab == "home":
-    render_topbar(user.get("display_name"))
     greeting = get_greeting(user["display_name"])
 
     st.markdown(
@@ -1621,7 +1953,7 @@ if tab == "home":
                 d_val = parse_smart_date(r.get('next_earnings'))
                 if d_val < 365: e_list.append((r['ticker'], d_val))
             e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
-            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:5px 0 16px 16px; margin-top:-14px; margin-bottom:30px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div></div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:5px 0 16px 16px; margin-top:0px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div></div></div>""", unsafe_allow_html=True)
             
             render_horizontal_grid(data_map, token)
             
@@ -1694,12 +2026,12 @@ if tab == "home":
             f"""
             <div class='card' style='padding:18px; border-left:4px solid #2f80ed;'>
               <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
-                BIG MOVERS (Top 3)
+                PORTFOLIO MOVERS
               </div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>GAINERS</div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#4ade80;'>GAINERS</div>
               {gainers_html}
               <div style='height:10px'></div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px;'>LOSERS</div>
+              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#ef4444;'>LOSERS</div>
               {losers_html}
             </div>
             """,
@@ -1715,124 +2047,105 @@ if tab == "home":
 
 
 
-    # ============================================
-    # GLOBAL MOMENTUM PICKS (last 5)
-    st.markdown(
-        """
-        <div class=\"pp-alert-card pp-alert-yellow\" style=\"margin-top:14px;\">
-          <h4 style=\"margin:0; font-size:15px; letter-spacing:1px;\">GLOBAL MOMENTUM PICKS</h4>
-        """,
-        unsafe_allow_html=True,
-    )
+    # Global Momentum Picks (from global list)
+    st.markdown("<div class='section-divider';></div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
 
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-
-        # Optional columns (only if you added them later)
-        cursor.execute("SHOW COLUMNS FROM global_setup_fired LIKE 'fired_price'")
-        has_fired_price = cursor.fetchone() is not None
-
-        # Prefer alerts fired today; if none, fall back to most recent 5 overall
-        select_fired_price = ", f.fired_price AS fired_price" if has_fired_price else ""
-
-        cursor.execute(
-            f"""
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+        cur.execute(
+            """
             SELECT
-                f.ticker,
-                f.storm_type,
-                f.created_at
-                {select_fired_price}
+                gsf.ticker,
+                gsf.storm_type,
+                gsf.fired_at,
+                gsf.price_at_fire,
+                gsf.pct_at_fire,
+                gsf.reason,
                 gc.price AS current_price,
                 gc.day_change AS current_change
-            FROM global_setup_fired f
-            LEFT JOIN global_cache gc ON gc.ticker = f.ticker
-            WHERE DATE(f.created_at) = CURDATE()
-            ORDER BY f.created_at DESC
+            FROM global_setup_fired gsf
+            LEFT JOIN global_cache gc ON gc.ticker = gsf.ticker
+            ORDER BY gsf.fired_at DESC
             LIMIT 5
             """
         )
-        fired = cursor.fetchall() or []
+        picks = cur.fetchall() or []
+        cur.close()
+        conn.close()
 
-        if not fired:
-            cursor.execute(
-                f"""
-                SELECT
-                    f.ticker,
-                    f.storm_type,
-                    f.created_at
-                    {select_fired_price},
-                    gc.price AS current_price,
-                    gc.day_change AS current_change
-                FROM global_setup_fired f
-                LEFT JOIN global_cache gc ON gc.ticker = f.ticker
-                ORDER BY f.created_at DESC
-                LIMIT 5
-                """
-            )
-            fired = cursor.fetchall() or []
-
-        if fired:
-            for row in fired:
-                ticker = (row.get("ticker") or "").upper()
-                storm_type = row.get("storm_type") or ""
-                created_at = row.get("created_at")
-
-                # Fired price (optional)
-                fired_price = row.get("fired_price") if has_fired_price else None
-
-                # Current snapshot from global_cache
-                cur_price = row.get("current_price")
-                cur_chg = row.get("current_change")
-
-                # Format pieces safely
-                ts = ""
-                try:
-                    if created_at:
-                        ts = created_at.strftime("%b %d %H:%M")
-                except Exception:
-                    ts = str(created_at) if created_at else ""
-
-                price_text = f"${cur_price:.2f}" if isinstance(cur_price, (int, float)) else (f"${cur_price}" if cur_price else "—")
-                chg_text = f"{cur_chg:+.2f}%" if isinstance(cur_chg, (int, float)) else (str(cur_chg) if cur_chg is not None else "")
-                chg_color = "#46f08a" if isinstance(cur_chg, (int, float)) and cur_chg >= 0 else "#ff4d4d"
-
-                fired_text = ""
-                if isinstance(fired_price, (int, float)):
-                    fired_text = f" • fired ${fired_price:.2f}"
-
+        if not picks:
                 st.markdown(
-                    f"""
-                    <div style=\"display:flex; align-items:flex-start; justify-content:space-between; padding:10px 0; border-top:1px solid rgba(255,255,255,0.06);\">
-                      <div style=\"min-width:0;\">
-                        <div style=\"font-weight:800; letter-spacing:0.5px;\">{ticker}</div>
-                        <div style=\"opacity:0.75; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;\">{storm_type}{fired_text}</div>
-                        <div style=\"opacity:0.55; font-size:11px; margin-top:2px;\">{ts}</div>
+                    """
+                    <div class='card border-gold' style='padding: 18px;'>
+                      <div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:8px;'>
+                        GLOBAL ALERTS
                       </div>
-                      <div style=\"text-align:right;\">
-                        <div style=\"font-weight:800;\">{price_text}</div>
-                        <div style=\"font-weight:700; color:{chg_color};\">{chg_text}</div>
-                      </div>
+                      <div style='opacity:.8;'>No active global alerts yet today.</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
         else:
-            st.markdown(
-                "<div style='margin-top:10px; opacity:0.8;'>No active global alerts yet today.</div>",
-                unsafe_allow_html=True,
-            )
+                # IMPORTANT: Render as ONE HTML block (Streamlit won't reliably nest <div> across multiple st.markdown calls)
+                def _to_float(v, default=0.0):
+                    try:
+                        if v is None:
+                            return default
+                        return float(v)
+                    except Exception:
+                        return default
 
-        cursor.close()
-        conn.close()
+                parts = []
+                parts.append("<div class='card border-gold' style='padding: 18px 18px;'>")
+                parts.append("<div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:10px;'>GLOBAL ALERTS</div>")
+
+                for i, p in enumerate(picks):
+                    ticker = (p.get('ticker') or '').upper()
+                    storm_type = (p.get('storm_type') or '').lower()
+                    fired_at = p.get('fired_at')
+                    fired_price = _to_float(p.get('price_at_fire'), 0.0)
+                    fired_pct = _to_float(p.get('pct_at_fire'), 0.0)
+
+                    current_price = _to_float(p.get('current_price'), 0.0)
+                    current_change = _to_float(p.get('current_change'), 0.0)
+
+                    # e.g. "Feb 13 22:46 @ $195.85 (+13.07%)"
+                    fired_text = ""
+                    if fired_at:
+                        try:
+                            fired_text = fired_at.strftime('%b %d %H:%M')
+                        except Exception:
+                            fired_text = str(fired_at)
+
+                    fired_line = f"{fired_text} @ ${fired_price:,.2f} ({fired_pct:+.2f}%)" if fired_text else f"@ ${fired_price:,.2f} ({fired_pct:+.2f}%)"
+
+                    chg_class = "pos" if current_change >= 0 else "neg"
+
+                    parts.append("<div class='global-picks-row'>")
+                    parts.append("  <div class='global-picks-left'>")
+                    parts.append(f"    <div class='ticker'>{ticker}</div>")
+                    parts.append(f"    <div class='type'>{storm_type} alert fired</div>")
+                    parts.append(f"    <div class='meta'>{fired_line}</div>")
+                    parts.append("  </div>")
+                    parts.append("  <div class='global-picks-right'>")
+                    parts.append(f"    <div class='price'>${current_price:,.2f}</div>")
+                    parts.append(f"    <div class='chg {chg_class}'>{current_change:+.2f}%</div>")
+                    parts.append("  </div>")
+                    parts.append("</div>")
+
+                    if i < len(picks) - 1:
+                        parts.append("<div class='global-picks-divider'></div>")
+
+                parts.append("</div>")
+                st.markdown(''.join(parts), unsafe_allow_html=True)
+
 
     except Exception as e:
         st.error(f"Global picks error: {e}")
-
-    st.markdown("</div>", unsafe_allow_html=True)
 elif tab == "portfolio":
-    render_topbar(user.get("display_name"))
-    st.markdown(f"### My Stocks ({current_mode})")
+    st.markdown(f"")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
     c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
     c_day = "#4ade80" if day_pl >= 0 else "#ef4444"
@@ -1892,16 +2205,16 @@ elif tab == "portfolio":
     if port_rows:
         tickers = [r['ticker'] for r in port_rows]
         market_data = get_cached_data_map(tickers)
+        rank_map = get_rank_map_for_tickers(tickers)
         pairs = [(row, market_data[row['ticker']]) for row in port_rows if row['ticker'] in market_data]
         pairs.sort(key=lambda x: float(x[1].get('day_change') or 0), reverse=True)
 
         for row, data in pairs:
-            render_portfolio_row(row, data, token)
+            render_portfolio_row(row, data, token, rank_map=rank_map)
         # (Reorder animation disabled for stability)
 
 
 elif tab == "alerts":
-    render_topbar(user.get("display_name"))
     st.markdown("## Alerts")
     st.caption("Simple toggles. Portfolio-first. Optional: include your PennyPulse Global List.")
 
@@ -1957,7 +2270,7 @@ elif tab == "alerts":
 
     st.markdown(
         """
-        <div class="card" style="border-left:4px solid #fbbf24; margin-bottom:14px;">
+        <div class="card" style="border-left:4px solid #fbbf24; margin-top: 10px; margin-bottom:24px;">
           <div style="color:#fbbf24; font-size:0.8rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">
             SCAN SCOPE
           </div>
@@ -2111,195 +2424,188 @@ elif tab == "alerts":
 
 
 elif tab == "scanner":
-    render_topbar(user.get("display_name"))
-    st.markdown("## Market Scanner")
-    st.caption("Your portfolio only — biggest signals first. (Your alerts banner still shows your last 5.)")
+    st.markdown("Global rankings — biggest signals first.")
 
-    portfolio_rows = get_portfolio_details(user["username"], current_mode)
-    tickers = [r["ticker"] for r in portfolio_rows if r.get("ticker")]
+    st.markdown(
+        """
+        <style>
+          .rank-wrap { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
+          .rank-card {
+            background: linear-gradient(180deg, rgba(17,24,39,0.92), rgba(15,23,42,0.92));
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 22px;
+            padding: 16px 16px 16px 16px;
+            margin-top:10px;
+            margin-bottom:30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+          }
+          .rank-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
+          .rank-ticker { font-size: 28px; font-weight: 800; letter-spacing: 0.5px; line-height: 1; }
+          .rank-sub { color: rgba(255,255,255,0.55); font-size: 14px; margin-top: 4px; }
+          .rank-right { display:flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+          .ring {
+            width: 66px; height: 66px; border-radius: 999px;
+            display:flex; align-items:center; justify-content:center;
+            background: conic-gradient(#22c55e var(--p), rgba(255,255,255,0.10) 0);
+            border: 1px solid rgba(255,255,255,0.10);
+          }
+          .ring-inner {
+            width: 54px; height: 54px; border-radius: 999px;
+            background: rgba(2,6,23,0.65);
+            display:flex; align-items:center; justify-content:center;
+            font-weight: 800; font-size: 18px;
+          }
+          .pill-row { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+          .pill {
+            padding: 7px 10px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            font-weight: 700;
+            font-size: 12px;
+            letter-spacing: 0.3px;
+          }
+          .pill strong { opacity: 0.9; }
+          .bars { margin-top: 12px; display:flex; flex-direction: column; gap: 10px; }
+          .bar-row { display:flex; align-items:center; justify-content: space-between; gap: 10px; }
+          .bar-label { width: 86px; color: rgba(255,255,255,0.70); font-size: 16px; font-weight: 700; }
+          .bar {
+            flex: 1;
+            height: 6px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.10);
+            overflow: hidden;
+          }
+          .bar > span {
+            display:block; height:100%;
+            width: var(--w);
+            background: linear-gradient(90deg, rgba(34,197,94,0.95), rgba(250,204,21,0.95));
+            border-radius: 999px;
+          }
+          .bar-val { width: 34px; text-align:right; font-size: 12px; font-weight: 800; }
+          .section-title { margin-top: 18px; margin-bottom: 16px; font-size: 22px; font-weight: 800; }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
-    if not tickers:
-        st.info("No tickers in your portfolio yet. Add a few to see scanner signals.")
+    def _int0(x):
+        try:
+            return int(round(float(x)))
+        except Exception:
+            return 0
+
+    def _clamp01(x):
+        try:
+            x = float(x)
+        except Exception:
+            x = 0.0
+        if x < 0: x = 0
+        if x > 100: x = 100
+        return x
+
+    def fetch_rank_rows(order_col: str, limit: int):
+        # whitelist only known columns
+        allowed = {"composite_score","momentum_score","quality_score","value_score","stability_score"}
+        if order_col not in allowed:
+            order_col = "composite_score"
+
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+        cur.execute(f"""
+            SELECT
+                ticker,
+                asof_date,
+                composite_score,
+                momentum_score,
+                quality_score,
+                value_score,
+                stability_score,
+                confidence,
+                why_json
+            FROM rankings_daily
+            WHERE asof_date = (SELECT MAX(asof_date) FROM rankings_daily)
+            ORDER BY {order_col} DESC
+            LIMIT %s
+        """, (int(limit),))
+        rows = cur.fetchall() or []
+        cur.close()
+        conn.close()
+        return rows
+
+    def render_rank_card(r: dict, badge: str | None = None):
+        ticker = (r.get("ticker") or "").upper()
+
+        # Pull scores (fail loudly if key missing)
+        comp = int(r.get("composite_score") or 0)
+        mom  = int(r["momentum_score"] or 0)
+        qual = int(r["quality_score"] or 0)
+        val  = int(r["value_score"] or 0)
+        stab = int(r["stability_score"] or 0)
+
+        html = f"""<div class="rank-card">
+  <div class="rank-top">
+    <div class="rank-ticker">{ticker}</div>
+    <div class="rank-right">
+      <div class="ring" style="--p:{_clamp01(comp)}%;">
+        <div class="ring-inner">{comp}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bars">
+    <div class="bar-row">
+      <div class="bar-label">Momentum</div>
+      <div class="bar" style="--w:{_clamp01(mom)}%;"><span></span></div>
+      <div class="bar-val">{mom}</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Quality</div>
+      <div class="bar" style="--w:{_clamp01(qual)}%;"><span></span></div>
+      <div class="bar-val">{qual}</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Value</div>
+      <div class="bar" style="--w:{_clamp01(val)}%;"><span></span></div>
+      <div class="bar-val">{val}</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Stability</div>
+      <div class="bar" style="--w:{_clamp01(stab)}%;"><span></span></div>
+      <div class="bar-val">{stab}</div>
+    </div>
+  </div>
+</div>"""
+
+        st.markdown(html, unsafe_allow_html=True)
+
+
+    # --- Top 5 ranked by composite_score ---
+    top5 = fetch_rank_rows("composite_score", 5)
+    if not top5:
+        st.info("No rankings yet (rankings_daily is empty).")
     else:
-        data_map = get_cached_data_map(tickers)
-        rows = list(data_map.values())
+        st.markdown('<div class="section-title">Top 5 — Ranked</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rank-wrap">', unsafe_allow_html=True)
+        for i, r in enumerate(top5, start=1):
+            render_rank_card(r, badge="Top ranked" if i == 1 else None)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        def _f(v, default=0.0):
-            try:
-                if v is None:
-                    return default
-                return float(v)
-            except Exception:
-                return default
+        st.markdown("---")
 
-        def signal_score(r):
-            day = _f(r.get("day_change"))
-            rsi = _f(r.get("rsi_14"), 50.0)
-            rvol = _f(r.get("rvol"), 1.0)
-            trend = (r.get("trend_status") or "").upper()
+        st.markdown('<div class="section-title">Top 3 Momentum</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("momentum_score", 3):
+            render_rank_card(r)
 
-            score = abs(day) * 2.0
-            if rvol >= 2:
-                score += (rvol - 1.0) * 10.0
-            if rsi <= 40:
-                score += 20.0 + (40.0 - rsi)
-            if rsi >= 70:
-                score += 20.0 + (rsi - 70.0)
-            if trend in ("UPTREND", "DOWNTREND"):
-                score += 15.0
-            return score
+        st.markdown('<div class="section-title">Top 3 Value</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("value_score", 3):
+            render_rank_card(r)
 
-        def is_strong_momentum(r):
-            day = _f(r.get("day_change"))
-            rvol = _f(r.get("rvol"), 1.0)
-            trend = (r.get("trend_status") or "").upper()
-            return day >= 4.0 and rvol >= 1.8 and trend == "UPTREND"
-
-        def is_weakness(r):
-            day = _f(r.get("day_change"))
-            rvol = _f(r.get("rvol"), 1.0)
-            trend = (r.get("trend_status") or "").upper()
-            return day <= -4.0 and rvol >= 1.8 and trend == "DOWNTREND"
-
-        def is_big_up(r):
-            return _f(r.get("day_change")) >= 7.0
-
-        def is_big_down(r):
-            return _f(r.get("day_change")) <= -7.0
-
-        def is_oversold(r):
-            return _f(r.get("rsi_14"), 50.0) < 40.0
-
-        def is_overbought(r):
-            return _f(r.get("rsi_14"), 50.0) > 70.0
-
-        def is_high_rvol(r):
-            return _f(r.get("rvol"), 1.0) >= 3.0
-
-        # Buckets (rows can appear in multiple buckets)
-        buckets = [
-            ("🚀 Strong Momentum", is_strong_momentum),
-            ("🧯 Weakness Building", is_weakness),
-            ("📈 Big Move Up", is_big_up),
-            ("📉 Big Move Down", is_big_down),
-            ("🧊 Oversold (RSI < 40)", is_oversold),
-            ("🔥 Overbought (RSI > 70)", is_overbought),
-            ("🌪 High Relative Volume", is_high_rvol),
-        ]
-
-        # Keep only tickers that have *some* signal
-        any_signal_rows = []
-        for r in rows:
-            if r.get("ticker") is None or r.get("current_price") is None:
-                continue
-            if any(fn(r) for _, fn in buckets):
-                any_signal_rows.append(r)
-
-        if not any_signal_rows:
-            st.info("No big signals right now for your portfolio. Check back soon.")
-        else:
-            any_signal_rows.sort(key=signal_score, reverse=True)
-            def render_signal_card(r, *, badge_text=None):
-                ticker = (r.get("ticker") or "").upper()
-                price = _f(r.get("current_price"), 0.0)
-                day = _f(r.get("day_change"), 0.0)
-
-                arrow = "▲" if day >= 0 else "▼"
-                day_txt = f"{arrow} {abs(day):.2f}%"
-                chg_color = "#4ade80" if day >= 0 else "#ef4444"
-
-                trend = (r.get("trend_status") or "NEUTRAL").upper()
-                rsi = _f(r.get("rsi_14"), 50.0)
-                rvol = _f(r.get("rvol"), 1.0)
-
-                # calculate_risk() returns: (score, label, color, badge, breakdown)
-                risk_score, risk_label, *_ = calculate_risk(r)
-                conf = calculate_confidence(r)
-
-                def chip_class(v, kind="conf"):
-                    try:
-                        v = float(v)
-                    except Exception:
-                        return "scan-chip"
-                    if kind == "risk":
-                        return "scan-chip bad" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip good")
-                    return "scan-chip good" if v >= 70 else ("scan-chip warn" if v >= 40 else "scan-chip bad")
-
-                # Accent rail color
-                rail = "#38bdf8"
-                if trend == "UPTREND":
-                    rail = "#4ade80"
-                elif trend == "DOWNTREND":
-                    rail = "#ef4444"
-                if rsi <= 30:
-                    rail = "#fbbf24"
-                elif rsi >= 70:
-                    rail = "#a78bfa"
-
-                badge_html = f'<div class="scan-badge">{badge_text}</div>' if badge_text else ""
-
-                # Keep navigation exactly as your app uses it (query params)
-                link = f"?token={token}&ticker={ticker}"
-
-                card_html = "\n".join([
-                    f'<a href="{link}" class="card-link" target="_self">',
-                    f'<div class="scan-card" style="border-left:5px solid {rail};">',
-                    '<div class="scan-top">',
-                    '<div class="scan-left">',
-                    f'<div class="scan-ticker">{ticker}</div>',
-                    f'<div class="scan-sub">{trend} • RSI {rsi:.0f} • RVOL {rvol:.1f}</div>',
-                    '</div>',
-                    '<div class="scan-right">',
-                    f'<div class="scan-price">${price:.2f}</div>',
-                    f'<div class="scan-day" style="color:{chg_color};">{day_txt}</div>',
-                    '</div>',
-                    '</div>',
-                    '<div class="scan-row">',
-                    f'<div class="{chip_class(risk_score, "risk")}">RISK {int(risk_score)}</div>',
-                    f'<div class="scan-chip">{risk_label}</div>',
-                    f'<div class="{chip_class(conf, "conf")}">CONF {int(conf)}</div>',
-                    '</div>',
-                    badge_html,
-                    '<div class="scan-divider"></div>',
-                    '<div class="scan-mini">',
-                    f'<div><span>Range</span> {_f(r.get("range_pct"), 0.0):.0f}%</div>',
-                    f'<div><span>Volatility</span> {_f(r.get("volatility"), 0.0):.1f}</div>',
-                    f'<div><span>Debt Ratio</span> {_f(r.get("debt_ratio"), 0.0):.0f} %</div>',
-                    '</div>',
-                    '</div>',
-                    '</a>',
-                ]).strip()
-
-                st.markdown(card_html, unsafe_allow_html=True)
-
-
-
-            # Top ranked list (all signals)
-            st.markdown("### 🔥 Biggest Signals (Ranked)")
-            st.markdown('<div class="scan-grid">', unsafe_allow_html=True)
-            top_n = min(3, len(any_signal_rows))
-            for i, r in enumerate(any_signal_rows[:top_n], start=1):
-                badge = "Watch this one!" if i <= 3 else None
-                render_signal_card(r, badge_text=badge)
-
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # Category sections
-            st.markdown("---")
-            st.markdown("### Categories")
-
-            for title, fn in buckets:
-                bucket_rows = [r for r in any_signal_rows if fn(r)]
-                if not bucket_rows:
-                    continue
-                bucket_rows.sort(key=signal_score, reverse=True)
-                st.markdown(f"#### {title}")
-                for i, r in enumerate(bucket_rows[:15], start=1):
-                    badge = "Watch this one!" if i == 1 else None
-                    render_signal_card(r, badge_text=badge)
-
+        st.markdown('<div class="section-title">Top 3 Stability</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("stability_score", 3):
+            render_rank_card(r)
 elif tab == "settings":
-    render_topbar(user.get("display_name"))
     st.markdown("### Settings")
     with st.form("settings_form"):
         new_name = st.text_input("Display Name", value=user['display_name'])
