@@ -352,7 +352,7 @@ def ensure_stock_cache_ticker(ticker: str):
     (t,)
        )
 
-# --- Ensure ticker exists in global_universe ---
+  # --- Ensure ticker exists in global_universe ---
    cursor.execute(
     """
     INSERT INTO global_universe (ticker, enabled, added_at)
@@ -361,8 +361,8 @@ def ensure_stock_cache_ticker(ticker: str):
     """,
     (t,)
      )
-conn.commit()
-conn.close()
+   conn.commit()
+   conn.close()
 
 def init_db():
     try:
