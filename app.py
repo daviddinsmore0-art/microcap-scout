@@ -440,11 +440,12 @@ def get_latest_rank_asof():
 
 def get_rank_map_for_tickers(tickers):
     """
-    Returns dict keyed by ticker:
-    {
-      "AAPL": {"global_rank":..., "global_percentile":..., "sector":..., "sector_rank":..., "sector_percentile":..., "composite_score":...},
-      ...
-    }
+    Returns dict keyed by ticker with ranking + factor scores for the latest asof_date.
+
+    Uses:
+      - rankings_global_daily (global_rank/global_percentile/composite_score)
+      - rankings_sector_daily (sector/sector_rank/sector_percentile)
+      - rankings_daily (momentum/quality/value/stability)
     """
     tickers = [t.upper().strip() for t in tickers if t]
     if not tickers:
@@ -459,21 +460,30 @@ def get_rank_map_for_tickers(tickers):
     conn = get_connection()
     cur = conn.cursor(dictionary=True)
 
-    # Pull global ranks
+    # Global rank + percentile (higher percentile = better)
     cur.execute(f"""
         SELECT ticker, global_rank, global_percentile, composite_score
         FROM rankings_global_daily
         WHERE asof_date = %s AND ticker IN ({placeholders})
     """, [asof] + tickers)
-    g_rows = cur.fetchall()
+    g_rows = cur.fetchall() or []
 
-    # Pull sector ranks
+    # Sector rank + percentile
     cur.execute(f"""
         SELECT ticker, sector, sector_rank, sector_percentile
         FROM rankings_sector_daily
         WHERE asof_date = %s AND ticker IN ({placeholders})
     """, [asof] + tickers)
-    s_rows = cur.fetchall()
+    s_rows = cur.fetchall() or []
+
+    # Factor scores (0-100)
+    cur.execute(f"""
+        SELECT ticker,
+               momentum_score, quality_score, value_score, stability_score
+        FROM rankings_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    f_rows = cur.fetchall() or []
 
     conn.close()
 
@@ -482,8 +492,10 @@ def get_rank_map_for_tickers(tickers):
         out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
     for r in s_rows:
         out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+    for r in f_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
 
-    out["_asof"] = asof  # handy
+    out["_asof"] = asof
     return out
     
 def ensure_stock_cache_ticker(ticker: str):
@@ -1547,21 +1559,30 @@ def generate_playbook(stock_row):
     }
 
 
+def _strength_from_percentile(p):
+    """p: 0-100 where higher is better."""
+    try:
+        p = float(p)
+    except Exception:
+        return None, None
+    p = max(0.0, min(100.0, p))
+    top = int(round(100.0 - p))
+    if top < 1:
+        top = 1
+    # buckets (human, not school grades)
+    if p >= 95:
+        label = "Elite"
+    elif p >= 80:
+        label = "Strong"
+    elif p >= 60:
+        label = "Good"
+    else:
+        label = "Watch"
+    return label, f"Top {top}%"
+
 def render_portfolio_row(row, data, token=None, rank_map=None):
-    """Render a single portfolio holding card (mobile-friendly)."""
-    price = float(data.get("current_price") or 0)
-    change = float(data.get("day_change") or 0)
-    extended_html = format_extended_change(data)
-
-    shares = float(row.get("shares") or 0)
-    entry_price = float(row.get("entry_price") or 0)
-    total_pl = float(row.get("total_pl") or 0)
-    total_pct = float(row.get("total_pct") or 0)
-
-    change_color = "#4ade80" if change >= 0 else "#ef4444"
-    pl_color = "#4ade80" if total_pl >= 0 else "#ef4444"
-
-    # Prefer company_name but fall back gracefully
+    """Clean 'middle card' portfolio layout (no shares/P&L, no loud borders)."""
+    tkr = (row.get("ticker") or "").upper()
     company = (
         data.get("company_name")
         or data.get("name")
@@ -1570,57 +1591,71 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
         or ""
     )
 
-    # Optional ranks (kept readable; no "mystery badges")
-    tkr = (row.get("ticker") or "").upper()
+    price = float(data.get("current_price") or 0)
+    change = float(data.get("day_change") or 0)
+    change_color = "#4ade80" if change >= 0 else "#ef4444"
+    day_txt = f"{change:+.2f}%"
+
+    # Extended (pre/post) already formatted elsewhere
+    extended_html = format_extended_change(data)
+
+    # Rankings + factor scores (from rank_map)
     rinfo = (rank_map or {}).get(tkr, {}) if isinstance(rank_map, dict) else {}
-    g_rank = rinfo.get("global_rank")
-    s_rank = rinfo.get("sector_rank")
+
+    g_label, g_top = _strength_from_percentile(rinfo.get("global_percentile"))
+    s_label, s_top = _strength_from_percentile(rinfo.get("sector_percentile"))
     sector = (rinfo.get("sector") or "").strip()
 
-    rank_parts = []
-    if g_rank not in (None, "", 0, "0"):
-        rank_parts.append(f"Global rank <b>#{g_rank}</b>")
-    if s_rank not in (None, "", 0, "0"):
-        if sector:
-            rank_parts.append(f"{sector} <b>#{s_rank}</b>")
-        else:
-            rank_parts.append(f"Sector rank <b>#{s_rank}</b>")
-    ranks_html = ""
-    if rank_parts:
-        ranks_html = (
-            "<div style='margin-top:10px; color:#94a3b8; font-size:12px; line-height:1.3;'>"
-            "Ranks: " + " &nbsp;•&nbsp; ".join(rank_parts) +
-            "</div>"
-        )
+    # Factor scores (ints)
+    def _int(v):
+        try:
+            return int(round(float(v)))
+        except Exception:
+            return None
 
-    holding_line = ""
-    if shares > 0 and entry_price > 0:
-        holding_line = f"{shares:g} @ ${entry_price:,.2f}"
+    momo = _int(rinfo.get("momentum_score"))
+    qual = _int(rinfo.get("quality_score"))
+    val  = _int(rinfo.get("value_score"))
+    stab = _int(rinfo.get("stability_score"))
 
-    pl_line = f"Total P/L <span style='color:{pl_color}; font-weight:800;'>${total_pl:,.2f} ({total_pct:+.1f}%)</span>"
+    # Build clean lines
+    rank_lines = []
+    if g_label and g_top:
+        rank_lines.append(f"Global: <b>{g_label}</b> • {g_top}")
+    if s_label and s_top:
+        sec_txt = f" in {sector}" if sector else ""
+        rank_lines.append(f"Sector: <b>{s_label}</b> • {s_top}{sec_txt}")
+
+    factors = []
+    if momo is not None: factors.append(f"Momentum <b>{momo}</b>")
+    if qual is not None: factors.append(f"Quality <b>{qual}</b>")
+    if val  is not None: factors.append(f"Value <b>{val}</b>")
+    if stab is not None: factors.append(f"Stability <b>{stab}</b>")
+    factors_line = " &nbsp;·&nbsp; ".join(factors)
 
     html = f"""
-<a href="/?ticker={tkr}&tab=stocks" style="text-decoration:none;">
-  <div class="card" style="padding:18px 18px 16px 18px; border-left:8px solid {change_color};">
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
-      <div style="flex:1; min-width:0;">
-        <div style="font-size:32px; font-weight:900; color:#fff; line-height:1;">{tkr}</div>
-        <div style="margin-top:6px; font-size:14px; color:#9ca3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{company}</div>
-        <div style="margin-top:10px; font-size:14px; color:#cbd5e1;">{holding_line}</div>
-        <div style="margin-top:10px; font-size:14px; color:#cbd5e1;">{pl_line}</div>
-        {ranks_html}
+<a href=\"/?ticker={tkr}&tab=stocks\" style=\"text-decoration:none;\">
+  <div class=\"card\" style=\"padding:16px 16px 14px 16px; border-left:none;\">
+    <div style=\"display:flex; justify-content:space-between; align-items:flex-start; gap:12px;\">
+      <div style=\"flex:1; min-width:0;\">
+        <div style=\"font-size:26px; font-weight:900; color:#fff; line-height:1.1;\">{tkr}</div>
+        <div style=\"margin-top:6px; font-size:13px; color:#9ca3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;\">{company}</div>
       </div>
-
-      <div style="text-align:right; min-width:110px;">
-        <div style="font-size:32px; font-weight:900; color:#fff; line-height:1;">${price:,.2f}</div>
-        <div style="margin-top:8px; font-size:18px; font-weight:900; color:{change_color};">{'+' if change>=0 else ''}{change:.2f}%</div>
-        <div style="margin-top:6px;">{extended_html}</div>
+      <div style=\"text-align:right; min-width:110px;\">
+        <div style=\"font-size:26px; font-weight:900; color:#fff; line-height:1.1;\">${price:,.2f}</div>
+        <div style=\"margin-top:6px; font-size:16px; font-weight:900; color:{change_color};\">{day_txt}</div>
+        <div style=\"margin-top:6px;\">{extended_html}</div>
       </div>
     </div>
+
+    {('<div style="margin-top:12px; font-size:13px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
+
+    {('<div style="margin-top:10px; font-size:12px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
+
   </div>
 </a>
 """
-    # Strip leading spaces so Streamlit doesn't render this as a code block on mobile
+
     html = "\n".join(line.lstrip() for line in html.splitlines()).strip()
     st.markdown(html, unsafe_allow_html=True)
 
@@ -2282,8 +2317,6 @@ elif tab == "portfolio":
     if port_rows:
         tickers = [r['ticker'] for r in port_rows]
         market_data = get_cached_data_map(tickers)
-        rank_map = get_rank_map(tickers)
-
         rank_map = get_rank_map_for_tickers(tickers)
         pairs = [(row, market_data[row['ticker']]) for row in port_rows if row['ticker'] in market_data]
         pairs.sort(key=lambda x: float(x[1].get('day_change') or 0), reverse=True)
