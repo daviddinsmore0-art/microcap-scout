@@ -2330,7 +2330,7 @@ elif tab == "scanner":
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 22px;
             padding: 16px 16px 16px 16px;
-            margin-bottom:20px;
+            margin-bottom:40px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
           }
           .rank-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
@@ -2362,7 +2362,7 @@ elif tab == "scanner":
           .pill strong { opacity: 0.9; }
           .bars { margin-top: 12px; display:flex; flex-direction: column; gap: 10px; }
           .bar-row { display:flex; align-items:center; justify-content: space-between; gap: 10px; }
-          .bar-label { width: 86px; color: rgba(255,255,255,0.70); font-size: 12px; font-weight: 700; }
+          .bar-label { width: 86px; color: rgba(255,255,255,0.70); font-size: 16px; font-weight: 700; }
           .bar {
             flex: 1;
             height: 6px;
@@ -2378,7 +2378,7 @@ elif tab == "scanner":
             border-radius: 999px;
           }
           .bar-val { width: 34px; text-align:right; font-size: 12px; font-weight: 800; }
-          .section-title { margin-top: 18px; margin-bottom: 6px; font-size: 22px; font-weight: 800; }
+          .section-title { margin-top: 18px; margin-bottom: 16px; font-size: 22px; font-weight: 800; }
         </style>
         """,
         unsafe_allow_html=True
