@@ -361,9 +361,8 @@ def ensure_stock_cache_ticker(ticker: str):
     """,
     (t,)
      )
-
-     conn.commit()
-     conn.close()
+conn.commit()
+conn.close()
 
 def init_db():
     try:
