@@ -1557,7 +1557,18 @@ def generate_playbook(stock_row):
         "rationale": rationale,
         "move": r(move),
     }
+def get_rank_color(label: str):
+    if not label:
+        return "#9ca3af"  # neutral gray
+    
+    label = label.lower()
 
+    if "elite" in label or "strong" in label:
+        return "#34d399"  # soft green
+    elif "watch" in label or "weak" in label:
+        return "#f87171"  # soft red
+    else:
+        return "#cbd5e1"  # soft neutral
 
 def _strength_from_percentile(p):
     """p: 0-100 where higher is better."""
