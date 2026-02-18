@@ -2493,8 +2493,8 @@ elif tab == "scanner":
         for r in fetch_rank_rows("momentum_score", 3):
             render_rank_card(r)
 
-        st.markdown('<div class="section-title">Top 3 Quality</div>', unsafe_allow_html=True)
-        for r in fetch_rank_rows("quality_score", 3):
+        st.markdown('<div class="section-title">Top 3 Value</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("value_score", 3):
             render_rank_card(r)
 
         st.markdown('<div class="section-title">Top 3 Stability</div>', unsafe_allow_html=True)
