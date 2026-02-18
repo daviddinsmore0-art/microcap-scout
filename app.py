@@ -1633,7 +1633,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     # Build clean lines
     rank_lines = []
     if g_label and g_top:
-        rank_lines.append(f"Global: <b>{g_label}</b> • {g_top}")
+        rank_lines.append(f"<div style="color={global_color}">Global:</div> <b>{g_label}</b> • {g_top}")
     if s_label and s_top:
         sec_txt = f"  ({sector})" if sector else ""
         rank_lines.append(f"Sector: <b>{s_label}</b> • {s_top}{sec_txt}")
@@ -1660,7 +1660,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
       </div>
     </div>
 
-    {('<div style="margin-top:12px; font-size:16px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
+    {('<div style="margin-top:12px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
 
     {('<div style="margin-top:10px; font-size:14px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
 
