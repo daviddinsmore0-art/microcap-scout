@@ -337,8 +337,7 @@ token = st.query_params.get("token", None)
 
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
-
-st.subheader("🏆 Sector Leaders")
+    
 def ensure_stock_cache_ticker(ticker):
     """Ensure ticker exists in stock cache table (if you use one)."""
     t = (ticker or "").strip().upper()
