@@ -2564,7 +2564,7 @@ elif tab == "scanner":
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
           }
           .rank-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
-          .rank-ticker { font-size: 28px; font-weight: 800; letter-spacing: 0.5px; line-height: 1; }
+          .rank-ticker { font-size: 20px; font-weight: 600; letter-spacing: 0.5px; line-height: 1; }
           .rank-sub { color: rgba(255,255,255,0.55); font-size: 14px; margin-top: 4px; }
           .rank-right { display:flex; flex-direction: column; align-items: flex-end; gap: 8px; }
           .ring {
