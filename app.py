@@ -348,11 +348,22 @@ def ensure_stock_cache_ticker(ticker: str):
     cursor = conn.cursor()
     # Insert stub row if missing; rely on ticker being UNIQUE/PK
     cursor.execute(
-        "INSERT INTO stock_cache (ticker) VALUES (%s) ON DUPLICATE KEY UPDATE ticker=ticker",
-        (t,)
-    )
-    conn.commit()
-    conn.close()
+    "INSERT INTO stock_cache (ticker) VALUES (%s) ON DUPLICATE KEY UPDATE ticker = ticker",
+    (t,)
+       )
+
+# --- Ensure ticker exists in global_universe ---
+   cursor.execute(
+    """
+    INSERT INTO global_universe (ticker, enabled, added_at)
+    VALUES (%s, 1, NOW())
+    ON DUPLICATE KEY UPDATE ticker = ticker
+    """,
+    (t,)
+     )
+
+     conn.commit()
+     conn.close()
 
 def init_db():
     try:
