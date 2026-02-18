@@ -339,22 +339,28 @@ def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 st.subheader("🏆 Sector Leaders")
+def ensure_stock_cache_ticker(ticker):
+    """Ensure ticker exists in stock cache table (if you use one)."""
+    t = (ticker or "").strip().upper()
+    if not t:
+        return
 
-leaders = get_sector_leaders()
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
 
-if leaders:
-    current_sector = None
-    for row in leaders:
-        if row["sector"] != current_sector:
-            current_sector = row["sector"]
-            st.markdown(f"### {current_sector}")
-
-        st.write(
-            f"#{row['sector_rank']} {row['ticker']} "
-            f"({row['sector_percentile']:.1f}%)"
-        )
-else:
-    st.info("No sector rankings yet.")
+    try:
+        # If your cache table is named differently, update this query.
+        cur.execute("SELECT ticker FROM global_cache WHERE ticker=%s LIMIT 1", (t,))
+        row = cur.fetchone()
+        if not row:
+            cur.execute("INSERT INTO global_cache (ticker) VALUES (%s)", (t,))
+            conn.commit()
+    finally:
+        try:
+            cur.close()
+        except:
+            pass
+        conn.close()
     
 def ensure_stock_cache_ticker(ticker: str):
     """Ensure ticker exists in stock_cache AND in global_universe."""
