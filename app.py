@@ -2607,7 +2607,7 @@ elif tab == "scanner":
             background: linear-gradient(90deg, rgba(34,197,94,0.95), rgba(250,204,21,0.95));
             border-radius: 999px;
           }
-          .bar-val { width: 34px; text-align:right; font-size: 12px; font-weight: 800; }
+          .bar-val { width: 34px; text-align:right; font-size: 14px; font-weight: 600; }
           .section-title { margin-top: 18px; margin-bottom: 16px; font-size: 22px; font-weight: 800; }
         </style>
         """,
