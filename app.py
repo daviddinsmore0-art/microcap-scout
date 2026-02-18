@@ -1638,8 +1638,8 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
   <div class=\"card\" style=\"padding:16px 16px 14px 16px; border-left:none;\">
     <div style=\"display:flex; justify-content:space-between; align-items:flex-start; gap:12px;\">
       <div style=\"flex:1; min-width:0;\">
-        <div style=\"font-size:26px; font-weight:900; color:#fff; line-height:1.1;\">{tkr}</div>
-        <div style=\"margin-top:6px; font-size:13px; color:#9ca3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;\">{company}</div>
+        <div style=\"font-size:20px; font-weight:500; color:#fff; line-height:1.1;\">{tkr}</div>
+        <div style=\"margin-top:6px; font-size:14px; color:#9ca3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;\">{company}</div>
       </div>
       <div style=\"text-align:right; min-width:110px;\">
         <div style=\"font-size:26px; font-weight:900; color:#fff; line-height:1.1;\">${price:,.2f}</div>
