@@ -360,6 +360,63 @@ def ensure_stock_cache_ticker(ticker):
         except:
             pass
         conn.close()
+
+def get_latest_rank_asof():
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT GREATEST(IFNULL(MAX(asof_date),'0000-00-00'), '0000-00-00') AS latest FROM rankings_global_daily")
+    row = cur.fetchone()
+    conn.close()
+    return row["latest"] if row and row["latest"] else None
+
+
+def get_rank_map_for_tickers(tickers):
+    """
+    Returns dict keyed by ticker:
+    {
+      "AAPL": {"global_rank":..., "global_percentile":..., "sector":..., "sector_rank":..., "sector_percentile":..., "composite_score":...},
+      ...
+    }
+    """
+    tickers = [t.upper().strip() for t in tickers if t]
+    if not tickers:
+        return {}
+
+    asof = get_latest_rank_asof()
+    if not asof:
+        return {}
+
+    placeholders = ",".join(["%s"] * len(tickers))
+
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+
+    # Pull global ranks
+    cur.execute(f"""
+        SELECT ticker, global_rank, global_percentile, composite_score
+        FROM rankings_global_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    g_rows = cur.fetchall()
+
+    # Pull sector ranks
+    cur.execute(f"""
+        SELECT ticker, sector, sector_rank, sector_percentile
+        FROM rankings_sector_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    s_rows = cur.fetchall()
+
+    conn.close()
+
+    out = {t: {} for t in tickers}
+    for r in g_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+    for r in s_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+
+    out["_asof"] = asof  # handy
+    return out
     
 def ensure_stock_cache_ticker(ticker: str):
     """Ensure ticker exists in stock_cache AND in global_universe."""
