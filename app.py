@@ -2329,11 +2329,12 @@ elif tab == "scanner":
             background: linear-gradient(180deg, rgba(17,24,39,0.92), rgba(15,23,42,0.92));
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 22px;
-            padding: 16px 16px 14px 16px;
+            padding: 16px 16px 16px 16px;
+            margin-bottom:20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
           }
           .rank-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
-          .rank-ticker { font-size: 44px; font-weight: 800; letter-spacing: 0.5px; line-height: 1; }
+          .rank-ticker { font-size: 28px; font-weight: 800; letter-spacing: 0.5px; line-height: 1; }
           .rank-sub { color: rgba(255,255,255,0.55); font-size: 14px; margin-top: 4px; }
           .rank-right { display:flex; flex-direction: column; align-items: flex-end; gap: 8px; }
           .ring {
@@ -2364,7 +2365,7 @@ elif tab == "scanner":
           .bar-label { width: 86px; color: rgba(255,255,255,0.70); font-size: 12px; font-weight: 700; }
           .bar {
             flex: 1;
-            height: 10px;
+            height: 6px;
             border-radius: 999px;
             background: rgba(255,255,255,0.08);
             border: 1px solid rgba(255,255,255,0.10);
