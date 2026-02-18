@@ -1601,7 +1601,8 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
         or data.get("companyName")
         or ""
     )
-
+    global_color = get_rank_color(global_label)
+    sector_color = get_rank_color(sector_label)
     price = float(data.get("current_price") or 0)
     change = float(data.get("day_change") or 0)
     change_color = "#4ade80" if change >= 0 else "#ef4444"
@@ -1659,7 +1660,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
       </div>
     </div>
 
-    {('<div style="margin-top:12px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
+    {('<div style="margin-top:12px; font-size:16px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
 
     {('<div style="margin-top:10px; font-size:14px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
 
