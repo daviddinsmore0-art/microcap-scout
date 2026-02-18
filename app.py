@@ -1634,7 +1634,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     factors_line = " &nbsp;·&nbsp; ".join(factors)
 
     html = f"""
-<a href=\"/?ticker={tkr}&tab=stocks\" style=\"text-decoration:none;\">
+<a href=\"/?ticker={tkr}&tab=stocks\" style=\"text-decoration:none; target=\"_self\">
   <div class=\"card\" style=\"padding:16px 16px 14px 16px; border-left:none;\">
     <div style=\"display:flex; justify-content:space-between; align-items:flex-start; gap:12px;\">
       <div style=\"flex:1; min-width:0;\">
