@@ -1623,7 +1623,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     if g_label and g_top:
         rank_lines.append(f"Global: <b>{g_label}</b> • {g_top}")
     if s_label and s_top:
-        sec_txt = f" ( {sector}" )if sector else ""
+        sec_txt = f"  ({sector})" if sector else ""
         rank_lines.append(f"Sector: <b>{s_label}</b> • {s_top}{sec_txt}")
 
     factors = []
