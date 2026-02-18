@@ -1479,63 +1479,74 @@ def generate_playbook(stock_row):
     }
 
 
-def render_portfolio_row(row, data, token):
-    risk, label, color, _, _ = calculate_risk(data)
-    conf = calculate_confidence(data)
-    conf_bg = "#4ade80" if conf >= 70 else ("#fbbf24" if conf >= 40 else "#ef4444")
-    price = float(data['current_price'])
-    change = float(data['day_change'])
-    extended_html = format_extended_change(data)
-    change_color = "#4ade80" if change >= 0 else "#ef4444"
-    arrow = "▲" if change >= 0 else "▼"
-    shares = float(row['shares'])
-    entry = float(row['entry_price'])
+def render_portfolio_row(row, data, token=None, rank_map=None):
+    """Render a single portfolio holding card.
 
-    pl_html = ""
-    if shares > 0 and entry > 0:
-        pl = (shares * price) - (shares * entry)
-        pl_pct = (pl / (shares * entry)) * 100 if entry > 0 else 0
-        pl_c = "#4ade80" if pl >= 0 else "#ef4444"
-        pl_html = (
-            f"<div style='color:{pl_c}; font-size:0.90rem; margin-top:2px;'>"
-            f"{int(shares)} @ ${entry:.2f} Total PL $ {pl:,.2f} ({pl_pct:.1f}%)"
-            f"</div>"
-        )
-
-    company = (row.get('company_name') or row.get('company') or data.get('company_name') or '').strip()
-    company_html = (
-        f"<div style='font-size:0.8rem; color:#9ca3af; margin-top:2px;'>{company}</div>"
-        if company else ""
-    )
-    link = f"?token={token}&ticker={row['ticker']}"
-
-    # Make the whole card tappable on mobile (no <a>, use onclick)
-    html = f"""
-    <a href="{link}" class="card-link" target="_self">
-      <div class="card port-row" data-flip-id="{row['ticker']}" style="display:flex; justify-content:space-between; align-items:center; border-left: 4px solid {color};">
-        <div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <div style="font-weight:bold; font-size:1.1rem; color:white;">{row['ticker']}</div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="font-size:0.7rem; background:{color}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">RISK: {risk}</div>
-              <div style="font-size:0.7rem; background:{conf_bg}; color:black; padding:2px 6px; border-radius:6px; font-weight:bold;">CONF: {conf}</div>
-            </div>
-          </div>
-          <div style="font-size:0.75rem; color:#b0b0b0; margin-top:2px;">{company}</div>
-          {pl_html}
-        </div>
-        <div style="text-align:right; padding-top:2px;">
-          <div style="color:white; font-weight:bold; font-size:1.1rem">${price:,.2f}</div>
-          <div style="color:{change_color}; font-size:0.90rem;">{arrow} {change:.2f}%</div>
-          {extended_html}
-        </div>
-      </div>
-    </a>
+    - Removes Risk/Conf badges
+    - Adds ranking + shares + P/L as compact badges
     """
+    price = float(data.get('current_price') or 0)
+    change = float(data.get('day_change') or 0)
+    extended_html = format_extended_change(data)
+
+    change_color = "#4ade80" if change >= 0 else "#ef4444"
+    shares = float(row.get('shares') or 0)
+    entry_price = float(row.get('entry_price') or 0)
+    total_pl = float(row.get('total_pl') or 0)
+    total_pct = float(row.get('total_pct') or 0)
+
+    pl_color = "#4ade80" if total_pl >= 0 else "#ef4444"
+
+    # Pull ranks (precomputed in portfolio tab for efficiency)
+    tkr = (row.get('ticker') or '').upper()
+    rinfo = (rank_map or {}).get(tkr, {}) if isinstance(rank_map, dict) else {}
+    g_rank = rinfo.get('global_rank')
+    s_rank = rinfo.get('sector_rank')
+    sector = rinfo.get('sector') or ''
+
+    def pill(text, bg, fg):
+        return f"<span style='background:{bg}; color:{fg}; padding:5px 10px; border-radius:999px; font-weight:800; font-size:12px; letter-spacing:.2px;'>{text}</span>"
+
+    pills = []
+    if g_rank not in (None, '', 0):
+        pills.append(pill(f"G #{int(g_rank)}", "#60a5fa", "#0b1220"))
+    if s_rank not in (None, '', 0):
+        label = f"{sector} #{int(s_rank)}" if sector else f"S #{int(s_rank)}"
+        pills.append(pill(label, "#a78bfa", "#0b1220"))
+
+    if shares > 0 and entry_price > 0:
+        pills.append(pill(f"{shares:g} @ ${entry_price:,.2f}", "#111827", "#e5e7eb"))
+
+    # Always show P/L pill (colored)
+    pills.append(pill(f"P/L ${total_pl:,.2f} ({total_pct:+.1f}%)", pl_color, "#0b1220"))
+
+    pills_html = "<div style='display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;'>" + "".join(pills) + "</div>"
+
+    html = f"""
+<a href='/Stocks?t={tkr}&mode=REAL{('&token=' + token) if token else ''}' style='text-decoration:none;'>
+  <div class='portfolio-card' style='display:flex; justify-content:space-between; align-items:flex-start; padding:16px 16px 14px 16px; border-radius:20px; margin-bottom:14px; background:linear-gradient(180deg,#0f172a,#0b1220); border:1px solid rgba(255,255,255,.06); box-shadow:0 10px 30px rgba(0,0,0,.35); position:relative; overflow:hidden;'>
+    <div style='position:absolute; left:0; top:0; bottom:0; width:6px; background:{pl_color};'></div>
+    <div style='flex:1; padding-left:10px;'>
+      <div style='display:flex; align-items:center; gap:10px; flex-wrap:wrap;'>
+        <div style='font-size:26px; font-weight:900; letter-spacing:.5px; color:#ffffff;'>{tkr}</div>
+      </div>
+      <div style='margin-top:4px; color:#9ca3af; font-size:15px;'>{data.get('name','')}</div>
+      {pills_html}
+    </div>
+
+    <div style='text-align:right; min-width:110px;'>
+      <div style='font-size:30px; font-weight:900; color:#ffffff;'>${price:,.2f}</div>
+      <div style='margin-top:8px; font-size:18px; font-weight:800; color:{change_color};'>{'+' if change>=0 else ''}{change:.2f}%</div>
+      <div style='margin-top:6px;'>{extended_html}</div>
+    </div>
+  </div>
+</a>
+"""
 
     # IMPORTANT: strip leading spaces so Streamlit doesn't render this as a code block on mobile
     html = "\n".join(line.lstrip() for line in html.splitlines()).strip()
     st.markdown(html, unsafe_allow_html=True)
+
 
 def render_compact_watchlist(rows_list, current_token):
     """Small horizontal tiles for the 3 daily_watchlist picks.
@@ -2194,11 +2205,12 @@ elif tab == "portfolio":
     if port_rows:
         tickers = [r['ticker'] for r in port_rows]
         market_data = get_cached_data_map(tickers)
+        rank_map = get_rank_map_for_tickers(tickers)
         pairs = [(row, market_data[row['ticker']]) for row in port_rows if row['ticker'] in market_data]
         pairs.sort(key=lambda x: float(x[1].get('day_change') or 0), reverse=True)
 
         for row, data in pairs:
-            render_portfolio_row(row, data, token)
+            render_portfolio_row(row, data, token, rank_map=rank_map)
         # (Reorder animation disabled for stability)
 
 
