@@ -1126,7 +1126,7 @@ def format_extended_change(row):
         return (
             f"<div style='margin-top:3px; font-size:0.80rem; "
             f"color:{color}; opacity:0.85;'>"
-            f"AH {arrow} {post:.2f}%"
+            f"POST {arrow} {post:.2f}%"
             f"</div>"
         )
 
