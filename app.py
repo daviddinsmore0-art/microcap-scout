@@ -1558,19 +1558,24 @@ def generate_playbook(stock_row):
         "move": r(move),
     }
 def get_rank_color(label: str):
+    """Return a subtle color for rank labels."""
     if not label:
         return "#9ca3af"  # neutral gray
-    
-    label = label.lower()
 
-    if "elite" in label or "strong" in label:
+    label = str(label).lower()
+
+    if "elite" in label:
         return "#34d399"  # soft green
-    elif "watch" in label or "weak" in label:
+    if "strong" in label:
+        return "#60a5fa"  # soft blue
+    if "good" in label:
+        return "#fbbf24"  # soft amber
+    if "watch" in label:
         return "#f87171"  # soft red
-    else:
-        return "#cbd5e1"  # soft neutral
-        global_color = get_rank_color(global_label)
-        sector_color = get_rank_color(sector_label)
+
+    return "#cbd5e1"  # soft neutral
+
+
 def _strength_from_percentile(p):
     """p: 0-100 where higher is better."""
     try:
