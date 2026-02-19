@@ -1663,7 +1663,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
 
     {('<div style="margin-top:12px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
 
-    {('<div style="margin-top:2px; font-size:14px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
+    {('<div style="margin-top:6px; font-size:14px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
 
   </div>
 </a>
