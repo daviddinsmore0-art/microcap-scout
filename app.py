@@ -1637,11 +1637,20 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
 
     # Build clean lines
     rank_lines = []
-    if g_label and g_top:
-        rank_lines.append(f"<span style='opacity: 0.75;'>Global Rank:</span> <b>{g_label}</b> • {g_top}")
-    if s_label and s_top:
-        sec_txt = f"  ({sector})" if sector else ""
-        rank_lines.append(f"<span style='opacity: 0.75;'>Sector Rank:</span> <b>{s_label}</b> • {s_top}{sec_txt}")
+if g_label and g_top:
+    g_col = get_rank_color(g_label)
+    rank_lines.append(
+        f"<span style='opacity:0.75;'>Global Rank:</span> "
+        f"<b style='color:{g_col};'>{g_label}</b> • {g_top}"
+    )
+
+if s_label and s_top:
+    s_col = get_rank_color(s_label)
+    sec_txt = f"  ({sector})" if sector else ""
+    rank_lines.append(
+        f"<span style='opacity:0.75;'>Sector Rank:</span> "
+        f"<b style='color:{s_col};'>{s_label}</b> • {s_top}{sec_txt}"
+    )
 
     factors = []
     if momo is not None: factors.append(f"<span style='color:#4ade80; background: rgba(74, 222, 128, 0.12); padding:2px 2px; border-radius:6px;'>Momentum <b>{momo}</b></span>")
