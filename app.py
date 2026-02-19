@@ -1639,7 +1639,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
         rank_lines.append(f"Sector: <b>{s_label}</b> • {s_top}{sec_txt}")
 
     factors = []
-    if momo is not None: factors.append(f"Momentum <b>{momo}</b>")
+    if momo is not None: factors.append(f"<style="color:#4ade80;">Momentum <b>{momo}</b></style>")
     if qual is not None: factors.append(f"Quality <b>{qual}</b>")
     if val  is not None: factors.append(f"Value <b>{val}</b>")
     if stab is not None: factors.append(f"Stability <b>{stab}</b>")
