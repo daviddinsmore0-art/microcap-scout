@@ -1576,6 +1576,22 @@ def get_rank_color(label: str):
     return "#cbd5e1"  # soft neutral
 
 
+def get_rank_bg(label: str):
+    """Subtle translucent background for rank label pills."""
+    if not label:
+        return "rgba(156, 163, 175, 0.12)"  # neutral
+    l = str(label).lower()
+    if "elite" in l:
+        return "rgba(52, 211, 153, 0.14)"   # green
+    if "strong" in l:
+        return "rgba(96, 165, 250, 0.14)"   # blue
+    if "good" in l:
+        return "rgba(251, 191, 36, 0.14)"   # amber
+    if "watch" in l:
+        return "rgba(248, 113, 113, 0.14)"  # red
+    return "rgba(203, 213, 225, 0.12)"      # neutral
+
+
 def _strength_from_percentile(p):
     """p: 0-100 where higher is better."""
     try:
@@ -1638,18 +1654,17 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     # Build clean lines
     rank_lines = []
     if g_label and g_top:
-        g_col = get_rank_color(g_label)
         rank_lines.append(
             f"<span style='opacity:0.75;'>Global Rank:</span> "
-            f"<b style='color:{g_col};'>{g_label}</b> • {g_top}"
+            f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:2px 8px; border-radius:999px; font-weight:700;'>{g_label}</span> "
+            f"<span style='opacity:0.8;'>• {g_top}</span>"
         )
-
     if s_label and s_top:
-        s_col = get_rank_color(s_label)
         sec_txt = f"  ({sector})" if sector else ""
         rank_lines.append(
             f"<span style='opacity:0.75;'>Sector Rank:</span> "
-            f"<b style='color:{s_col};'>{s_label}</b> • {s_top}{sec_txt}"
+            f"<span style='color:{get_rank_color(s_label)}; background:{get_rank_bg(s_label)}; padding:2px 8px; border-radius:999px; font-weight:700;'>{s_label}</span> "
+            f"<span style='opacity:0.8;'>• {s_top}{sec_txt}</span>"
         )
 
     factors = []
