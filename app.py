@@ -1640,9 +1640,9 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
 
     factors = []
     if momo is not None: factors.append(f"<span style='color:#4ade80;'>Momentum <b>{momo}</b></span>")
-    if qual is not None: factors.append(f"Quality <b>{qual}</b>")
-    if val  is not None: factors.append(f"Value <b>{val}</b>")
-    if stab is not None: factors.append(f"Stability <b>{stab}</b>")
+    if qual is not None: factors.append(f"<span style='color:#60a5fa;'>Quality <b>{qual}</b></span>")
+    if val  is not None: factors.append(f"<span style='color:#fb923c;'>Value <b>{val}</b></span>")
+    if stab is not None: factors.append(f"<span style='color:#a78bfa;'>Stability <b>{stab}</b></span>")
     factors_line = " &nbsp;·&nbsp; ".join(factors)
 
 
