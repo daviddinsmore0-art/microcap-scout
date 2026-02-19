@@ -1645,9 +1645,10 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     if stab is not None: factors.append(f"Stability <b>{stab}</b>")
     factors_line = " &nbsp;·&nbsp; ".join(factors)
 
+    link = f"?token={current_token}&ticker={ticker}"
 
     html = f"""
-<a href=\"?tab=portfolio&ticker=tkr\" style=\"text-decoration:none;\" target=\"_self\">
+<a href=\"{link}\" style=\"text-decoration:none;\" target=\"_self\">
   <div class=\"card\" style=\"padding:16px 16px 14px 16px; border-left:none;\">
     <div style=\"display:flex; justify-content:space-between; align-items:flex-start; gap:12px;\">
       <div style=\"flex:1; min-width:0;\">
