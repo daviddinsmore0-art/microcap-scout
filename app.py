@@ -1643,7 +1643,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     if qual is not None: factors.append(f"<span style='color:#60a5fa;background: rgba(96, 165, 250, 0.12); padding:2px 2px; border-radius:6px;'>Quality <b>{qual}</b></span>")
     if val  is not None: factors.append(f"<span style='color:#fb923c;background: rgba(251, 146, 60, 0.12); padding:2px 2px; border-radius:6px;'>Value <b>{val}</b></span>")
     if stab is not None: factors.append(f"<span style='color:#a78bfa;background: rgba(167, 139, 250, 0.12); padding:2px 2px; border-radius:6px;'>Stability <b>{stab}</b></span>")
-    factors_line = " &nbsp;·&nbsp; ".join(factors)
+    factors_line = " &nbsp;&nbsp; ".join(factors)
 
 
     html = f"""
