@@ -2715,17 +2715,17 @@ elif tab == "scanner":
       <div class="bar-val">{mom}</div>
     </div>
     <div class="bar-row">
-      <div class="bar-label">Quality</div>
+      <div class="bar-label"><span style='color:#60a5fa;'>Quality</span></div>
       <div class="bar" style="--w:{_clamp01(qual)}%;"><span></span></div>
       <div class="bar-val">{qual}</div>
     </div>
     <div class="bar-row">
-      <div class="bar-label">Value</div>
+      <div class="bar-label"><span style='color:#fb923c;'>Value</span></div>
       <div class="bar" style="--w:{_clamp01(val)}%;"><span></span></div>
       <div class="bar-val">{val}</div>
     </div>
     <div class="bar-row">
-      <div class="bar-label">Stability</div>
+      <div class="bar-label"><span style='color:#a78bfa;'>Stability</span></div>
       <div class="bar" style="--w:{_clamp01(stab)}%;"><span></span></div>
       <div class="bar-val">{stab}</div>
     </div>
