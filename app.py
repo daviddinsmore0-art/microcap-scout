@@ -2622,7 +2622,7 @@ elif tab == "scanner":
           .pill strong { opacity: 0.9; }
           .bars { margin-top: 12px; display:flex; flex-direction: column; gap: 10px; }
           .bar-row { display:flex; align-items:center; justify-content: space-between; gap: 10px; }
-          .bar-label { width: 86px; color: font-size: 14px; font-weight:400; }
+          .bar-label { width: 86px; color: font-size: 12px; font-weight:400; }
           .bar {
             flex: 1;
             height: 6px;
@@ -2637,7 +2637,7 @@ elif tab == "scanner":
             background: linear-gradient(90deg, rgba(34,197,94,0.95), rgba(250,204,21,0.95));
             border-radius: 999px;
           }
-          .bar-val { width: 34px; text-align:right; font-size: 14px; font-weight: 600; }
+          .bar-val { width: 34px; text-align:right; font-size: 14px; font-weight: 400; }
           .section-title { margin-top: 18px; margin-bottom: 16px; font-size: 22px; font-weight: 800; }
         </style>
         """,
