@@ -2759,6 +2759,10 @@ elif tab == "scanner":
         st.markdown('<div class="section-title">Top 3 Stability</div>', unsafe_allow_html=True)
         for r in fetch_rank_rows("stability_score", 3):
             render_rank_card(r)
+        st.markdown('<div class="section-title">Top 3 Quality</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("quality_score", 3):
+            render_rank_card(r)
+            
 elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
