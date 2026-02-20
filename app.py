@@ -2710,7 +2710,7 @@ elif tab == "scanner":
 
   <div class="bars">
     <div class="bar-row">
-      <div class="bar-label">Momentum</div>
+      <div class="bar-label"><span style='color:#4ade80;'>Momentum</span></div>
       <div class="bar" style="--w:{_clamp01(mom)}%;"><span></span></div>
       <div class="bar-val">{mom}</div>
     </div>
