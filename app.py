@@ -1657,7 +1657,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
         rank_lines.append(
             f"<span style='opacity:0.75;'>Global Rank:</span> "
             f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:1px 1px; font-weight:700;'>{g_label}</span> "
-            f"<span style='opacity:0.8;'>• {g_top}</span><br>"
+            f"<span style='opacity:0.8;'>• {g_top}</span>"
         )
     if s_label and s_top:
         sec_txt = f"  ({sector})" if sector else ""
@@ -1690,7 +1690,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
       </div>
     </div>
 
-    {('<div style="margin-top:12px; margin-bottom:4px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
+    {('<div style="margin-top:12px; margin-bottom:6px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
 
     {('<div style="margin-top:8px; font-size:14px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
 
@@ -2594,7 +2594,7 @@ elif tab == "scanner":
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
           }
           .rank-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
-          .rank-ticker { font-size: 20px; font-weight: 600; letter-spacing: 0.5px; line-height: 1; }
+          .rank-ticker { font-size: 20px; font-weight: 600; line-height: 1; color=#FFB300; }
           .rank-sub { color: rgba(255,255,255,0.55); font-size: 14px; margin-top: 4px; }
           .rank-right { display:flex; flex-direction: column; align-items: flex-end; gap: 8px; }
           .ring {
