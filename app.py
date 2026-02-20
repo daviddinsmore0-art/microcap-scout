@@ -1657,7 +1657,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
         rank_lines.append(
             f"<span style='opacity:0.75;'>Global Rank:</span> "
             f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:1px 1px; font-weight:700;'>{g_label}</span> "
-            f"<span style='opacity:0.8;'>• {g_top}</span>"
+            f"<span style='opacity:0.8;'>• {g_top}</span><br>"
         )
     if s_label and s_top:
         sec_txt = f"  ({sector})" if sector else ""
