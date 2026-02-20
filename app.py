@@ -1656,14 +1656,14 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     if g_label and g_top:
         rank_lines.append(
             f"<span style='opacity:0.75;'>Global Rank:</span> "
-            f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:2px 8px; border-radius:999px; font-weight:700;'>{g_label}</span> "
+            f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:2px 4px; border-radius:999px; font-weight:700;'>{g_label}</span> "
             f"<span style='opacity:0.8;'>• {g_top}</span>"
         )
     if s_label and s_top:
         sec_txt = f"  ({sector})" if sector else ""
         rank_lines.append(
             f"<span style='opacity:0.75;'>Sector Rank:</span> "
-            f"<span style='color:{get_rank_color(s_label)}; background:{get_rank_bg(s_label)}; padding:2px 8px; border-radius:999px; font-weight:700;'>{s_label}</span> "
+            f"<span style='color:{get_rank_color(s_label)}; background:{get_rank_bg(s_label)}; padding:2px 4px; border-radius:999px; font-weight:700;'>{s_label}</span> "
             f"<span style='opacity:0.8;'>• {s_top}{sec_txt}</span>"
         )
 
