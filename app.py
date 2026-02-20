@@ -2625,7 +2625,7 @@ elif tab == "scanner":
           .bar-label { width: 86px; color: font-size: 12px; font-weight:400; }
           .bar {
             flex: 1;
-            height: 6px;
+            height: 4px;
             border-radius: 999px;
             background: rgba(255,255,255,0.08);
             border: 1px solid rgba(255,255,255,0.10);
