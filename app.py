@@ -2622,7 +2622,7 @@ elif tab == "scanner":
           .pill strong { opacity: 0.9; }
           .bars { margin-top: 12px; display:flex; flex-direction: column; gap: 10px; }
           .bar-row { display:flex; align-items:center; justify-content: space-between; gap: 10px; }
-          .bar-label { width: 86px; color: rgba(255,255,255,0.70); font-size: 16px; font-weight:500; }
+          .bar-label { width: 86px; color: font-size: 14px; font-weight:400; }
           .bar {
             flex: 1;
             height: 6px;
