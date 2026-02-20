@@ -1677,7 +1677,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
 
     html = f"""
 <a href="/?token={token}&ticker={tkr}&tab=stocks" target="_self" style="text-decoration:none;">
-  <div class=\"card\" style=\"padding:16px 16px 14px 16px; border-left:none;\">
+  <div class=\"card\" style=\"padding:16px 16px 14px 16px; margin=bottom:6px; border-left:none;\">
     <div style=\"display:flex; justify-content:space-between; align-items:flex-start; gap:12px;\">
       <div style=\"flex:1; min-width:0;\">
         <div style=\"font-size:20px; font-weight:600; color:#FFB300; line-height:1.1;\">{tkr}</div>
