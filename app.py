@@ -2266,8 +2266,8 @@ try:
     else:
         st.caption("No significant rank shifts today.")
 
-     .error(f"Signal Shift
-
+     .error(f"Signal Shift 
+      error: {e}")
 
 
 elif tab == "portfolio":
