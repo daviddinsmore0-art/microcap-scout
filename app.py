@@ -2281,11 +2281,10 @@ if tab == "home":
 
             card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
             st.markdown(card_html, unsafe_allow_html=True)
-        else:
-            # No card on weekends/holidays or when no positive jump
+        
+             else:
             st.caption("No significant rank shifts today.")
 
-            
         # ==========================
 # NEW ACCELERATION ALERTS (20h vs 40h)
 # ==========================
