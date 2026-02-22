@@ -2471,7 +2471,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            st.markdown(card_html, unsafe_allow_html=True)
+            st.markdown(sector_html, unsafe_allow_html=True)
 
     except Exception:
         pass
