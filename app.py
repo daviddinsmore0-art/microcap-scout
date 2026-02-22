@@ -2162,13 +2162,13 @@ if tab == "home":
         cur = conn.cursor(dictionary=True)
 
         # latest + previous available dates
-        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily")
         latest_row = cur.fetchone() or {}
         latest_date = latest_row.get("d")
 
         prev_date = None
         if latest_date:
-            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily WHERE asof_date < %s", (latest_date,))
+            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily WHERE asof_date < %s", (latest_date,))
             prev_row = cur.fetchone() or {}
             prev_date = prev_row.get("d")
 
@@ -2182,8 +2182,8 @@ if tab == "home":
                 "  (t2.global_rank - t1.global_rank) AS rank_jump, "
                 "  t1.momentum_score, "
                 "  t1.stability_score "
-                "FROM rankings_global_daily t1 "
-                "JOIN rankings_global_daily t2 "
+                "FROM rankings_daily t1 "
+                "JOIN rankings_daily t2 "
                 "  ON t1.ticker = t2.ticker "
                 "WHERE t1.asof_date = %s "
                 "  AND t2.asof_date = %s "
@@ -2271,7 +2271,7 @@ if tab == "home":
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily")
         latest_row = cur.fetchone() or {}
         latest_date = latest_row.get("d")
 
@@ -2284,7 +2284,7 @@ if tab == "home":
                     accel_20h,
                     accel_40h,
                     (accel_20h - accel_40h) AS accel_diff
-                FROM rankings_global_daily
+                FROM rankings_daily
                 WHERE asof_date = %s
                   AND accel_20h IS NOT NULL
                   AND accel_40h IS NOT NULL
