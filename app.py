@@ -2084,70 +2084,125 @@ if "ticker" in st.query_params:
     st.stop()
 
 tab = st.query_params.get("tab", "home")
+
 if tab == "home":
-     
+    # 1) Topbar
     render_topbar(user["display_name"])
     render_navbar(token, current_mode)
 
-    portfolio = get_portfolio_details(user['username'], current_mode)
-    if not portfolio:
-    st.info(f"Your {current_mode} portfolio is empty.")
+    # 2) Portfolio scroller right under topbar (order % high -> low)
+    portfolio = get_portfolio_details(user["username"], current_mode)
+
+    if portfolio:
+        tickers = [r["ticker"] for r in portfolio]
+        data_map = get_cached_data_map(tickers)
+
+        if data_map:
+            # sort by day_change DESC (high -> low)
+            def _chg(t):
+                try:
+                    return float(data_map[t].get("day_change") or 0)
+                except Exception:
+                    return 0.0
+
+            sorted_tickers = sorted([t for t in tickers if t in data_map], key=_chg, reverse=True)
+
+            # render your existing scroller using the sorted order
+            # easiest: pass an ordered map into the existing function
+            ordered_map = {t: data_map[t] for t in sorted_tickers}
+            render_horizontal_grid(ordered_map, token)
     else:
-    tickers = [r['ticker'] for r in portfolio]
-    data_map = get_cached_data_map(tickers)
+        st.info(f"Your {current_mode} portfolio is empty.")
 
-    # ✅ scroller goes RIGHT under topbar like the mockup
-    if data_map:
-        render_horizontal_grid(data_map, token)
+    # 3) Today’s Signal Shift (placeholder for now — we’ll wire real “biggest jump” next)
+    st.markdown(
+        """
+        <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08);'>
+          <div style='font-weight:800; letter-spacing:2px; color:#9fb3c8; margin-bottom:8px;'>
+            Today's <span style="color:#ffffff;">Signal Shift</span>
+          </div>
+          <div style='color:#f6c343; font-weight:900; font-size:18px; margin-bottom:8px;'>
+            Biggest Rank Jump (24h)
+          </div>
+          <div style='opacity:.85;'>Wiring this to rankings_global_daily next (prev_global_percentile/global_rank delta).</div>
+          <div style='margin-top:12px; display:flex; justify-content:flex-end;'>
+            <a href='?token={token}&tab=signals' target='_self' class='pp-btn'>VIEW DETAILS</a>
+          </div>
+        </div>
+        """.replace("{token}", str(token)),
+        unsafe_allow_html=True
+    )
 
-     # --- NEW: Today's Signal Shift (placeholder wiring, we can hook DB next) ---
-     st.markdown("""
-   <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08);'>
-   <div style='display:flex; justify-content:space-between; align-items:center;'>
-    <div style='font-weight:800; font-size:18px;'>Today's <span style="color:#e5e7eb;">Signal Shift</span></div>
-    <div style='opacity:.7;'>»</div>
-  </div>
-  <div style='margin-top:10px; color:#f6c343; font-weight:800;'>Biggest Rank Jump (24h)</div>
-  <div style='margin-top:6px; font-size:22px; font-weight:900; color:#FFB300;'>—</div>
-  <div style='margin-top:10px; opacity:.85;'>• Momentum accelerating<br/>• Stability improving</div>
-   </div>
-""", unsafe_allow_html=True)
+    # 4) Acceleration Alerts (top 3 from rankings_global_daily if available)
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+        asof = get_latest_rank_asof()
 
-# --- NEW: Acceleration Alerts (placeholder list; we can pull from rankings later) ---
-  st.markdown("""
-   <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08); margin-top:14px;'>
-  <div style='display:flex; justify-content:space-between; align-items:center;'>
-    <div style='font-weight:800; font-size:18px;'>New <span style="color:#e5e7eb;">Acceleration Alerts</span></div>
-    <div style='opacity:.7;'>»</div>
-  </div>
-  <div style='margin-top:10px; color:#f6c343; font-weight:800;'>Stocks speeding up (20h vs 40h)</div>
-  <div style='margin-top:10px; font-size:18px; font-weight:800;'>⚡ —<br/>⚡ —<br/>⚡ —</div>
-</div>
-""", unsafe_allow_html=True)
+        accel_rows = []
+        if asof:
+            # If your column name differs, tell me what it is (accel_score / acceleration / accel)
+            cur.execute(
+                """
+                SELECT ticker, accel_score
+                FROM rankings_global_daily
+                WHERE asof_date = %s
+                ORDER BY accel_score DESC
+                LIMIT 3
+                """,
+                (asof,)
+            )
+            accel_rows = cur.fetchall() or []
 
-# --- NEW: Sector Rotation Snapshot (we can wire to your sector rankings script/table) ---
-  st.markdown("""
-  <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08); margin-top:14px;'>
-  <div style='display:flex; justify-content:space-between; align-items:center;'>
-    <div style='font-weight:800; font-size:18px;'>Sector <span style="color:#e5e7eb;">Rotation Snapshot</span></div>
-    <div style='opacity:.7;'>»</div>
-  </div>
-  <div style='margin-top:10px; font-weight:800;'>🏆 Top Sectors Today</div>
-  <div style='margin-top:10px; opacity:.9;'>1) —<br/>2) —<br/>3) —</div>
-</div>
-""", unsafe_allow_html=True)
+        cur.close()
+        conn.close()
 
-    
-        
+        items = ""
+        for r in accel_rows:
+            t = (r.get("ticker") or "").upper()
+            items += f"<div style='font-size:18px; font-weight:800; margin:6px 0;'>⚡ {t}</div>"
 
+        if not items:
+            items = "<div style='opacity:.8;'>No acceleration leaders found yet.</div>"
 
-    
+        st.markdown(
+            f"""
+            <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08);'>
+              <div style='font-weight:800; letter-spacing:2px; color:#9fb3c8; margin-bottom:8px;'>
+                New <span style="color:#ffffff;">Acceleration Alerts</span>
+              </div>
+              <div style='color:#f6c343; font-weight:900; font-size:18px; margin-bottom:8px;'>
+                Stocks speeding up (20h vs 40h)
+              </div>
+              {items}
+              <div style='margin-top:12px; display:flex; justify-content:flex-end;'>
+                <a href='?token={token}&tab=signals' target='_self' class='pp-btn'>VIEW DETAILS</a>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    except Exception:
+        # fail silently (like your style elsewhere)
+        pass
 
+    # 5) Sector Rotation Snapshot (we’ll wire to your sector table next)
+    st.markdown(
+        f"""
+        <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08);'>
+          <div style='font-weight:800; letter-spacing:2px; color:#9fb3c8; margin-bottom:10px;'>
+            Sector <span style="color:#ffffff;">Rotation Snapshot</span>
+          </div>
+          <div style='opacity:.85;'>Next: pull top 3 sectors from rankings_sector_daily (avg percentile / change).</div>
+          <div style='margin-top:12px; display:flex; justify-content:flex-end;'>
+            <a href='?token={token}&tab=sectors' target='_self' class='pp-btn'>VIEW SECTORS</a>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-
-
-
-
+    # 6) Optional: keep your existing GLOBAL ALERTS block after this (works great)
 
 elif tab == "portfolio":
     st.markdown(f"")
