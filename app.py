@@ -2159,7 +2159,7 @@ if tab == "home":
     reverse=True
 )
 
-render_portfolio_ticker(data_map, tickers_sorted)
+    render_portfolio_ticker(data_map, tickers_sorted)
 
     # Sort high -> low by day_change (what you asked earlier)
     tickers_sorted = sorted(
