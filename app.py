@@ -357,7 +357,7 @@ def get_rank_map(tickers):
         cur = conn.cursor(dictionary=True)
 
         cur.execute("SELECT MAX(asof_date) AS d FROM rankings_sector_daily")
-        row = cur.fetchone() or {}
+        row = cur.fetchone()() or {}
         latest = row.get("d")
         if not latest:
             return {}
@@ -2279,6 +2279,7 @@ if tab == "home":
             </div>
             """)
 
+            card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
             st.markdown(card_html, unsafe_allow_html=True)
         else:
             # No card on weekends/holidays or when no positive jump
