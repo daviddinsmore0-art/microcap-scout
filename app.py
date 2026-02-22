@@ -2299,6 +2299,7 @@ if tab == "home":
             </div>
             """).strip()
 
+            card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
             st.markdown(card_html, unsafe_allow_html=True)
         # else: show nothing (no blank card on weekends/holidays)
 
@@ -2390,6 +2391,7 @@ if tab == "home":
             </div>
             """).strip()
 
+            card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
             st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception:
@@ -2443,6 +2445,7 @@ if tab == "home":
         </div>
         """).strip()
 
+        card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
         st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception:
