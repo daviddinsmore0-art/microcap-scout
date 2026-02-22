@@ -2087,12 +2087,12 @@ tab = st.query_params.get("tab", "home")
 if tab == "home":
      
     render_topbar(user["display_name"])
-render_navbar(token, current_mode)
+    render_navbar(token, current_mode)
 
-portfolio = get_portfolio_details(user['username'], current_mode)
-if not portfolio:
+    portfolio = get_portfolio_details(user['username'], current_mode)
+    if not portfolio:
     st.info(f"Your {current_mode} portfolio is empty.")
-else:
+    else:
     tickers = [r['ticker'] for r in portfolio]
     data_map = get_cached_data_map(tickers)
 
@@ -2100,22 +2100,22 @@ else:
     if data_map:
         render_horizontal_grid(data_map, token)
 
-# --- NEW: Today's Signal Shift (placeholder wiring, we can hook DB next) ---
-st.markdown("""
-<div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08);'>
-  <div style='display:flex; justify-content:space-between; align-items:center;'>
+     # --- NEW: Today's Signal Shift (placeholder wiring, we can hook DB next) ---
+     st.markdown("""
+   <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08);'>
+   <div style='display:flex; justify-content:space-between; align-items:center;'>
     <div style='font-weight:800; font-size:18px;'>Today's <span style="color:#e5e7eb;">Signal Shift</span></div>
     <div style='opacity:.7;'>»</div>
   </div>
   <div style='margin-top:10px; color:#f6c343; font-weight:800;'>Biggest Rank Jump (24h)</div>
   <div style='margin-top:6px; font-size:22px; font-weight:900; color:#FFB300;'>—</div>
   <div style='margin-top:10px; opacity:.85;'>• Momentum accelerating<br/>• Stability improving</div>
-</div>
+   </div>
 """, unsafe_allow_html=True)
 
 # --- NEW: Acceleration Alerts (placeholder list; we can pull from rankings later) ---
-st.markdown("""
-<div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08); margin-top:14px;'>
+  st.markdown("""
+   <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08); margin-top:14px;'>
   <div style='display:flex; justify-content:space-between; align-items:center;'>
     <div style='font-weight:800; font-size:18px;'>New <span style="color:#e5e7eb;">Acceleration Alerts</span></div>
     <div style='opacity:.7;'>»</div>
@@ -2126,8 +2126,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- NEW: Sector Rotation Snapshot (we can wire to your sector rankings script/table) ---
-st.markdown("""
-<div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08); margin-top:14px;'>
+  st.markdown("""
+  <div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08); margin-top:14px;'>
   <div style='display:flex; justify-content:space-between; align-items:center;'>
     <div style='font-weight:800; font-size:18px;'>Sector <span style="color:#e5e7eb;">Rotation Snapshot</span></div>
     <div style='opacity:.7;'>»</div>
