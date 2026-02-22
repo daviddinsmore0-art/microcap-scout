@@ -27,15 +27,6 @@ def get_logo_base64(path="logo_optimized.png"):
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# --- Mobile fix: hide Streamlit HTML component iframes (prevents big white overlay) ---
-st.markdown(
-    """<style>
-    iframe[title="streamlit.components.v1.html"]{display:none !important; height:0 !important; min-height:0 !important;}
-    </style>""",
-    unsafe_allow_html=True
-)
-
-
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
@@ -326,6 +317,25 @@ margin-top:40px;
 .global-picks-right .price { font-weight:600; font-size:16px; margin:0; }
 .global-picks-right .chg { font-weight:600; font-size:14px; margin-top:4px; }
 .global-picks-divider { height:1px; background:rgba(255,255,255,.06); margin:0 6px; }
+
+        /* --- PennyPulse hardening: prevent "big white block" on mobile --- */
+        div[data-testid="stCodeBlock"], pre, code {
+            background: #0b1220 !important;
+            color: #94a3b8 !important;
+            border: 1px solid rgba(148,163,184,0.18) !important;
+            border-radius: 16px !important;
+        }
+        div[data-testid="stCodeBlock"] {
+            padding: 0.6rem 0.8rem !important;
+            overflow-x: auto !important;
+        }
+        /* If an HTML component iframe appears, keep it from expanding */
+        iframe[title="streamlit.components.v1.html"]{
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            border: 0 !important;
+        }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1989,7 +1999,6 @@ def get_greeting(name):
 # =========================================================
 init_db()
 
-# Auto-refresh removed (caused white overlay on mobile)
 
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
@@ -2062,8 +2071,7 @@ if "ticker" in st.query_params:
 
         play = generate_playbook(stock)
         if play:
-            st.markdown(
-                textwrap.dedent(f"""
+            st.markdown(textwrap.dedent(f"""
 <div class='card' style='margin-top:15px;'>
   <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;'>
     SMART PLAYBOOK
@@ -2100,8 +2108,7 @@ if "ticker" in st.query_params:
     {play["rationale"]}
   </div>
   </div>
-  """), unsafe_allow_html=True
-            )
+  """), unsafe_allow_html=True)
         st.markdown(f"<div class='card' style='margin:0px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
@@ -2163,35 +2170,27 @@ if tab == "home":
     # --- NAVBAR ---
     render_navbar(token, current_mode)
     # ==========================
-        # ==========================
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
-    def _get_latest_two_dates(cur):
-        # Try rankings_daily first, then fall back to rankings_global_daily
-        latest_date = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        # latest + previous available dates
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily")
+        latest_row = cur.fetchone() or {}
+        latest_date = latest_row.get("d")
+
         prev_date = None
+        if latest_date:
+            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily WHERE asof_date < %s", (latest_date,))
+            prev_row = cur.fetchone() or {}
+            prev_date = prev_row.get("d")
 
-        for tbl in ("rankings_daily", "rankings_global_daily"):
-            try:
-                cur.execute(f"SELECT MAX(asof_date) AS d FROM {tbl}")
-                latest_date = (cur.fetchone() or {}).get("d")
-                if latest_date:
-                    cur.execute(f"SELECT MAX(asof_date) AS d FROM {tbl} WHERE asof_date < %s", (latest_date,))
-                    prev_date = (cur.fetchone() or {}).get("d")
-                if latest_date and prev_date:
-                    return latest_date, prev_date
-            except Exception:
-                continue
-
-        return latest_date, prev_date
-
-    def _fetch_signal_shift(cur, latest_date, prev_date):
-        """Return dict with ticker/current_rank/prev_rank/rank_jump/momentum_score/stability_score."""
-
-        # 1) Preferred: rankings_daily already contains global_rank (new schema)
-        try:
-            sql1 = (
+        row = None
+        if latest_date and prev_date:
+            sql = (
                 "SELECT "
                 "  t1.ticker, "
                 "  t1.global_rank AS current_rank, "
@@ -2207,99 +2206,8 @@ if tab == "home":
                 "ORDER BY rank_jump DESC "
                 "LIMIT 1"
             )
-            cur.execute(sql1, (latest_date, prev_date))
+            cur.execute(sql, (latest_date, prev_date))
             row = cur.fetchone()
-            if row:
-                return row
-        except Exception:
-            pass
-
-        # 2) Fallback: global rank is stored in rankings_global_daily (older schema)
-        try:
-            sql2 = (
-                "SELECT "
-                "  g1.ticker, "
-                "  g1.global_rank AS current_rank, "
-                "  g2.global_rank AS prev_rank, "
-                "  (g2.global_rank - g1.global_rank) AS rank_jump, "
-                "  f1.momentum_score, "
-                "  f1.stability_score "
-                "FROM rankings_global_daily g1 "
-                "JOIN rankings_global_daily g2 "
-                "  ON g1.ticker = g2.ticker "
-                "LEFT JOIN rankings_daily f1 "
-                "  ON f1.ticker = g1.ticker AND f1.asof_date = g1.asof_date "
-                "WHERE g1.asof_date = %s "
-                "  AND g2.asof_date = %s "
-                "ORDER BY rank_jump DESC "
-                "LIMIT 1"
-            )
-            cur.execute(sql2, (latest_date, prev_date))
-            return cur.fetchone()
-        except Exception:
-            return None
-
-    # --- Signal Shift details (INLINE ONLY; avoids Streamlit white modal / iframe issues on mobile) ---
-    def _open_signal_shift_details(payload: dict):
-        st.session_state["pp_signal_shift_payload"] = payload or {}
-        st.session_state["pp_show_signal_shift_details"] = True
-
-    def _render_signal_shift_details_inline():
-        if not st.session_state.get("pp_show_signal_shift_details"):
-            return
-
-        payload = st.session_state.get("pp_signal_shift_payload") or {}
-        ticker = (payload.get("ticker") or "").upper()
-        jump = int(payload.get("rank_jump") or 0)
-        current_rank = payload.get("current_rank")
-        prev_rank = payload.get("prev_rank")
-        mom = payload.get("momentum_score")
-        stab = payload.get("stability_score")
-
-        st.markdown(
-            f"""
-            <div class="card" style="border:1px solid rgba(251,191,36,0.55);">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="font-weight:900; font-size:1.15rem; color:white;">
-                  Signal Shift • {ticker}
-                </div>
-                <div style="font-weight:900; color:#fbbf24;">DETAILS</div>
-              </div>
-
-              <div style="margin-top:10px; color:#cbd5e1; line-height:1.7;">
-                <div><b>Rank jump:</b> +{jump} spots</div>
-                <div><b>Current rank:</b> {current_rank}</div>
-                <div><b>Previous rank:</b> {prev_rank}</div>
-              </div>
-
-              <div style="margin-top:14px; display:flex; gap:10px;">
-                <div class="metric-box" style="flex:1; margin:0;">
-                  <div class="metric-label">Momentum</div>
-                  <div class="metric-value">{int(float(mom or 0))}</div>
-                </div>
-                <div class="metric-box" style="flex:1; margin:0;">
-                  <div class="metric-label">Stability</div>
-                  <div class="metric-value">{int(float(stab or 0))}</div>
-                </div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if st.button("Close details", key="pp_close_signal_shift_details", use_container_width=True):
-            st.session_state["pp_show_signal_shift_details"] = False
-            st.rerun()
-
-    try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
-
-        latest_date, prev_date = _get_latest_two_dates(cur)
-
-        row = None
-        if latest_date and prev_date:
-            row = _fetch_signal_shift(cur, latest_date, prev_date)
 
         cur.close()
         conn.close()
@@ -2356,20 +2264,16 @@ if tab == "home":
                   </div>
 
                   {f'<div style="margin-top:12px; color:#94a3b8; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
+
+                  <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
+                    VIEW DETAILS
+                  </div>
                 </div>
               </div>
             </div>
             """).strip()
 
             st.markdown(card_html, unsafe_allow_html=True)
-
-            # Real Streamlit button (so it actually works on mobile)
-            if st.button("VIEW DETAILS", key="pp_signal_shift_view_details", use_container_width=True):
-                _open_signal_shift_details(row)
-                st.rerun()
-
-            _render_signal_shift_details_inline()
-
         # else: show nothing (no blank card on weekends/holidays)
 
     except Exception as e:
