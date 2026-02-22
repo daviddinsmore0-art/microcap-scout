@@ -2299,7 +2299,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            st.markdown(textwrap.dedent(card_html).strip(), unsafe_allow_html=True)
+            st.markdown(card_html, unsafe_allow_html=True)
         # else: show nothing (no blank card on weekends/holidays)
 
     except Exception as e:
@@ -2390,7 +2390,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            st.markdown(textwrap.dedent(card_html).strip(), unsafe_allow_html=True)
+            st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception:
         # don't blow up home if rankings_daily isn't ready
@@ -2443,7 +2443,7 @@ if tab == "home":
         </div>
         """).strip()
 
-        st.markdown(textwrap.dedent(card_html).strip(), unsafe_allow_html=True)
+        st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception:
         pass
