@@ -2220,7 +2220,7 @@ if tab == "home":
     </div>
          """, unsafe_allow_html=True)
 
-        st.markdown(f"""
+ st.markdown(f"""
         <div class='card' style='padding:20px; margin-top:14px;'>
           <div style='display:flex; justify-content:space-between; align-items:center;'>
             <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
