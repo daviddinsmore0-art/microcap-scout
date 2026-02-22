@@ -2234,30 +2234,33 @@ if tab == "home":
 
             st.markdown(
                 f"""
-                <div class='card' style='padding:20px; margin-top:14px;'>
-                  <div style='display:flex; justify-content:space-between; align-items:center;'>
-                    <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
-                      Today's <span style='color:white;'>Signal Shift</span>
-                    </div>
-                    <div style='color:#22c55e; font-weight:900;'>››</div>
-                  </div>
+                <div class='card' style='padding:22px; margin-top:16px; border-radius:18px; background:linear-gradient(145deg,#0f172a,#0b1220); box-shadow:0 0 0 1px rgba(255,255,255,0.05);'>
 
-                  <div style='margin-top:12px; color:#fbbf24; font-size:1.1rem; font-weight:900;'>
-                    Biggest Rank Jump (24h)
-                  </div>
+  <div style='display:flex; justify-content:space-between; align-items:center;'>
+    <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
+      Today's <span style='color:white;'>Signal Shift</span>
+    </div>
+    <div style='color:#22c55e; font-weight:900; font-size:1.3rem;'>››</div>
+  </div>
 
-                  <div style='margin-top:8px; font-size:1.5rem; font-weight:900; color:white;'>
-                    {ticker} <span style='color:#4ade80;'>+{jump}</span> spots
-                  </div>
+  <div style='margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;'>
+    Biggest Rank Jump
+  </div>
 
-                  <div style='margin-top:10px; color:#94a3b8; line-height:1.6;'>
-                    {accel_html}
-                  </div>
+  <div style='margin-top:10px; font-size:1.6rem; font-weight:900; color:white;'>
+    {ticker} <span style='color:#4ade80;'>+{jump}</span> spots
+  </div>
 
-                  <div style='margin-top:14px; text-align:right; letter-spacing:1px; opacity:.9;'>
-                    VIEW DETAILS
-                  </div>
-                </div>
+  <div style='margin-top:12px; color:#94a3b8; line-height:1.6;'>
+    {accel_html}
+  </div>
+
+  <div style='margin-top:18px; text-align:right; letter-spacing:1px; opacity:.8;'>
+    VIEW DETAILS
+  </div>
+
+</div>
+"""
                 """,
                 unsafe_allow_html=True,
             )
