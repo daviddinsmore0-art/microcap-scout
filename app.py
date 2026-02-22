@@ -2193,21 +2193,22 @@ if tab == "home":
 
             sql = (
     "SELECT "
-    " t1.ticker, "
-    " t1.global_rank AS current_rank, "
-    " t2.global_rank AS prev_rank, "
-    " (t2.global_rank - t1.global_rank) AS rank_jump, "
-    " t1.momentum_score, "
-    " t1.stability_score "
-    "FROM rankings_global_daily t1 "
-    "JOIN rankings_global_daily t2 "
-    " ON t1.ticker = t2.ticker "
-    "WHERE t1.asof_date = %s "
-    " AND t2.asof_date = %s "
+    " g1.ticker, "
+    " g1.global_rank AS current_rank, "
+    " g2.global_rank AS prev_rank, "
+    " (g2.global_rank - g1.global_rank) AS rank_jump, "
+    " d1.momentum_score, "
+    " d1.stability_score "
+    "FROM rankings_global_daily g1 "
+    "JOIN rankings_global_daily g2 "
+    " ON g1.ticker = g2.ticker "
+    "JOIN rankings_daily d1 "
+    " ON d1.ticker = g1.ticker AND d1.asof_date = g1.asof_date "
+    "WHERE g1.asof_date = %s "
+    " AND g2.asof_date = %s "
     "ORDER BY rank_jump DESC "
     "LIMIT 1"
-
-            )
+)
             cur.execute(sql, (latest_date, prev_date))
             row = cur.fetchone()
 
