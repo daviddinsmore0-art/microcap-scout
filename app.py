@@ -330,6 +330,12 @@ margin-top:40px;
             overflow-x: auto !important;
         }
         /* If an HTML component iframe appears, keep it from expanding */
+        iframe[title="streamlit.components.v1.html"]{
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            border: 0 !important;
+        }
 </style>
 """, unsafe_allow_html=True)
 
@@ -350,6 +356,26 @@ token = st.query_params.get("token", None)
 
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
+
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def get_table_columns(table_name: str):
+    """Return a set of column names for table_name in the current DB, or empty set on error."""
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+            (table_name,),
+        )
+        cols = {r[0] for r in cur.fetchall()}
+        cur.close()
+        conn.close()
+        return cols
+    except Exception:
+        return set()
 
 def get_rank_map(tickers):
     """
@@ -2185,35 +2211,33 @@ if tab == "home":
         row = None
         if latest_date and prev_date:
 
-                        # Build Signal Shift query against rankings_daily (schema-safe)
-            cols = set()
-            try:
-                cur.execute("SHOW COLUMNS FROM rankings_daily")
-                cols = {r.get("Field") for r in cur.fetchall() if r.get("Field")}
-            except Exception:
-                cols = set()
+            cols = get_table_columns("rankings_daily")
+            if "global_rank" not in cols:
+                # Can't compute rank jump without ranks
+                row = None
+            else:
+                select_parts = [
+                    "t1.ticker",
+                    "t1.global_rank AS current_rank",
+                    "t2.global_rank AS prev_rank",
+                    "(t2.global_rank - t1.global_rank) AS rank_jump",
+                ]
+                # Optional signals (safe if columns exist)
+                if "momentum_score" in cols:
+                    select_parts.append("t1.momentum_score")
+                if "stability_score" in cols:
+                    select_parts.append("t1.stability_score")
 
-            select_parts = [
-                "t1.ticker",
-                "t1.global_rank AS current_rank",
-                "t2.global_rank AS prev_rank",
-                "(t2.global_rank - t1.global_rank) AS rank_jump",
-            ]
-            if "momentum_score" in cols:
-                select_parts.append("t1.momentum_score")
-            if "stability_score" in cols:
-                select_parts.append("t1.stability_score")
-
-            sql = (
-                "SELECT " + ", ".join(select_parts) + " "
-                "FROM rankings_daily t1 "
-                "JOIN rankings_daily t2 ON t1.ticker = t2.ticker "
-                "WHERE t1.asof_date = %s AND t2.asof_date = %s "
-                "ORDER BY rank_jump DESC "
-                "LIMIT 1"
-            )
-            cur.execute(sql, (latest_date, prev_date))
-            row = cur.fetchone()
+                sql = (
+                    "SELECT " + ", ".join(select_parts) + " "
+                    "FROM rankings_daily t1 "
+                    "JOIN rankings_daily t2 ON t1.ticker = t2.ticker "
+                    "WHERE t1.asof_date = %s AND t2.asof_date = %s "
+                    "ORDER BY rank_jump DESC "
+                    "LIMIT 1"
+                )
+                cur.execute(sql, (latest_date, prev_date))
+                row = cur.fetchone()
 
         cur.close()
         conn.close()
@@ -2279,7 +2303,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            st.markdown(card_html, unsafe_allow_html=True)
+            com.html(card_html, height=230, scrolling=False)
         # else: show nothing (no blank card on weekends/holidays)
 
     except Exception as e:
@@ -2367,7 +2391,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            st.markdown(card_html, unsafe_allow_html=True)
+            com.html(card_html, height=230, scrolling=False)
 
     except Exception:
         # don't blow up home if accel columns aren't ready
@@ -2474,7 +2498,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            st.markdown(card_html, unsafe_allow_html=True)
+            com.html(sector_html, height=260, scrolling=False)
 
     except Exception:
         pass
