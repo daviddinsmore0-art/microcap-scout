@@ -330,12 +330,6 @@ margin-top:40px;
             overflow-x: auto !important;
         }
         /* If an HTML component iframe appears, keep it from expanding */
-        iframe[title="streamlit.components.v1.html"]{
-            height: 0 !important;
-            min-height: 0 !important;
-            max-height: 0 !important;
-            border: 0 !important;
-        }
 </style>
 """, unsafe_allow_html=True)
 
@@ -2191,24 +2185,33 @@ if tab == "home":
         row = None
         if latest_date and prev_date:
 
+                        # Build Signal Shift query against rankings_daily (schema-safe)
+            cols = set()
+            try:
+                cur.execute("SHOW COLUMNS FROM rankings_daily")
+                cols = {r.get("Field") for r in cur.fetchall() if r.get("Field")}
+            except Exception:
+                cols = set()
+
+            select_parts = [
+                "t1.ticker",
+                "t1.global_rank AS current_rank",
+                "t2.global_rank AS prev_rank",
+                "(t2.global_rank - t1.global_rank) AS rank_jump",
+            ]
+            if "momentum_score" in cols:
+                select_parts.append("t1.momentum_score")
+            if "stability_score" in cols:
+                select_parts.append("t1.stability_score")
+
             sql = (
-    "SELECT "
-    " g1.ticker, "
-    " g1.global_rank AS current_rank, "
-    " g2.global_rank AS prev_rank, "
-    " (g2.global_rank - g1.global_rank) AS rank_jump, "
-    " d1.momentum_score, "
-    " d1.stability_score "
-    "FROM rankings_global_daily g1 "
-    "JOIN rankings_global_daily g2 "
-    " ON g1.ticker = g2.ticker "
-    "JOIN rankings_daily d1 "
-    " ON d1.ticker = g1.ticker AND d1.asof_date = g1.asof_date "
-    "WHERE g1.asof_date = %s "
-    " AND g2.asof_date = %s "
-    "ORDER BY rank_jump DESC "
-    "LIMIT 1"
-)
+                "SELECT " + ", ".join(select_parts) + " "
+                "FROM rankings_daily t1 "
+                "JOIN rankings_daily t2 ON t1.ticker = t2.ticker "
+                "WHERE t1.asof_date = %s AND t2.asof_date = %s "
+                "ORDER BY rank_jump DESC "
+                "LIMIT 1"
+            )
             cur.execute(sql, (latest_date, prev_date))
             row = cur.fetchone()
 
@@ -2471,7 +2474,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            st.markdown(sector_html, unsafe_allow_html=True)
+            st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception:
         pass
