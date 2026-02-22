@@ -2150,8 +2150,6 @@ if "ticker" in st.query_params:
 tab = st.query_params.get("tab", "home")
 
 if tab == "home":
-    # --- TOPBAR (only render it here, not globally) ---
-    render_topbar(user.get("display_name") or "User")
 
     # --- NAVBAR ---
     render_navbar(token, current_mode)
