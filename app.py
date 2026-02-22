@@ -2087,7 +2087,6 @@ tab = st.query_params.get("tab", "home")
 
 if tab == "home":
     # 1) Topbar
-    render_topbar(user["display_name"])
     render_navbar(token, current_mode)
 
     # 2) Portfolio scroller right under topbar (order % high -> low)
