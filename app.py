@@ -2087,7 +2087,17 @@ tab = st.query_params.get("tab", "home")
 
 if tab == "home":
     # 1) Topbar
-    render_navbar(token, current_mode)
+    tickers = [r['ticker'] for r in portfolio]
+    data_map = get_cached_data_map(tickers)
+
+    # Sort high -> low by day_change (what you asked earlier)
+    tickers_sorted = sorted(
+    [t for t in tickers if t in data_map],
+    key=lambda t: float(data_map[t].get("day_change") or 0),
+    reverse=True
+    )
+
+    render_portfolio_scroller(data_map, tickers_sorted) 
 
     # 2) Portfolio scroller right under topbar (order % high -> low)
     portfolio = get_portfolio_details(user["username"], current_mode)
