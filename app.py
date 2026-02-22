@@ -2188,9 +2188,10 @@ if tab == "home":
     else:
         st.info(f"Your {current_mode} portfolio is empty (or no cached price data yet).")
 
-    # ==========================
+        # ==========================
     # TODAY'S SIGNAL SHIFT (LIVE)
     # ==========================
+    # Uses the two most recent asof_date values in rankings_global_daily (handles weekends/holidays)
     try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
@@ -2204,7 +2205,10 @@ if tab == "home":
             "FROM rankings_global_daily t1 "
             "JOIN rankings_global_daily t2 ON t1.ticker = t2.ticker "
             "WHERE t1.asof_date = (SELECT MAX(asof_date) FROM rankings_global_daily) "
-"  AND t2.asof_date = (SELECT MAX(asof_date) FROM rankings_global_daily WHERE asof_date < (SELECT MAX(asof_date) FROM rankings_global_daily)) "
+            "  AND t2.asof_date = ("
+            "      SELECT MAX(asof_date) FROM rankings_global_daily "
+            "      WHERE asof_date < (SELECT MAX(asof_date) FROM rankings_global_daily)"
+            "  ) "
             "ORDER BY rank_jump DESC "
             "LIMIT 1"
         )
@@ -2218,6 +2222,7 @@ if tab == "home":
             ticker = (row.get("ticker") or "").upper()
             jump = int(row.get("rank_jump") or 0)
 
+            # Optional bullets (only if you later add these fields into `row`)
             bullets = []
             try:
                 if float(row.get("momentum_score") or 0) > 70:
@@ -2230,54 +2235,53 @@ if tab == "home":
             except Exception:
                 pass
 
-            accel_html = "<br>".join(bullets)
-            st.markdown(
-    textwrap.dedent(f"""
-<div style='margin-top:18px; border-radius:18px; overflow:hidden; background:linear-gradient(145deg,#0f172a,#0b1220); box-shadow:0 10px 30px rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.05);'>
+            accel_html = "<br>".join(bullets) if bullets else ""
 
-  <div style='display:flex;'>
+            card_html = textwrap.dedent(f"""        <div style="margin-top:18px; border-radius:18px; overflow:hidden;
+                        background:linear-gradient(145deg,#0f172a,#0b1220);
+                        box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                        border:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex;">
+                <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
+                            display:flex; align-items:center; justify-content:center;
+                            border-right:1px solid rgba(255,255,255,0.06);">
+                  <div style="width:60px; height:60px; border-radius:14px;
+                              background:linear-gradient(135deg,#fbbf24,#f59e0b);
+                              display:flex; align-items:center; justify-content:center;
+                              font-size:28px; font-weight:900; color:#0f172a;">
+                    ↑
+                  </div>
+                </div>
 
-    <!-- LEFT ICON PANEL -->
-    <div style='width:110px; background:linear-gradient(180deg,#1e293b,#0f172a); display:flex; align-items:center; justify-content:center; border-right:1px solid rgba(255,255,255,0.05);'>
-        <div style='width:60px; height:60px; border-radius:14px; background:linear-gradient(135deg,#fbbf24,#f59e0b); display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:900; color:#0f172a;'>
-            ↑
-        </div>
-    </div>
+                <div style="flex:1; padding:22px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
+                      Today's <span style="color:white;">Signal Shift</span>
+                    </div>
+                    <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
+                  </div>
 
-    <!-- RIGHT CONTENT -->
-    <div style='flex:1; padding:22px;'>
+                  <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
+                    Biggest Rank Jump (24h)
+                  </div>
 
-        <div style='display:flex; justify-content:space-between; align-items:center;'>
-            <div style='font-size:1.2rem; font-weight:800; color:#cbd5e1;'>
-                Today's <span style='color:white;'>Signal Shift</span>
+                  <div style="margin-top:8px; font-size:1.7rem; font-weight:900; color:white;">
+                    {ticker} <span style="color:#4ade80;">+{jump}</span> spots
+                  </div>
+
+                  {f'<div style="margin-top:12px; color:#94a3b8; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
+
+                  <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
+                    VIEW DETAILS
+                  </div>
+                </div>
+              </div>
             </div>
-            <div style='color:#22c55e; font-weight:900; font-size:1.2rem;'>››</div>
-        </div>
+            """)
 
-        <div style='margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;'>
-            Biggest Rank Jump
-        </div>
-
-        <div style='margin-top:8px; font-size:1.7rem; font-weight:900; color:white;'>
-            {ticker} <span style='color:#4ade80;'>+{jump}</span> spots
-        </div>
-
-        <div style='margin-top:12px; color:#94a3b8; line-height:1.6;'>
-            {accel_html}
-        </div>
-
-        <div style='margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;'>
-            VIEW DETAILS
-        </div>
-
-    </div>
-
-  </div>
-</div>
-"""),
-    unsafe_allow_html=True,
-)
+            st.markdown(card_html, unsafe_allow_html=True)
         else:
+            # No card on weekends/holidays or when no positive jump
             st.caption("No significant rank shifts today.")
 
     except Exception as e:
