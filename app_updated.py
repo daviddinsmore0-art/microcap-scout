@@ -83,7 +83,7 @@ footer {visibility: hidden;}
             background-color: #1a1f2b; 
             border-radius: 16px; 
             padding: 20px; 
-            margin-bottom: 20px; 
+            margin-bottom: 30px; 
             border: 1px solid #2d3748; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
             transition: transform 0.1s ease, border-color 0.1s ease;
@@ -310,14 +310,27 @@ margin-top:40px;
 
 /* Global picks row layout (single HTML block) */
 .global-picks-row { display:flex; justify-content:space-between; align-items:flex-start; margin-top:5px; margin-bottom:15px; }
-.global-picks-left .ticker { font-weight:800; font-size:16px; margin:0; }
+.global-picks-left .ticker { font-weight:600; font-size:16px; margin:0; }
 .global-picks-left .type { opacity:.65; font-size:16px; margin-top:2px; }
 .global-picks-left .meta { opacity:.55; font-size:14px; margin-top:6px; }
 .global-picks-right { text-align:right; }
-.global-picks-right .price { font-weight:800; font-size:16px; margin:0; }
-.global-picks-right .chg { font-weight:800; font-size:14px; margin-top:4px; }
+.global-picks-right .price { font-weight:600; font-size:16px; margin:0; }
+.global-picks-right .chg { font-weight:600; font-size:14px; margin-top:4px; }
 .global-picks-divider { height:1px; background:rgba(255,255,255,.06); margin:0 6px; }
-</style>
+
+        /* --- PennyPulse hardening: prevent "big white block" on mobile --- */
+        div[data-testid="stCodeBlock"], pre, code {
+            background: #0b1220 !important;
+            color: #94a3b8 !important;
+            border: 1px solid rgba(148,163,184,0.18) !important;
+            border-radius: 16px !important;
+        }
+        div[data-testid="stCodeBlock"] {
+            padding: 0.6rem 0.8rem !important;
+            overflow-x: auto !important;
+        }
+        /* If an HTML component iframe appears, keep it from expanding */
+        </style>
 """, unsafe_allow_html=True)
 
 # Global Constants
@@ -337,6 +350,127 @@ token = st.query_params.get("token", None)
 
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
+
+def _table_exists(cur, table_name: str) -> bool:
+    try:
+        cur.execute("SHOW TABLES LIKE %s", (table_name,))
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+def _column_exists(cur, table_name: str, column_name: str) -> bool:
+    try:
+        cur.execute(
+            "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s "
+            "LIMIT 1",
+            (table_name, column_name),
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+def fetch_signal_shift(cur, latest_date, prev_date):
+    """
+    Biggest global rank improvement between two asof_date values.
+    Uses ONLY:
+      - rankings_global_daily (ticker, asof_date, global_rank)
+      - rankings_daily (ticker, asof_date, momentum_score, stability_score) as an optional join
+    """
+    if not latest_date or not prev_date:
+        return None
+
+    sql = """
+        SELECT
+            g1.ticker,
+            g1.global_rank AS current_rank,
+            g0.global_rank AS prev_rank,
+            (g0.global_rank - g1.global_rank) AS rank_jump,
+            d1.momentum_score,
+            d1.stability_score
+        FROM rankings_global_daily g1
+        JOIN rankings_global_daily g0
+          ON g1.ticker = g0.ticker
+        LEFT JOIN rankings_daily d1
+          ON d1.ticker = g1.ticker
+         AND d1.asof_date = g1.asof_date
+        WHERE g1.asof_date = %s
+          AND g0.asof_date = %s
+        ORDER BY rank_jump DESC
+        LIMIT 1
+    """
+    cur.execute(sql, (latest_date, prev_date))
+    return cur.fetchone()
+
+
+
+def get_rank_map(tickers):
+    """
+    Returns {TICKER: {global_rank, sector_rank, sector}} for the latest asof_date in rankings_sector_daily.
+    Safe to call even if the table/columns aren't present; returns {} on failure.
+    """
+    if not tickers:
+        return {}
+
+    # De-dupe + normalize
+    tickers = sorted({(t or "").upper().strip() for t in tickers if t})
+    if not tickers:
+        return {}
+
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_sector_daily")
+        row = cur.fetchone() or {}
+        latest = row.get("d")
+        if not latest:
+            return {}
+
+        placeholders = ",".join(["%s"] * len(tickers))
+
+        # Try the expected schema first
+        q = f"""
+            SELECT UPPER(ticker) AS ticker,
+                   sector,
+                   global_rank,
+                   sector_rank
+            FROM rankings_sector_daily
+            WHERE asof_date = %s AND UPPER(ticker) IN ({placeholders})
+        """
+        try:
+            cur.execute(q, [latest] + tickers)
+        except Exception:
+            # Fallback: maybe columns are named differently
+            q2 = f"""
+                SELECT UPPER(ticker) AS ticker,
+                       sector
+                FROM rankings_sector_daily
+                WHERE asof_date = %s AND UPPER(ticker) IN ({placeholders})
+            """
+            cur.execute(q2, [latest] + tickers)
+
+        out = {}
+        for r in cur.fetchall() or []:
+            t = r.get("ticker")
+            if not t:
+                continue
+            out[t] = {
+                "sector": r.get("sector"),
+                "global_rank": r.get("global_rank"),
+                "sector_rank": r.get("sector_rank"),
+            }
+        return out
+    except Exception:
+        return {}
+    finally:
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
     
 def ensure_stock_cache_ticker(ticker):
     """Ensure ticker exists in stock cache table (if you use one)."""
@@ -372,11 +506,12 @@ def get_latest_rank_asof():
 
 def get_rank_map_for_tickers(tickers):
     """
-    Returns dict keyed by ticker:
-    {
-      "AAPL": {"global_rank":..., "global_percentile":..., "sector":..., "sector_rank":..., "sector_percentile":..., "composite_score":...},
-      ...
-    }
+    Returns dict keyed by ticker with ranking + factor scores for the latest asof_date.
+
+    Uses:
+      - rankings_global_daily (global_rank/global_percentile/composite_score)
+      - rankings_sector_daily (sector/sector_rank/sector_percentile)
+      - rankings_daily (momentum/quality/value/stability)
     """
     tickers = [t.upper().strip() for t in tickers if t]
     if not tickers:
@@ -391,21 +526,30 @@ def get_rank_map_for_tickers(tickers):
     conn = get_connection()
     cur = conn.cursor(dictionary=True)
 
-    # Pull global ranks
+    # Global rank + percentile (higher percentile = better)
     cur.execute(f"""
         SELECT ticker, global_rank, global_percentile, composite_score
         FROM rankings_global_daily
         WHERE asof_date = %s AND ticker IN ({placeholders})
     """, [asof] + tickers)
-    g_rows = cur.fetchall()
+    g_rows = cur.fetchall() or []
 
-    # Pull sector ranks
+    # Sector rank + percentile
     cur.execute(f"""
         SELECT ticker, sector, sector_rank, sector_percentile
         FROM rankings_sector_daily
         WHERE asof_date = %s AND ticker IN ({placeholders})
     """, [asof] + tickers)
-    s_rows = cur.fetchall()
+    s_rows = cur.fetchall() or []
+
+    # Factor scores (0-100)
+    cur.execute(f"""
+        SELECT ticker,
+               momentum_score, quality_score, value_score, stability_score
+        FROM rankings_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    f_rows = cur.fetchall() or []
 
     conn.close()
 
@@ -414,8 +558,10 @@ def get_rank_map_for_tickers(tickers):
         out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
     for r in s_rows:
         out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+    for r in f_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
 
-    out["_asof"] = asof  # handy
+    out["_asof"] = asof
     return out
     
 def ensure_stock_cache_ticker(ticker: str):
@@ -910,7 +1056,7 @@ div[data-testid="stToolbar"] { display: none !important; }
          </div>
          </div>
     """
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
 
 def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
@@ -1046,7 +1192,7 @@ def format_extended_change(row):
         return (
             f"<div style='margin-top:3px; font-size:0.80rem; "
             f"color:{color}; opacity:0.85;'>"
-            f"AH {arrow} {post:.2f}%"
+            f"POST {arrow} {post:.2f}%"
             f"</div>"
         )
 
@@ -1168,7 +1314,71 @@ def execute_paper_trade(username, ticker, action, qty, price):
         cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance + %s WHERE username=%s", (total_cost, username))
         conn.commit(); conn.close()
         return True, f"Sold {qty} shares of {ticker}"
+def render_portfolio_ticker(data_map, tickers):
 
+    items = []
+
+    for t in tickers:
+        row = data_map.get(t)
+        if not row:
+            continue
+
+        try:
+            chg = float(row.get("day_change") or 0)
+        except:
+            chg = 0.0
+
+        sign = "+" if chg >= 0 else ""
+        color = "#4ade80" if chg >= 0 else "#ef4444"
+
+        items.append(
+            f"<span style='font-weight:800; margin-right:6px;'>{t}</span>"
+            f"<span style='color:{color}; font-weight:800;'>{sign}{chg:.2f}%</span>"
+        )
+
+    if not items:
+        return
+
+    content = " &nbsp; • &nbsp; ".join(items)
+
+    st.markdown(f"""
+    <style>
+    .pp-ticker-wrap {{
+        width:100%;
+        overflow:hidden;
+        padding:10px 16px;
+        border-radius:999px;
+        margin:2px 0 18px 0;
+        background:rgba(18,22,30,0.55);
+        border:1px solid rgba(255,255,255,0.08);
+        backdrop-filter:blur(10px);
+    }}
+
+    .pp-ticker {{
+        white-space:nowrap;
+        display:inline-block;
+        padding-left:100%;
+        animation: ticker-scroll 35s linear infinite;
+        font-size:15px;
+        color:#e5e7eb;
+    }}
+
+    .pp-ticker:hover {{
+        animation-play-state: paused;
+    }}
+
+    @keyframes ticker-scroll {{
+        0% {{ transform: translateX(0); }}
+        100% {{ transform: translateX(-100%); }}
+    }}
+    </style>
+
+    <div class="pp-ticker-wrap">
+        <div class="pp-ticker">
+            {content}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 def deactivate_stock(username, ticker, ptype):
     conn = get_connection()
     cursor = conn.cursor()
@@ -1477,75 +1687,149 @@ def generate_playbook(stock_row):
         "rationale": rationale,
         "move": r(move),
     }
+def get_rank_color(label: str):
+    """Return a subtle color for rank labels."""
+    if not label:
+        return "#9ca3af"  # neutral gray
 
+    label = str(label).lower()
+
+    if "elite" in label:
+        return "#34d399"  # soft green
+    if "strong" in label:
+        return "#60a5fa"  # soft blue
+    if "good" in label:
+        return "#fbbf24"  # soft amber
+    if "watch" in label:
+        return "#f87171"  # soft red
+
+    return "#cbd5e1"  # soft neutral
+
+
+def get_rank_bg(label: str):
+    """Subtle translucent background for rank label pills."""
+    if not label:
+        return "rgba(156, 163, 175, 0.12)"  # neutral
+    l = str(label).lower()
+    if "elite" in l:
+        return "rgba(52, 211, 153, 0.14)"   # green
+    if "strong" in l:
+        return "rgba(96, 165, 250, 0.14)"   # blue
+    if "good" in l:
+        return "rgba(251, 191, 36, 0.14)"   # amber
+    if "watch" in l:
+        return "rgba(248, 113, 113, 0.14)"  # red
+    return "rgba(203, 213, 225, 0.12)"      # neutral
+
+
+def _strength_from_percentile(p):
+    """p: 0-100 where higher is better."""
+    try:
+        p = float(p)
+    except Exception:
+        return None, None
+    p = max(0.0, min(100.0, p))
+    top = int(round(100.0 - p))
+    if top < 1:
+        top = 1
+    # buckets (human, not school grades)
+    if p >= 95:
+        label = "Elite"
+    elif p >= 80:
+        label = "Strong"
+    elif p >= 60:
+        label = "Good"
+    else:
+        label = "Watch"
+    return label, f"Top {top}%"
 
 def render_portfolio_row(row, data, token=None, rank_map=None):
-    """Render a single portfolio holding card.
+    """Clean 'middle card' portfolio layout (no shares/P&L, no loud borders)."""
+    tkr = (row.get("ticker") or "").upper()
+    company = (
+        data.get("company_name")
+        or data.get("name")
+        or data.get("company")
+        or data.get("companyName")
+        or ""
+    )
 
-    - Removes Risk/Conf badges
-    - Adds ranking + shares + P/L as compact badges
-    """
-    price = float(data.get('current_price') or 0)
-    change = float(data.get('day_change') or 0)
+    price = float(data.get("current_price") or 0)
+    change = float(data.get("day_change") or 0)
+    change_color = "#4ade80" if change >= 0 else "#ef4444"
+    day_txt = f"{change:+.2f}%"
+
+    # Extended (pre/post) already formatted elsewhere
     extended_html = format_extended_change(data)
 
-    change_color = "#4ade80" if change >= 0 else "#ef4444"
-    shares = float(row.get('shares') or 0)
-    entry_price = float(row.get('entry_price') or 0)
-    total_pl = float(row.get('total_pl') or 0)
-    total_pct = float(row.get('total_pct') or 0)
-
-    pl_color = "#4ade80" if total_pl >= 0 else "#ef4444"
-
-    # Pull ranks (precomputed in portfolio tab for efficiency)
-    tkr = (row.get('ticker') or '').upper()
+    # Rankings + factor scores (from rank_map)
     rinfo = (rank_map or {}).get(tkr, {}) if isinstance(rank_map, dict) else {}
-    g_rank = rinfo.get('global_rank')
-    s_rank = rinfo.get('sector_rank')
-    sector = rinfo.get('sector') or ''
 
-    def pill(text, bg, fg):
-        return f"<span style='background:{bg}; color:{fg}; padding:5px 10px; border-radius:999px; font-weight:800; font-size:12px; letter-spacing:.2px;'>{text}</span>"
+    g_label, g_top = _strength_from_percentile(rinfo.get("global_percentile"))
+    s_label, s_top = _strength_from_percentile(rinfo.get("sector_percentile"))
+    sector = (rinfo.get("sector") or "").strip()
 
-    pills = []
-    if g_rank not in (None, '', 0):
-        pills.append(pill(f"G #{int(g_rank)}", "#60a5fa", "#0b1220"))
-    if s_rank not in (None, '', 0):
-        label = f"{sector} #{int(s_rank)}" if sector else f"S #{int(s_rank)}"
-        pills.append(pill(label, "#a78bfa", "#0b1220"))
+    # Factor scores (ints)
+    def _int(v):
+        try:
+            return int(round(float(v)))
+        except Exception:
+            return None
 
-    if shares > 0 and entry_price > 0:
-        pills.append(pill(f"{shares:g} @ ${entry_price:,.2f}", "#111827", "#e5e7eb"))
+    momo = _int(rinfo.get("momentum_score"))
+    qual = _int(rinfo.get("quality_score"))
+    val  = _int(rinfo.get("value_score"))
+    stab = _int(rinfo.get("stability_score"))
 
-    # Always show P/L pill (colored)
-    pills.append(pill(f"P/L ${total_pl:,.2f} ({total_pct:+.1f}%)", pl_color, "#0b1220"))
+    # Build clean lines
+    rank_lines = []
+    if g_label and g_top:
+        rank_lines.append(
+            f"<span style='opacity:0.75;'>Global Rank:</span> "
+            f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:1px 1px; font-weight:700;'>{g_label}</span> "
+            f"<span style='opacity:0.8;'>• {g_top}</span>"
+        )
+    if s_label and s_top:
+        sec_txt = f"  ({sector})" if sector else ""
+        rank_lines.append(
+            f"<span style='opacity:0.75;'>Sector Rank:</span> "
+            f"<span style='color:{get_rank_color(s_label)}; background:{get_rank_bg(s_label)}; padding:1px 1px; font-weight:700;'>{s_label}</span> "
+            f"<span style='opacity:0.8;'>• {s_top}{sec_txt}</span>"
+        )
 
-    pills_html = "<div style='display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;'>" + "".join(pills) + "</div>"
+    factors = []
+    if momo is not None: factors.append(f"<span style='color:#4ade80; background: rgba(74, 222, 128, 0.12); padding:2px 2px; border-radius:6px;'>Momentum <b>{momo}</b></span>")
+    if qual is not None: factors.append(f"<span style='color:#60a5fa;background: rgba(96, 165, 250, 0.12); padding:2px 2px; border-radius:6px;'>Quality <b>{qual}</b></span>")
+    if val  is not None: factors.append(f"<span style='color:#fb923c;background: rgba(251, 146, 60, 0.12); padding:2px 2px; border-radius:6px;'>Value <b>{val}</b></span>")
+    if stab is not None: factors.append(f"<span style='color:#a78bfa;background: rgba(167, 139, 250, 0.12); padding:2px 2px; border-radius:6px;'>Stability <b>{stab}</b></span>")
+    factors_line = " &nbsp;&nbsp; ".join(factors)
+
 
     html = f"""
-<a href='/Stocks?t={tkr}&mode=REAL{('&token=' + token) if token else ''}' style='text-decoration:none;'>
-  <div class='portfolio-card' style='display:flex; justify-content:space-between; align-items:flex-start; padding:16px 16px 14px 16px; border-radius:20px; margin-bottom:14px; background:linear-gradient(180deg,#0f172a,#0b1220); border:1px solid rgba(255,255,255,.06); box-shadow:0 10px 30px rgba(0,0,0,.35); position:relative; overflow:hidden;'>
-    <div style='position:absolute; left:0; top:0; bottom:0; width:6px; background:{pl_color};'></div>
-    <div style='flex:1; padding-left:10px;'>
-      <div style='display:flex; align-items:center; gap:10px; flex-wrap:wrap;'>
-        <div style='font-size:26px; font-weight:900; letter-spacing:.5px; color:#ffffff;'>{tkr}</div>
+<a href="/?token={token}&ticker={tkr}&tab=stocks" target="_self" style="text-decoration:none;">
+  <div class=\"card\" style=\"padding:16px 16px 14px 16px; margin=bottom:22px; border-left:none;\">
+    <div style=\"display:flex; justify-content:space-between; align-items:flex-start; gap:12px;\">
+      <div style=\"flex:1; min-width:0;\">
+        <div style=\"font-size:20px; font-weight:600; color:#FFB300; line-height:1.1;\">{tkr}</div>
+        <div style=\"margin-top:6px; font-size:14px; color:#C08B28; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;\">{company}</div>
       </div>
-      <div style='margin-top:4px; color:#9ca3af; font-size:15px;'>{data.get('name','')}</div>
-      {pills_html}
+      <div style=\"text-align:right; min-width:110px;\">
+        <div style=\"font-size:20px; font-weight:600; color:#fff; line-height:1.1;\">${price:,.2f}</div>
+        <div style=\"margin-top:6px; font-size:16px; font-weight:600; color:{change_color};\">{day_txt}</div>
+        <div style=\"margin-top:6px;\">{extended_html}</div>
+      </div>
     </div>
 
-    <div style='text-align:right; min-width:110px;'>
-      <div style='font-size:30px; font-weight:900; color:#ffffff;'>${price:,.2f}</div>
-      <div style='margin-top:8px; font-size:18px; font-weight:800; color:{change_color};'>{'+' if change>=0 else ''}{change:.2f}%</div>
-      <div style='margin-top:6px;'>{extended_html}</div>
-    </div>
+    {('<div style="margin-top:12px; margin-bottom:6px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
+
+    {('<div style="margin-top:8px; font-size:14px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
+
   </div>
 </a>
 """
 
-    # IMPORTANT: strip leading spaces so Streamlit doesn't render this as a code block on mobile
     html = "\n".join(line.lstrip() for line in html.splitlines()).strip()
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
 
 
 def render_compact_watchlist(rows_list, current_token):
@@ -1598,7 +1882,7 @@ def render_compact_watchlist(rows_list, current_token):
             f"</div></a>"
         )
     h += '</div>'
-    st.markdown(h, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(h).strip(), unsafe_allow_html=True)
 
 def _fmt_price(x):
     try:
@@ -1708,13 +1992,22 @@ def render_simple_card(row, current_token):
     link = f"?token={current_token}&ticker={row['ticker']}"
     risk, _, _, _, _ = calculate_risk(row)
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
+
 
 def render_horizontal_grid(rows_dict, current_token):
     # Small scroller tiles: ticker + price + % (pulled from stock_cache).
-    # Layout: ticker (top) then price then % on its own line so all tiles stay the same height.
+    # ✅ Sorted by day_change DESC (highest % to lowest %)
+    def _chg(row):
+        try:
+            return float(row.get("day_change") or 0)
+        except Exception:
+            return 0.0
+
+    items = sorted(rows_dict.items(), key=lambda kv: _chg(kv[1]), reverse=True)
+
     h = '<div class="scrolling-wrapper">'
-    for ticker, row in rows_dict.items():
+    for ticker, row in items:
         try:
             price = float(row.get('current_price') or 0)
         except Exception:
@@ -1740,8 +2033,7 @@ def render_horizontal_grid(rows_dict, current_token):
             f'</a>'
         )
     h += '</div>'
-    st.markdown(h, unsafe_allow_html=True)
-
+    st.markdown(textwrap.dedent(h).strip(), unsafe_allow_html=True)
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
     if hour < 12: return f"Good Morning, {name}"
@@ -1754,7 +2046,6 @@ def get_greeting(name):
 # =========================================================
 init_db()
 
-components.html("""<script>setTimeout(function(){window.parent.location.reload();}, 120000);</script>""", height=0)
 
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
@@ -1827,8 +2118,7 @@ if "ticker" in st.query_params:
 
         play = generate_playbook(stock)
         if play:
-            st.markdown(
-                textwrap.dedent(f"""
+            st.markdown(textwrap.dedent(f"""
 <div class='card' style='margin-top:15px;'>
   <div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:10px;'>
     SMART PLAYBOOK
@@ -1861,12 +2151,11 @@ if "ticker" in st.query_params:
     </div>
   </div>
 
-  <div style='margin-top:10px; font-size:0.9rem; color:#e0e6ed; line-height:1.4;'>
+   <div style='margin-top:10px; font-size:0.9rem; color:#e0e6ed; line-height:1.4;'>
     {play["rationale"]}
   </div>
-</div>
-"""), unsafe_allow_html=True
-            )
+  </div>
+  """), unsafe_allow_html=True)
         st.markdown(f"<div class='card' style='margin:0px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
             if type=="vol": return "pill-high" if val > 3 else "pill-low", "HIGH" if val > 3 else "LOW"
@@ -1908,7 +2197,7 @@ if "ticker" in st.query_params:
         
         if ai_summary:
             ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{ai_source} INSIGHT (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
-            st.markdown(ai_html, unsafe_allow_html=True)
+            st.markdown(textwrap.dedent(ai_html).strip(), unsafe_allow_html=True)
 
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
@@ -1922,228 +2211,243 @@ if "ticker" in st.query_params:
     st.stop()
 
 tab = st.query_params.get("tab", "home")
+
 if tab == "home":
-    greeting = get_greeting(user["display_name"])
 
-    st.markdown(
-        f"""
-        <div class="pp-greeting">
-            {greeting}
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
+    # --- NAVBAR ---
     render_navbar(token, current_mode)
-    portfolio = get_portfolio_details(user['username'], current_mode)
-    if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
-    else:
-        tickers = [r['ticker'] for r in portfolio]
-        data_map = get_cached_data_map(tickers)
-        valid_rows = [data_map[t] for t in tickers if t in data_map]
-        if valid_rows:
-            avg = sum([calculate_risk(x)[0] for x in valid_rows])/len(valid_rows)
-            st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
-            
-            # THE BIG 3 METRICS ROW
-            riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
-            volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
-            e_list = []
-            for r in valid_rows:
-                d_val = parse_smart_date(r.get('next_earnings'))
-                if d_val < 365: e_list.append((r['ticker'], d_val))
-            e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
-            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:5px 0 16px 16px; margin-top:0px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:white; font-weight:bold; font-size:1rem;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:white; font-weight:bold; font-size:1rem;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:white; font-weight:bold; font-size:1rem;">{e_text}</div></div></div>""", unsafe_allow_html=True)
-            
-            render_horizontal_grid(data_map, token)
-            
-    
-
-    # BIG MOVERS (±5%) — PER USER (portfolio)
-    # ============================================
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        # Top movers from the user's ACTIVE portfolio tickers (no ±5% filter).
-        cursor.execute(
-            "SELECT DISTINCT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE",
-            (user["username"],),
-        )
-        user_tickers = [r[0] for r in cursor.fetchall()]
-
-        gainers, losers = [], []
-        if user_tickers:
-            placeholders = ",".join(["%s"] * len(user_tickers))
-            params = tuple(user_tickers)
-
-            cursor.execute(
-                f"SELECT ticker, current_price, day_change "
-                f"FROM stock_cache "
-                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
-                f"ORDER BY day_change DESC "
-                f"LIMIT 3",
-                params,
-            )
-            gainers = cursor.fetchall() or []
-
-            cursor.execute(
-                f"SELECT ticker, current_price, day_change "
-                f"FROM stock_cache "
-                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
-                f"ORDER BY day_change ASC "
-                f"LIMIT 3",
-                params,
-            )
-            losers = cursor.fetchall() or []
-
-        conn.close()
-
-        def _fmt_mover_row(row):
-            t, price, chg = row
-            try:
-                chg = float(chg)
-            except Exception:
-                chg = 0.0
-            sign = "+" if chg >= 0 else ""
-            try:
-                price_txt = f"${float(price):.2f}"
-            except Exception:
-                price_txt = "-"
-            return (
-                "<div style='display:flex; justify-content:space-between; gap:10px; "
-                "font-size:16px; margin:6px 0;'>"
-                f"<div style='min-width:70px; font-weight:700;'>{t}</div>"
-                f"<div style='opacity:.85;'>{price_txt}</div>"
-                f"<div style='font-weight:700;'>{sign}{chg:.2f}%</div>"
-                "</div>"
-            )
-
-        gainers_html = "".join(_fmt_mover_row(r) for r in gainers) or "<div style='opacity:.7'>No gainers yet.</div>"
-        losers_html = "".join(_fmt_mover_row(r) for r in losers) or "<div style='opacity:.7'>No losers yet.</div>"
-
-        st.markdown(
-            f"""
-            <div class='card' style='padding:18px; border-left:4px solid #2f80ed;'>
-              <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
-                PORTFOLIO MOVERS
-              </div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#4ade80;'>GAINERS</div>
-              {gainers_html}
-              <div style='height:10px'></div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#ef4444;'>LOSERS</div>
-              {losers_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    except Exception:
-        pass
-
-
-
-    
-
-
-
-
-    # Global Momentum Picks (from global list)
-    st.markdown("<div class='section-divider';></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
-
+    # ==========================
+    # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
+    # Uses the latest available asof_date (so weekends/holidays still show last run)
+    # ==========================
     try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
-        cur.execute(
-            """
-            SELECT
-                gsf.ticker,
-                gsf.storm_type,
-                gsf.fired_at,
-                gsf.price_at_fire,
-                gsf.pct_at_fire,
-                gsf.reason,
-                gc.price AS current_price,
-                gc.day_change AS current_change
-            FROM global_setup_fired gsf
-            LEFT JOIN global_cache gc ON gc.ticker = gsf.ticker
-            ORDER BY gsf.fired_at DESC
-            LIMIT 5
-            """
-        )
-        picks = cur.fetchall() or []
+
+        # latest + previous available dates (GLOBAL ranks)
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
+        latest_date = (cur.fetchone() or {}).get("d")
+
+        prev_date = None
+        if latest_date:
+            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily WHERE asof_date < %s", (latest_date,))
+            prev_date = (cur.fetchone() or {}).get("d")
+
+        row = fetch_signal_shift(cur, latest_date, prev_date) if latest_date and prev_date else None
+
         cur.close()
         conn.close()
 
-        if not picks:
-                st.markdown(
-                    """
-                    <div class='card border-gold' style='padding: 18px;'>
-                      <div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:8px;'>
-                        GLOBAL ALERTS
-                      </div>
-                      <div style='opacity:.8;'>No active global alerts yet today.</div>
+        if row and int(row.get("rank_jump") or 0) > 0:
+            ticker = (row.get("ticker") or "").upper()
+            jump = int(row.get("rank_jump") or 0)
+
+            bullets = []
+            try:
+                if float(row.get("momentum_score") or 0) > 70:
+                    bullets.append("◆ Momentum accelerating")
+            except Exception:
+                pass
+            try:
+                if float(row.get("stability_score") or 0) > 70:
+                    bullets.append("◆ Stability improving")
+            except Exception:
+                pass
+
+            accel_html = "<br>".join(bullets)
+
+            card_html = textwrap.dedent(f"""
+            <div style="margin-top:18px; border-radius:18px; overflow:hidden;
+                        background:linear-gradient(145deg,#0f172a,#0b1220);
+                        box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                        border:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex;">
+                <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
+                            display:flex; align-items:center; justify-content:center;
+                            border-right:1px solid rgba(255,255,255,0.06);">
+                  <div style="width:60px; height:60px; border-radius:14px;
+                              background:linear-gradient(135deg,#fbbf24,#f59e0b);
+                              display:flex; align-items:center; justify-content:center;
+                              font-size:28px; font-weight:900; color:#0f172a;">
+                    ↑
+                  </div>
+                </div>
+
+                <div style="flex:1; padding:22px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
+                      Today's <span style="color:white;">Signal Shift</span>
                     </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-        else:
-                # IMPORTANT: Render as ONE HTML block (Streamlit won't reliably nest <div> across multiple st.markdown calls)
-                def _to_float(v, default=0.0):
-                    try:
-                        if v is None:
-                            return default
-                        return float(v)
-                    except Exception:
-                        return default
+                    <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
+                  </div>
 
-                parts = []
-                parts.append("<div class='card border-gold' style='padding: 18px 18px;'>")
-                parts.append("<div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:10px;'>GLOBAL ALERTS</div>")
+                  <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
+                    Biggest Rank Jump (24h)
+                  </div>
 
-                for i, p in enumerate(picks):
-                    ticker = (p.get('ticker') or '').upper()
-                    storm_type = (p.get('storm_type') or '').lower()
-                    fired_at = p.get('fired_at')
-                    fired_price = _to_float(p.get('price_at_fire'), 0.0)
-                    fired_pct = _to_float(p.get('pct_at_fire'), 0.0)
+                  <div style="margin-top:8px; font-size:1.7rem; font-weight:900; color:white;">
+                    {ticker} <span style="color:#4ade80;">+{jump}</span> spots
+                  </div>
 
-                    current_price = _to_float(p.get('current_price'), 0.0)
-                    current_change = _to_float(p.get('current_change'), 0.0)
+                  {f'<div style="margin-top:12px; color:#94a3b8; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
 
-                    # e.g. "Feb 13 22:46 @ $195.85 (+13.07%)"
-                    fired_text = ""
-                    if fired_at:
-                        try:
-                            fired_text = fired_at.strftime('%b %d %H:%M')
-                        except Exception:
-                            fired_text = str(fired_at)
+                  <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
+                    VIEW DETAILS
+                  </div>
+                </div>
+              </div>
+            </div>
+            """).strip()
 
-                    fired_line = f"{fired_text} @ ${fired_price:,.2f} ({fired_pct:+.2f}%)" if fired_text else f"@ ${fired_price:,.2f} ({fired_pct:+.2f}%)"
-
-                    chg_class = "pos" if current_change >= 0 else "neg"
-
-                    parts.append("<div class='global-picks-row'>")
-                    parts.append("  <div class='global-picks-left'>")
-                    parts.append(f"    <div class='ticker'>{ticker}</div>")
-                    parts.append(f"    <div class='type'>{storm_type} alert fired</div>")
-                    parts.append(f"    <div class='meta'>{fired_line}</div>")
-                    parts.append("  </div>")
-                    parts.append("  <div class='global-picks-right'>")
-                    parts.append(f"    <div class='price'>${current_price:,.2f}</div>")
-                    parts.append(f"    <div class='chg {chg_class}'>{current_change:+.2f}%</div>")
-                    parts.append("  </div>")
-                    parts.append("</div>")
-
-                    if i < len(picks) - 1:
-                        parts.append("<div class='global-picks-divider'></div>")
-
-                parts.append("</div>")
-                st.markdown(''.join(parts), unsafe_allow_html=True)
-
+            st.markdown(textwrap.dedent(card_html).strip(), unsafe_allow_html=True)
+        # else: show nothing (no blank card on weekends/holidays)
 
     except Exception as e:
-        st.error(f"Global picks error: {e}")
+        st.error(f"Signal Shift error: {e}")
+
+    # ==========================
+    # NEW ACCELERATION ALERTS
+    # Using momentum_score acceleration (today vs previous asof_date in rankings_daily)
+    # ==========================
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily")
+        latest_date = (cur.fetchone() or {}).get("d")
+
+        prev_date = None
+        if latest_date:
+            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily WHERE asof_date < %s", (latest_date,))
+            prev_date = (cur.fetchone() or {}).get("d")
+
+        rows = []
+        if latest_date and prev_date:
+            cur.execute(
+                """
+                SELECT
+                    d1.ticker,
+                    (d1.momentum_score - d0.momentum_score) AS momentum_delta
+                FROM rankings_daily d1
+                JOIN rankings_daily d0
+                  ON d1.ticker = d0.ticker
+                WHERE d1.asof_date = %s
+                  AND d0.asof_date = %s
+                ORDER BY momentum_delta DESC
+                LIMIT 3
+                """,
+                (latest_date, prev_date),
+            )
+            rows = cur.fetchall() or []
+
+        cur.close()
+        conn.close()
+
+        if rows:
+            items_html = ""
+            for r in rows:
+                t = (r.get("ticker") or "").upper()
+                items_html += f"<div style='margin-top:6px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>⚡ {t}</div>"
+
+            card_html = textwrap.dedent(f"""
+            <div style="margin-top:14px; border-radius:18px; overflow:hidden;
+                        background:linear-gradient(145deg,#0f172a,#0b1220);
+                        box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                        border:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex;">
+                <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
+                            display:flex; align-items:center; justify-content:center;
+                            border-right:1px solid rgba(255,255,255,0.06);">
+                  <div style="width:60px; height:60px; border-radius:999px;
+                              border:6px solid #22c55e;
+                              display:flex; align-items:center; justify-content:center;
+                              font-size:26px; font-weight:900; color:#22c55e;">
+                    ⚡
+                  </div>
+                </div>
+
+                <div style="flex:1; padding:22px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
+                      New <span style="color:white;">Acceleration Alerts</span>
+                    </div>
+                    <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
+                  </div>
+
+                  <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
+                    Stocks speeding up <span style="opacity:.7;">(vs prior run)</span>
+                  </div>
+
+                  <div style="margin-top:10px; color:#94a3b8; line-height:1.6;">
+                    {items_html}
+                  </div>
+
+                  <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
+                    VIEW DETAILS
+                  </div>
+                </div>
+              </div>
+            </div>
+            """).strip()
+
+            st.markdown(textwrap.dedent(card_html).strip(), unsafe_allow_html=True)
+
+    except Exception:
+        # don't blow up home if rankings_daily isn't ready
+        pass
+
+    # ==========================
+    # SECTOR ROTATION SNAPSHOT
+    # NOTE: This app.py version does not have sector fields in the provided schema (rankings_daily, rankings_global_daily),
+    # so we render a clean placeholder card until sector data is available.
+    # ==========================
+    try:
+        card_html = textwrap.dedent(f"""
+        <div style="margin-top:14px; border-radius:18px; overflow:hidden;
+                    background:linear-gradient(145deg,#0f172a,#0b1220);
+                    box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                    border:1px solid rgba(255,255,255,0.06);">
+          <div style="display:flex;">
+            <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
+                        display:flex; align-items:center; justify-content:center;
+                        border-right:1px solid rgba(255,255,255,0.06);">
+              <div style="width:60px; height:60px; border-radius:14px;
+                          background:linear-gradient(135deg,#60a5fa,#3b82f6);
+                          display:flex; align-items:center; justify-content:center;
+                          font-size:28px; font-weight:900; color:#0f172a;">
+                ▮▮▮
+              </div>
+            </div>
+
+            <div style="flex:1; padding:22px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
+                  Sector <span style="color:white;">Rotation Snapshot</span>
+                </div>
+                <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
+              </div>
+
+              <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
+                Top Sectors Today
+              </div>
+
+              <div style="margin-top:10px; color:#94a3b8; line-height:1.6;">
+                Sector data not available in current schema.
+              </div>
+
+              <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.55;">
+                VIEW SECTORS
+              </div>
+            </div>
+          </div>
+        </div>
+        """).strip()
+
+        st.markdown(textwrap.dedent(card_html).strip(), unsafe_allow_html=True)
+
+    except Exception:
+        pass
+
 elif tab == "portfolio":
     st.markdown(f"")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
@@ -2440,7 +2744,7 @@ elif tab == "scanner":
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
           }
           .rank-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
-          .rank-ticker { font-size: 28px; font-weight: 800; letter-spacing: 0.5px; line-height: 1; }
+          .rank-ticker { font-size: 20px; color:#FFB300; font-weight: 600; line-height: 1; }
           .rank-sub { color: rgba(255,255,255,0.55); font-size: 14px; margin-top: 4px; }
           .rank-right { display:flex; flex-direction: column; align-items: flex-end; gap: 8px; }
           .ring {
@@ -2468,10 +2772,10 @@ elif tab == "scanner":
           .pill strong { opacity: 0.9; }
           .bars { margin-top: 12px; display:flex; flex-direction: column; gap: 10px; }
           .bar-row { display:flex; align-items:center; justify-content: space-between; gap: 10px; }
-          .bar-label { width: 86px; color: rgba(255,255,255,0.70); font-size: 16px; font-weight: 700; }
+          .bar-label { width: 86px; color: font-size: 12px; font-weight:400; }
           .bar {
             flex: 1;
-            height: 6px;
+            height: 4px;
             border-radius: 999px;
             background: rgba(255,255,255,0.08);
             border: 1px solid rgba(255,255,255,0.10);
@@ -2483,7 +2787,7 @@ elif tab == "scanner":
             background: linear-gradient(90deg, rgba(34,197,94,0.95), rgba(250,204,21,0.95));
             border-radius: 999px;
           }
-          .bar-val { width: 34px; text-align:right; font-size: 12px; font-weight: 800; }
+          .bar-val { width: 34px; text-align:right; font-size: 14px; font-weight: 400; }
           .section-title { margin-top: 18px; margin-bottom: 16px; font-size: 22px; font-weight: 800; }
         </style>
         """,
@@ -2556,29 +2860,29 @@ elif tab == "scanner":
 
   <div class="bars">
     <div class="bar-row">
-      <div class="bar-label">Momentum</div>
+      <div class="bar-label"><span style='color:#4ade80;'>Momentum</span></div>
       <div class="bar" style="--w:{_clamp01(mom)}%;"><span></span></div>
       <div class="bar-val">{mom}</div>
     </div>
     <div class="bar-row">
-      <div class="bar-label">Quality</div>
+      <div class="bar-label"><span style='color:#60a5fa;'>Quality</span></div>
       <div class="bar" style="--w:{_clamp01(qual)}%;"><span></span></div>
       <div class="bar-val">{qual}</div>
     </div>
     <div class="bar-row">
-      <div class="bar-label">Value</div>
+      <div class="bar-label"><span style='color:#fb923c;'>Value</span></div>
       <div class="bar" style="--w:{_clamp01(val)}%;"><span></span></div>
       <div class="bar-val">{val}</div>
     </div>
     <div class="bar-row">
-      <div class="bar-label">Stability</div>
+      <div class="bar-label"><span style='color:#a78bfa;'>Stability</span></div>
       <div class="bar" style="--w:{_clamp01(stab)}%;"><span></span></div>
       <div class="bar-val">{stab}</div>
     </div>
   </div>
 </div>"""
 
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
 
 
     # --- Top 5 ranked by composite_score ---
@@ -2605,6 +2909,10 @@ elif tab == "scanner":
         st.markdown('<div class="section-title">Top 3 Stability</div>', unsafe_allow_html=True)
         for r in fetch_rank_rows("stability_score", 3):
             render_rank_card(r)
+        st.markdown('<div class="section-title">Top 3 Quality</div>', unsafe_allow_html=True)
+        for r in fetch_rank_rows("quality_score", 3):
+            render_rank_card(r)
+            
 elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
