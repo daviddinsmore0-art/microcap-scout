@@ -2087,11 +2087,11 @@ if "ticker" in st.query_params:
     </div>
   </div>
 
-  <div style='margin-top:10px; font-size:0.9rem; color:#e0e6ed; line-height:1.4;'>
+   <div style='margin-top:10px; font-size:0.9rem; color:#e0e6ed; line-height:1.4;'>
     {play["rationale"]}
   </div>
-</div>
-"""), unsafe_allow_html=True
+  </div>
+  """), unsafe_allow_html=True
             )
         st.markdown(f"<div class='card' style='margin:0px; padding: 25px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RISK FACTORS</div>", unsafe_allow_html=True)
         def get_pill(val, type="risk"):
