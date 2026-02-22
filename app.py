@@ -330,13 +330,7 @@ margin-top:40px;
             overflow-x: auto !important;
         }
         /* If an HTML component iframe appears, keep it from expanding */
-        iframe[title="streamlit.components.v1.html"]{
-            height: 0 !important;
-            min-height: 0 !important;
-            max-height: 0 !important;
-            border: 0 !important;
-        }
-</style>
+        </style>
 """, unsafe_allow_html=True)
 
 # Global Constants
@@ -357,25 +351,75 @@ token = st.query_params.get("token", None)
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
-
-
-@st.cache_data(show_spinner=False, ttl=300)
-def get_table_columns(table_name: str):
-    """Return a set of column names for table_name in the current DB, or empty set on error."""
+def _table_exists(cur, table_name: str) -> bool:
     try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
-            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
-            (table_name,),
-        )
-        cols = {r[0] for r in cur.fetchall()}
-        cur.close()
-        conn.close()
-        return cols
+        cur.execute("SHOW TABLES LIKE %s", (table_name,))
+        return cur.fetchone() is not None
     except Exception:
-        return set()
+        return False
+
+def _column_exists(cur, table_name: str, column_name: str) -> bool:
+    try:
+        cur.execute(
+            "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s "
+            "LIMIT 1",
+            (table_name, column_name),
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+def fetch_signal_shift(cur, latest_date, prev_date):
+    """Return dict with ticker/current_rank/prev_rank/rank_jump/momentum_score/stability_score (best-effort)."""
+    if not latest_date or not prev_date:
+        return None
+
+    # Prefer global table if it exists; fall back to rankings_daily
+    use_table = None
+    if _table_exists(cur, "rankings_global_daily") and _column_exists(cur, "rankings_global_daily", "global_rank"):
+        use_table = "rankings_global_daily"
+    elif _table_exists(cur, "rankings_daily") and _column_exists(cur, "rankings_daily", "global_rank"):
+        use_table = "rankings_daily"
+    else:
+        return None
+
+    # Optional momentum/stability from rankings_daily if present
+    join_scores = _table_exists(cur, "rankings_daily") and (
+        _column_exists(cur, "rankings_daily", "momentum_score") or _column_exists(cur, "rankings_daily", "stability_score")
+    )
+
+    score_select = ""
+    score_join = ""
+    if join_scores:
+        ms = "d1.momentum_score" if _column_exists(cur, "rankings_daily", "momentum_score") else "NULL"
+        ss = "d1.stability_score" if _column_exists(cur, "rankings_daily", "stability_score") else "NULL"
+        score_select = f", {ms} AS momentum_score, {ss} AS stability_score "
+        score_join = (
+            " LEFT JOIN rankings_daily d1 "
+            "   ON d1.ticker = t1.ticker AND d1.asof_date = t1.asof_date "
+        )
+    else:
+        score_select = ", NULL AS momentum_score, NULL AS stability_score "
+
+    sql = (
+        "SELECT "
+        " t1.ticker, "
+        " t1.global_rank AS current_rank, "
+        " t2.global_rank AS prev_rank, "
+        " (t2.global_rank - t1.global_rank) AS rank_jump "
+        f"{score_select} "
+        f"FROM {use_table} t1 "
+        f"JOIN {use_table} t2 ON t1.ticker = t2.ticker "
+        f"{score_join} "
+        "WHERE t1.asof_date = %s AND t2.asof_date = %s "
+        "ORDER BY rank_jump DESC "
+        "LIMIT 1"
+    )
+    cur.execute(sql, (latest_date, prev_date))
+    return cur.fetchone()
+
+
 
 def get_rank_map(tickers):
     """
@@ -1029,7 +1073,7 @@ div[data-testid="stToolbar"] { display: none !important; }
          </div>
          </div>
     """
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
 
 def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
@@ -1802,7 +1846,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
 """
 
     html = "\n".join(line.lstrip() for line in html.splitlines()).strip()
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
 
 
 def render_compact_watchlist(rows_list, current_token):
@@ -1855,7 +1899,7 @@ def render_compact_watchlist(rows_list, current_token):
             f"</div></a>"
         )
     h += '</div>'
-    st.markdown(h, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(h).strip(), unsafe_allow_html=True)
 
 def _fmt_price(x):
     try:
@@ -1965,7 +2009,7 @@ def render_simple_card(row, current_token):
     link = f"?token={current_token}&ticker={row['ticker']}"
     risk, _, _, _, _ = calculate_risk(row)
     html = f'<a href="{link}" target="_self" style="text-decoration:none; color:inherit; display:block;"><div class="card clickable-card" style="display:flex; justify-content:space-between; align-items:center; padding:15px;"><div><div style="font-weight:bold; font-size:1.1rem; color:white;">{row["ticker"]}</div><div style="font-size:0.8rem; color:#94a3b8;">Risk: {risk}</div></div><div style="text-align:right;"><div style="color:white; font-weight:bold;">${p:,.2f}</div><div style="color:{cc}; font-size:0.8rem;">{arr} {ch:.2f}%</div></div></div></a>'
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
 
 
 def render_horizontal_grid(rows_dict, current_token):
@@ -2006,7 +2050,7 @@ def render_horizontal_grid(rows_dict, current_token):
             f'</a>'
         )
     h += '</div>'
-    st.markdown(h, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(h).strip(), unsafe_allow_html=True)
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
     if hour < 12: return f"Good Morning, {name}"
@@ -2170,7 +2214,7 @@ if "ticker" in st.query_params:
         
         if ai_summary:
             ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{ai_source} INSIGHT (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
-            st.markdown(ai_html, unsafe_allow_html=True)
+            st.markdown(textwrap.dedent(ai_html).strip(), unsafe_allow_html=True)
 
         if news_items:
             st.markdown(f"<div class='card' style='margin-top:15px;'><div style='color:#94a3b8; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:15px;'>RECENT NEWS</div>", unsafe_allow_html=True)
@@ -2211,33 +2255,9 @@ if tab == "home":
         row = None
         if latest_date and prev_date:
 
-            cols = get_table_columns("rankings_daily")
-            if "global_rank" not in cols:
-                # Can't compute rank jump without ranks
-                row = None
-            else:
-                select_parts = [
-                    "t1.ticker",
-                    "t1.global_rank AS current_rank",
-                    "t2.global_rank AS prev_rank",
-                    "(t2.global_rank - t1.global_rank) AS rank_jump",
-                ]
-                # Optional signals (safe if columns exist)
-                if "momentum_score" in cols:
-                    select_parts.append("t1.momentum_score")
-                if "stability_score" in cols:
-                    select_parts.append("t1.stability_score")
-
-                sql = (
-                    "SELECT " + ", ".join(select_parts) + " "
-                    "FROM rankings_daily t1 "
-                    "JOIN rankings_daily t2 ON t1.ticker = t2.ticker "
-                    "WHERE t1.asof_date = %s AND t2.asof_date = %s "
-                    "ORDER BY rank_jump DESC "
-                    "LIMIT 1"
-                )
-                cur.execute(sql, (latest_date, prev_date))
-                row = cur.fetchone()
+            row = fetch_signal_shift(cur, latest_date, prev_date)
+            (sql, (latest_date, prev_date))
+            row = cur.fetchone()
 
         cur.close()
         conn.close()
@@ -2303,7 +2323,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            com.html(card_html, height=230, scrolling=False)
+            st.markdown(textwrap.dedent(card_html).strip(), unsafe_allow_html=True)
         # else: show nothing (no blank card on weekends/holidays)
 
     except Exception as e:
@@ -2391,7 +2411,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            com.html(card_html, height=230, scrolling=False)
+            st.markdown(textwrap.dedent(card_html).strip(), unsafe_allow_html=True)
 
     except Exception:
         # don't blow up home if accel columns aren't ready
@@ -2498,7 +2518,7 @@ if tab == "home":
             </div>
             """).strip()
 
-            com.html(sector_html, height=260, scrolling=False)
+            st.markdown(textwrap.dedent(sector_html).strip(), unsafe_allow_html=True)
 
     except Exception:
         pass
@@ -2937,7 +2957,7 @@ elif tab == "scanner":
   </div>
 </div>"""
 
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
 
 
     # --- Top 5 ranked by composite_score ---
