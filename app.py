@@ -2288,6 +2288,74 @@ if tab == "home":
     except Exception as e:
         st.error(f"Signal Shift error: {e}")
 
+        # ==========================
+# NEW ACCELERATION ALERTS (20h vs 40h)
+# ==========================
+try:
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+
+    # IMPORTANT:
+    # Update these table/field names to match your DB if different.
+    # Expected idea: each row already has accel_20h and accel_40h (or similar).
+    cur.execute("""
+        SELECT
+            ticker,
+            accel_20h,
+            accel_40h,
+            (accel_20h - accel_40h) AS accel_diff
+        FROM rankings_global_daily
+        WHERE asof_date = (
+            SELECT MAX(asof_date) FROM rankings_global_daily
+        )
+        AND accel_20h IS NOT NULL
+        AND accel_40h IS NOT NULL
+        ORDER BY accel_diff DESC
+        LIMIT 3
+    """)
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    if rows:
+        items_html = ""
+        for r in rows:
+            t = (r.get("ticker") or "").upper()
+            items_html += f"<div style='margin-top:6px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>⚡ {t}</div>"
+
+        st.markdown(
+            f"""
+            <div class='card' style='padding:20px; margin-top:14px; border-left:4px solid #fbbf24;'>
+              <div style='display:flex; justify-content:space-between; align-items:center;'>
+                <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
+                  New <span style='color:white;'>Acceleration Alerts</span>
+                </div>
+                <div style='color:#22c55e; font-weight:900; font-size:1.2rem;'>››</div>
+              </div>
+
+              <div style='margin-top:12px; color:#fbbf24; font-size:1.05rem; font-weight:900;'>
+                Stocks speeding up <span style='opacity:.7;'>(20h vs 40h)</span>
+              </div>
+
+              <div style='margin-top:10px; color:#94a3b8; line-height:1.6;'>
+                {items_html}
+              </div>
+
+              <div style='margin-top:14px; text-align:right; letter-spacing:1px; opacity:.85;'>
+                VIEW DETAILS
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption("No acceleration alerts right now.")
+
+except Exception:
+    # Silent fail so home doesn't explode if accel fields/table aren't ready yet
+    st.caption("Acceleration Alerts not available yet.")
+
 elif tab == "portfolio":
     st.markdown(f"")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
