@@ -2192,46 +2192,33 @@ if tab == "home":
     # ==========================
     # HOME CARDS (placeholders)
     # ==========================
-    st.markdown(
-        """
-        
-         # ==========================
-# TODAY'S SIGNAL SHIFT (LIVE)
-# ==========================
-try:
-    conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    st.markdown("""
+<div class='card' style='padding:20px; margin-top:14px;'>
+  <div style='display:flex; justify-content:space-between; align-items:center;'>
+    <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
+      Today&#39;s <span style='color:white;'>Signal Shift</span>
+    </div>
+    <div style='color:#22c55e; font-weight:900;'>››</div>
+  </div>
 
-    cur.execute("""
-        SELECT
-            t1.ticker,
-            t1.global_rank AS current_rank,
-            t2.global_rank AS prev_rank,
-            (t2.global_rank - t1.global_rank) AS rank_jump,
-            t1.momentum_score,
-            t1.stability_score
-        FROM rankings_global_daily t1
-        JOIN rankings_global_daily t2
-          ON t1.ticker = t2.ticker
-        WHERE t1.date = CURDATE()
-          AND t2.date = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
-        ORDER BY rank_jump DESC
-        LIMIT 1
-    """)
+  <div style='margin-top:12px; color:#fbbf24; font-size:1.1rem; font-weight:900;'>
+    Biggest Rank Jump (24h)
+  </div>
 
-    row = cur.fetchone()
-    conn.close()
+  <div style='margin-top:8px; font-size:1.5rem; font-weight:900; color:white;'>
+    IVN.TO <span style='color:#4ade80;'>+42</span> spots
+  </div>
 
-    if row and row["rank_jump"] and row["rank_jump"] > 0:
+  <div style='margin-top:10px; color:#94a3b8; line-height:1.6;'>
+    ◆ Momentum accelerating<br>
+    ◆ Stability improving
+  </div>
 
-        ticker = row["ticker"]
-        jump = int(row["rank_jump"])
-
-        accel_text = ""
-        if float(row.get("momentum_score", 0)) > 70:
-            accel_text += "◆ Momentum accelerating<br>"
-        if float(row.get("stability_score", 0)) > 70:
-            accel_text += "◆ Stability improving"
+  <div style='margin-top:14px; text-align:right; letter-spacing:1px; opacity:.9;'>
+    VIEW DETAILS
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
         st.markdown(f"""
         <div class='card' style='padding:20px; margin-top:14px;'>
