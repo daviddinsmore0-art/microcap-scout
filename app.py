@@ -2231,58 +2231,58 @@ if tab == "home":
             return None
 
     # --- Signal Shift details (INLINE ONLY; avoids Streamlit white modal / iframe issues on mobile) ---
-def _open_signal_shift_details(payload: dict):
-    st.session_state["pp_signal_shift_payload"] = payload or {}
-    st.session_state["pp_show_signal_shift_details"] = True
+    def _open_signal_shift_details(payload: dict):
+        st.session_state["pp_signal_shift_payload"] = payload or {}
+        st.session_state["pp_show_signal_shift_details"] = True
 
-def _render_signal_shift_details_inline():
-    if not st.session_state.get("pp_show_signal_shift_details"):
-        return
+    def _render_signal_shift_details_inline():
+        if not st.session_state.get("pp_show_signal_shift_details"):
+            return
 
-    payload = st.session_state.get("pp_signal_shift_payload") or {}
-    ticker = (payload.get("ticker") or "").upper()
-    jump = int(payload.get("rank_jump") or 0)
-    current_rank = payload.get("current_rank")
-    prev_rank = payload.get("prev_rank")
-    mom = payload.get("momentum_score")
-    stab = payload.get("stability_score")
+        payload = st.session_state.get("pp_signal_shift_payload") or {}
+        ticker = (payload.get("ticker") or "").upper()
+        jump = int(payload.get("rank_jump") or 0)
+        current_rank = payload.get("current_rank")
+        prev_rank = payload.get("prev_rank")
+        mom = payload.get("momentum_score")
+        stab = payload.get("stability_score")
 
-    st.markdown(
-        f"""
-        <div class="card" style="border:1px solid rgba(251,191,36,0.55);">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div style="font-weight:900; font-size:1.15rem; color:white;">
-              Signal Shift • {ticker}
+        st.markdown(
+            f"""
+            <div class="card" style="border:1px solid rgba(251,191,36,0.55);">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-weight:900; font-size:1.15rem; color:white;">
+                  Signal Shift • {ticker}
+                </div>
+                <div style="font-weight:900; color:#fbbf24;">DETAILS</div>
+              </div>
+
+              <div style="margin-top:10px; color:#cbd5e1; line-height:1.7;">
+                <div><b>Rank jump:</b> +{jump} spots</div>
+                <div><b>Current rank:</b> {current_rank}</div>
+                <div><b>Previous rank:</b> {prev_rank}</div>
+              </div>
+
+              <div style="margin-top:14px; display:flex; gap:10px;">
+                <div class="metric-box" style="flex:1; margin:0;">
+                  <div class="metric-label">Momentum</div>
+                  <div class="metric-value">{int(float(mom or 0))}</div>
+                </div>
+                <div class="metric-box" style="flex:1; margin:0;">
+                  <div class="metric-label">Stability</div>
+                  <div class="metric-value">{int(float(stab or 0))}</div>
+                </div>
+              </div>
             </div>
-            <div style="font-weight:900; color:#fbbf24;">DETAILS</div>
-          </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-          <div style="margin-top:10px; color:#cbd5e1; line-height:1.7;">
-            <div><b>Rank jump:</b> +{jump} spots</div>
-            <div><b>Current rank:</b> {current_rank}</div>
-            <div><b>Previous rank:</b> {prev_rank}</div>
-          </div>
+        if st.button("Close details", key="pp_close_signal_shift_details", use_container_width=True):
+            st.session_state["pp_show_signal_shift_details"] = False
+            st.rerun()
 
-          <div style="margin-top:14px; display:flex; gap:10px;">
-            <div class="metric-box" style="flex:1; margin:0;">
-              <div class="metric-label">Momentum</div>
-              <div class="metric-value">{int(float(mom or 0))}</div>
-            </div>
-            <div class="metric-box" style="flex:1; margin:0;">
-              <div class="metric-label">Stability</div>
-              <div class="metric-value">{int(float(stab or 0))}</div>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if st.button("Close details", key="pp_close_signal_shift_details", use_container_width=True):
-        st.session_state["pp_show_signal_shift_details"] = False
-        st.rerun()
-
-try:
+    try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
@@ -2366,7 +2366,7 @@ try:
     except Exception as e:
         st.error(f"Signal Shift error: {e}")
 
-# ==========================
+    # ==========================
     # NEW ACCELERATION ALERTS (20h vs 40h)
     # Uses latest available asof_date
     # ==========================
