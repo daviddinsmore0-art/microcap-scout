@@ -2218,7 +2218,7 @@ if tab == "home":
      VIEW DETAILS
      </div>
     </div>
-""", unsafe_allow_html=True)
+         """, unsafe_allow_html=True)
 
         st.markdown(f"""
         <div class='card' style='padding:20px; margin-top:14px;'>
