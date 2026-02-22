@@ -2193,31 +2193,31 @@ if tab == "home":
     # HOME CARDS (placeholders)
     # ==========================
     st.markdown("""
-<div class='card' style='padding:20px; margin-top:14px;'>
-  <div style='display:flex; justify-content:space-between; align-items:center;'>
-    <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
+      <div class='card' style='padding:20px; margin-top:14px;'>
+      <div style='display:flex; justify-content:space-between; align-items:center;'>
+      <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
       Today&#39;s <span style='color:white;'>Signal Shift</span>
+     </div>
+     <div style='color:#22c55e; font-weight:900;'>››</div>
+     </div>
+
+     <div style='margin-top:12px; color:#fbbf24; font-size:1.1rem; font-weight:900;'>
+      Biggest Rank Jump (24h)
+     </div>
+
+     <div style='margin-top:8px; font-size:1.5rem; font-weight:900; color:white;'>
+     IVN.TO <span style='color:#4ade80;'>+42</span> spots
     </div>
-    <div style='color:#22c55e; font-weight:900;'>››</div>
-  </div>
 
-  <div style='margin-top:12px; color:#fbbf24; font-size:1.1rem; font-weight:900;'>
-    Biggest Rank Jump (24h)
-  </div>
-
-  <div style='margin-top:8px; font-size:1.5rem; font-weight:900; color:white;'>
-    IVN.TO <span style='color:#4ade80;'>+42</span> spots
-  </div>
-
-  <div style='margin-top:10px; color:#94a3b8; line-height:1.6;'>
+    <div style='margin-top:10px; color:#94a3b8; line-height:1.6;'>
     ◆ Momentum accelerating<br>
     ◆ Stability improving
-  </div>
+    </div>
 
-  <div style='margin-top:14px; text-align:right; letter-spacing:1px; opacity:.9;'>
-    VIEW DETAILS
-  </div>
-</div>
+    <div style='margin-top:14px; text-align:right; letter-spacing:1px; opacity:.9;'>
+     VIEW DETAILS
+     </div>
+    </div>
 """, unsafe_allow_html=True)
 
         st.markdown(f"""
