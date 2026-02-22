@@ -2234,34 +2234,48 @@ if tab == "home":
 
             st.markdown(
                 f"""
-                <div class='card' style='padding:22px; margin-top:16px; border-radius:18px; background:linear-gradient(145deg,#0f172a,#0b1220); box-shadow:0 0 0 1px rgba(255,255,255,0.05);'>
+<div style='margin-top:18px; border-radius:18px; overflow:hidden; background:linear-gradient(145deg,#0f172a,#0b1220); box-shadow:0 10px 30px rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.05);'>
 
-  <div style='display:flex; justify-content:space-between; align-items:center;'>
-    <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
-      Today's <span style='color:white;'>Signal Shift</span>
+  <div style='display:flex;'>
+
+    <!-- LEFT ICON PANEL -->
+    <div style='width:110px; background:linear-gradient(180deg,#1e293b,#0f172a); display:flex; align-items:center; justify-content:center; border-right:1px solid rgba(255,255,255,0.05);'>
+        <div style='width:60px; height:60px; border-radius:14px; background:linear-gradient(135deg,#fbbf24,#f59e0b); display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:900; color:#0f172a;'>
+            ↑
+        </div>
     </div>
-    <div style='color:#22c55e; font-weight:900; font-size:1.3rem;'>››</div>
-  </div>
 
-  <div style='margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;'>
-    Biggest Rank Jump
-  </div>
+    <!-- RIGHT CONTENT -->
+    <div style='flex:1; padding:22px;'>
 
-  <div style='margin-top:10px; font-size:1.6rem; font-weight:900; color:white;'>
-    {ticker} <span style='color:#4ade80;'>+{jump}</span> spots
-  </div>
+        <div style='display:flex; justify-content:space-between; align-items:center;'>
+            <div style='font-size:1.2rem; font-weight:800; color:#cbd5e1;'>
+                Today's <span style='color:white;'>Signal Shift</span>
+            </div>
+            <div style='color:#22c55e; font-weight:900; font-size:1.2rem;'>››</div>
+        </div>
 
-  <div style='margin-top:12px; color:#94a3b8; line-height:1.6;'>
-    {accel_html}
-  </div>
+        <div style='margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;'>
+            Biggest Rank Jump
+        </div>
 
-  <div style='margin-top:18px; text-align:right; letter-spacing:1px; opacity:.8;'>
-    VIEW DETAILS
-  </div>
+        <div style='margin-top:8px; font-size:1.7rem; font-weight:900; color:white;'>
+            {ticker} <span style='color:#4ade80;'>+{jump}</span> spots
+        </div>
 
+        <div style='margin-top:12px; color:#94a3b8; line-height:1.6;'>
+            {accel_html}
+        </div>
+
+        <div style='margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;'>
+            VIEW DETAILS
+        </div>
+
+    </div>
+
+  </div>
 </div>
-
-                """,
+""",
                 unsafe_allow_html=True,
             )
         else:
