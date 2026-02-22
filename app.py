@@ -2204,7 +2204,7 @@ if tab == "home":
             "FROM rankings_global_daily t1 "
             "JOIN rankings_global_daily t2 ON t1.ticker = t2.ticker "
             "WHERE t1.asof_date = CURDATE() "
-            "  AND t2.date = DATE_SUB(CURDATE(), INTERVAL 1 DAY) "
+            "  AND t2.asof_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY) "
             "ORDER BY rank_jump DESC "
             "LIMIT 1"
         )
