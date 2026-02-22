@@ -1248,7 +1248,71 @@ def execute_paper_trade(username, ticker, action, qty, price):
         cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance + %s WHERE username=%s", (total_cost, username))
         conn.commit(); conn.close()
         return True, f"Sold {qty} shares of {ticker}"
+def render_portfolio_ticker(data_map, tickers):
 
+    items = []
+
+    for t in tickers:
+        row = data_map.get(t)
+        if not row:
+            continue
+
+        try:
+            chg = float(row.get("day_change") or 0)
+        except:
+            chg = 0.0
+
+        sign = "+" if chg >= 0 else ""
+        color = "#4ade80" if chg >= 0 else "#ef4444"
+
+        items.append(
+            f"<span style='font-weight:800; margin-right:6px;'>{t}</span>"
+            f"<span style='color:{color}; font-weight:800;'>{sign}{chg:.2f}%</span>"
+        )
+
+    if not items:
+        return
+
+    content = " &nbsp; • &nbsp; ".join(items)
+
+    st.markdown(f"""
+    <style>
+    .pp-ticker-wrap {{
+        width:100%;
+        overflow:hidden;
+        padding:10px 16px;
+        border-radius:999px;
+        margin:8px 0 18px 0;
+        background:rgba(18,22,30,0.55);
+        border:1px solid rgba(255,255,255,0.08);
+        backdrop-filter:blur(10px);
+    }}
+
+    .pp-ticker {{
+        white-space:nowrap;
+        display:inline-block;
+        padding-left:100%;
+        animation: ticker-scroll 25s linear infinite;
+        font-size:15px;
+        color:#e5e7eb;
+    }}
+
+    .pp-ticker:hover {{
+        animation-play-state: paused;
+    }}
+
+    @keyframes ticker-scroll {{
+        0% {{ transform: translateX(0); }}
+        100% {{ transform: translateX(-100%); }}
+    }}
+    </style>
+
+    <div class="pp-ticker-wrap">
+        <div class="pp-ticker">
+            {content}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 def deactivate_stock(username, ticker, ptype):
     conn = get_connection()
     cursor = conn.cursor()
@@ -2089,6 +2153,13 @@ if tab == "home":
     # 1) Topbar
     tickers = [r['ticker'] for r in portfolio]
     data_map = get_cached_data_map(tickers)
+    tickers_sorted = sorted(
+    [t for t in tickers if t in data_map],
+    key=lambda t: float(data_map[t].get("day_change") or 0),
+    reverse=True
+)
+
+render_portfolio_ticker(data_map, tickers_sorted)
 
     # Sort high -> low by day_change (what you asked earlier)
     tickers_sorted = sorted(
