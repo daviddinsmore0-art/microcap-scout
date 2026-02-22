@@ -2266,8 +2266,8 @@ try:
     else:
         st.caption("No significant rank shifts today.")
 
-except Exception as e:
-    st.error(f"Signal Shift error: {e}")
+     except Exception as e:
+     st.error(f"Signal Shift error: {e}")
 
 
 
