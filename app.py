@@ -1282,7 +1282,7 @@ def render_portfolio_ticker(data_map, tickers):
         overflow:hidden;
         padding:10px 16px;
         border-radius:999px;
-        margin:8px 0 18px 0;
+        margin:2px 0 18px 0;
         background:rgba(18,22,30,0.55);
         border:1px solid rgba(255,255,255,0.08);
         backdrop-filter:blur(10px);
@@ -1292,7 +1292,7 @@ def render_portfolio_ticker(data_map, tickers):
         white-space:nowrap;
         display:inline-block;
         padding-left:100%;
-        animation: ticker-scroll 25s linear infinite;
+        animation: ticker-scroll 35s linear infinite;
         font-size:15px;
         color:#e5e7eb;
     }}
