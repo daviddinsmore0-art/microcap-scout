@@ -2232,7 +2232,7 @@ if tab == "home":
 
             accel_html = "<br>".join(bullets)
             st.markdown(
-    f"""
+    textwrap.dedent(f"""
 <div style='margin-top:18px; border-radius:18px; overflow:hidden; background:linear-gradient(145deg,#0f172a,#0b1220); box-shadow:0 10px 30px rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.05);'>
 
   <div style='display:flex;'>
@@ -2274,7 +2274,7 @@ if tab == "home":
 
   </div>
 </div>
-""",
+"""),
     unsafe_allow_html=True,
 )
         else:
