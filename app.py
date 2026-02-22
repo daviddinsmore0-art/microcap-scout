@@ -1865,10 +1865,19 @@ def render_simple_card(row, current_token):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_horizontal_grid(rows_dict, current_token):
+def render_horizontal_grid(rows_dict, current_token):
     # Small scroller tiles: ticker + price + % (pulled from stock_cache).
-    # Layout: ticker (top) then price then % on its own line so all tiles stay the same height.
+    # ✅ Sorted by day_change DESC (highest % to lowest %)
+    def _chg(row):
+        try:
+            return float(row.get("day_change") or 0)
+        except Exception:
+            return 0.0
+
+    items = sorted(rows_dict.items(), key=lambda kv: _chg(kv[1]), reverse=True)
+
     h = '<div class="scrolling-wrapper">'
-    for ticker, row in rows_dict.items():
+    for ticker, row in items:
         try:
             price = float(row.get('current_price') or 0)
         except Exception:
@@ -1895,7 +1904,6 @@ def render_horizontal_grid(rows_dict, current_token):
         )
     h += '</div>'
     st.markdown(h, unsafe_allow_html=True)
-
 def get_greeting(name):
     hour = datetime.now(pytz.timezone('America/Halifax')).hour
     if hour < 12: return f"Good Morning, {name}"
@@ -2077,123 +2085,60 @@ if "ticker" in st.query_params:
 
 tab = st.query_params.get("tab", "home")
 if tab == "home":
-    greeting = get_greeting(user["display_name"])
+     
+    render_topbar(user["display_name"])
+render_navbar(token, current_mode)
 
-    st.markdown(
-        f"""
-        <div class="pp-greeting">
-            {greeting}
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+portfolio = get_portfolio_details(user['username'], current_mode)
+if not portfolio:
+    st.info(f"Your {current_mode} portfolio is empty.")
+else:
+    tickers = [r['ticker'] for r in portfolio]
+    data_map = get_cached_data_map(tickers)
 
-    render_navbar(token, current_mode)
-    portfolio = get_portfolio_details(user['username'], current_mode)
-    if not portfolio: st.info(f"Your {current_mode} portfolio is empty.")
-    else:
-        tickers = [r['ticker'] for r in portfolio]
-        data_map = get_cached_data_map(tickers)
-        valid_rows = [data_map[t] for t in tickers if t in data_map]
-        if valid_rows:
-            avg = sum([calculate_risk(x)[0] for x in valid_rows])/len(valid_rows)
-            st.markdown(create_gauge_html(int(avg), "MEDIUM" if avg<65 else "HIGH", "#fbbf24" if avg<65 else "#ef4444", "big"), unsafe_allow_html=True)
-            
-            # THE BIG 3 METRICS ROW
-            riskiest = max(valid_rows, key=lambda x: calculate_risk(x)[0])
-            volatile = max(valid_rows, key=lambda x: abs(float(x['day_change'])))
-            e_list = []
-            for r in valid_rows:
-                d_val = parse_smart_date(r.get('next_earnings'))
-                if d_val < 365: e_list.append((r['ticker'], d_val))
-            e_text = min(e_list, key=lambda x: x[1])[0] if e_list else "N/A"
-            st.markdown(f"""<div style="display:flex; justify-content:space-between; background:#151922; padding:15px; border-radius:5px 0 16px 16px; margin-top:0px; margin-bottom:20px; border:1px solid #2d3748; border-top:none;"><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Highest Risk</div><div style="color:#FFB300; font-weight:500; font-size:16px;">{riskiest['ticker']}</div></div><div style="text-align:center; width:33%; border-right:1px solid #2d3748;"><div style="color:#94a3b8; font-size:.6rem; text-transform:uppercase;">Most Volatile</div><div style="color:#FFB300; font-weight:500; font-size:16px;">{volatile['ticker']}</div></div><div style="text-align:center; width:33%;"><div style="color:#94a3b8; font-size:0.6rem; text-transform:uppercase;">Next Earnings</div><div style="color:#FFB300; font-weight:500; font-size:16px;">{e_text}</div></div></div>""", unsafe_allow_html=True)
-            
-            render_horizontal_grid(data_map, token)
-            
+    # ✅ scroller goes RIGHT under topbar like the mockup
+    if data_map:
+        render_horizontal_grid(data_map, token)
+
+# --- NEW: Today's Signal Shift (placeholder wiring, we can hook DB next) ---
+st.markdown("""
+<div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08);'>
+  <div style='display:flex; justify-content:space-between; align-items:center;'>
+    <div style='font-weight:800; font-size:18px;'>Today's <span style="color:#e5e7eb;">Signal Shift</span></div>
+    <div style='opacity:.7;'>»</div>
+  </div>
+  <div style='margin-top:10px; color:#f6c343; font-weight:800;'>Biggest Rank Jump (24h)</div>
+  <div style='margin-top:6px; font-size:22px; font-weight:900; color:#FFB300;'>—</div>
+  <div style='margin-top:10px; opacity:.85;'>• Momentum accelerating<br/>• Stability improving</div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- NEW: Acceleration Alerts (placeholder list; we can pull from rankings later) ---
+st.markdown("""
+<div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08); margin-top:14px;'>
+  <div style='display:flex; justify-content:space-between; align-items:center;'>
+    <div style='font-weight:800; font-size:18px;'>New <span style="color:#e5e7eb;">Acceleration Alerts</span></div>
+    <div style='opacity:.7;'>»</div>
+  </div>
+  <div style='margin-top:10px; color:#f6c343; font-weight:800;'>Stocks speeding up (20h vs 40h)</div>
+  <div style='margin-top:10px; font-size:18px; font-weight:800;'>⚡ —<br/>⚡ —<br/>⚡ —</div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- NEW: Sector Rotation Snapshot (we can wire to your sector rankings script/table) ---
+st.markdown("""
+<div class='card' style='padding:18px; border:1px solid rgba(255,255,255,0.08); margin-top:14px;'>
+  <div style='display:flex; justify-content:space-between; align-items:center;'>
+    <div style='font-weight:800; font-size:18px;'>Sector <span style="color:#e5e7eb;">Rotation Snapshot</span></div>
+    <div style='opacity:.7;'>»</div>
+  </div>
+  <div style='margin-top:10px; font-weight:800;'>🏆 Top Sectors Today</div>
+  <div style='margin-top:10px; opacity:.9;'>1) —<br/>2) —<br/>3) —</div>
+</div>
+""", unsafe_allow_html=True)
+
     
-
-    # BIG MOVERS (±5%) — PER USER (portfolio)
-    # ============================================
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        # Top movers from the user's ACTIVE portfolio tickers (no ±5% filter).
-        cursor.execute(
-            "SELECT DISTINCT ticker FROM user_portfolio WHERE username=%s AND is_active=TRUE",
-            (user["username"],),
-        )
-        user_tickers = [r[0] for r in cursor.fetchall()]
-
-        gainers, losers = [], []
-        if user_tickers:
-            placeholders = ",".join(["%s"] * len(user_tickers))
-            params = tuple(user_tickers)
-
-            cursor.execute(
-                f"SELECT ticker, current_price, day_change "
-                f"FROM stock_cache "
-                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
-                f"ORDER BY day_change DESC "
-                f"LIMIT 3",
-                params,
-            )
-            gainers = cursor.fetchall() or []
-
-            cursor.execute(
-                f"SELECT ticker, current_price, day_change "
-                f"FROM stock_cache "
-                f"WHERE ticker IN ({placeholders}) AND day_change IS NOT NULL "
-                f"ORDER BY day_change ASC "
-                f"LIMIT 3",
-                params,
-            )
-            losers = cursor.fetchall() or []
-
-        conn.close()
-
-        def _fmt_mover_row(row):
-            t, price, chg = row
-            try:
-                chg = float(chg)
-            except Exception:
-                chg = 0.0
-            sign = "+" if chg >= 0 else ""
-            try:
-                price_txt = f"${float(price):.2f}"
-            except Exception:
-                price_txt = "-"
-            return (
-                "<div style='display:flex; justify-content:space-between; gap:10px; "
-                "font-size:16px; margin:6px 0;'>"
-                f"<div style='min-width:70px; font-weight:700;'>{t}</div>"
-                f"<div style='opacity:.85;'>{price_txt}</div>"
-                f"<div style='font-weight:700;'>{sign}{chg:.2f}%</div>"
-                "</div>"
-            )
-
-        gainers_html = "".join(_fmt_mover_row(r) for r in gainers) or "<div style='opacity:.7'>No gainers yet.</div>"
-        losers_html = "".join(_fmt_mover_row(r) for r in losers) or "<div style='opacity:.7'>No losers yet.</div>"
-
-        st.markdown(
-            f"""
-            <div class='card' style='padding:18px; border-left:4px solid #2f80ed;'>
-              <div style='letter-spacing:2px; font-weight:800; color:#57b3ff; margin-bottom:10px;'>
-                PORTFOLIO MOVERS
-              </div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#4ade80;'>GAINERS</div>
-              {gainers_html}
-              <div style='height:10px'></div>
-              <div style='font-size:22px; font-weight:900; margin-bottom:8px; color:#ef4444;'>LOSERS</div>
-              {losers_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    except Exception:
-        pass
-
+        
 
 
     
@@ -2201,103 +2146,9 @@ if tab == "home":
 
 
 
-    # Global Momentum Picks (from global list)
-    st.markdown("<div class='section-divider';></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
-
-    try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
-        cur.execute(
-            """
-            SELECT
-                gsf.ticker,
-                gsf.storm_type,
-                gsf.fired_at,
-                gsf.price_at_fire,
-                gsf.pct_at_fire,
-                gsf.reason,
-                gc.price AS current_price,
-                gc.day_change AS current_change
-            FROM global_setup_fired gsf
-            LEFT JOIN global_cache gc ON gc.ticker = gsf.ticker
-            ORDER BY gsf.fired_at DESC
-            LIMIT 5
-            """
-        )
-        picks = cur.fetchall() or []
-        cur.close()
-        conn.close()
-
-        if not picks:
-                st.markdown(
-                    """
-                    <div class='card border-gold' style='padding: 18px;'>
-                      <div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:8px;'>
-                        GLOBAL ALERTS
-                      </div>
-                      <div style='opacity:.8;'>No active global alerts yet today.</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-        else:
-                # IMPORTANT: Render as ONE HTML block (Streamlit won't reliably nest <div> across multiple st.markdown calls)
-                def _to_float(v, default=0.0):
-                    try:
-                        if v is None:
-                            return default
-                        return float(v)
-                    except Exception:
-                        return default
-
-                parts = []
-                parts.append("<div class='card border-gold' style='padding: 18px 18px;'>")
-                parts.append("<div style='font-weight:800; letter-spacing:3px; color:#f6c343; margin-bottom:10px;'>GLOBAL ALERTS</div>")
-
-                for i, p in enumerate(picks):
-                    ticker = (p.get('ticker') or '').upper()
-                    storm_type = (p.get('storm_type') or '').lower()
-                    fired_at = p.get('fired_at')
-                    fired_price = _to_float(p.get('price_at_fire'), 0.0)
-                    fired_pct = _to_float(p.get('pct_at_fire'), 0.0)
-
-                    current_price = _to_float(p.get('current_price'), 0.0)
-                    current_change = _to_float(p.get('current_change'), 0.0)
-
-                    # e.g. "Feb 13 22:46 @ $195.85 (+13.07%)"
-                    fired_text = ""
-                    if fired_at:
-                        try:
-                            fired_text = fired_at.strftime('%b %d %H:%M')
-                        except Exception:
-                            fired_text = str(fired_at)
-
-                    fired_line = f"{fired_text} @ ${fired_price:,.2f} ({fired_pct:+.2f}%)" if fired_text else f"@ ${fired_price:,.2f} ({fired_pct:+.2f}%)"
-
-                    chg_class = "pos" if current_change >= 0 else "neg"
-
-                    parts.append("<div class='global-picks-row'>")
-                    parts.append("  <div class='global-picks-left'>")
-                    parts.append(f"    <div class='ticker'>{ticker}</div>")
-                    parts.append(f"    <div class='type'>{storm_type} alert fired</div>")
-                    parts.append(f"    <div class='meta'>{fired_line}</div>")
-                    parts.append("  </div>")
-                    parts.append("  <div class='global-picks-right'>")
-                    parts.append(f"    <div class='price'>${current_price:,.2f}</div>")
-                    parts.append(f"    <div class='chg {chg_class}'>{current_change:+.2f}%</div>")
-                    parts.append("  </div>")
-                    parts.append("</div>")
-
-                    if i < len(picks) - 1:
-                        parts.append("<div class='global-picks-divider'></div>")
-
-                parts.append("</div>")
-                st.markdown(''.join(parts), unsafe_allow_html=True)
 
 
-    except Exception as e:
-        st.error(f"Global picks error: {e}")
+
 elif tab == "portfolio":
     st.markdown(f"")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
