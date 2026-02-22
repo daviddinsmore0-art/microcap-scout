@@ -2285,7 +2285,8 @@ if tab == "home":
             # No card on weekends/holidays or when no positive jump
             st.caption("No significant rank shifts today.")
 
-    
+          except Exception as e:
+          st.error(f"Signal Shift error: {e}")
         # ==========================
 # NEW ACCELERATION ALERTS (20h vs 40h)
 # ==========================
