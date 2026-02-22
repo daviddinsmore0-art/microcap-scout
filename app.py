@@ -2151,7 +2151,16 @@ tab = st.query_params.get("tab", "home")
 
 if tab == "home":
     # 1) Topbar
-    tickers = [r['ticker'] for r in portfolio]
+    tickers = []
+
+    for r in portfolio:
+    try:
+        if isinstance(r, dict):
+            tickers.append(r.get("ticker"))
+        else:
+            tickers.append(r[0])  # tuple fallback
+    except Exception:
+        continue
     data_map = get_cached_data_map(tickers)
     tickers_sorted = sorted(
     [t for t in tickers if t in data_map],
