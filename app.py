@@ -2250,8 +2250,8 @@ if tab == "home":
     else:
         st.info("No significant rank shifts today.")
 
-    except Exception as e:
-    st.error(f"Signal Shift error: {e}")
+       except Exception as e:
+st.error(f"Signal Shift error: {e}")
         <div class='card' style='padding:20px; margin-top:14px;'>
           <div style='display:flex; align-items:center; justify-content:space-between;'>
             <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>New <span style='color:white;'>Acceleration Alerts</span></div>
