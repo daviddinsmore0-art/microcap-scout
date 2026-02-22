@@ -357,7 +357,7 @@ def get_rank_map(tickers):
         cur = conn.cursor(dictionary=True)
 
         cur.execute("SELECT MAX(asof_date) AS d FROM rankings_sector_daily")
-        row = cur.fetchone()() or {}
+        row = cur.fetchone() or {}
         latest = row.get("d")
         if not latest:
             return {}
@@ -2153,76 +2153,53 @@ if tab == "home":
 
     # --- NAVBAR ---
     render_navbar(token, current_mode)
-    # =========================================================
-    # HOME: Portfolio ticker scroller + Today's Signal Shift
-    # =========================================================
-
-    # --- Load portfolio safely ---
-    portfolio = get_portfolio_details(user["username"], current_mode) or []
-    tickers = []
-    for r in portfolio:
-        try:
-            if isinstance(r, dict):
-                t = (r.get("ticker") or "").strip().upper()
-            else:
-                t = (str(r[0]) or "").strip().upper()  # tuple fallback
-            if t:
-                tickers.append(t)
-        except Exception:
-            continue
-
-    data_map = get_cached_data_map(tickers) or {}
-
-    # --- Sort by day_change DESC (high % to low %) ---
-    def _chg(t):
-        try:
-            return float((data_map.get(t) or {}).get("day_change") or 0.0)
-        except Exception:
-            return 0.0
-
-    tickers_sorted = sorted([t for t in tickers if t in data_map], key=_chg, reverse=True)
-
-    # --- SCROLLING TICKER (right under topbar) ---
-    if tickers_sorted:
-        render_portfolio_ticker(data_map, tickers_sorted)
-    else:
-        st.info(f"Your {current_mode} portfolio is empty (or no cached price data yet).")
-
-        # ==========================
-    # TODAY'S SIGNAL SHIFT (LIVE)
     # ==========================
-    # Uses the two most recent asof_date values in rankings_global_daily (handles weekends/holidays)
+    # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
+    # Uses the latest available asof_date (so weekends/holidays still show last run)
+    # ==========================
     try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        sql = (
-            "SELECT "
-            "  t1.ticker, "
-            "  t1.global_rank AS current_rank, "
-            "  t2.global_rank AS prev_rank, "
-            "  (t2.global_rank - t1.global_rank) AS rank_jump "
-            "FROM rankings_global_daily t1 "
-            "JOIN rankings_global_daily t2 ON t1.ticker = t2.ticker "
-            "WHERE t1.asof_date = (SELECT MAX(asof_date) FROM rankings_global_daily) "
-            "  AND t2.asof_date = ("
-            "      SELECT MAX(asof_date) FROM rankings_global_daily "
-            "      WHERE asof_date < (SELECT MAX(asof_date) FROM rankings_global_daily)"
-            "  ) "
-            "ORDER BY rank_jump DESC "
-            "LIMIT 1"
-        )
+        # latest + previous available dates
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
+        latest_row = cur.fetchone() or {}
+        latest_date = latest_row.get("d")
 
-        cur.execute(sql)
-        row = cur.fetchone()
+        prev_date = None
+        if latest_date:
+            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily WHERE asof_date < %s", (latest_date,))
+            prev_row = cur.fetchone() or {}
+            prev_date = prev_row.get("d")
+
+        row = None
+        if latest_date and prev_date:
+            sql = (
+                "SELECT "
+                "  t1.ticker, "
+                "  t1.global_rank AS current_rank, "
+                "  t2.global_rank AS prev_rank, "
+                "  (t2.global_rank - t1.global_rank) AS rank_jump, "
+                "  t1.momentum_score, "
+                "  t1.stability_score "
+                "FROM rankings_global_daily t1 "
+                "JOIN rankings_global_daily t2 "
+                "  ON t1.ticker = t2.ticker "
+                "WHERE t1.asof_date = %s "
+                "  AND t2.asof_date = %s "
+                "ORDER BY rank_jump DESC "
+                "LIMIT 1"
+            )
+            cur.execute(sql, (latest_date, prev_date))
+            row = cur.fetchone()
+
         cur.close()
         conn.close()
 
-        if row and (row.get("rank_jump") or 0) > 0:
+        if row and int(row.get("rank_jump") or 0) > 0:
             ticker = (row.get("ticker") or "").upper()
             jump = int(row.get("rank_jump") or 0)
 
-            # Optional bullets (only if you later add these fields into `row`)
             bullets = []
             try:
                 if float(row.get("momentum_score") or 0) > 70:
@@ -2235,9 +2212,10 @@ if tab == "home":
             except Exception:
                 pass
 
-            accel_html = "<br>".join(bullets) if bullets else ""
+            accel_html = "<br>".join(bullets)
 
-            card_html = textwrap.dedent(f"""        <div style="margin-top:18px; border-radius:18px; overflow:hidden;
+            card_html = textwrap.dedent(f"""
+            <div style="margin-top:18px; border-radius:18px; overflow:hidden;
                         background:linear-gradient(145deg,#0f172a,#0b1220);
                         box-shadow:0 10px 30px rgba(0,0,0,0.4);
                         border:1px solid rgba(255,255,255,0.06);">
@@ -2277,81 +2255,207 @@ if tab == "home":
                 </div>
               </div>
             </div>
-            """)
+            """).strip()
 
-            card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
             st.markdown(card_html, unsafe_allow_html=True)
-        
-             else:
-            st.caption("No significant rank shifts today.")
+        # else: show nothing (no blank card on weekends/holidays)
 
-        # ==========================
-# NEW ACCELERATION ALERTS (20h vs 40h)
-# ==========================
-try:
-    conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    except Exception as e:
+        st.error(f"Signal Shift error: {e}")
 
-    # IMPORTANT:
-    # Update these table/field names to match your DB if different.
-    # Expected idea: each row already has accel_20h and accel_40h (or similar).
-    cur.execute("""
-        SELECT
-            ticker,
-            accel_20h,
-            accel_40h,
-            (accel_20h - accel_40h) AS accel_diff
-        FROM rankings_global_daily
-        WHERE asof_date = (
-            SELECT MAX(asof_date) FROM rankings_global_daily
-        )
-        AND accel_20h IS NOT NULL
-        AND accel_40h IS NOT NULL
-        ORDER BY accel_diff DESC
-        LIMIT 3
-    """)
+    # ==========================
+    # NEW ACCELERATION ALERTS (20h vs 40h)
+    # Uses latest available asof_date
+    # ==========================
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
 
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
+        latest_row = cur.fetchone() or {}
+        latest_date = latest_row.get("d")
 
-    if rows:
-        items_html = ""
-        for r in rows:
-            t = (r.get("ticker") or "").upper()
-            items_html += f"<div style='margin-top:6px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>⚡ {t}</div>"
+        rows = []
+        if latest_date:
+            cur.execute(
+                """
+                SELECT
+                    ticker,
+                    accel_20h,
+                    accel_40h,
+                    (accel_20h - accel_40h) AS accel_diff
+                FROM rankings_global_daily
+                WHERE asof_date = %s
+                  AND accel_20h IS NOT NULL
+                  AND accel_40h IS NOT NULL
+                ORDER BY accel_diff DESC
+                LIMIT 3
+                """,
+                (latest_date,),
+            )
+            rows = cur.fetchall() or []
 
-        st.markdown(
-            f"""
-            <div class='card' style='padding:20px; margin-top:14px; border-left:4px solid #fbbf24;'>
-              <div style='display:flex; justify-content:space-between; align-items:center;'>
-                <div style='font-size:1.15rem; font-weight:800; color:#cbd5e1;'>
-                  New <span style='color:white;'>Acceleration Alerts</span>
+        cur.close()
+        conn.close()
+
+        if rows:
+            items_html = ""
+            for r in rows:
+                t = (r.get("ticker") or "").upper()
+                items_html += f"<div style='margin-top:6px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>⚡ {t}</div>"
+
+            card_html = textwrap.dedent(f"""
+            <div style="margin-top:14px; border-radius:18px; overflow:hidden;
+                        background:linear-gradient(145deg,#0f172a,#0b1220);
+                        box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                        border:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex;">
+                <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
+                            display:flex; align-items:center; justify-content:center;
+                            border-right:1px solid rgba(255,255,255,0.06);">
+                  <div style="width:60px; height:60px; border-radius:999px;
+                              border:6px solid #22c55e;
+                              display:flex; align-items:center; justify-content:center;
+                              font-size:26px; font-weight:900; color:#22c55e;">
+                    ⚡
+                  </div>
                 </div>
-                <div style='color:#22c55e; font-weight:900; font-size:1.2rem;'>››</div>
-              </div>
 
-              <div style='margin-top:12px; color:#fbbf24; font-size:1.05rem; font-weight:900;'>
-                Stocks speeding up <span style='opacity:.7;'>(20h vs 40h)</span>
-              </div>
+                <div style="flex:1; padding:22px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
+                      New <span style="color:white;">Acceleration Alerts</span>
+                    </div>
+                    <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
+                  </div>
 
-              <div style='margin-top:10px; color:#94a3b8; line-height:1.6;'>
-                {items_html}
-              </div>
+                  <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
+                    Stocks speeding up <span style="opacity:.7;">(20h vs 40h)</span>
+                  </div>
 
-              <div style='margin-top:14px; text-align:right; letter-spacing:1px; opacity:.85;'>
-                VIEW DETAILS
+                  <div style="margin-top:10px; color:#94a3b8; line-height:1.6;">
+                    {items_html}
+                  </div>
+
+                  <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
+                    VIEW DETAILS
+                  </div>
+                </div>
               </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.caption("No acceleration alerts right now.")
+            """).strip()
 
-except Exception:
-    # Silent fail so home doesn't explode if accel fields/table aren't ready yet
-    st.caption("Acceleration Alerts not available yet.")
+            st.markdown(card_html, unsafe_allow_html=True)
+
+    except Exception:
+        # don't blow up home if accel columns aren't ready
+        pass
+
+    # ==========================
+    # SECTOR ROTATION SNAPSHOT (Top 3 sector rank improvements)
+    # ==========================
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_sector_daily")
+        latest_row = cur.fetchone() or {}
+        latest_date = latest_row.get("d")
+
+        prev_date = None
+        if latest_date:
+            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_sector_daily WHERE asof_date < %s", (latest_date,))
+            prev_row = cur.fetchone() or {}
+            prev_date = prev_row.get("d")
+
+        rows = []
+        if latest_date and prev_date:
+            cur.execute(
+                """
+                SELECT
+                    c.sector,
+                    c.sector_rank AS current_rank,
+                    p.sector_rank AS prev_rank,
+                    (p.sector_rank - c.sector_rank) AS rank_shift
+                FROM rankings_sector_daily c
+                JOIN rankings_sector_daily p
+                  ON c.sector = p.sector
+                WHERE c.asof_date = %s
+                  AND p.asof_date = %s
+                ORDER BY rank_shift DESC
+                LIMIT 3
+                """,
+                (latest_date, prev_date),
+            )
+            rows = cur.fetchall() or []
+
+        cur.close()
+        conn.close()
+
+        if rows:
+            items = ""
+            i = 1
+            for r in rows:
+                sector = (r.get("sector") or "").strip()
+                shift = int(r.get("rank_shift") or 0)
+                arrow = "▲" if shift > 0 else ("▼" if shift < 0 else "•")
+                items += (
+                    f"<div style='display:flex; align-items:center; justify-content:space-between; margin-top:10px;'>"
+                    f"<div style='font-weight:800; color:#e5e7eb; font-size:1.05rem;'>"
+                    f"{i}. {sector}"
+                    f"</div>"
+                    f"<div style='font-weight:900; color:{'#4ade80' if shift>0 else ('#ef4444' if shift<0 else '#94a3b8')};'>"
+                    f"{arrow} {shift:+d}"
+                    f"</div>"
+                    f"</div>"
+                )
+                i += 1
+
+            card_html = textwrap.dedent(f"""
+            <div style="margin-top:14px; border-radius:18px; overflow:hidden;
+                        background:linear-gradient(145deg,#0f172a,#0b1220);
+                        box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                        border:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex;">
+                <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
+                            display:flex; align-items:center; justify-content:center;
+                            border-right:1px solid rgba(255,255,255,0.06);">
+                  <div style="width:60px; height:60px; border-radius:14px;
+                              background:linear-gradient(135deg,#60a5fa,#3b82f6);
+                              display:flex; align-items:center; justify-content:center;
+                              font-size:28px; font-weight:900; color:#0f172a;">
+                    ▮▮▮
+                  </div>
+                </div>
+
+                <div style="flex:1; padding:22px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
+                      Sector <span style="color:white;">Rotation Snapshot</span>
+                    </div>
+                    <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
+                  </div>
+
+                  <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
+                    Top Sectors Today
+                  </div>
+
+                  <div style="margin-top:4px; color:#94a3b8;">
+                    {items}
+                  </div>
+
+                  <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
+                    VIEW SECTORS
+                  </div>
+                </div>
+              </div>
+            </div>
+            """).strip()
+
+            st.markdown(card_html, unsafe_allow_html=True)
+
+    except Exception:
+        pass
 
 elif tab == "portfolio":
     st.markdown(f"")
