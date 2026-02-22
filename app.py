@@ -27,6 +27,15 @@ def get_logo_base64(path="logo_optimized.png"):
 # =========================================================
 st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
+# --- Mobile fix: hide Streamlit HTML component iframes (prevents big white overlay) ---
+st.markdown(
+    """<style>
+    iframe[title="streamlit.components.v1.html"]{display:none !important; height:0 !important; min-height:0 !important;}
+    </style>""",
+    unsafe_allow_html=True
+)
+
+
 # STRICT CSS: Dark Theme + Clean UI + HEADLINE COLOR FIX + DROPDOWNS
 st.markdown("""
     <style>
@@ -1980,7 +1989,7 @@ def get_greeting(name):
 # =========================================================
 init_db()
 
-components.html("""<script>setTimeout(function(){window.parent.location.reload();}, 120000);</script>""", height=0)
+# Auto-refresh removed (caused white overlay on mobile)
 
 if "token" not in st.query_params:
     col1, col2, col3 = st.columns([1,2,1])
