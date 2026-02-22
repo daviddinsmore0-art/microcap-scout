@@ -2203,8 +2203,8 @@ if tab == "home":
             "  (t2.global_rank - t1.global_rank) AS rank_jump "
             "FROM rankings_global_daily t1 "
             "JOIN rankings_global_daily t2 ON t1.ticker = t2.ticker "
-            "WHERE t1.asof_date = CURDATE() "
-            "  AND t2.asof_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY) "
+            "WHERE t1.asof_date = (SELECT MAX(asof_date) FROM rankings_global_daily) "
+"  AND t2.asof_date = (SELECT MAX(asof_date) FROM rankings_global_daily WHERE asof_date < (SELECT MAX(asof_date) FROM rankings_global_daily)) "
             "ORDER BY rank_jump DESC "
             "LIMIT 1"
         )
