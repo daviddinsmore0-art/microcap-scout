@@ -2407,19 +2407,15 @@ if tab == "home":
             <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
               New <span style="color:white;">Acceleration Alerts</span>
             </div>
-            <div style="color:#22c55e; font-weight:900;">››</div>
+            <div style="color:#22c55e; font-weight:900;"></div>
           </div>
 
-          <div style="margin-top:16px; color:#fbbf24; font-size:1.05rem; font-weight:900;">
-            Stocks speeding up <span style="opacity:.7;">(vs prior run)</span>
+          <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
+            Stocks speeding up <span style="opacity:.7;"> (vs prior run)</span>
           </div>
 
           <div style="margin-top:12px; color:#cbd5e1; line-height:1.7;">
             {items_html}
-          </div>
-
-          <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
-            VIEW ALERTS
           </div>
 
         </div>
