@@ -2402,6 +2402,40 @@ if tab == "home":
             render_portfolio_ticker(data_map, tickers_sorted)
         else:
             st.caption("No price data cached yet for your tickers.")
+
+      # ---- MARKET PULSE (simple version) ----
+
+try:
+    # Use whatever connection method your other Home queries use.
+    # If you already have conn earlier in Home, REMOVE this next line.
+    conn = get_connection()
+
+    with conn.cursor(dictionary=True) as cur:
+        cur.execute("""
+            SELECT pulse_score,
+                   momentum_breadth,
+                   accel_breadth,
+                   liquidity_breadth
+            FROM pulse_environment_daily
+            ORDER BY asof_date DESC
+            LIMIT 1
+        """)
+        pulse = cur.fetchone()
+
+    if pulse:
+        st.markdown("### 📊 Market Pulse")
+
+        st.write("Pulse Score:", pulse["pulse_score"])
+        st.write("Momentum Breadth:", pulse["momentum_breadth"])
+        st.write("Acceleration Breadth:", pulse["accel_breadth"])
+        st.write("Liquidity Breadth:", pulse["liquidity_breadth"])
+    else:
+        st.info("Market Pulse: no rows yet.")
+
+except Exception as e:
+    st.error(f"Market Pulse query failed: {e}")
+     
+            
     # ==========================
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
