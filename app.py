@@ -2343,7 +2343,6 @@ if tab == "home":
 
   <!-- TITLE ROW -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-  {ICON_SIGNAL}
    <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
      Today's <span style="color:white;">Signal Shift</span>
     
@@ -2440,7 +2439,6 @@ if tab == "home":
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-          {ICON_ACCEL}
             <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
               New <span style="color:white;">Acceleration Alerts</span>
             </div>
