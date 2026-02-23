@@ -2403,8 +2403,8 @@ if tab == "home":
           
 
           <!-- TITLE ROW -->
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
-            <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
+            <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
               New <span style="color:white;">Acceleration Alerts</span>
             </div>
             <div style="color:#22c55e; font-weight:900;">››</div>
@@ -2519,8 +2519,8 @@ if tab == "home":
         ">
 
           <!-- TITLE ROW -->
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
-            <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
+            <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
               Sector <span style="color:white;">Rotation Snapshot</span>
             </div>
             <div style="color:#22c55e; font-weight:900;">››</div>
