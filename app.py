@@ -2396,6 +2396,9 @@ if tab == "home":
         card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
         st.markdown(card_html, unsafe_allow_html=True)
 
+    except Exception as e:
+        st.error(f"Acceleration Alerts error: {e}")
+
     # ==========================
     # SECTOR ROTATION SNAPSHOT
     # NOTE: This app.py version does not have sector fields in the provided schema (rankings_daily, rankings_global_daily),
