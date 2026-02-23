@@ -2333,8 +2333,7 @@ if tab == "home":
 
   {f'<div style="margin-top:12px; color:#cbd5e1; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
 
-  <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
-  </div>
+
 </div>
 """).strip()
 
