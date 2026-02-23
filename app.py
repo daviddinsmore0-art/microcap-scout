@@ -2316,16 +2316,17 @@ if tab == "home":
                               display:flex; align-items:center; justify-content:center;
                               font-size:28px; font-weight:400; color:#0f172a;">
                     ↑
-                  </div>
-                  
-                </div>
-                 <div style="
+                    <div style="
     height: 1px; 
     width: 80%; 
     margin: 0 auto; 
     background: linear-gradient(90deg, transparent, #facc15, transparent);
     box-shadow: 0px -1px 8px rgba(250, 204, 21, 0.5);
 "></div>
+                  </div>
+                  
+                </div>
+                 
 
                 <div style="flex:1; padding:18px;">
                   <div style="display:flex; justify-content:space-between; align-items:center;">
