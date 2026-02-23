@@ -953,7 +953,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pp-topbar{
   width:100%;
   margin:0 0 10px 0;
-  padding:20px 12px;
+  padding:16px 12px;
   border-radius:0px;
   background:rgba(18,22,30,0.55);
   border:1px solid rgba(255,255,255,0.08);
@@ -1361,6 +1361,7 @@ def render_portfolio_ticker(data_map, tickers):
         animation: ticker-scroll 35s linear infinite;
         font-size:15px;
         color:#e5e7eb;
+        padding:10px;
     }}
 
     .pp-ticker:hover {{
