@@ -996,7 +996,7 @@ div[data-testid="stToolbar"] { display: none !important; }
   font-size:12.5px;
   flex:0 1 auto;
   min-width:auto;
-  max-width:65vw;     /* prevents pushing off screen */
+  max-width: 85vw;     /* prevents pushing off screen */
   overflow:hidden;
 }
 
