@@ -952,7 +952,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
-  margin:0 0 5px 0;
+  margin:0 0 10px 0;
   padding:10px 14px;
   border-radius:0px;
   background:rgba(18,22,30,0.55);
@@ -987,14 +987,13 @@ div[data-testid="stToolbar"] { display: none !important; }
 .pp-subpill{
   display:flex;
   align-items:center;
-  gap:8px;
+  gap:2px;
   padding:2px 2px;
   border-radius:999px;
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.08);
   color:rgba(230,235,245,0.90);
   font-size:12.5px;
-
   flex:0 1 auto;
   min-width:0;
   max-width:65vw;     /* prevents pushing off screen */
