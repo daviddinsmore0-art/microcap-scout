@@ -2334,7 +2334,7 @@ if tab == "home":
   </div>
 
   <!-- TITLE ROW -->
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
     <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;">
       Today's <span style="color:white;">Signal Shift</span>
     </div>
