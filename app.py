@@ -936,7 +936,7 @@ div[data-testid="stToolbar"] { display: none !important; }
   align-items:center;
   transform: translateY(3px);
   gap:8px;
-  padding:6px 10px;       /* tighter = more room */
+  padding:2px 2px;       /* tighter = more room */
   border-radius:999px;
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.08);
@@ -952,7 +952,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
-  margin:0 0 20px 0;
+  margin:0 0 0px 0;
   padding:10px 14px;
   border-radius:0px;
   background:rgba(18,22,30,0.55);
@@ -988,7 +988,7 @@ div[data-testid="stToolbar"] { display: none !important; }
   display:flex;
   align-items:center;
   gap:8px;
-  padding:6px 6px;
+  padding:2px 2px;
   border-radius:999px;
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.08);
