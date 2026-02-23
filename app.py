@@ -2338,6 +2338,7 @@ if tab == "home":
       Today's <span style="color:white;">Signal Shift</span>
     </div>
     </div>
+    </div>
     <div style="color:#22c55e; font-weight:900;"></div>
   </div>
   <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
