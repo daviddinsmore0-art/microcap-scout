@@ -2305,7 +2305,7 @@ if tab == "home":
             card_html = textwrap.dedent(f"""
 <div style="
     position:relative;
-    margin-top:16px;
+    margin-top:1px;
     border-radius:20px;
     padding:20px 20px 22px 20px;
     background:linear-gradient(145deg,#0f172a,#0b1220);
@@ -2316,7 +2316,7 @@ if tab == "home":
   <!-- ICON BADGE -->
   <div style="
       position:absolute;
-      top:48px;
+      top:8px;
       left:18px;
       width:48px;
       height:48px;
