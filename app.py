@@ -2317,20 +2317,12 @@ if tab == "home":
 
 
   <!-- TITLE ROW -->
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px; background:#ffcc00;">
     <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
       Today's <span style="color:white;">Signal Shift</span>
     </div>
     <div style="color:#22c55e; font-weight:900;"></div>
   </div>
-    <div style="
-    height: 1px; 
-    width: 80%; 
-    margin-top:100px;
-    margin: 0 auto; 
-    background: linear-gradient(90deg, transparent, #facc15, transparent);
-    box-shadow: 0px -1px 8px rgba(250, 204, 21, 0.5);
-"></div>
   <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
     Biggest Rank Jump (24h)
   </div>
