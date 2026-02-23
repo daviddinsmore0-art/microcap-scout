@@ -2304,54 +2304,36 @@ if tab == "home":
 
             card_html = textwrap.dedent(f"""
 <div style="
-    margin-top:10px;
+    margin-top:20px;
     border-radius:20px;
-    padding:10px 20px 22px 20px;
+    padding:20px 20px 22px 20px;
     background:linear-gradient(145deg,#0f172a,#0b1220);
     box-shadow:0 12px 35px rgba(0,0,0,0.45);
     border:1px solid rgba(255,255,255,0.06);
 ">
 
   <!-- ICON BADGE -->
-  <div style="
-      position:absolute;
-      top:8px;
-      left:18px;
-      width:48px;
-      height:48px;
-      border-radius:14px;
-      background:linear-gradient(135deg,#fbbf24,#f59e0b);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      font-size:22px;
-      font-weight:900;
-      color:#0f172a;
-      box-shadow:0 6px 20px rgba(0,0,0,0.5);
-  ">
-    ↑
-  </div>
+
 
   <!-- TITLE ROW -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
-    <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;">
+    <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
       Today's <span style="color:white;">Signal Shift</span>
     </div>
-    <div style="color:#22c55e; font-weight:900;">››</div>
+    <div style="color:#22c55e; font-weight:900;"></div>
   </div>
 
-  <div style="margin-top:16px; color:#fbbf24; font-size:1.05rem; font-weight:900;">
+  <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
     Biggest Rank Jump (24h)
   </div>
 
-  <div style="margin-top:8px; font-size:1.8rem; font-weight:900; color:white;">
+  <div style="margin-top:8px; font-size:18px; font-weight:600; color:white;">
     {ticker} <span style="color:#4ade80;">+{jump}</span> spots
   </div>
 
   {f'<div style="margin-top:12px; color:#cbd5e1; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
 
   <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
-    VIEW DETAILS
   </div>
 
 </div>
@@ -2420,25 +2402,7 @@ if tab == "home":
             border:1px solid rgba(255,255,255,0.06);
         ">
 
-          <!-- ICON BADGE -->
-          <div style="
-              position:absolute;
-              top:-18px;
-              left:18px;
-              width:48px;
-              height:48px;
-              border-radius:14px;
-              background:linear-gradient(135deg,#22c55e,#16a34a);
-              display:flex;
-              align-items:center;
-              justify-content:center;
-              font-size:22px;
-              font-weight:900;
-              color:#0f172a;
-              box-shadow:0 6px 20px rgba(0,0,0,0.5);
-          ">
-            ⚡
-          </div>
+          
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
@@ -2555,26 +2519,6 @@ if tab == "home":
             box-shadow:0 12px 35px rgba(0,0,0,0.45);
             border:1px solid rgba(255,255,255,0.06);
         ">
-
-          <!-- ICON BADGE -->
-          <div style="
-              position:absolute;
-              top:-18px;
-              left:18px;
-              width:48px;
-              height:48px;
-              border-radius:14px;
-              background:linear-gradient(135deg,#60a5fa,#3b82f6);
-              display:flex;
-              align-items:center;
-              justify-content:center;
-              font-size:22px;
-              font-weight:900;
-              color:#0f172a;
-              box-shadow:0 6px 20px rgba(0,0,0,0.5);
-          ">
-            ▮▮
-          </div>
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
