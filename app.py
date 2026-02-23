@@ -2541,7 +2541,7 @@ if tab == "home":
                 delta_color = "#4ade80" if delta >= 0 else "#ef4444"
                 sign = "+" if delta >= 0 else ""
                 items_html += (
-                    f"<div style='margin-top:8px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>"
+                    f"<div style='margin-top:8px; font-size:16px; font-weight:400; color:#e5e7eb;'>"
                     f"{i}. {sec} "
                     f"<span style='color:{delta_color}; opacity:.95;'>"
                     f"{sign}{delta:.2f}"
