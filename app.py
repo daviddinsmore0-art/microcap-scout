@@ -1984,13 +1984,7 @@ def render_watchlist_pick_grid(rows, current_token=None):
       </div>
     </div>
   </div>
-  <div style="
-                 height: 1px; 
-                width: 80%; 
-                margin: 0 auto; 
-                background: linear-gradient(90deg, transparent, #4ade80, transparent);
-                box-shadow: 0px -1px 8px rgba(74, 222, 128, 0.5);
-                 "></div>
+  
 </a>
 """, unsafe_allow_html=True)
 
