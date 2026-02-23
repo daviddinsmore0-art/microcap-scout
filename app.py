@@ -2396,88 +2396,58 @@ if tab == "home":
         card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
         st.markdown(card_html, unsafe_allow_html=True)
 
-    except Exception as e:
-        st.error(f"Acceleration Alerts error: {e}")
-
     # ==========================
-# SECTOR ROTATION SNAPSHOT
-# ==========================
-try:
-    cur.execute("SELECT MAX(asof_date) AS d FROM rankings_sector_daily")
-    latest_sector_date = (cur.fetchone() or {}).get("d")
-
-    sectors = []
-
-    if latest_sector_date:
-        cur.execute(
-            """
-            SELECT
-                sector,
-                ROUND(AVG(composite_score), 2) AS avg_score
-            FROM rankings_sector_daily
-            WHERE asof_date = %s
-            GROUP BY sector
-            ORDER BY avg_score DESC
-            LIMIT 3
-            """,
-            (latest_sector_date,)
-        )
-        sectors = cur.fetchall() or []
-
-    items_html = ""
-
-    if sectors:
-        for i, s in enumerate(sectors, start=1):
-            items_html += f"""
-            <div style='margin-top:8px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>
-                {i}. {s['sector']} <span style='color:#4ade80;'>({s['avg_score']})</span>
+    # SECTOR ROTATION SNAPSHOT
+    # NOTE: This app.py version does not have sector fields in the provided schema (rankings_daily, rankings_global_daily),
+    # so we render a clean placeholder card until sector data is available.
+    # ==========================
+    try:
+        card_html = textwrap.dedent(f"""
+        <div style="margin-top:14px; border-radius:18px; overflow:hidden;
+                    background:linear-gradient(145deg,#0f172a,#0b1220);
+                    box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                    border:1px solid rgba(255,255,255,0.06);">
+          <div style="display:flex;">
+            <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
+                        display:flex; align-items:center; justify-content:center;
+                        border-right:1px solid rgba(255,255,255,0.06);">
+              <div style="width:60px; height:60px; border-radius:14px;
+                          background:linear-gradient(135deg,#60a5fa,#3b82f6);
+                          display:flex; align-items:center; justify-content:center;
+                          font-size:28px; font-weight:900; color:#0f172a;">
+                ▮▮▮
+              </div>
             </div>
-            """
-    else:
-        items_html = "<div style='margin-top:10px; color:#94a3b8;'>No sector data for latest date.</div>"
 
-    card_html = f"""
-    <div style="margin-top:18px; border-radius:18px; overflow:hidden;
-                background:linear-gradient(145deg,#0f172a,#0b1220);
-                box-shadow:0 10px 30px rgba(0,0,0,0.4);
-                border:1px solid rgba(255,255,255,0.06);">
-      <div style="display:flex;">
-        <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
-                    display:flex; align-items:center; justify-content:center;
-                    border-right:1px solid rgba(255,255,255,0.06);">
-          <div style="width:60px; height:60px; border-radius:14px;
-                      background:linear-gradient(135deg,#3b82f6,#2563eb);
-                      display:flex; align-items:center; justify-content:center;
-                      font-size:26px; font-weight:900; color:white;">▮▮</div>
-        </div>
+            <div style="flex:1; padding:18px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
+                  Sector <span style="color:white;">Rotation Snapshot</span>
+                </div>
+                <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
+              </div>
 
-        <div style="flex:1; padding:18px;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
-              Sector <span style="color:white;">Rotation Snapshot</span>
+              <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
+                Top Sectors Today
+              </div>
+
+              <div style="margin-top:10px; color:#cbd5e1; line-height:1.6;">
+                Sector data not available in current schema.
+              </div>
+
+              <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.55;">
+                VIEW SECTORS
+              </div>
             </div>
-            <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
-          </div>
-
-          <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
-            Top Sectors Today
-          </div>
-
-          {items_html}
-
-          <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
-            VIEW SECTORS
           </div>
         </div>
-      </div>
-    </div>
-    """
+        """).strip()
 
-    card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
-    st.markdown(card_html, unsafe_allow_html=True)
+        card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
+        st.markdown(card_html, unsafe_allow_html=True)
 
-except Exception as e:
-    st.error(f"Sector snapshot error: {e}")
+    except Exception:
+        pass
 
 elif tab == "portfolio":
     st.markdown(f"")
