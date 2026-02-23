@@ -2425,7 +2425,7 @@ if tab == "home":
           <div style="margin-top:12px; color:#cbd5e1; line-height:1.7;">
             {items_html}
           </div>
-          <div style="
+  <div style="
         position: absolute;
         bottom: 0;           /* Sticks it to the very bottom edge */
         left: 10%;           /* Centers it */
@@ -2549,7 +2549,7 @@ if tab == "home":
           <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
             VIEW SECTORS
           </div>
-           <div style="
+    <div style="
         position: absolute;
         bottom: 0;           /* Sticks it to the very bottom edge */
         left: 10%;           /* Centers it */
