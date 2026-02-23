@@ -2316,7 +2316,7 @@ if tab == "home":
   <!-- ICON BADGE -->
   <div style="
       position:absolute;
-      top:-18px;
+      top:18px;
       left:18px;
       width:48px;
       height:48px;
