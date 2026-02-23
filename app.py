@@ -2294,7 +2294,7 @@ if tab == "home":
             accel_html = "<br>".join(bullets)
 
             card_html = textwrap.dedent(f"""
-            <div style="margin-top:18px; border-radius:18px; overflow:hidden;
+            <div style="margin-top:1px; border-radius:18px; overflow:hidden;
                         background:linear-gradient(145deg,#0f172a,#0b1220);
                         box-shadow:0 10px 30px rgba(0,0,0,0.4);
                         border:1px solid rgba(255,255,255,0.06);">
@@ -2305,7 +2305,7 @@ if tab == "home":
                   <div style="width:60px; height:60px; border-radius:14px;
                               background:linear-gradient(135deg,#fbbf24,#f59e0b);
                               display:flex; align-items:center; justify-content:center;
-                              font-size:28px; font-weight:600; color:#0f172a;">
+                              font-size:28px; font-weight:400; color:#0f172a;">
                     ↑
                   </div>
                   
