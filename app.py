@@ -952,7 +952,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 /* --- PennyPulse Topbar --- */
 .pp-topbar{
   width:100%;
-  margin:0 0 20px 0;
+  margin:0 0 10px 0;
   padding:10px 14px;
   border-radius:0px;
   background:rgba(18,22,30,0.55);
