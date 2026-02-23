@@ -2305,8 +2305,9 @@ if tab == "home":
             card_html = textwrap.dedent(f"""
 <div style="
     margin-top:20px;
+    margin-bottom:20px;
     border-radius:20px;
-    padding:20px 20px 22px 20px;
+    padding:10px 20px 22px 20px;
     background:linear-gradient(145deg,#0f172a,#0b1220);
     box-shadow:0 12px 35px rgba(0,0,0,0.45);
     border:1px solid rgba(255,255,255,0.06);
