@@ -2542,10 +2542,10 @@ if tab == "home":
             VIEW SECTORS
           </div>
     
-    </div>
-    """).strip()
+         </div>
+         """).strip()
 
-        st.markdown(card_html, unsafe_allow_html=True)
+     st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Sector snapshot error: {e}")
