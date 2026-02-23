@@ -2446,8 +2446,8 @@ if tab == "home":
         card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
         st.markdown(card_html, unsafe_allow_html=True)
 
-    except Exception:
-        pass
+    except Exception as e:
+    st.error(f"Acceleration block error: {e}")
 
 elif tab == "portfolio":
     st.markdown(f"")
