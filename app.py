@@ -2217,8 +2217,6 @@ if tab == "home":
 
     # --- NAVBAR ---
     render_navbar(token, current_mode)
-    # --- NAVBAR ---
-    render_navbar(token, current_mode)
 
     # --- Load portfolio safely ---
     portfolio = get_portfolio_details(user["username"], current_mode) or []
@@ -2295,7 +2293,7 @@ if tab == "home":
             accel_html = "<br>".join(bullets)
 
             card_html = textwrap.dedent(f"""
-            <div style="margin-top:1px; border-radius:18px; overflow:hidden;
+            <div style="margin-top:20px; border-radius:18px; overflow:hidden;
                         background:linear-gradient(145deg,#0f172a,#0b1220);
                         box-shadow:0 10px 30px rgba(0,0,0,0.4);
                         border:1px solid rgba(255,255,255,0.06);">
