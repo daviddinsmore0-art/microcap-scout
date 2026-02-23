@@ -2427,7 +2427,7 @@ if tab == "home":
 
         card_html = textwrap.dedent(f"""
         <div style="
-            margin-top:-20px;
+            margin-top:0px;
             margin-bottom:0px;
             border-radius:20px;
             padding:10px 10px 20px 20px;
@@ -2553,7 +2553,7 @@ if tab == "home":
 
         card_html = textwrap.dedent(f"""
         <div style="
-            margin-top:-20px;
+            margin-top:0px;
             margin-bottom:0px;
             border-radius:20px;
             padding:10px 10px 20px 20px;
