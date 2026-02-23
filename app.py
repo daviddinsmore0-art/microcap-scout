@@ -2454,7 +2454,7 @@ if tab == "home":
             Stocks speeding up <span style="opacity:.7;"> (vs prior run)</span>
           </div>
 
-          <div style="margin-top:12px; color:#cbd5e1; line-height:1.7;">
+          <div style="margin-top:12px; color:#cbd5e1; line-height:1.7; font-size:16px; font-weight:400;">
             {items_html}
           </div>
               <div style="
