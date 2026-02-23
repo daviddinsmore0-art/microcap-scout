@@ -2432,7 +2432,7 @@ if tab == "home":
         st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"Acceleration Alerts error: {e}")
+    st.error(f"Acceleration Alerts error: {e}")
 
 
     # ==========================
@@ -2547,7 +2547,7 @@ if tab == "home":
 
         st.markdown(card_html, unsafe_allow_html=True)
 
-        except Exception as e:
+    except Exception as e:
         st.error(f"Sector snapshot error: {e}")
 
 elif tab == "portfolio":
