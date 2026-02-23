@@ -2574,7 +2574,7 @@ if tab == "home":
             <div style="color:#22c55e; font-weight:900;"></div>
           </div>
 
-          <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:600;">
+          <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:400;">
             Top Sectors Today
           </div>
 
