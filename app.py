@@ -2358,7 +2358,7 @@ if tab == "home":
 </div>
 """).strip()
 
-st.markdown(card_html, unsafe_allow_html=True)
+            st.markdown(card_html, unsafe_allow_html=True)
         # else: show nothing (no blank card on weekends/holidays)
 
     except Exception as e:
@@ -2411,47 +2411,59 @@ st.markdown(card_html, unsafe_allow_html=True)
             items_html = "<div style='margin-top:10px; color:#94a3b8;'>No new accelerations on the latest run.</div>"
 
         card_html = textwrap.dedent(f"""
-            <div style="margin-top:14px; border-radius:18px; overflow:hidden;
-                        background:linear-gradient(145deg,#0f172a,#0b1220);
-                        box-shadow:0 10px 30px rgba(0,0,0,0.4);
-                        border:1px solid rgba(255,255,255,0.06);">
-              <div style="display:flex;">
-                <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
-                            display:flex; align-items:center; justify-content:center;
-                            border-right:1px solid rgba(255,255,255,0.06);">
-                  <div style="width:60px; height:60px; border-radius:999px;
-                              border:6px solid #22c55e;
-                              display:flex; align-items:center; justify-content:center;
-                              font-size:26px; font-weight:900; color:#22c55e;">
-                    ⚡
-                  </div>
-                </div>
+        <div style="
+            position:relative;
+            margin-top:16px;
+            border-radius:20px;
+            padding:20px 20px 22px 20px;
+            background:linear-gradient(145deg,#0f172a,#0b1220);
+            box-shadow:0 12px 35px rgba(0,0,0,0.45);
+            border:1px solid rgba(255,255,255,0.06);
+        ">
 
-                <div style="flex:1; padding:18px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
-                      New <span style="color:white;">Acceleration Alerts</span>
-                    </div>
-                    <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
-                  </div>
+          <!-- ICON BADGE -->
+          <div style="
+              position:absolute;
+              top:-18px;
+              left:18px;
+              width:48px;
+              height:48px;
+              border-radius:14px;
+              background:linear-gradient(135deg,#22c55e,#16a34a);
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              font-size:22px;
+              font-weight:900;
+              color:#0f172a;
+              box-shadow:0 6px 20px rgba(0,0,0,0.5);
+          ">
+            ⚡
+          </div>
 
-                  <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
-                    Stocks speeding up <span style="opacity:.7;">(vs prior run)</span>
-                  </div>
-
-                  <div style="margin-top:10px; color:#cbd5e1; line-height:1.6;">
-                    {items_html}
-                  </div>
-
-                  <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
-                    VIEW DETAILS
-                  </div>
-                </div>
-              </div>
+          <!-- TITLE ROW -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+            <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;">
+              New <span style="color:white;">Acceleration Alerts</span>
             </div>
+            <div style="color:#22c55e; font-weight:900;">››</div>
+          </div>
+
+          <div style="margin-top:16px; color:#fbbf24; font-size:1.05rem; font-weight:900;">
+            Stocks speeding up <span style="opacity:.7;">(vs prior run)</span>
+          </div>
+
+          <div style="margin-top:12px; color:#cbd5e1; line-height:1.7;">
+            {items_html}
+          </div>
+
+          <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
+            VIEW ALERTS
+          </div>
+
+        </div>
         """).strip()
 
-        card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
         st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception as e:
@@ -2535,47 +2547,59 @@ st.markdown(card_html, unsafe_allow_html=True)
             items_html = "<div style='margin-top:10px; color:#94a3b8;'>No sector data for the latest run.</div>"
 
         card_html = textwrap.dedent(f"""
-        <div style="margin-top:14px; border-radius:18px; overflow:hidden;
-                    background:linear-gradient(145deg,#0f172a,#0b1220);
-                    box-shadow:0 10px 30px rgba(0,0,0,0.4);
-                    border:1px solid rgba(255,255,255,0.06);">
-          <div style="display:flex;">
-            <div style="width:110px; background:linear-gradient(180deg,#1e293b,#0f172a);
-                        display:flex; align-items:center; justify-content:center;
-                        border-right:1px solid rgba(255,255,255,0.06);">
-              <div style="width:60px; height:60px; border-radius:14px;
-                          background:linear-gradient(135deg,#60a5fa,#3b82f6);
-                          display:flex; align-items:center; justify-content:center;
-                          font-size:26px; font-weight:900; color:#0f172a;">
-                ▮▮
-              </div>
-            </div>
+        <div style="
+            position:relative;
+            margin-top:16px;
+            border-radius:20px;
+            padding:20px 20px 22px 20px;
+            background:linear-gradient(145deg,#0f172a,#0b1220);
+            box-shadow:0 12px 35px rgba(0,0,0,0.45);
+            border:1px solid rgba(255,255,255,0.06);
+        ">
 
-            <div style="flex:1; padding:18px;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
-                  Sector <span style="color:white;">Rotation Snapshot</span>
-                </div>
-                <div style="color:#22c55e; font-weight:900; font-size:1.2rem;">››</div>
-              </div>
-
-              <div style="margin-top:14px; color:#fbbf24; font-size:1.1rem; font-weight:900;">
-                Top Sectors Today
-              </div>
-
-              <div style="margin-top:10px; color:#cbd5e1; line-height:1.6;">
-                {items_html}
-              </div>
-
-              <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
-                VIEW SECTORS
-              </div>
-            </div>
+          <!-- ICON BADGE -->
+          <div style="
+              position:absolute;
+              top:-18px;
+              left:18px;
+              width:48px;
+              height:48px;
+              border-radius:14px;
+              background:linear-gradient(135deg,#60a5fa,#3b82f6);
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              font-size:22px;
+              font-weight:900;
+              color:#0f172a;
+              box-shadow:0 6px 20px rgba(0,0,0,0.5);
+          ">
+            ▮▮
           </div>
+
+          <!-- TITLE ROW -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+            <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;">
+              Sector <span style="color:white;">Rotation Snapshot</span>
+            </div>
+            <div style="color:#22c55e; font-weight:900;">››</div>
+          </div>
+
+          <div style="margin-top:16px; color:#fbbf24; font-size:1.05rem; font-weight:900;">
+            Top Sectors Today
+          </div>
+
+          <div style="margin-top:12px; color:#cbd5e1; line-height:1.7;">
+            {items_html}
+          </div>
+
+          <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
+            VIEW SECTORS
+          </div>
+
         </div>
         """).strip()
 
-        card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
         st.markdown(card_html, unsafe_allow_html=True)
 
     except Exception as e:
