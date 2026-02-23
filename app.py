@@ -2408,9 +2408,9 @@ if tab == "home":
     try:
     # Use whatever connection method your other Home queries use.
     # If you already have conn earlier in Home, REMOVE this next line.
-    conn = get_connection()
+     conn = get_connection()
 
-    with conn.cursor(dictionary=True) as cur:
+     with conn.cursor(dictionary=True) as cur:
         cur.execute("""
             SELECT pulse_score,
                    momentum_breadth,
@@ -2432,7 +2432,7 @@ if tab == "home":
     else:
         st.info("Market Pulse: no rows yet.")
 
-except Exception as e:
+  except Exception as e:
     st.error(f"Market Pulse query failed: {e}")
      
             
