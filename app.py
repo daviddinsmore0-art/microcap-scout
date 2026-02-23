@@ -2306,8 +2306,8 @@ if tab == "home":
 <div style="
     margin-top:20px;
     margin-bottom:20px;
-    border-radius:0px 30px 30px 0px;
-    padding:0px 0px 0px 0px;
+    border-radius:20px;
+    padding: 20px 20px 20px 20px;
     background:linear-gradient(145deg,#0f172a,#0b1220);
     box-shadow:0 12px 35px rgba(0,0,0,0.45);
     border:1px solid rgba(255,255,255,0.06);
