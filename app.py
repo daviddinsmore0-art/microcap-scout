@@ -2309,6 +2309,13 @@ if tab == "home":
                     ↑
                   </div>
                 </div>
+                 <div style="
+                 height: 1px; 
+                width: 80%; 
+                margin: 0 auto; 
+                background: linear-gradient(90deg, transparent, #4ade80, transparent);
+                box-shadow: 0px -1px 8px rgba(74, 222, 128, 0.5);
+                 "></div>
 
                 <div style="flex:1; padding:18px;">
                   <div style="display:flex; justify-content:space-between; align-items:center;">
