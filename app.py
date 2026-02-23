@@ -2391,15 +2391,14 @@ if tab == "home":
 
         card_html = textwrap.dedent(f"""
         <div style="
-            position:relative;
-            margin-top:16px;
-            margin-bottom:16px;
-            border-radius:20px;
-            padding:20px 20px 22px 20px;
-            background:linear-gradient(145deg,#0f172a,#0b1220);
-            box-shadow:0 12px 35px rgba(0,0,0,0.45);
-            border:1px solid rgba(255,255,255,0.06);
-        ">
+    margin-top:20px;
+    margin-bottom:20px;
+    border-radius:20px;
+    padding:10px 10px 20px 20px;
+    background:linear-gradient(145deg,#0f172a,#0b1220);
+    box-shadow:0 12px 35px rgba(0,0,0,0.45);
+    border:1px solid rgba(255,255,255,0.06);
+    ">
 
           
 
@@ -2510,14 +2509,14 @@ if tab == "home":
 
         card_html = textwrap.dedent(f"""
         <div style="
-            position:relative;
-            margin-top:16px;
-            border-radius:20px;
-            padding:20px 20px 22px 20px;
-            background:linear-gradient(145deg,#0f172a,#0b1220);
-            box-shadow:0 12px 35px rgba(0,0,0,0.45);
-            border:1px solid rgba(255,255,255,0.06);
-        ">
+    margin-top:20px;
+    margin-bottom:20px;
+    border-radius:20px;
+    padding:10px 10px 20px 20px;
+    background:linear-gradient(145deg,#0f172a,#0b1220);
+    box-shadow:0 12px 35px rgba(0,0,0,0.45);
+    border:1px solid rgba(255,255,255,0.06);
+    ">
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
