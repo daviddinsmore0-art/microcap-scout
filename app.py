@@ -1361,7 +1361,8 @@ def render_portfolio_ticker(data_map, tickers):
         animation: ticker-scroll 35s linear infinite;
         font-size:15px;
         color:#e5e7eb;
-        padding:10px;
+        padding-left:10px;
+        padding-right:10px;
     }}
 
     .pp-ticker:hover {{
