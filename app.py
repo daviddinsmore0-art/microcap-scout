@@ -14,7 +14,6 @@ import base64
 from pathlib import Path
 from decimal import Decimal
 import numbers
-from streamlit_autorefresh import st_autorefresh
 
 # ==========================
 # INLINE SVG ICONS (card headers)
