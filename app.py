@@ -2305,7 +2305,7 @@ if tab == "home":
                   <div style="width:60px; height:60px; border-radius:14px;
                               background:linear-gradient(135deg,#fbbf24,#f59e0b);
                               display:flex; align-items:center; justify-content:center;
-                              font-size:28px; font-weight:900; color:#0f172a;">
+                              font-size:28px; font-weight:600; color:#0f172a;">
                     ↑
                   </div>
                   
