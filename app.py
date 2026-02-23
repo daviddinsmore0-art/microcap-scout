@@ -2345,13 +2345,13 @@ if tab == "home":
   <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
    <div style="display:flex; align-items:center; gap:10px;">
   {ICON_SIGNAL}
-  <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
+  <div style="font-size:16px; font-weight:600; color:#cbd5e1;">
     Today's <span style="color:white;">Signal Shift</span>
   </div>
 </div>
 <div style="color:#22c55e; font-weight:600;">››</div>
 </div>
-  <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
+  <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:400;">
     Biggest Rank Jump (24h)
   </div>
 
