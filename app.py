@@ -15,6 +15,7 @@ from pathlib import Path
 from decimal import Decimal
 import numbers
 
+
 # ==========================
 # INLINE SVG ICONS (card headers)
 # ==========================
@@ -1631,6 +1632,21 @@ def render_navbar(token, mode):
     mode_arg = "&mode=PAPER" if mode == "PAPER" else ""
     current_tab = st.query_params.get("tab", "home")
 
+# --- Optional auto-refresh for live pages (helps on mobile when you keep the app open) ---
+if tab in ("home", "scanner"):
+    if "pp_autorefresh" not in st.session_state:
+        st.session_state["pp_autorefresh"] = True  # default ON
+    # lightweight toggle (shows at top of the page)
+    _c1, _c2 = st.columns([1, 1])
+    with _c2:
+        st.session_state["pp_autorefresh"] = st.checkbox("Auto-refresh (60s)", value=st.session_state["pp_autorefresh"], key="pp_autorefresh_chk")
+        if st.button("↻ Refresh now", key="pp_refresh_now"):
+            st.experimental_rerun()
+
+    if st.session_state.get("pp_autorefresh"):
+        # Browser reload keeps query params & forces a full rerun without blocking Python.
+        components.html("<script>setTimeout(()=>window.location.reload(), 60000);</script>", height=0)
+
     ICONS = {
         "home": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
@@ -2718,6 +2734,96 @@ if tab == "home":
 
     except Exception as e:
         st.error(f"Sector snapshot error: {e}")
+
+    # ==========================
+    # MARKET PULSE (Global Universe Overview)
+    # Uses rankings_global_daily (asof_date, ticker, composite_score, global_rank, global_count, global_percentile)
+    # ==========================
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
+        pulse_date = (cur.fetchone() or {}).get("d")
+
+        pulse = None
+        if pulse_date:
+            cur.execute(
+                """
+                SELECT
+                    AVG(global_percentile) AS avg_percentile,
+                    SUM(global_percentile >= 80) AS strong_count,
+                    SUM(global_percentile >= 95) AS elite_count,
+                    MAX(global_count) AS universe
+                FROM rankings_global_daily
+                WHERE asof_date = %s
+                """,
+                (pulse_date,),
+            )
+            pulse = cur.fetchone() or {}
+
+        cur.close()
+        conn.close()
+
+        if pulse_date and pulse:
+            avg_p = float(pulse.get("avg_percentile") or 0)
+            strong_n = int(pulse.get("strong_count") or 0)
+            elite_n = int(pulse.get("elite_count") or 0)
+            universe = int(pulse.get("universe") or 0)
+
+            card_html = textwrap.dedent(f"""
+            <div style="
+                margin-top:14px;
+                border-radius:20px;
+                padding:16px 18px;
+                background:linear-gradient(145deg,#0f172a,#0b1220);
+                box-shadow:0 12px 35px rgba(0,0,0,0.45);
+                border:1px solid rgba(255,255,255,0.06);
+            ">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; gap:10px; align-items:center;">
+                  <div style="width:30px;height:30px;border-radius:12px;background:linear-gradient(135deg,rgba(96,165,250,.22),rgba(59,130,246,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M4 19V5" stroke="#60A5FA" stroke-width="2" stroke-linecap="round"/>
+                      <path d="M4 19H20" stroke="#60A5FA" stroke-width="2" stroke-linecap="round"/>
+                      <path d="M7 14L10 11L13 14L18 9" stroke="#60A5FA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </div>
+                  <div style="font-size:1.15rem; font-weight:900; color:#e5e7eb;">
+                    Market <span style="color:white;">Pulse</span>
+                  </div>
+                </div>
+                <div style="color:#94a3b8; font-weight:800; font-size:.9rem;">
+                  as of {pulse_date}
+                </div>
+              </div>
+
+              <div style="margin-top:10px; display:flex; gap:12px; flex-wrap:wrap;">
+                <div style="padding:10px 12px; border-radius:14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);">
+                  <div style="color:#94a3b8; font-size:.82rem; font-weight:800;">Avg percentile</div>
+                  <div style="color:white; font-size:1.35rem; font-weight:900;">{avg_p:.1f}</div>
+                </div>
+                <div style="padding:10px 12px; border-radius:14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);">
+                  <div style="color:#94a3b8; font-size:.82rem; font-weight:800;">Strong (≥80)</div>
+                  <div style="color:white; font-size:1.35rem; font-weight:900;">{strong_n}</div>
+                </div>
+                <div style="padding:10px 12px; border-radius:14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);">
+                  <div style="color:#94a3b8; font-size:.82rem; font-weight:800;">Elite (≥95)</div>
+                  <div style="color:white; font-size:1.35rem; font-weight:900;">{elite_n}</div>
+                </div>
+                <div style="padding:10px 12px; border-radius:14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06);">
+                  <div style="color:#94a3b8; font-size:.82rem; font-weight:800;">Universe</div>
+                  <div style="color:white; font-size:1.35rem; font-weight:900;">{universe}</div>
+                </div>
+              </div>
+            </div>
+            """).strip()
+
+            card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
+            st.markdown(card_html, unsafe_allow_html=True)
+
+    except Exception as e:
+        st.error(f"Market Pulse error: {e}")
 
 elif tab == "portfolio":
 
