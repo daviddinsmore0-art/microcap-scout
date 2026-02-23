@@ -2273,7 +2273,7 @@ if tab == "home":
                   </div>
                 </div>
 
-                <div style="flex:1; padding:18px;">
+                <div style="flex:1; padding:22px;">
                   <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
                       Today's <span style="color:white;">Signal Shift</span>
@@ -2286,10 +2286,10 @@ if tab == "home":
                   </div>
 
                   <div style="margin-top:8px; font-size:1.7rem; font-weight:900; color:white;">
-                    {ticker} <span style="color:#4ade80;">+{jump}</span>&nbsp;spots
+                    {ticker} <span style="color:#4ade80;">+{jump}</span> spots
                   </div>
 
-                  {f'<div style="margin-top:12px; color:#cbd5e1; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
+                  {f'<div style="margin-top:12px; color:#94a3b8; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
 
                   <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
                     VIEW DETAILS
@@ -2308,18 +2308,18 @@ if tab == "home":
 
     # ==========================
     # NEW ACCELERATION ALERTS
-    # Using momentum_score acceleration (latest vs previous asof_date from rankings_global_daily)
+    # Using momentum_score acceleration (today vs previous asof_date in rankings_daily)
     # ==========================
     try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily")
         latest_date = (cur.fetchone() or {}).get("d")
 
         prev_date = None
         if latest_date:
-            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily WHERE asof_date < %s", (latest_date,))
+            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_daily WHERE asof_date < %s", (latest_date,))
             prev_date = (cur.fetchone() or {}).get("d")
 
         rows = []
@@ -2344,15 +2344,13 @@ if tab == "home":
         cur.close()
         conn.close()
 
-        items_html = ""
         if rows:
+            items_html = ""
             for r in rows:
                 t = (r.get("ticker") or "").upper()
                 items_html += f"<div style='margin-top:6px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>⚡ {t}</div>"
-        else:
-            items_html = "<div style='margin-top:10px; color:#94a3b8;'>No new accelerations on the latest run.</div>"
 
-        card_html = textwrap.dedent(f"""
+            card_html = textwrap.dedent(f"""
             <div style="margin-top:14px; border-radius:18px; overflow:hidden;
                         background:linear-gradient(145deg,#0f172a,#0b1220);
                         box-shadow:0 10px 30px rgba(0,0,0,0.4);
@@ -2369,7 +2367,7 @@ if tab == "home":
                   </div>
                 </div>
 
-                <div style="flex:1; padding:18px;">
+                <div style="flex:1; padding:22px;">
                   <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
                       New <span style="color:white;">Acceleration Alerts</span>
@@ -2381,7 +2379,7 @@ if tab == "home":
                     Stocks speeding up <span style="opacity:.7;">(vs prior run)</span>
                   </div>
 
-                  <div style="margin-top:10px; color:#cbd5e1; line-height:1.6;">
+                  <div style="margin-top:10px; color:#94a3b8; line-height:1.6;">
                     {items_html}
                   </div>
 
@@ -2391,10 +2389,14 @@ if tab == "home":
                 </div>
               </div>
             </div>
-        """).strip()
+            """).strip()
 
-        card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
-        st.markdown(card_html, unsafe_allow_html=True)
+            card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
+            st.markdown(card_html, unsafe_allow_html=True)
+
+    except Exception:
+        # don't blow up home if rankings_daily isn't ready
+        pass
 
     # ==========================
     # SECTOR ROTATION SNAPSHOT
@@ -2419,7 +2421,7 @@ if tab == "home":
               </div>
             </div>
 
-            <div style="flex:1; padding:18px;">
+            <div style="flex:1; padding:22px;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="font-size:1.2rem; font-weight:800; color:#cbd5e1;">
                   Sector <span style="color:white;">Rotation Snapshot</span>
@@ -2431,7 +2433,7 @@ if tab == "home":
                 Top Sectors Today
               </div>
 
-              <div style="margin-top:10px; color:#cbd5e1; line-height:1.6;">
+              <div style="margin-top:10px; color:#94a3b8; line-height:1.6;">
                 Sector data not available in current schema.
               </div>
 
@@ -2446,8 +2448,8 @@ if tab == "home":
         card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
         st.markdown(card_html, unsafe_allow_html=True)
 
-    except Exception as e:
-    st.error(f"Acceleration block error: {e}")
+    except Exception:
+        pass
 
 elif tab == "portfolio":
     st.markdown(f"")
