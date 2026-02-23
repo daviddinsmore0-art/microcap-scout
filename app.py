@@ -2337,8 +2337,6 @@ if tab == "home":
 
   <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
   </div>
-
-</div>
 <div style="
     height: 1px; 
     width: 80%; 
@@ -2346,6 +2344,8 @@ if tab == "home":
     background: linear-gradient(90deg, transparent, #facc15, transparent);
     box-shadow: 0px -1px 8px rgba(250, 204, 21, 0.5);
 "></div>
+</div>
+
 
 """).strip()
 
