@@ -2332,7 +2332,15 @@ if tab == "home":
   </div>
 
   {f'<div style="margin-top:12px; color:#cbd5e1; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
-
+<div style="
+        position: absolute;
+        bottom: 0;           /* Sticks it to the very bottom edge */
+        left: 10%;           /* Centers it */
+        width: 80%;          /* Makes it 80% of the card width */
+        height: 1px; 
+        background: linear-gradient(90deg, transparent, #facc15, transparent);
+        box-shadow: 0px -2px 10px rgba(250, 204, 21, 0.6); /* Negative Y pushes glow UP into the card */
+    "></div>
 </div>
 
 """).strip()
