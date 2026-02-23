@@ -2334,7 +2334,7 @@ if tab == "home":
     padding:10px 10px 20px 20px;
     background:linear-gradient(145deg,#0f172a,#0b1220);
     box-shadow:0 12px 35px rgba(0,0,0,0.45);
-            position:relative;
+    position:relative;
     border:1px solid rgba(255,255,255,0.06);
     ">
 
@@ -2442,13 +2442,13 @@ if tab == "home":
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
             <div style="display:flex; align-items:center; gap:10px;">
-  {ICON_ACCEL}
-  <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
-    New <span style="color:white;">Acceleration Alerts</span>
-  </div>
-</div>
-<div style="color:#22c55e; font-weight:900;">››</div>
-</div>
+             {ICON_ACCEL}
+            <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
+             New <span style="color:white;">Acceleration Alerts</span>
+            </div>
+           </div>
+           <div style="color:#22c55e; font-weight:900;">››</div>
+          </div>
 
           <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
             Stocks speeding up <span style="opacity:.7;"> (vs prior run)</span>
