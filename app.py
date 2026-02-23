@@ -2433,8 +2433,8 @@ if tab == "home":
         height: 1px; 
         background: linear-gradient(90deg, transparent, #facc15, transparent);
         box-shadow: 0px -2px 10px rgba(250, 204, 21, 0.6); /* Negative Y pushes glow UP into the card */
-    "></div>
-        </div>
+      "></div>
+  </div>
         """).strip()
 
         st.markdown(card_html, unsafe_allow_html=True)
@@ -2557,8 +2557,8 @@ if tab == "home":
         height: 1px; 
         background: linear-gradient(90deg, transparent, #facc15, transparent);
         box-shadow: 0px -2px 10px rgba(250, 204, 21, 0.6); /* Negative Y pushes glow UP into the card */
-    "></div>
-        </div>
+     "></div>
+    </div>
         """).strip()
 
         st.markdown(card_html, unsafe_allow_html=True)
