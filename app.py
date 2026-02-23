@@ -2291,12 +2291,12 @@ if tab == "home":
             bullets = []
             try:
                 if float(row.get("momentum_score") or 0) > 70:
-                    bullets.append("◆ Momentum accelerating")
+                    bullets.append("<span style='color:#4ade80;'>◆</span> Momentum accelerating")
             except Exception:
                 pass
             try:
                 if float(row.get("stability_score") or 0) > 70:
-                    bullets.append("◆ Stability improving")
+                    bullets.append("<span style='color:#818cf8;'>◆</span> Stability improving")
             except Exception:
                 pass
 
