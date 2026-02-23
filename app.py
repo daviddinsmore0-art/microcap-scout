@@ -1372,7 +1372,7 @@ def render_portfolio_ticker(data_map, tickers):
         overflow:hidden;
         padding:10px 16px;
         border-radius:0 0 20px 20px;
-        margin:0px 0 28px 0;
+        margin:0px 0 48px 0;
         background:rgba(18,22,30,0.55);
         border:1px solid rgba(255,255,255,0.08);
         backdrop-filter:blur(10px);
@@ -2328,7 +2328,7 @@ if tab == "home":
 
             card_html = textwrap.dedent(f"""
 <div style="
-    margin-top:30px;
+    margin-top:10px;
     margin-bottom:0px;
     border-radius:20px;
     padding:10px 10px 20px 20px;
