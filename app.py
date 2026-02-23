@@ -2318,7 +2318,9 @@ if tab == "home":
 
   <!-- TITLE ROW -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-  <div style="
+  
+    <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
+    <div style="
   width:44px; height:44px; border-radius:12px;
   background:linear-gradient(135deg, rgba(251,191,36,.22), rgba(245,158,11,.10));
   border:1px solid rgba(255,255,255,.10);
@@ -2333,8 +2335,6 @@ if tab == "home":
     <path d="M7 15L11 11L14 14L20 8" stroke="#FBBF24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M20 8V12" stroke="#FBBF24" stroke-width="2" stroke-linecap="round"/>
   </svg>
-</div>
-    <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
       Today's <span style="color:white;">Signal Shift</span>
     </div>
     </div>
