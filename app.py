@@ -2216,6 +2216,43 @@ if tab == "home":
 
     # --- NAVBAR ---
     render_navbar(token, current_mode)
+    # --- NAVBAR ---
+    render_navbar(token, current_mode)
+
+    # --- Load portfolio safely ---
+    portfolio = get_portfolio_details(user["username"], current_mode) or []
+    tickers = []
+    for r in portfolio:
+        try:
+            if isinstance(r, dict):
+                t = (r.get("ticker") or "").strip().upper()
+            else:
+                t = (str(r[0]) or "").strip().upper()  # tuple fallback
+            if t:
+                tickers.append(t)
+        except Exception:
+            continue
+
+    if not tickers:
+        st.info(f"Your {current_mode} portfolio is empty.")
+    else:
+        # Pull cached market data for tickers
+        data_map = get_cached_data_map(tickers) or {}
+
+        # Sort by day_change DESC (high % to low %)
+        def _chg(t):
+            try:
+                return float((data_map.get(t) or {}).get("day_change") or 0.0)
+            except Exception:
+                return 0.0
+
+        tickers_sorted = sorted([t for t in tickers if t in data_map], key=_chg, reverse=True)
+
+        # --- SCROLLING TICKER (right under topbar) ---
+        if tickers_sorted:
+            render_portfolio_ticker(data_map, tickers_sorted)
+        else:
+            st.caption("No price data cached yet for your tickers.")
     # ==========================
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
