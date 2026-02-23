@@ -2318,7 +2318,7 @@ if tab == "home":
 
   <!-- TITLE ROW -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-    <div style="font-size:1rem; font-weight:600; color:#cbd5e1; opacity:0.75">
+    <div style="font-size:1rem; font-weight:600; color:#cbd5e1; opacity:0.6">
       Today's <span style="color:white;">Signal Shift</span>
     </div>
     <div style="color:#22c55e; font-weight:900;"></div>
@@ -2412,7 +2412,7 @@ if tab == "home":
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-            <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
+            <div style="font-size:1rem; font-weight:600; color:#cbd5e1; opacity:0.6"">
               New <span style="color:white;">Acceleration Alerts</span>
             </div>
             <div style="color:#22c55e; font-weight:900;"></div>
@@ -2532,7 +2532,7 @@ if tab == "home":
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-            <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
+            <div style="font-size:1rem; font-weight:600; color:#cbd5e1; opacity:0.6"">
               Sector <span style="color:white;">Rotation Snapshot</span>
             </div>
             <div style="color:#22c55e; font-weight:900;">››</div>
