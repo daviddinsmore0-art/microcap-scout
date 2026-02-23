@@ -248,6 +248,67 @@ div[data-testid="stDecoration"] {
           gap: 2px;
           margin-left: auto;
          }
+
+
+.pulse-card{
+  border-radius:22px;
+  padding:18px 18px 16px 18px;
+  background: linear-gradient(160deg, rgba(13,23,46,0.95), rgba(7,14,28,0.95));
+  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.35);
+  margin-bottom: 16px;
+}
+.pulse-top{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px;
+  margin-bottom: 10px;
+}
+.pulse-title{
+  font-size: 26px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.88);
+  letter-spacing: 0.2px;
+}
+.pulse-pill{
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.78);
+  white-space:nowrap;
+}
+.pulse-metrics{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+}
+.pulse-metric{
+  flex: 1 1 140px;
+  padding: 12px 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.pulse-label{
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  margin-bottom: 6px;
+}
+.pulse-value{
+  font-size: 20px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.88);
+}
+.pulse-sub{
+  margin-top: 10px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.62);
+}
+
+
+
       
         /* Risk Pills */
         .risk-pill { padding: 4px 4px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
@@ -1080,7 +1141,62 @@ div[data-testid="stToolbar"] { display: none !important; }
          </div>
     """
     st.markdown(textwrap.dedent(html).strip(), unsafe_allow_html=True)
+def compute_regime(pulse_score: float) -> str:
+    if pulse_score is None:
+        return "—"
+    if pulse_score >= 65:
+        return "Risk-On"
+    if pulse_score >= 45:
+        return "Neutral"
+    return "Risk-Off"
 
+
+def arrow(delta: float) -> str:
+    if delta is None:
+        return "—"
+    return "▲" if delta > 0 else ("▼" if delta < 0 else "•")
+
+
+def fetch_pulse_environment(conn):
+    # latest
+    q_latest = """
+        SELECT asof_date, pulse_score, momentum_breadth, accel_breadth,
+               avg_global_percentile, avg_stability, liquidity_breadth
+        FROM pulse_environment_daily
+        ORDER BY asof_date DESC
+        LIMIT 1
+    """
+    latest = None
+    with conn.cursor(dictionary=True) as cur:
+        cur.execute(q_latest)
+        latest = cur.fetchone()
+
+    if not latest:
+        return None
+
+    # 7th most recent for 7-day delta
+    q_prev7 = """
+        SELECT pulse_score
+        FROM pulse_environment_daily
+        ORDER BY asof_date DESC
+        LIMIT 1 OFFSET 6
+    """
+    prev7 = None
+    with conn.cursor(dictionary=True) as cur:
+        cur.execute(q_prev7)
+        row = cur.fetchone()
+        prev7 = float(row["pulse_score"]) if row and row["pulse_score"] is not None else None
+
+    pulse = float(latest["pulse_score"]) if latest["pulse_score"] is not None else None
+    delta7 = (pulse - prev7) if (pulse is not None and prev7 is not None) else None
+
+    latest["pulse_score"] = pulse
+    latest["pulse_regime"] = compute_regime(pulse)
+    latest["pulse_delta7"] = delta7
+    latest["pulse_delta7_arrow"] = arrow(delta7)
+
+    return latest
+    
 def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
 
@@ -2379,6 +2495,172 @@ if tab == "home":
     except Exception as e:
         st.error(f"Signal Shift error: {e}")
 
+     # -----------------------------------------
+    # MARKET PULSE (from pulse_environment_daily)
+    # -----------------------------------------
+
+    import math
+
+    # 1) CSS (only once is fine, but safe if repeated)
+    st.markdown("""
+    <style>
+    .pulse-card{
+      border-radius:22px;
+      padding:18px 18px 16px 18px;
+      background: linear-gradient(160deg, rgba(13,23,46,0.95), rgba(7,14,28,0.95));
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow: 0 10px 26px rgba(0,0,0,0.35);
+      margin: 10px 0 16px 0;
+    }
+    .pulse-top{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:12px; margin-bottom: 10px;
+    }
+    .pulse-title{
+      font-size: 26px; font-weight: 700;
+      color: rgba(255,255,255,0.88);
+      letter-spacing: 0.2px;
+    }
+    .pulse-pill{
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.78);
+      white-space:nowrap;
+    }
+    .pulse-metrics{ display:flex; gap:12px; flex-wrap:wrap; }
+    .pulse-metric{
+      flex: 1 1 140px;
+      padding: 12px 12px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .pulse-label{ font-size: 12px; color: rgba(255,255,255,0.6); margin-bottom: 6px; }
+    .pulse-value{ font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.88); }
+    .pulse-sub{ margin-top: 10px; font-size: 13px; color: rgba(255,255,255,0.62); }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 2) Helpers
+    def _to_float(x):
+        try:
+            if x is None:
+                return None
+            return float(x)
+        except:
+            return None
+
+    def compute_regime(pulse_score):
+        if pulse_score is None:
+            return "—"
+        if pulse_score >= 65:
+            return "Risk-On"
+        if pulse_score >= 45:
+            return "Neutral"
+        return "Risk-Off"
+
+    def arrow(delta):
+        if delta is None:
+            return "—"
+        return "▲" if delta > 0 else ("▼" if delta < 0 else "•")
+
+    def fmt_pct(x):
+        x = _to_float(x)
+        return "—" if x is None else f"{x:.1f}%"
+
+    def fmt_num(x):
+        x = _to_float(x)
+        return "—" if x is None else f"{x:.1f}"
+
+    # 3) Fetch latest pulse row + 7-day delta
+    pulse = None
+    try:
+        q_latest = """
+            SELECT asof_date, pulse_score, momentum_breadth, accel_breadth,
+                   avg_global_percentile, avg_stability, liquidity_breadth
+            FROM pulse_environment_daily
+            ORDER BY asof_date DESC
+            LIMIT 1
+        """
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(q_latest)
+            pulse = cur.fetchone()
+
+        if pulse:
+            q_prev7 = """
+                SELECT pulse_score
+                FROM pulse_environment_daily
+                ORDER BY asof_date DESC
+                LIMIT 1 OFFSET 6
+            """
+            prev7 = None
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute(q_prev7)
+                row = cur.fetchone()
+                prev7 = _to_float(row["pulse_score"]) if row and row.get("pulse_score") is not None else None
+
+            ps = _to_float(pulse.get("pulse_score"))
+            delta7 = (ps - prev7) if (ps is not None and prev7 is not None) else None
+
+            pulse["pulse_score"] = ps
+            pulse["pulse_regime"] = compute_regime(ps)
+            pulse["pulse_delta7"] = delta7
+            pulse["pulse_delta7_arrow"] = arrow(delta7)
+
+    except Exception as e:
+        st.error(f"Market Pulse query failed: {e}")
+        pulse = None
+
+    # 4) Render the Market Pulse card (place it where you want on Home)
+    if pulse:
+        d7 = pulse.get("pulse_delta7")
+        d7_txt = f'{pulse["pulse_delta7_arrow"]} {d7:+.1f} (7d)' if d7 is not None else "—"
+
+        st.markdown(f"""
+        <div class="pulse-card">
+          <div class="pulse-top">
+            <div class="pulse-title">Market Pulse</div>
+            <div class="pulse-pill">{pulse["pulse_regime"]} · {d7_txt}</div>
+          </div>
+
+          <div class="pulse-metrics">
+            <div class="pulse-metric">
+              <div class="pulse-label">Pulse Score</div>
+              <div class="pulse-value">{fmt_num(pulse.get("pulse_score"))}</div>
+            </div>
+            <div class="pulse-metric">
+              <div class="pulse-label">Momentum Breadth</div>
+              <div class="pulse-value">{fmt_pct(pulse.get("momentum_breadth"))}</div>
+            </div>
+            <div class="pulse-metric">
+              <div class="pulse-label">Accel Breadth</div>
+              <div class="pulse-value">{fmt_pct(pulse.get("accel_breadth"))}</div>
+            </div>
+            <div class="pulse-metric">
+              <div class="pulse-label">Liquidity Breadth</div>
+              <div class="pulse-value">{fmt_pct(pulse.get("liquidity_breadth"))}</div>
+            </div>
+          </div>
+
+          <div class="pulse-sub">
+            Universe snapshot from your global rankings (includes user tickers).
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    else:
+        st.info("Market Pulse: no rows found in pulse_environment_daily yet.")
+
+    # -----------------------------------------
+    # Continue with the rest of your Home content
+    # (your existing cards below)
+    #
+
+    
     # ==========================
     # NEW ACCELERATION ALERTS
     # Using momentum_score acceleration (latest vs previous asof_date from rankings_global_daily)
