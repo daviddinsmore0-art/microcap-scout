@@ -1977,14 +1977,7 @@ def render_watchlist_pick_grid(rows, current_token=None):
         <div style='font-weight:400; font-size:1.35rem; color:#e5e7eb; line-height:1.1;'>{ticker}</div>
         <div style='margin-top:6px; font-size:0.85rem; color:#facc15; font-weight:300;'>{label}</div>
       </div>
-      <div style='price-block'>
-        <div style='font-weight:800; font-size:1.25rem; color:#e5e7eb;'>{price}</div>
-        <div style='margin-top:6px; font-weight:800; font-size:1.05rem; color:{color};'>{pct}</div>
-      </div>
-      </div>
-    </div>
-  </div>
-  <div style="
+      <div style="
         position: absolute;
         bottom: 0;
         left: 10%;
@@ -1993,6 +1986,14 @@ def render_watchlist_pick_grid(rows, current_token=None):
         background: linear-gradient(90deg, transparent, #4ade80, transparent);
         box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
     "></div>
+      <div style='price-block'>
+        <div style='font-weight:800; font-size:1.25rem; color:#e5e7eb;'>{price}</div>
+        <div style='margin-top:6px; font-weight:800; font-size:1.05rem; color:{color};'>{pct}</div>
+      </div>
+      </div>
+    </div>
+  </div>
+  
   
 </a>
 """, unsafe_allow_html=True)
