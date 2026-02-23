@@ -2317,7 +2317,7 @@ if tab == "home":
 
 
   <!-- TITLE ROW -->
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; height:auto; background:#0b0000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; height:auto; border-bottom:1px;#0b0000;">
     <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
       Today's <span style="color:white;">Signal Shift</span>
     </div>
