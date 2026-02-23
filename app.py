@@ -2323,7 +2323,14 @@ if tab == "home":
     </div>
     <div style="color:#22c55e; font-weight:900;"></div>
   </div>
-
+    <div style="
+    height: 1px; 
+    width: 80%; 
+    margin-top:100px;
+    margin: 0 auto; 
+    background: linear-gradient(90deg, transparent, #facc15, transparent);
+    box-shadow: 0px -1px 8px rgba(250, 204, 21, 0.5);
+"></div>
   <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
     Biggest Rank Jump (24h)
   </div>
@@ -2336,14 +2343,6 @@ if tab == "home":
 
   <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
   </div>
-  <div style="
-    height: 1px; 
-    width: 80%; 
-    margin-top:100px;
-    margin: 0 auto; 
-    background: linear-gradient(90deg, transparent, #facc15, transparent);
-    box-shadow: 0px -1px 8px rgba(250, 204, 21, 0.5);
-"></div>
 </div>
 """).strip()
 
