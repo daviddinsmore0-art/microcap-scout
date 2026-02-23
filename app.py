@@ -2582,9 +2582,7 @@ if tab == "home":
             {items_html}
           </div>
 
-          <div style="margin-top:18px; text-align:right; font-size:.85rem; letter-spacing:1px; opacity:.8;">
-            VIEW SECTORS
-          </div>
+          
               <div style="
                 position: absolute;
                 bottom: 0;           /* Sticks it to the very bottom edge */
