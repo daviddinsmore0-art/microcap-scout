@@ -2426,8 +2426,8 @@ if tab == "home":
             {items_html}
           </div>
   
-      </div>
-      """).strip()
+          </div>
+          """).strip()
 
         st.markdown(card_html, unsafe_allow_html=True)
 
