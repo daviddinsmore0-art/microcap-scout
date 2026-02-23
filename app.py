@@ -2436,12 +2436,83 @@ if tab == "home":
     except Exception as e:
         st.error(f"Acceleration Alerts error: {e}")
 
+
     # ==========================
     # SECTOR ROTATION SNAPSHOT
-    # NOTE: This app.py version does not have sector fields in the provided schema (rankings_daily, rankings_global_daily),
-    # so we render a clean placeholder card until sector data is available.
+    # Uses rankings_sector_daily (asof_date, sector, ticker, composite_score, sector_rank, sector_count, sector_percentile)
+    # Shows top 3 sectors by average composite_score change vs prior run.
     # ==========================
     try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_sector_daily")
+        latest_sector_date = (cur.fetchone() or {}).get("d")
+
+        prev_sector_date = None
+        if latest_sector_date:
+            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_sector_daily WHERE asof_date < %s", (latest_sector_date,))
+            prev_sector_date = (cur.fetchone() or {}).get("d")
+
+        sectors = []
+        if latest_sector_date and prev_sector_date:
+            cur.execute(
+                """
+                SELECT
+                    s1.sector,
+                    ROUND(AVG(s1.composite_score), 2) AS avg_score,
+                    ROUND(AVG(s1.composite_score) - AVG(s0.composite_score), 2) AS score_delta
+                FROM rankings_sector_daily s1
+                JOIN rankings_sector_daily s0
+                  ON s0.asof_date = %s
+                 AND s0.ticker = s1.ticker
+                 AND s0.sector = s1.sector
+                WHERE s1.asof_date = %s
+                GROUP BY s1.sector
+                ORDER BY score_delta DESC
+                LIMIT 3
+                """,
+                (prev_sector_date, latest_sector_date),
+            )
+            sectors = cur.fetchall() or []
+        elif latest_sector_date:
+            cur.execute(
+                """
+                SELECT
+                    sector,
+                    ROUND(AVG(composite_score), 2) AS avg_score,
+                    0 AS score_delta
+                FROM rankings_sector_daily
+                WHERE asof_date = %s
+                GROUP BY sector
+                ORDER BY avg_score DESC
+                LIMIT 3
+                """,
+                (latest_sector_date,),
+            )
+            sectors = cur.fetchall() or []
+
+        cur.close()
+        conn.close()
+
+        items_html = ""
+        if sectors:
+            for i, s in enumerate(sectors, start=1):
+                sec = s.get("sector") or ""
+                delta = float(s.get("score_delta") or 0)
+                delta_color = "#4ade80" if delta >= 0 else "#ef4444"
+                sign = "+" if delta >= 0 else ""
+                items_html += (
+                    f"<div style='margin-top:8px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>"
+                    f"{i}. {sec} "
+                    f"<span style='color:{delta_color}; opacity:.95;'>"
+                    f"{sign}{delta:.2f}"
+                    f"</span>"
+                    f"</div>"
+                )
+        else:
+            items_html = "<div style='margin-top:10px; color:#94a3b8;'>No sector data for the latest run.</div>"
+
         card_html = textwrap.dedent(f"""
         <div style="margin-top:14px; border-radius:18px; overflow:hidden;
                     background:linear-gradient(145deg,#0f172a,#0b1220);
@@ -2454,8 +2525,8 @@ if tab == "home":
               <div style="width:60px; height:60px; border-radius:14px;
                           background:linear-gradient(135deg,#60a5fa,#3b82f6);
                           display:flex; align-items:center; justify-content:center;
-                          font-size:28px; font-weight:900; color:#0f172a;">
-                ▮▮▮
+                          font-size:26px; font-weight:900; color:#0f172a;">
+                ▮▮
               </div>
             </div>
 
@@ -2472,10 +2543,10 @@ if tab == "home":
               </div>
 
               <div style="margin-top:10px; color:#cbd5e1; line-height:1.6;">
-                Sector data not available in current schema.
+                {items_html}
               </div>
 
-              <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.55;">
+              <div style="margin-top:18px; text-align:right; letter-spacing:1px; opacity:.85;">
                 VIEW SECTORS
               </div>
             </div>
@@ -2483,13 +2554,15 @@ if tab == "home":
         </div>
         """).strip()
 
-        card_html = "\n".join(line.lstrip() for line in card_html.splitlines()).strip()
+        card_html = "
+".join(line.lstrip() for line in card_html.splitlines()).strip()
         st.markdown(card_html, unsafe_allow_html=True)
 
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Sector snapshot error: {e}")
 
 elif tab == "portfolio":
+
     st.markdown(f"")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
     c_pl = "#4ade80" if total_pl >= 0 else "#ef4444"
