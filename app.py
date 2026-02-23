@@ -988,7 +988,7 @@ div[data-testid="stToolbar"] { display: none !important; }
   display:flex;
   align-items:center;
   gap:8px;
-  padding:6px 12px;
+  padding:6px 6px;
   border-radius:999px;
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.08);
@@ -1314,6 +1314,7 @@ def execute_paper_trade(username, ticker, action, qty, price):
         cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance + %s WHERE username=%s", (total_cost, username))
         conn.commit(); conn.close()
         return True, f"Sold {qty} shares of {ticker}"
+        
 def render_portfolio_ticker(data_map, tickers):
 
     items = []
@@ -1347,7 +1348,7 @@ def render_portfolio_ticker(data_map, tickers):
         width:100%;
         overflow:hidden;
         padding:10px 16px;
-        border-radius:999px;
+        border-radius:0 20px 0 20px;
         margin:2px 0 18px 0;
         background:rgba(18,22,30,0.55);
         border:1px solid rgba(255,255,255,0.08);
