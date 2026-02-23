@@ -2334,7 +2334,7 @@ if tab == "home":
     padding:10px 10px 20px 20px;
     background:linear-gradient(145deg,#0f172a,#0b1220);
     box-shadow:0 12px 35px rgba(0,0,0,0.45);
-            position:relative;
+    position:relative;
     border:1px solid rgba(255,255,255,0.06);
     ">
 
@@ -2349,7 +2349,7 @@ if tab == "home":
     Today's <span style="color:white;">Signal Shift</span>
   </div>
 </div>
-<div style="color:#22c55e; font-weight:900;">››</div>
+<div style="color:#22c55e; font-weight:600;">››</div>
 </div>
   <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
     Biggest Rank Jump (24h)
