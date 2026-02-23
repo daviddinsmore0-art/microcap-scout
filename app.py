@@ -15,6 +15,7 @@ from pathlib import Path
 from decimal import Decimal
 import numbers
 
+
 # ==========================
 # INLINE SVG ICONS (card headers)
 # ==========================
@@ -37,7 +38,6 @@ ICON_SECTOR = """<div style="width:42px;height:42px;border-radius:12px;backgroun
 <path d="M3 12L12 17L21 12" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/>
 <path d="M3 17L12 22L21 17" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/>
 </svg></div>"""
-
 
 def get_logo_base64(path="logo_optimized.png"):
     try:
@@ -2328,13 +2328,13 @@ if tab == "home":
 
             card_html = textwrap.dedent(f"""
 <div style="
-    position:relative;
     margin-top:20px;
     margin-bottom:20px;
     border-radius:20px;
     padding:10px 10px 20px 20px;
     background:linear-gradient(145deg,#0f172a,#0b1220);
     box-shadow:0 12px 35px rgba(0,0,0,0.45);
+            position:relative;
     border:1px solid rgba(255,255,255,0.06);
     ">
 
@@ -2343,12 +2343,14 @@ if tab == "home":
 
   <!-- TITLE ROW -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-   <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
-     Today's <span style="color:white;">Signal Shift</span>
-    
+   <div style="display:flex; align-items:center; gap:10px;">
+  {ICON_SIGNAL}
+  <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
+    Today's <span style="color:white;">Signal Shift</span>
   </div>
-    <div style="color:#22c55e; font-weight:900;"></div>
-  </div>
+</div>
+<div style="color:#22c55e; font-weight:900;">››</div>
+</div>
   <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
     Biggest Rank Jump (24h)
   </div>
@@ -2371,7 +2373,7 @@ if tab == "home":
 
 """).strip()
 
-            st.markdown(card_html, unsafe_allow_html=True)
+            components.html(card_html, height=260)
         # else: show nothing (no blank card on weekends/holidays)
 
     except Exception as e:
@@ -2425,13 +2427,13 @@ if tab == "home":
 
         card_html = textwrap.dedent(f"""
         <div style="
-            position:relative;
             margin-top:20px;
             margin-bottom:20px;
             border-radius:20px;
             padding:10px 10px 20px 20px;
             background:linear-gradient(145deg,#0f172a,#0b1220);
             box-shadow:0 12px 35px rgba(0,0,0,0.45);
+            position:relative;
             border:1px solid rgba(255,255,255,0.06);
         ">
 
@@ -2439,11 +2441,14 @@ if tab == "home":
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-            <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
-              New <span style="color:white;">Acceleration Alerts</span>
-            </div>
-            <div style="color:#22c55e; font-weight:900;"></div>
-          </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+  {ICON_ACCEL}
+  <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
+    New <span style="color:white;">Acceleration Alerts</span>
+  </div>
+</div>
+<div style="color:#22c55e; font-weight:900;">››</div>
+</div>
 
           <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
             Stocks speeding up <span style="opacity:.7;"> (vs prior run)</span>
@@ -2464,7 +2469,7 @@ if tab == "home":
           </div>
           """).strip()
 
-        st.markdown(card_html, unsafe_allow_html=True)
+        components.html(card_html, height=260)
 
     except Exception as e:
       st.error(f"Acceleration Alerts error: {e}")
@@ -2548,20 +2553,23 @@ if tab == "home":
 
         card_html = textwrap.dedent(f"""
         <div style="
-            position:relative;
             margin-top:20px;
             margin-bottom:20px;
             border-radius:20px;
             padding:10px 10px 20px 20px;
             background:linear-gradient(145deg,#0f172a,#0b1220);
             box-shadow:0 12px 35px rgba(0,0,0,0.45);
+            position:relative;
             border:1px solid rgba(255,255,255,0.06);
         ">
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-            <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
-              Sector <span style="color:white;">Rotation Snapshot</span>
+            <div style="display:flex; align-items:center; gap:10px;">
+              {ICON_SECTOR}
+              <div style="font-size:1rem; font-weight:600; color:#cbd5e1;">
+                Sector <span style="color:white;">Rotation Snapshot</span>
+              </div>
             </div>
             <div style="color:#22c55e; font-weight:900;">››</div>
           </div>
@@ -2589,7 +2597,7 @@ if tab == "home":
          </div>
          """).strip()
 
-        st.markdown(card_html, unsafe_allow_html=True)
+        components.html(card_html, height=280)
 
     except Exception as e:
         st.error(f"Sector snapshot error: {e}")
