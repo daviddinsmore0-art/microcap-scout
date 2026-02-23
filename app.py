@@ -2421,7 +2421,7 @@ if tab == "home":
         if rows:
             for r in rows:
                 t = (r.get("ticker") or "").upper()
-                items_html += f"<div style='margin-top:6px; font-size:1.05rem; font-weight:800; color:#e5e7eb;'>⚡ {t}</div>"
+                items_html += f"<div style='margin-top:6px; font-size:16px; font-weight:600; color:#e5e7eb;'>⚡ {t}</div>"
         else:
             items_html = "<div style='margin-top:10px; color:#94a3b8;'>No new accelerations on the latest run.</div>"
 
