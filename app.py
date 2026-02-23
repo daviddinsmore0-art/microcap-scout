@@ -2345,7 +2345,7 @@ if tab == "home":
   <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
    <div style="display:flex; align-items:center; gap:10px;">
   {ICON_SIGNAL}
-  <div style="font-size:14px; font-weight:500; color:#cbd5e1;">
+  <div style="font-size:14px; font-weight:600; color:#cbd5e1;">
     Today's <span style="color:white;">Signal Shift</span>
   </div>
 </div>
@@ -2355,11 +2355,11 @@ if tab == "home":
     Biggest Rank Jump (24h)
   </div>
 
-  <div style="margin-top:8px; font-size:14px; font-weight:500; color:white;">
+  <div style="margin-top:8px; font-size:14px; font-weight:600; color:white;">
     {ticker} <span style="color:#4ade80;">+{jump}</span> spots
   </div>
 
-  {f'<div style="margin-top:12px; color:#cbd5e1; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
+  {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 12px; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
 <div style="
         position: absolute;
         bottom: 0;           /* Sticks it to the very bottom edge */
