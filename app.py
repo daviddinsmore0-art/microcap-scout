@@ -2405,7 +2405,7 @@ if tab == "home":
 
       # ---- MARKET PULSE (simple version) ----
 
-try:
+    try:
     # Use whatever connection method your other Home queries use.
     # If you already have conn earlier in Home, REMOVE this next line.
     conn = get_connection()
