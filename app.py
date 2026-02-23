@@ -2311,8 +2311,7 @@ if tab == "home":
     background:linear-gradient(145deg,#0f172a,#0b1220);
     box-shadow:0 12px 35px rgba(0,0,0,0.45);
     border:1px solid rgba(255,255,255,0.06);
-    
-">
+    ">
 
   <!-- ICON BADGE -->
 
@@ -2339,8 +2338,6 @@ if tab == "home":
   </div>
 
 </div>
-
-
 """).strip()
 
             st.markdown(card_html, unsafe_allow_html=True)
@@ -2397,6 +2394,7 @@ if tab == "home":
 
         card_html = textwrap.dedent(f"""
         <div style="
+            position:relative;
             margin-top:16px;
             margin-bottom:16px;
             border-radius:20px;
