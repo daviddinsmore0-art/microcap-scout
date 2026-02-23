@@ -2349,7 +2349,7 @@ if tab == "home":
     Today's <span style="color:white;">Signal Shift</span>
   </div>
 </div>
-<div style="color:#22c55e; font-weight:600;">››</div>
+<div style="color:#22c55e; font-weight:600;"></div>
 </div>
   <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:400;">
     Biggest Rank Jump (24h)
@@ -2447,7 +2447,7 @@ if tab == "home":
     New <span style="color:white;">Acceleration Alerts</span>
   </div>
 </div>
-<div style="color:#22c55e; font-weight:900;">››</div>
+<div style="color:#22c55e; font-weight:900;"></div>
 </div>
 
           <div style="margin-top:16px; color:#fbbf24; font-size:1rem; font-weight:600;">
@@ -2571,7 +2571,7 @@ if tab == "home":
                 Sector <span style="color:white;">Rotation Snapshot</span>
               </div>
             </div>
-            <div style="color:#22c55e; font-weight:900;">››</div>
+            <div style="color:#22c55e; font-weight:900;"></div>
           </div>
 
           <div style="margin-top:16px; color:#fbbf24; font-size:1.05rem; font-weight:900;">
