@@ -2536,7 +2536,7 @@ if tab == "home":
         else:
                 pulse_label, pulse_color = "Neutral", "#f59e0b"
 
-            def _arrow_and_color(val, good_if_high=True):
+        def _arrow_and_color(val, good_if_high=True):
                 if val is None:
                     return "—", "rgba(229,231,235,0.75)"
                 v = float(val)
