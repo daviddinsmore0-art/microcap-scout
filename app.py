@@ -2548,8 +2548,8 @@ if tab == "home":
             dot_color = "#22c55e" if "Risk-On" in env_label else ("#ef4444" if "Risk-Off" in env_label else "#f59e0b")
 
             market_pulse_html = f"""
-            <div class='pulse-card'>
-  <div class='pulse-top'>
+ <div class='pulse-card'>
+   <div class='pulse-top'>
     <div class='pulse-title'>MARKET PULSE</div>
     <div class='pulse-pill'>
       <span style='font-weight:800;'>{pulse_score}</span>
