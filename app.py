@@ -2483,72 +2483,107 @@ if tab == "home":
     # -----------------------------
     try:
         conn = get_connection()
-        env = fetch_pulse_environment(conn)  # already in your app.py
+        # -----------------------------
+# Pulse Environment (NEW CARD)
+# -----------------------------
+def _band_label(v, low_is_good=True):
+    """
+    Turn a 0-100-ish number into a label.
+    low_is_good=True: lower values => "Low" (good), higher => "High" (bad)
+    """
+    if v is None:
+        return "—"
+    try:
+        v = float(v)
+    except:
+        return "—"
 
-        if env:
-            env_label = env.get("environment_label") or "—"
-            env_score = env.get("composite_score")
-            env_score_txt = f"{env_score:.0f}" if isinstance(env_score, (int, float)) else ""
+    # thresholds (tweak later if you want)
+    if v < 35:
+        return "Low" if low_is_good else "High"
+    elif v < 65:
+        return "Neutral"
+    else:
+        return "High" if low_is_good else "Low"
 
-            risk_label = env.get("risk_label") or "—"
-            risk_score = env.get("risk_score")
-            risk_txt = f"{risk_score:.0f}" if isinstance(risk_score, (int, float)) else ""
+try:
+    # IMPORTANT: use your existing DB conn in scope
+    env = fetch_pulse_environment(conn)  # <-- NOT fetch_pulse_environment_data()
 
-            breadth_label = env.get("breadth_label") or "—"
-            breadth_score = env.get("breadth_score")
-            breadth_txt = f"{breadth_score:.0f}" if isinstance(breadth_score, (int, float)) else ""
+    if env:
+        # real DB fields (from pulse_environment_daily)
+        asof = env.get("asof_date")
+        pulse_score = env.get("pulse_score")
+        momentum_breadth = env.get("momentum_breadth")
+        accel_breadth = env.get("accel_breadth")
+        avg_stability = env.get("avg_stability")
+        liquidity_breadth = env.get("liquidity_breadth")
+        avg_global_pct = env.get("avg_global_percentile")
 
-            vol_label = env.get("vol_label") or "—"
-            vol_score = env.get("vol_score")
-            vol_txt = f"{vol_score:.0f}" if isinstance(vol_score, (int, float)) else ""
+        # display numbers
+        pulse_txt = f"{float(pulse_score):.1f}" if pulse_score is not None else ""
+        risk_txt = f"{float(avg_stability):.1f}" if avg_stability is not None else ""
+        breadth_txt = f"{float(momentum_breadth):.1f}" if momentum_breadth is not None else ""
+        vol_txt = f"{float(liquidity_breadth):.1f}" if liquidity_breadth is not None else ""
 
-            pulse_html = textwrap.dedent(f"""
-            <div style="margin-top:18px; border-radius:22px; overflow:hidden;
-                        background:linear-gradient(145deg,#0f172a,#0b1220);
-                        box-shadow:0 10px 30px rgba(0,0,0,0.4);
-                        border:1px solid rgba(255,255,255,0.06);">
-              <div style="padding:18px 18px 14px 18px;">
-                <div style="display:flex; align-items:center; gap:12px;">
-                  <div style="width:44px; height:44px; border-radius:14px;
-                              background:linear-gradient(135deg,#7c3aed,#4f46e5);
-                              display:flex; align-items:center; justify-content:center;
-                              box-shadow:0 8px 18px rgba(79,70,229,0.25);">
-                    <div style="font-size:20px;">🌐</div>
-                  </div>
-                  <div style="flex:1;">
-                    <div style="font-size:22px; font-weight:800; color:#e5e7eb;">Pulse Environment</div>
-                    <div style="margin-top:2px; font-size:14px; color:rgba(229,231,235,0.65);">
-                      Regime snapshot • {env_label} {("• Score " + env_score_txt) if env_score_txt else ""}
-                    </div>
-                  </div>
-                </div>
+        # labels (simple heuristic)
+        # Risk: use avg_stability as a proxy (higher stability => lower risk)
+        risk_label = _band_label(avg_stability, low_is_good=False)  # higher stability => "Low" risk
+        # Breadth: use momentum_breadth (higher breadth => better)
+        breadth_label = _band_label(momentum_breadth, low_is_good=False)
+        # Volatility: use liquidity_breadth as a proxy (if you later add a true vol metric, swap it here)
+        vol_label = _band_label(liquidity_breadth, low_is_good=True)
 
-                <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
+        # optional regime label
+        env_label = f"As of {asof}" if asof else "—"
 
-                <div style="display:grid; grid-template-columns:1fr; gap:10px; font-size:16px;">
-                  <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
-                    <span style="color:rgba(229,231,235,0.75);">Risk</span>
-                    <span><b>{risk_label}</b>{(" • " + risk_txt) if risk_txt else ""}</span>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
-                    <span style="color:rgba(229,231,235,0.75);">Breadth</span>
-                    <span><b>{breadth_label}</b>{(" • " + breadth_txt) if breadth_txt else ""}</span>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
-                    <span style="color:rgba(229,231,235,0.75);">Volatility</span>
-                    <span><b>{vol_label}</b>{(" • " + vol_txt) if vol_txt else ""}</span>
-                  </div>
+        pulse_html = textwrap.dedent(f"""
+        <div style="margin-top:18px; border-radius:22px; overflow:hidden;
+                    background:linear-gradient(145deg,#0f172a,#0b1220);
+                    box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                    border:1px solid rgba(255,255,255,0.06);">
+          <div style="padding:18px 18px 14px 18px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div style="width:44px; height:44px; border-radius:14px;
+                          background:linear-gradient(135deg,#7c3aed,#4f46e5);
+                          display:flex; align-items:center; justify-content:center;
+                          box-shadow:0 8px 18px rgba(79,70,229,0.25);">
+                <div style="font-size:20px;">🌐</div>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:22px; font-weight:800; color:#e5e7eb;">Pulse Environment</div>
+                <div style="margin-top:2px; font-size:14px; color:rgba(229,231,235,0.65);">
+                  Regime snapshot • {env_label} {("• Pulse " + pulse_txt) if pulse_txt else ""}
                 </div>
               </div>
-              <div style="height:3px; background:linear-gradient(90deg, rgba(124,58,237,0.0), rgba(124,58,237,0.65), rgba(79,70,229,0.0));"></div>
             </div>
-            """).strip()
 
-            components.html(pulse_html, height=260)
+            <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
 
-        # If no env row exists yet, just show nothing (no errors on homepage)
-    except Exception as e:
-        st.error(f"Pulse environment error: {e}")    
+            <div style="display:grid; grid-template-columns:1fr; gap:10px; font-size:16px;">
+              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                <span style="color:rgba(229,231,235,0.75);">Risk</span>
+                <span><b>{risk_label}</b>{(" • " + risk_txt) if risk_txt else ""}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                <span style="color:rgba(229,231,235,0.75);">Breadth</span>
+                <span><b>{breadth_label}</b>{(" • " + breadth_txt) if breadth_txt else ""}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                <span style="color:rgba(229,231,235,0.75);">Volatility</span>
+                <span><b>{vol_label}</b>{(" • " + vol_txt) if vol_txt else ""}</span>
+              </div>
+            </div>
+          </div>
+          <div style="height:3px; background:linear-gradient(90deg, rgba(124,58,237,0.0), rgba(124,58,237,0.65), rgba(79,70,229,0.0));"></div>
+        </div>
+        """).strip()
+
+        components.html(pulse_html, height=260)
+
+except Exception as e:
+    st.error(f"Pulse environment error: {e}")
+            
     # ==========================
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
