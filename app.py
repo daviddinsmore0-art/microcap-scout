@@ -2477,7 +2477,163 @@ if tab == "home":
         else:
             st.caption("No price data cached yet for your tickers.")
 
-     # -----------------------------
+# -----------------------------
+# MARKET PULSE (HOME CARD) — uses existing CSS classes
+# -----------------------------
+try:
+    conn = get_connection()
+
+    def fetch_market_pulse(conn):
+        # Latest row
+        q_latest = """
+            SELECT
+                asof_date,
+                pulse_score,
+                momentum_breadth,
+                accel_breadth,
+                liquidity_breadth,
+                avg_global_percentile,
+                avg_stability
+            FROM pulse_environment_daily
+            ORDER BY asof_date DESC
+            LIMIT 1
+        """
+
+        # Prior row for direction arrows (previous snapshot)
+        q_prev = """
+            SELECT
+                asof_date,
+                pulse_score,
+                momentum_breadth,
+                accel_breadth,
+                liquidity_breadth,
+                avg_global_percentile,
+                avg_stability
+            FROM pulse_environment_daily
+            ORDER BY asof_date DESC
+            LIMIT 1 OFFSET 1
+        """
+
+        cur = conn.cursor(dictionary=True)
+        cur.execute(q_latest)
+        latest = cur.fetchone()
+
+        cur.execute(q_prev)
+        prev = cur.fetchone()
+        cur.close()
+
+        return latest, prev
+
+    def _num(x):
+        try:
+            return float(x)
+        except:
+            return None
+
+    def _arrow(lat, prv):
+        # returns "↑", "↓", or "—"
+        if lat is None or prv is None:
+            return "—"
+        if lat > prv:
+            return "↑"
+        if lat < prv:
+            return "↓"
+        return "—"
+
+    def _regime_label(score):
+        # tweak thresholds however you like
+        if score is None:
+            return "—"
+        if score >= 65:
+            return "Risk-On"
+        if score >= 45:
+            return "Neutral"
+        return "Risk-Off"
+
+    latest, prev = fetch_market_pulse(conn)
+
+    if latest:
+        score = _num(latest.get("pulse_score"))
+        score_txt = f"{score:.0f}" if score is not None else "—"
+        regime = _regime_label(score)
+
+        # We’ll map the 3 displayed signals like this:
+        # Momentum = momentum_breadth
+        # Breadth  = accel_breadth (or liquidity_breadth if you prefer)
+        # Volatility = (inverse of liquidity_breadth change OR stability change)
+        # If you already have a true volatility metric, swap it in here.
+        mom_now = _num(latest.get("momentum_breadth"))
+        mom_prev = _num(prev.get("momentum_breadth")) if prev else None
+
+        br_now = _num(latest.get("accel_breadth"))
+        br_prev = _num(prev.get("accel_breadth")) if prev else None
+
+        # Using avg_stability as a proxy for volatility direction:
+        # if stability rising => volatility "↓"
+        st_now = _num(latest.get("avg_stability"))
+        st_prev = _num(prev.get("avg_stability")) if prev else None
+        vol_arrow = "—"
+        if st_now is not None and st_prev is not None:
+            vol_arrow = "↓" if st_now > st_prev else ("↑" if st_now < st_prev else "—")
+
+        mom_arrow = _arrow(mom_now, mom_prev)
+        br_arrow  = _arrow(br_now, br_prev)
+
+        # Simple “status dot” class hook (your CSS can color it)
+        dot_class = "pp-dot-on" if regime == "Risk-On" else ("pp-dot-off" if regime == "Risk-Off" else "pp-dot-neutral")
+
+        market_pulse_html = f"""
+        <div class="pp-card pp-card--wide">
+          <div class="pp-card__inner">
+
+            <div class="pp-row pp-row--between pp-row--center">
+              <div class="pp-title">
+                <span class="pp-title__label">MARKET PULSE</span>
+                <span class="pp-title__score">{score_txt}<span class="pp-title__muted"> / 100</span></span>
+              </div>
+
+              <div class="pp-regime">
+                <span class="pp-dot {dot_class}"></span>
+                <span class="pp-regime__text">{regime}</span>
+              </div>
+            </div>
+
+            <div class="pp-divider"></div>
+
+            <div class="pp-metrics">
+              <div class="pp-metric">
+                <span class="pp-metric__icon">◆</span>
+                <span class="pp-metric__label">Momentum</span>
+                <span class="pp-metric__arrow">{mom_arrow}</span>
+              </div>
+              <div class="pp-metric">
+                <span class="pp-metric__icon">◆</span>
+                <span class="pp-metric__label">Breadth</span>
+                <span class="pp-metric__arrow">{br_arrow}</span>
+              </div>
+              <div class="pp-metric">
+                <span class="pp-metric__icon">◆</span>
+                <span class="pp-metric__label">Volatility</span>
+                <span class="pp-metric__arrow">{vol_arrow}</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+        """
+
+        components.html(market_pulse_html, height=140)
+
+except Exception as e:
+    st.error(f"Market pulse error: {e}")
+
+finally:
+    try:
+        conn.close()
+    except:
+        pass
+
+# -----------------------------
 # Pulse Environment (HOME CARD)
 # FULL DROP-IN (includes conn)
 # -----------------------------
