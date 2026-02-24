@@ -2478,107 +2478,108 @@ if tab == "home":
             st.caption("No price data cached yet for your tickers.")
 
     # -----------------------------
-    # MARKET PULSE (Pulse Environment Card)
-    # -----------------------------
-    try:
-        conn = get_connection()
-        env = fetch_pulse_environment(conn)   # <-- your function takes (conn)
+# Market Pulse (Pulse Environment) - HOME CARD
+# -----------------------------
+try:
+    conn = get_connection()
+    env = fetch_pulse_environment(conn)
+    conn.close()
 
-        # Optional: if your fetch function returns only latest, this is fine.
-        # If it returns a dict with both latest/prev, handle below.
+    if env:
+        pulse = env.get("pulse_score")
+        regime = env.get("pulse_regime") or "—"
 
-        if not env:
-            st.markdown("")  # nothing
+        # Simple directional signals from your available columns
+        mom = env.get("momentum_breadth")
+        brd = env.get("accel_breadth")
+        stab = env.get("avg_stability")
+
+        mom_arrow = "↑" if isinstance(mom, (int, float)) and mom >= 50 else "↓"
+        brd_arrow = "↑" if isinstance(brd, (int, float)) and brd >= 50 else "↓"
+
+        # volatility feel: if stability is high, volatility is "down"
+        vol_arrow = "↓" if isinstance(stab, (int, float)) and stab >= 50 else "↑"
+
+        pulse_txt = f"{pulse:.0f}" if isinstance(pulse, (int, float)) else "—"
+
+        # Dot color by regime (tweak labels if yours differ)
+        regime_l = str(regime).lower()
+        if "risk-on" in regime_l or "bull" in regime_l:
+            dot = "#22c55e"
+        elif "risk-off" in regime_l or "bear" in regime_l:
+            dot = "#ef4444"
         else:
-            # Expected columns in pulse_environment_daily:
-            # pulse_score, momentum_breadth, accel_breadth, liquidity_breadth, avg_global_percentile, avg_stability
-            pulse_score = env.get("pulse_score")
-            momentum    = env.get("momentum_breadth")
-            breadth     = env.get("accel_breadth") if env.get("accel_breadth") is not None else env.get("liquidity_breadth")
-            vol         = env.get("avg_stability")  # using as "volatility proxy" if that's what you were doing
+            dot = "#f59e0b"
 
-            # Labels (simple + safe defaults)
-            score_val = float(pulse_score) if pulse_score is not None else None
+        market_pulse_html = f"""
+        <div style="margin-top:18px; border-radius:22px; overflow:hidden;
+                    background:linear-gradient(145deg,#0b1220,#0a1224);
+                    box-shadow:0 10px 30px rgba(0,0,0,0.45);
+                    border:1px solid rgba(255,255,255,0.07);">
 
-            if score_val is None:
-                regime = "—"
-                dot = "⚪"
-            elif score_val >= 67:
-                regime = "Risk-On"
-                dot = "🟢"
-            elif score_val >= 45:
-                regime = "Neutral"
-                dot = "🟡"
-            else:
-                regime = "Risk-Off"
-                dot = "🔴"
+          <div style="padding:18px 18px 14px 18px;">
 
-            # Arrows (basic; if you already compute deltas, swap these)
-            def arrow(v):
-                if v is None:
-                    return "→"
-                try:
-                    v = float(v)
-                except:
-                    return "→"
-                # >50 good / <50 bad (adjust if your scale differs)
-                return "↑" if v >= 50 else "↓"
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
+              <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:46px; height:46px; border-radius:16px;
+                            background:linear-gradient(135deg,#fbbf24,#f59e0b);
+                            display:flex; align-items:center; justify-content:center;
+                            box-shadow:0 10px 20px rgba(245,158,11,0.18);">
+                  <div style="font-size:20px;">📈</div>
+                </div>
 
-            m_arrow = arrow(momentum)
-            b_arrow = arrow(breadth)
-            v_arrow = arrow(vol)
+                <div style="font-size:22px; font-weight:900; letter-spacing:0.6px; color:#e5e7eb;">
+                  MARKET PULSE
+                </div>
+              </div>
 
-            score_txt = f"{int(round(score_val))}" if score_val is not None else "—"
-
-            card_html = f"""
-            <div class="pp-card" style="margin-top:4px;">
-              <div style="padding:18px 18px 14px 18px;">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                  <div style="font-size:16px; font-weight:600; color:#f5d07a;">
-                    MARKET PULSE
-                  </div>
-                  <div style="font-size:16px; font-weight:600; color:#e5e7eb;">
-                    {score_txt} <span style="opacity:.7;">/ 100</span>
-                    <span style="margin-left:10px; font-size:16px; font-weight:600; color:#e5e7eb;">
-                      {dot} {regime}
-                    </span>
-                  </div>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <div style="font-size:28px; font-weight:900; color:#e5e7eb;">
+                  {pulse_txt} <span style="opacity:.65; font-weight:800;">/ 100</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; color:#e5e7eb; font-weight:800;">
+                  <span style="width:16px; height:16px; border-radius:999px; background:{dot};
+                               box-shadow:0 0 18px {dot}55;"></span>
+                  <span style="font-size:20px;">{regime}</span>
+                </div>
+              </div>
             </div>
 
-            <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
+            <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
 
-            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:16px; color:#e5e7eb;">
-                  <div style="display:flex; align-items:center; gap:2px;">
-                    <span style="color:#49e38b;">◆</span>
-                    <span style="opacity:.9;">Momentum</span>
-                    <span style="font-weight:600;">{m_arrow}</span>
-                  </div>
-                  <div style="display:flex; align-items:center; gap:2px;">
-                    <span style="color:#f5d07a;">◆</span>
-                    <span style="opacity:.9;">Breadth</span>
-                    <span style="font-weight:600;">{b_arrow}</span>
-                  </div>
-                  <div style="display:flex; align-items:center; gap:2px;">
-                    <span style="color:#f5d07a;">◆</span>
-                    <span style="opacity:.9;">Volatility</span>
-                    <span style="font-weight:600;">{v_arrow}</span>
-                  </div>
-                </div>
-             </div>
+            <div style="display:flex; flex-wrap:wrap; gap:22px; align-items:center; font-size:26px; color:#e5e7eb;">
 
-             <div class="pp-glow-line"></div>
-             </div>
-            """
+              <div style="display:flex; align-items:center; gap:12px;">
+                <span style="color:#34d399; font-size:24px;">◆</span>
+                <span style="opacity:.85; font-size:26px;">Momentum</span>
+                <span style="font-weight:900; font-size:28px;">{mom_arrow}</span>
+              </div>
 
-            st.markdown(card_html, unsafe_allow_html=True)
+              <div style="display:flex; align-items:center; gap:12px;">
+                <span style="color:#fbbf24; font-size:24px;">◆</span>
+                <span style="opacity:.85; font-size:26px;">Breadth</span>
+                <span style="font-weight:900; font-size:28px;">{brd_arrow}</span>
+              </div>
 
-    except Exception as e:
-        st.error(f"Pulse environment error: {e}")
-    finally:
-        try:
-            conn.close()
-        except:
-            pass
+              <div style="display:flex; align-items:center; gap:12px;">
+                <span style="color:#fbbf24; font-size:24px;">◆</span>
+                <span style="opacity:.85; font-size:26px;">Volatility</span>
+                <span style="font-weight:900; font-size:28px;">{vol_arrow}</span>
+              </div>
+
+            </div>
+          </div>
+
+          <div style="height:3px; background:linear-gradient(90deg,
+                      rgba(245,158,11,0.0), rgba(245,158,11,0.75), rgba(245,158,11,0.0));">
+          </div>
+        </div>
+        """
+
+        st.markdown(market_pulse_html, unsafe_allow_html=True)
+
+except Exception as e:
+    st.error(f"Market pulse error: {e}")
 
 
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
