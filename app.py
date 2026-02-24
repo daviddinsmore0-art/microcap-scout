@@ -2511,22 +2511,22 @@ if tab == "home":
 
              if not env_label:
              if pulse_score is None:
-        env_label = "Neutral"
-    elif float(pulse_score) >= 65:
-        env_label = "Risk-On"
-    elif float(pulse_score) >= 45:
-        env_label = "Neutral"
-    else:
-        env_label = "Risk-Off"
+             env_label = "Neutral"
+            elif float(pulse_score) >= 65:
+             env_label = "Risk-On"
+            elif float(pulse_score) >= 45:
+             env_label = "Neutral"
+            else:
+             env_label = "Risk-Off"
 
-if pulse_score is None:
-    dot_color = "#64748b"
-elif float(pulse_score) >= 65:
-    dot_color = "#22c55e"
-elif float(pulse_score) >= 45:
-    dot_color = "#fbbf24"
-else:
-    dot_color = "#ef4444"
+           if pulse_score is None:
+             dot_color = "#64748b"
+           elif float(pulse_score) >= 65:
+             dot_color = "#22c55e"
+           elif float(pulse_score) >= 45:
+             dot_color = "#fbbf24"
+           else:
+             dot_color = "#ef4444"
             regime = (env.get("pulse_regime") or "Neutral").strip()
             regime_l = regime.lower()
             if "risk-on" in regime_l or "risk on" in regime_l:
