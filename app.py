@@ -2549,9 +2549,9 @@ if tab == "home":
         brd = env.get("accel_breadth")  # breadth proxy
         stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
 
-            mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
-            brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
-            vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
+        mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
+        brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
+        vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
             # For volatility we want DOWN when stability is high
             if vol_arrow != "—":
                 vol_arrow = "↓" if float(stb) >= 50 else "↑"
