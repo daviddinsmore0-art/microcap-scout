@@ -2577,13 +2577,13 @@ if tab == "home":
                   <span class="pulse-arrow">{mom_arrow}</span>
             </div>
 
-                <div class="pulse-metric">
+            <div class="pulse-metric">
                   <span style="color:{brd_color}; font-size:18px;">◆</span>
                   <span class="pulse-label">Breadth</span>
                   <span class="pulse-arrow">{brd_arrow}</span>
-                </div>
+            </div>
 
-                <div class="pulse-metric">
+            <div class="pulse-metric">
                   <span style="color:{vol_color}; font-size:18px;">◆</span>
                   <span class="pulse-label">Volatility</span>
                   <span class="pulse-arrow">{vol_arrow}</span>
