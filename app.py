@@ -288,7 +288,7 @@ div[data-testid="stDecoration"] {
 }
 .pulse-pill .pulse-score{
   color: #49e38b;
-  font-weight: 500;
+  font-weight: 400;
 }
 .pulse-dot{
   width:12px;
@@ -312,8 +312,8 @@ div[data-testid="stDecoration"] {
   background: transparent;
 }
 .pulse-label{
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
   color: rgba(255,255,255,0.86);
   margin: 0;
 }
