@@ -2477,7 +2477,68 @@ if tab == "home":
         else:
             st.caption("No price data cached yet for your tickers.")
 
-      
+     # -----------------------------
+# Pulse Environment (HOME CARD)
+# -----------------------------
+try: 
+    conn = get_connection()
+    env = fetch_pulse_environment(conn)  # you already defined this yesterday
+
+    if env:
+        asof = env.get("asof_date")
+
+        pulse_score = env.get("pulse_score")
+        momentum_breadth = env.get("momentum_breadth")
+        avg_global_percentile = env.get("avg_global_percentile")
+        avg_stability = env.get("avg_stability")
+
+        pulse_txt = f"{pulse_score:.1f}" if pulse_score is not None else "—"
+        breadth_txt = f"{momentum_breadth:.1f}" if momentum_breadth is not None else "—"
+        risk_txt = f"{avg_global_percentile:.1f}" if avg_global_percentile is not None else "—"
+        stability_txt = f"{avg_stability:.1f}" if avg_stability is not None else "—"
+
+        pulse_html = f"""
+        <div style="margin-top:18px; border-radius:22px; overflow:hidden;
+                    background:linear-gradient(145deg,#0f172a,#0b1220);
+                    box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                    border:1px solid rgba(255,255,255,0.06);">
+          <div style="padding:18px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div style="width:44px; height:44px; border-radius:14px;
+                          background:linear-gradient(135deg,#7c3aed,#4f46e5);
+                          display:flex; align-items:center; justify-content:center;">
+                <div style="font-size:20px;">🌐</div>
+              </div>
+              <div>
+                <div style="font-size:22px; font-weight:800; color:#e5e7eb;">Pulse Environment</div>
+                <div style="font-size:14px; color:rgba(229,231,235,0.65);">
+                  As of {asof} • Pulse {pulse_txt}
+                </div>
+              </div>
+            </div>
+
+            <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
+
+            <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+              <span style="color:rgba(229,231,235,0.75);">Risk</span>
+              <span><b>{risk_txt}</b></span>
+            </div>
+            <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+              <span style="color:rgba(229,231,235,0.75);">Breadth</span>
+              <span><b>{breadth_txt}</b></span>
+            </div>
+            <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+              <span style="color:rgba(229,231,235,0.75);">Stability</span>
+              <span><b>{stability_txt}</b></span>
+            </div>
+          </div>
+        </div>
+        """
+
+        components.html(pulse_html, height=240)
+
+except Exception as e:
+    st.error(f"Pulse environment error: {e}") 
         
             
     # ==========================
