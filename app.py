@@ -2548,36 +2548,40 @@ if tab == "home":
             dot_color = "#22c55e" if "Risk-On" in env_label else ("#ef4444" if "Risk-Off" in env_label else "#f59e0b")
 
             market_pulse_html = f"""
-            <div class=\"pulse-card\">
-              <div class=\"pulse-top\">
-                <div class=\"pulse-title\">MARKET PULSE</div>
-                <div class=\"pulse-pill\">
-                  <span style=\"font-weight:800;\">{pulse_score_txt} / 100</span>
-                  <span style=\"display:inline-flex;align-items:center;gap:10px;margin-left:14px;\">
-                    <span style=\"width:14px;height:14px;border-radius:999px;background:{dot_color};display:inline-block;box-shadow:0 0 0 3px rgba(255,255,255,0.06);\"></span>
-                    <span style=\"font-weight:800;\">{env_label}</span>
-                  </span>
-                </div>
-              </div>
-              <div style=\"height:1px;background:rgba(255,255,255,0.10);margin:12px 0 14px 0;\"></div>
-              <div style=\"display:flex;gap:22px;flex-wrap:wrap;align-items:center;font-size:18px;\">
-                <div style=\"display:flex;align-items:center;gap:10px;color:rgba(255,255,255,0.78);\">
-                  <span style=\"color:{mom_col};font-size:18px;\">◆</span>
-                  <span style=\"opacity:.92;\">Momentum</span>
-                  <span style=\"font-weight:800;color:rgba(255,255,255,0.90);\">{mom_arrow}</span>
-                </div>
-                <div style=\"display:flex;align-items:center;gap:10px;color:rgba(255,255,255,0.78);\">
-                  <span style=\"color:{breadth_col};font-size:18px;\">◆</span>
-                  <span style=\"opacity:.92;\">Breadth</span>
-                  <span style=\"font-weight:800;color:rgba(255,255,255,0.90);\">{breadth_arrow}</span>
-                </div>
-                <div style=\"display:flex;align-items:center;gap:10px;color:rgba(255,255,255,0.78);\">
-                  <span style=\"color:{vol_col};font-size:18px;\">◆</span>
-                  <span style=\"opacity:.92;\">Volatility</span>
-                  <span style=\"font-weight:800;color:rgba(255,255,255,0.90);\">{vol_arrow}</span>
-                </div>
-              </div>
-            </div>
+            <div class='pulse-card'>
+  <div class='pulse-top'>
+    <div class='pulse-title'>MARKET PULSE</div>
+    <div class='pulse-pill'>
+      <span style='font-weight:800;'>{pulse_score}</span>
+      <span style='display:inline-flex;align-items:center;gap:6px;margin-left:6px;'>
+        <span style='width:14px;height:14px;border-radius:50%;background:{dot_color};display:inline-block;'></span>
+        <span style='font-weight:800;'>{env_label}</span>
+      </span>
+    </div>
+  </div>
+
+  <div style='height:1px;background:rgba(255,255,255,0.08);margin:12px 0 16px 0;'></div>
+
+  <div style='display:flex;gap:24px;flex-wrap:wrap;'>
+    <div style='display:flex;align-items:center;gap:8px;'>
+      <span style='color:{mom_col};font-size:18px;'>◆</span>
+      <span style='opacity:.9;'>Momentum</span>
+      <span style='font-weight:800;'>{mom_arrow}</span>
+    </div>
+
+    <div style='display:flex;align-items:center;gap:8px;'>
+      <span style='color:{breadth_col};font-size:18px;'>◆</span>
+      <span style='opacity:.9;'>Breadth</span>
+      <span style='font-weight:800;'>{breadth_arrow}</span>
+    </div>
+
+    <div style='display:flex;align-items:center;gap:8px;'>
+      <span style='color:{vol_col};font-size:18px;'>◆</span>
+      <span style='opacity:.9;'>Volatility</span>
+      <span style='font-weight:800;'>{vol_arrow}</span>
+    </div>
+  </div>
+</div>
             """.strip()
 
             st.markdown(market_pulse_html, unsafe_allow_html=True)
