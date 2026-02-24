@@ -2506,15 +2506,27 @@ if tab == "home":
             # --- derived labels/colors/arrows (keeps it simple + stable) ---
             pulse_score = env.get("pulse_score")
             pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
-            # --- ADD THIS BLOCK ---
-            if pulse_score is None:
-              dot_color = "#64748b"   # gray
-            elif float(pulse_score) >= 65:
-              dot_color = "#22c55e"   # green
-            elif float(pulse_score) >= 45:
-              dot_color = "#fbbf24"   # yellow
-            else:
-              dot_color = "#ef4444"   # red
+
+            env_label = env.get("environment_label") or env.get("env_label") or ""
+
+             if not env_label:
+             if pulse_score is None:
+        env_label = "Neutral"
+    elif float(pulse_score) >= 65:
+        env_label = "Risk-On"
+    elif float(pulse_score) >= 45:
+        env_label = "Neutral"
+    else:
+        env_label = "Risk-Off"
+
+if pulse_score is None:
+    dot_color = "#64748b"
+elif float(pulse_score) >= 65:
+    dot_color = "#22c55e"
+elif float(pulse_score) >= 45:
+    dot_color = "#fbbf24"
+else:
+    dot_color = "#ef4444"
             regime = (env.get("pulse_regime") or "Neutral").strip()
             regime_l = regime.lower()
             if "risk-on" in regime_l or "risk on" in regime_l:
