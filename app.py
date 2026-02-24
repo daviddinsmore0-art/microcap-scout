@@ -2560,13 +2560,13 @@ if tab == "home":
 <div class="pulse-metrics">
     <div class="pulse-metric" style="flex:1 1 160px;">
       <div class="pulse-value"><span style="color:{mom_col}; margin-right:10px;">◆</span><span style="opacity:.9;">Momentum</span> <b>{mom_arrow}</b></div>
-    </div>
+</div>
 
-    <div class="pulse-metric" style="flex:1 1 160px;">
+<div class="pulse-metric" style="flex:1 1 160px;">
       <div class="pulse-value"><span style="color:{breadth_col}; margin-right:10px;">◆</span><span style="opacity:.9;">Breadth</span> <b>{breadth_arrow}</b></div>
-    </div>
+</div>
 
-    <div class="pulse-metric" style="flex:1 1 100%;">
+<div class="pulse-metric" style="flex:1 1 100%;">
       <div class="pulse-value"><span style="color:{vol_col}; margin-right:10px;">◆</span><span style="opacity:.9;">Volatility</span> <b>{vol_arrow}</b></div>
     </div>
   </div>
