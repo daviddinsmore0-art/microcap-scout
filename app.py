@@ -690,7 +690,7 @@ def get_rank_map_for_tickers(tickers):
         # Sector ranks (best effort)
         cur.execute(
             f"""
-            SELECT ticker, sector_name, sector_rank, sector_count, sector_percentile
+            SELECT ticker, sector AS sector_name, sector_rank, sector_count, sector_percentile
             FROM rankings_sector_daily
             WHERE asof_date = %s
               AND ticker IN ({placeholders})
