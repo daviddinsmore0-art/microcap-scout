@@ -2478,7 +2478,76 @@ if tab == "home":
             st.caption("No price data cached yet for your tickers.")
 
       
-            
+        # -----------------------------
+    # Pulse Environment (NEW CARD)
+    # -----------------------------
+    try:
+        env = fetch_pulse_environment_data()  # already in your app.py
+
+        if env:
+            env_label = env.get("environment_label") or "—"
+            env_score = env.get("composite_score")
+            env_score_txt = f"{env_score:.0f}" if isinstance(env_score, (int, float)) else ""
+
+            risk_label = env.get("risk_label") or "—"
+            risk_score = env.get("risk_score")
+            risk_txt = f"{risk_score:.0f}" if isinstance(risk_score, (int, float)) else ""
+
+            breadth_label = env.get("breadth_label") or "—"
+            breadth_score = env.get("breadth_score")
+            breadth_txt = f"{breadth_score:.0f}" if isinstance(breadth_score, (int, float)) else ""
+
+            vol_label = env.get("vol_label") or "—"
+            vol_score = env.get("vol_score")
+            vol_txt = f"{vol_score:.0f}" if isinstance(vol_score, (int, float)) else ""
+
+            pulse_html = textwrap.dedent(f"""
+            <div style="margin-top:18px; border-radius:22px; overflow:hidden;
+                        background:linear-gradient(145deg,#0f172a,#0b1220);
+                        box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                        border:1px solid rgba(255,255,255,0.06);">
+              <div style="padding:18px 18px 14px 18px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <div style="width:44px; height:44px; border-radius:14px;
+                              background:linear-gradient(135deg,#7c3aed,#4f46e5);
+                              display:flex; align-items:center; justify-content:center;
+                              box-shadow:0 8px 18px rgba(79,70,229,0.25);">
+                    <div style="font-size:20px;">🌐</div>
+                  </div>
+                  <div style="flex:1;">
+                    <div style="font-size:22px; font-weight:800; color:#e5e7eb;">Pulse Environment</div>
+                    <div style="margin-top:2px; font-size:14px; color:rgba(229,231,235,0.65);">
+                      Regime snapshot • {env_label} {("• Score " + env_score_txt) if env_score_txt else ""}
+                    </div>
+                  </div>
+                </div>
+
+                <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
+
+                <div style="display:grid; grid-template-columns:1fr; gap:10px; font-size:16px;">
+                  <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                    <span style="color:rgba(229,231,235,0.75);">Risk</span>
+                    <span><b>{risk_label}</b>{(" • " + risk_txt) if risk_txt else ""}</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                    <span style="color:rgba(229,231,235,0.75);">Breadth</span>
+                    <span><b>{breadth_label}</b>{(" • " + breadth_txt) if breadth_txt else ""}</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                    <span style="color:rgba(229,231,235,0.75);">Volatility</span>
+                    <span><b>{vol_label}</b>{(" • " + vol_txt) if vol_txt else ""}</span>
+                  </div>
+                </div>
+              </div>
+              <div style="height:3px; background:linear-gradient(90deg, rgba(124,58,237,0.0), rgba(124,58,237,0.65), rgba(79,70,229,0.0));"></div>
+            </div>
+            """).strip()
+
+            components.html(pulse_html, height=260)
+
+        # If no env row exists yet, just show nothing (no errors on homepage)
+    except Exception as e:
+        st.error(f"Pulse environment error: {e}")    
     # ==========================
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
