@@ -278,8 +278,8 @@ div[data-testid="stDecoration"] {
   align-items:center;
   gap:12px;
   padding: 8px 14px;
-  font-size: 14px;
-  font-weight:900;
+  font-size: 16px;
+  font-weight:600;
   color: rgba(255,255,255,0.86);
   white-space:nowrap;
 }
