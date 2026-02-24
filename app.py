@@ -2476,263 +2476,139 @@ if tab == "home":
             render_portfolio_ticker(data_map, tickers_sorted)
         else:
             st.caption("No price data cached yet for your tickers.")
-
-# -----------------------------
-# MARKET PULSE (HOME CARD) — uses existing CSS classes
-# -----------------------------
-try:
-    conn = get_connection()
-
-    def fetch_market_pulse(conn):
-        # Latest row
-        q_latest = """
-            SELECT
-                asof_date,
-                pulse_score,
-                momentum_breadth,
-                accel_breadth,
-                liquidity_breadth,
-                avg_global_percentile,
-                avg_stability
-            FROM pulse_environment_daily
-            ORDER BY asof_date DESC
-            LIMIT 1
-        """
-
-        # Prior row for direction arrows (previous snapshot)
-        q_prev = """
-            SELECT
-                asof_date,
-                pulse_score,
-                momentum_breadth,
-                accel_breadth,
-                liquidity_breadth,
-                avg_global_percentile,
-                avg_stability
-            FROM pulse_environment_daily
-            ORDER BY asof_date DESC
-            LIMIT 1 OFFSET 1
-        """
-
-        cur = conn.cursor(dictionary=True)
-        cur.execute(q_latest)
-        latest = cur.fetchone()
-
-        cur.execute(q_prev)
-        prev = cur.fetchone()
-        cur.close()
-
-        return latest, prev
-
-    def _num(x):
-        try:
-            return float(x)
-        except:
-            return None
-
-    def _arrow(lat, prv):
-        # returns "↑", "↓", or "—"
-        if lat is None or prv is None:
-            return "—"
-        if lat > prv:
-            return "↑"
-        if lat < prv:
-            return "↓"
-        return "—"
-
-    def _regime_label(score):
-        # tweak thresholds however you like
-        if score is None:
-            return "—"
-        if score >= 65:
-            return "Risk-On"
-        if score >= 45:
-            return "Neutral"
-        return "Risk-Off"
-
-    latest, prev = fetch_market_pulse(conn)
-
-    if latest:
-        score = _num(latest.get("pulse_score"))
-        score_txt = f"{score:.0f}" if score is not None else "—"
-        regime = _regime_label(score)
-
-        # We’ll map the 3 displayed signals like this:
-        # Momentum = momentum_breadth
-        # Breadth  = accel_breadth (or liquidity_breadth if you prefer)
-        # Volatility = (inverse of liquidity_breadth change OR stability change)
-        # If you already have a true volatility metric, swap it in here.
-        mom_now = _num(latest.get("momentum_breadth"))
-        mom_prev = _num(prev.get("momentum_breadth")) if prev else None
-
-        br_now = _num(latest.get("accel_breadth"))
-        br_prev = _num(prev.get("accel_breadth")) if prev else None
-
-        # Using avg_stability as a proxy for volatility direction:
-        # if stability rising => volatility "↓"
-        st_now = _num(latest.get("avg_stability"))
-        st_prev = _num(prev.get("avg_stability")) if prev else None
-        vol_arrow = "—"
-        if st_now is not None and st_prev is not None:
-            vol_arrow = "↓" if st_now > st_prev else ("↑" if st_now < st_prev else "—")
-
-        mom_arrow = _arrow(mom_now, mom_prev)
-        br_arrow  = _arrow(br_now, br_prev)
-
-        # Simple “status dot” class hook (your CSS can color it)
-        dot_class = "pp-dot-on" if regime == "Risk-On" else ("pp-dot-off" if regime == "Risk-Off" else "pp-dot-neutral")
-
-        market_pulse_html = f"""
-        <div class="pp-card pp-card--wide">
-          <div class="pp-card__inner">
-
-            <div class="pp-row pp-row--between pp-row--center">
-              <div class="pp-title">
-                <span class="pp-title__label">MARKET PULSE</span>
-                <span class="pp-title__score">{score_txt}<span class="pp-title__muted"> / 100</span></span>
-              </div>
-
-              <div class="pp-regime">
-                <span class="pp-dot {dot_class}"></span>
-                <span class="pp-regime__text">{regime}</span>
-              </div>
-            </div>
-
-            <div class="pp-divider"></div>
-
-            <div class="pp-metrics">
-              <div class="pp-metric">
-                <span class="pp-metric__icon">◆</span>
-                <span class="pp-metric__label">Momentum</span>
-                <span class="pp-metric__arrow">{mom_arrow}</span>
-              </div>
-              <div class="pp-metric">
-                <span class="pp-metric__icon">◆</span>
-                <span class="pp-metric__label">Breadth</span>
-                <span class="pp-metric__arrow">{br_arrow}</span>
-              </div>
-              <div class="pp-metric">
-                <span class="pp-metric__icon">◆</span>
-                <span class="pp-metric__label">Volatility</span>
-                <span class="pp-metric__arrow">{vol_arrow}</span>
-              </div>
-            </div>
-
-          </div>
-        </div>
-        """
-
-        components.html(market_pulse_html, height=140)
-
-except Exception as e:
-    st.error(f"Market pulse error: {e}")
-
-finally:
+    # -----------------------------
+    # Pulse Environment (HOME CARD) — uses existing pp-card CSS
+    # -----------------------------
+    conn = None
     try:
-        conn.close()
-    except:
-        pass
+        conn = get_connection()
 
-# -----------------------------
-# Pulse Environment (HOME CARD)
-# FULL DROP-IN (includes conn)
-# -----------------------------
-try:
-    conn = get_connection()
+        # latest row from pulse_environment_daily (created by update_pulse_environment.php cron)
+        env = fetch_pulse_environment(conn)
 
-    def fetch_pulse_environment(conn):
-        q = """
-            SELECT
-                asof_date,
-                pulse_score,
-                momentum_breadth,
-                accel_breadth,
-                avg_global_percentile,
-                avg_stability,
-                liquidity_breadth
-            FROM pulse_environment_daily
-            ORDER BY asof_date DESC
-            LIMIT 1
-        """
-        cur = conn.cursor(dictionary=True)
-        cur.execute(q)
-        row = cur.fetchone()
-        cur.close()
-        return row
+        if env:
+            pulse_score = env.get("pulse_score")
+            momentum_breadth = env.get("momentum_breadth")
+            accel_breadth = env.get("accel_breadth")
+            avg_stability = env.get("avg_stability")
 
-    env = fetch_pulse_environment(conn)
-
-    if env:
-        def _fmt(x, d=1):
+            # volatility = inverse stability (so higher stability => lower volatility)
+            volatility = None
             try:
-                return f"{float(x):.{d}f}"
-            except:
-                return "—"
+                if avg_stability is not None:
+                    volatility = max(0.0, 100.0 - float(avg_stability))
+            except Exception:
+                volatility = None
 
-        asof = env.get("asof_date", "—")
+            # regime label based on pulse_score
+            regime = "Neutral"
+            dot_class = "pp-dot--yellow"
+            try:
+                if pulse_score is not None:
+                    ps = float(pulse_score)
+                    if ps >= 60:
+                        regime, dot_class = "Risk-On", "pp-dot--green"
+                    elif ps <= 40:
+                        regime, dot_class = "Risk-Off", "pp-dot--red"
+            except Exception:
+                pass
 
-        pulse_html = f"""
-        <div style="margin-top:18px; border-radius:22px; overflow:hidden;
-                    background:linear-gradient(145deg,#0f172a,#0b1220);
-                    box-shadow:0 10px 30px rgba(0,0,0,0.4);
-                    border:1px solid rgba(255,255,255,0.06);">
-          <div style="padding:18px 18px 14px 18px;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <div style="width:44px; height:44px; border-radius:14px;
-                          background:linear-gradient(135deg,#7c3aed,#4f46e5);
-                          display:flex; align-items:center; justify-content:center;
-                          box-shadow:0 8px 18px rgba(79,70,229,0.25);">
-                <div style="font-size:20px;">🌐</div>
-              </div>
-              <div style="flex:1;">
-                <div style="font-size:22px; font-weight:800; color:#e5e7eb;">Pulse Environment</div>
-                <div style="margin-top:2px; font-size:14px; color:rgba(229,231,235,0.65);">
-                  As of {asof} • Pulse <b>{_fmt(env.get("pulse_score"))}</b>
+            # prior row for arrows
+            prev = None
+            try:
+                with conn.cursor(dictionary=True) as cur:
+                    cur.execute(
+                        "SELECT momentum_breadth, accel_breadth, avg_stability "
+                        "FROM pulse_environment_daily ORDER BY asof_date DESC LIMIT 1 OFFSET 1"
+                    )
+                    prev = cur.fetchone()
+            except Exception:
+                prev = None
+
+            def _delta(a, b):
+                try:
+                    if a is None or b is None:
+                        return None
+                    return float(a) - float(b)
+                except Exception:
+                    return None
+
+            mom_arrow = "—"
+            br_arrow = "—"
+            vol_arrow = "—"
+
+            if prev:
+                dm = _delta(momentum_breadth, prev.get("momentum_breadth"))
+                db = _delta(accel_breadth, prev.get("accel_breadth"))
+
+                mom_arrow = "↑" if (dm or 0) > 0 else ("↓" if (dm or 0) < 0 else "→")
+                br_arrow  = "↑" if (db or 0) > 0 else ("↓" if (db or 0) < 0 else "→")
+
+                prev_vol = None
+                try:
+                    ps = prev.get("avg_stability")
+                    if ps is not None:
+                        prev_vol = max(0.0, 100.0 - float(ps))
+                except Exception:
+                    prev_vol = None
+
+                dv = _delta(volatility, prev_vol)
+                if dv is not None:
+                    # volatility DOWN is good
+                    vol_arrow = "↓" if dv < 0 else ("↑" if dv > 0 else "→")
+
+            score_txt = "—"
+            try:
+                if pulse_score is not None:
+                    score_txt = f"{float(pulse_score):.0f}"
+            except Exception:
+                score_txt = "—"
+
+            pulse_html = f"""
+            <div class="pp-card pp-card--wide">
+              <div class="pp-card-inner">
+                <div class="pp-header">
+                  <div class="pp-title">MARKET PULSE</div>
+                  <div class="pp-score">
+                    <span class="pp-score-num">{score_txt}</span>
+                    <span class="pp-score-den">/ 100</span>
+                    <span class="pp-dot {dot_class}"></span>
+                    <span class="pp-regime">{regime}</span>
+                  </div>
+                </div>
+
+                <div class="pp-divider"></div>
+
+                <div class="pp-metrics">
+                  <div class="pp-metric">
+                    <span class="pp-icon pp-icon--green">&#9670;</span>
+                    Momentum <span class="pp-arrow">{mom_arrow}</span>
+                  </div>
+                  <div class="pp-metric">
+                    <span class="pp-icon pp-icon--amber">&#9670;</span>
+                    Breadth <span class="pp-arrow">{br_arrow}</span>
+                  </div>
+                  <div class="pp-metric">
+                    <span class="pp-icon pp-icon--amber">&#9670;</span>
+                    Volatility <span class="pp-arrow">{vol_arrow}</span>
+                  </div>
                 </div>
               </div>
             </div>
+            """
 
-            <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
+            # under the ticker scrollbar, above Signal Shift
+            components.html(pulse_html, height=120)
 
-            <div style="display:grid; grid-template-columns:1fr; gap:10px; font-size:16px;">
-              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
-                <span style="color:rgba(229,231,235,0.75);">Momentum Breadth</span>
-                <span><b>{_fmt(env.get("momentum_breadth"))}</b></span>
-              </div>
-              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
-                <span style="color:rgba(229,231,235,0.75);">Acceleration Breadth</span>
-                <span><b>{_fmt(env.get("accel_breadth"))}</b></span>
-              </div>
-              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
-                <span style="color:rgba(229,231,235,0.75);">Liquidity Breadth</span>
-                <span><b>{_fmt(env.get("liquidity_breadth"))}</b></span>
-              </div>
-              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
-                <span style="color:rgba(229,231,235,0.75);">Avg Global Percentile</span>
-                <span><b>{_fmt(env.get("avg_global_percentile"))}</b></span>
-              </div>
-              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
-                <span style="color:rgba(229,231,235,0.75);">Avg Stability</span>
-                <span><b>{_fmt(env.get("avg_stability"))}</b></span>
-              </div>
-            </div>
-          </div>
-          <div style="height:3px; background:linear-gradient(90deg, rgba(124,58,237,0.0), rgba(124,58,237,0.65), rgba(79,70,229,0.0));"></div>
-        </div>
-        """
+    except Exception as e:
+        st.error(f"Pulse environment error: {e}")
+    finally:
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
 
-        components.html(pulse_html, height=330)
-
-except Exception as e:
-    st.error(f"Pulse environment error: {e}")
-
-finally:
-    try:
-        conn.close()
-    except:
-        pass
-            
-    # ==========================
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
@@ -2773,7 +2649,7 @@ finally:
             accel_html = "<br>".join(bullets)
 
             card_html = textwrap.dedent(f"""
-<div style="
+    <div style="
     margin-top:30px;
     margin-bottom:0px;
     border-radius:20px;
@@ -2784,29 +2660,29 @@ finally:
     border:1px solid rgba(255,255,255,0.06);
     ">
 
-  <!-- ICON BADGE -->
+      <!-- ICON BADGE -->
 
 
-  <!-- TITLE ROW -->
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-   <div style="display:flex; align-items:center; gap:10px;">
-  {ICON_SIGNAL}
-  <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
+      <!-- TITLE ROW -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
+       <div style="display:flex; align-items:center; gap:10px;">
+      {ICON_SIGNAL}
+      <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
     Today's <span style="color:white;">Signal Shift</span>
-  </div>
-</div>
-<div style="color:#22c55e; font-weight:600;"></div>
-</div>
-  <div style="margin-top:16px; color:#fbbf24; font-size:14px; font-weight:400;">
+      </div>
+    </div>
+    <div style="color:#22c55e; font-weight:600;"></div>
+    </div>
+      <div style="margin-top:16px; color:#fbbf24; font-size:14px; font-weight:400;">
     Biggest Rank Jump (24h)
-  </div>
+      </div>
 
-  <div style="margin-top:8px; font-size:14px; font-weight:600; color:white;">
+      <div style="margin-top:8px; font-size:14px; font-weight:600; color:white;">
     {ticker} <span style="color:#4ade80;">+{jump}</span> spots
-  </div>
+      </div>
 
-  {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 14px; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
-<div style="
+      {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 14px; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
+    <div style="
         position: absolute;
         bottom: 0;           /* Sticks it to the very bottom edge */
         left: 10%;           /* Centers it */
@@ -2815,9 +2691,9 @@ finally:
         background: linear-gradient(90deg, transparent, #facc15, transparent);
         box-shadow: 0px -2px 10px rgba(250, 204, 21, 0.6); /* Negative Y pushes glow UP into the card */
     "></div>
-</div>
+    </div>
 
-""").strip()
+    """).strip()
 
             components.html(card_html, height=260)
         # else: show nothing (no blank card on weekends/holidays)
@@ -2889,13 +2765,13 @@ finally:
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
             <div style="display:flex; align-items:center; gap:10px;">
-  {ICON_ACCEL}
-  <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
+      {ICON_ACCEL}
+      <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
     New <span style="color:white;">Acceleration Alerts</span>
-  </div>
-</div>
-<div style="color:#22c55e; font-weight:600;"></div>
-</div>
+      </div>
+    </div>
+    <div style="color:#22c55e; font-weight:600;"></div>
+    </div>
 
           <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:400;">
             Stocks speeding up <span style="opacity:.7;"> (vs prior run)</span>
