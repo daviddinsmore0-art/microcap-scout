@@ -253,7 +253,7 @@ div[data-testid="stDecoration"] {
 /* Pulse Environment / Market Pulse card */
 .pulse-card{
   border-radius:20px;
-  padding:10px 18px 16px 18px;
+  padding:10px 10px 20px 20px;
   background-color: #1a1f2b;
   border: 1px solid rgba(255,255,255,0.06);
   box-shadow: 0 10px 26px rgba(0,0,0,0.35);
