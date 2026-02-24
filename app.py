@@ -436,6 +436,18 @@ token = st.query_params.get("token", None)
 def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
+
+def _get_latest_asof(cur, table, col="asof_date"):
+    """Return MAX(asof_date) for a table (as a date/datetime object) or None."""
+    try:
+        cur.execute(f"SELECT MAX({col}) AS d FROM {table}")
+        row = cur.fetchone()
+        if isinstance(row, dict):
+            return row.get("d")
+        return row[0] if row else None
+    except Exception:
+        return None
+
 def _table_exists(cur, table_name: str) -> bool:
     try:
         cur.execute("SHOW TABLES LIKE %s", (table_name,))
@@ -591,64 +603,108 @@ def get_latest_rank_asof():
 
 def get_rank_map_for_tickers(tickers):
     """
-    Returns dict keyed by ticker with ranking + factor scores for the latest asof_date.
+    Returns dict keyed by ticker with ranking + factor scores.
 
-    Uses:
-      - rankings_global_daily (global_rank/global_percentile/composite_score)
-      - rankings_sector_daily (sector/sector_rank/sector_percentile)
-      - rankings_daily (momentum/quality/value/stability)
+    IMPORTANT: each table can lag on different schedules, so we pull MAX(asof_date)
+    per table instead of assuming they all share the same latest date.
     """
     tickers = [t.upper().strip() for t in tickers if t]
     if not tickers:
         return {}
 
-    asof = get_latest_rank_asof()
-    if not asof:
-        return {}
-
-    placeholders = ",".join(["%s"] * len(tickers))
+    out = {t: {} for t in tickers}
 
     conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    if not conn:
+        return out
 
-    # Global rank + percentile (higher percentile = better)
-    cur.execute(f"""
-        SELECT ticker, global_rank, global_percentile, composite_score
-        FROM rankings_global_daily
-        WHERE asof_date = %s AND ticker IN ({placeholders})
-    """, [asof] + tickers)
-    g_rows = cur.fetchall() or []
+    try:
+        cur = conn.cursor(dictionary=True)
 
-    # Sector rank + percentile
-    cur.execute(f"""
-        SELECT ticker, sector, sector_rank, sector_percentile
-        FROM rankings_sector_daily
-        WHERE asof_date = %s AND ticker IN ({placeholders})
-    """, [asof] + tickers)
-    s_rows = cur.fetchall() or []
+        asof_global = _get_latest_asof(cur, "rankings_global_daily")
+        asof_sector = _get_latest_asof(cur, "rankings_sector_daily")
+        asof_factors = _get_latest_asof(cur, "rankings_daily")
 
-    # Factor scores (0-100)
-    cur.execute(f"""
-        SELECT ticker,
-               momentum_score, quality_score, value_score, stability_score
-        FROM rankings_daily
-        WHERE asof_date = %s AND ticker IN ({placeholders})
-    """, [asof] + tickers)
-    f_rows = cur.fetchall() or []
+        # 1) Global ranks
+        if asof_global:
+            fmt = ",".join(["%s"] * len(tickers))
+            cur.execute(
+                f"""
+                SELECT ticker, global_rank, global_percentile, composite_score
+                FROM rankings_global_daily
+                WHERE asof_date = %s AND ticker IN ({fmt})
+                """,
+                [asof_global] + tickers
+            )
+            for r in cur.fetchall() or []:
+                t = (r.get("ticker") or "").upper()
+                out.setdefault(t, {})
+                out[t].update({
+                    "global_rank": r.get("global_rank"),
+                    "global_percentile": r.get("global_percentile"),
+                    "composite_score": r.get("composite_score"),
+                })
 
-    conn.close()
+        # 2) Sector ranks
+        if asof_sector:
+            fmt = ",".join(["%s"] * len(tickers))
+            cur.execute(
+                f"""
+                SELECT ticker, sector, sector_rank, sector_percentile
+                FROM rankings_sector_daily
+                WHERE asof_date = %s AND ticker IN ({fmt})
+                """,
+                [asof_sector] + tickers
+            )
+            for r in cur.fetchall() or []:
+                t = (r.get("ticker") or "").upper()
+                out.setdefault(t, {})
+                out[t].update({
+                    "sector": r.get("sector"),
+                    "sector_rank": r.get("sector_rank"),
+                    "sector_percentile": r.get("sector_percentile"),
+                })
 
-    out = {t: {} for t in tickers}
-    for r in g_rows:
-        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
-    for r in s_rows:
-        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
-    for r in f_rows:
-        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+        # 3) Factor scores
+        if asof_factors:
+            fmt = ",".join(["%s"] * len(tickers))
+            cur.execute(
+                f"""
+                SELECT ticker, momentum_score, stability_score, quality_score, value_score, liquidity_score
+                FROM rankings_daily
+                WHERE asof_date = %s AND ticker IN ({fmt})
+                """,
+                [asof_factors] + tickers
+            )
+            for r in cur.fetchall() or []:
+                t = (r.get("ticker") or "").upper()
+                out.setdefault(t, {})
+                out[t].update({
+                    "momentum": r.get("momentum_score"),
+                    "stability": r.get("stability_score"),
+                    "quality": r.get("quality_score"),
+                    "value": r.get("value_score"),
+                    "liquidity": r.get("liquidity_score"),
+                })
 
-    out["_asof"] = asof
-    return out
-    
+        # expose dates so UI can show an "As of" stamp and you can spot staleness instantly
+        for t in tickers:
+            out.setdefault(t, {})
+            out[t]["_asof_global"] = asof_global
+            out[t]["_asof_sector"] = asof_sector
+            out[t]["_asof_factors"] = asof_factors
+
+        return out
+
+    except Exception:
+        # keep UI alive even if DB throws (details are in Streamlit logs)
+        return out
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 def ensure_stock_cache_ticker(ticker: str):
     """Ensure ticker exists in stock_cache AND in global_universe."""
     t = (ticker or "").strip().upper()
