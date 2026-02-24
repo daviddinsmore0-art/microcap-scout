@@ -267,8 +267,8 @@ div[data-testid="stDecoration"] {
   margin-bottom: 10px;
 }
 .pulse-title{
-  font-size: 18px;
-  font-weight: 900;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #f5d07a;
