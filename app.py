@@ -2578,7 +2578,7 @@ if tab == "home":
                 </div>
 
                 <div class="pulse-metric">
-                  <span style="color:{breadth_color}; font-size:18px;">◆</span>
+                  <span style="color:{}; font-size:18px;">◆</span>
                   <span class="pulse-label">Breadth</span>
                   <span class="pulse-arrow">{breadth_arrow}</span>
                 </div>
