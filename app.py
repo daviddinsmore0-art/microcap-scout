@@ -2506,7 +2506,10 @@ if tab == "home":
             # --- derived labels/colors/arrows (keeps it simple + stable) ---
             pulse_score = env.get("pulse_score")
             pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
-
+            if pulse_score is not None:
+            pulse_int = int(round(float(pulse_score)))
+            else:
+            pulse_int = 0
             regime = (env.get("pulse_regime") or "Neutral").strip()
             regime_l = regime.lower()
             if "risk-on" in regime_l or "risk on" in regime_l:
