@@ -321,7 +321,7 @@ div[data-testid="stDecoration"] {
 }
 .pulse-sub{
   margin-top: 10px;
-  font-size:12px;
+  font-size:18px;
   color: rgba(255,255,255,0.62);
 }
 
