@@ -2548,17 +2548,17 @@ if tab == "home":
             <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
 
             <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:16px; color:#e5e7eb;">
-                  <div style="display:flex; align-items:center; gap:4px;">
+                  <div style="display:flex; align-items:center; gap:2px;">
                     <span style="color:#49e38b;">◆</span>
                     <span style="opacity:.9;">Momentum</span>
                     <span style="font-weight:600;">{m_arrow}</span>
                   </div>
-                  <div style="display:flex; align-items:center; gap:4px;">
+                  <div style="display:flex; align-items:center; gap:2px;">
                     <span style="color:#f5d07a;">◆</span>
                     <span style="opacity:.9;">Breadth</span>
                     <span style="font-weight:600;">{b_arrow}</span>
                   </div>
-                  <div style="display:flex; align-items:center; gap:4px;">
+                  <div style="display:flex; align-items:center; gap:2px;">
                     <span style="color:#f5d07a;">◆</span>
                     <span style="opacity:.9;">Volatility</span>
                     <span style="font-weight:600;">{v_arrow}</span>
