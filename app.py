@@ -267,8 +267,8 @@ div[data-testid="stDecoration"] {
   margin-bottom: 10px;
 }
 .pulse-title{
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 400;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #f5d07a;
@@ -278,7 +278,7 @@ div[data-testid="stDecoration"] {
   align-items:center;
   gap:12px;
   padding: 8px 14px;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 400;
   color: rgba(255,255,255,0.86);
   white-space:nowrap;
@@ -295,7 +295,7 @@ div[data-testid="stDecoration"] {
 }
 .pulse-metrics{
   display:flex;
-  gap:26px;
+  gap:16px;
   flex-wrap:wrap;
   margin-top: 10px;
 }
