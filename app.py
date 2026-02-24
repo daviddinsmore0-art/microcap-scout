@@ -2506,10 +2506,7 @@ if tab == "home":
             # --- derived labels/colors/arrows (keeps it simple + stable) ---
             pulse_score = env.get("pulse_score")
             pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
-            if pulse_score is not None:
-            pulse_int = int(round(float(pulse_score)))
-            else:
-            pulse_int = 0
+            
             regime = (env.get("pulse_regime") or "Neutral").strip()
             regime_l = regime.lower()
             if "risk-on" in regime_l or "risk on" in regime_l:
@@ -2545,7 +2542,7 @@ if tab == "home":
                 <div class="pulse-title">MARKET PULSE</div>
 
                 <div class="pulse-pill">
-                  <span class="pulse-score">{pulse_int} / 100</span>
+                  <span class="pulse-score">{pulse_txt} / 100</span>
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
                   <span style="font-weight:900;">{env_label}</span>
                 </div>
