@@ -309,8 +309,8 @@ div[data-testid="stDecoration"] {
   background: transparent;
 }
 .pulse-label{
-  font-size: 14px;
-  font-weight: 400;
+  font-size: 16px;
+  font-weight: 200;
   color: rgba(255,255,255,0.86);
   margin: 0;
 }
