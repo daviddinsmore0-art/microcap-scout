@@ -2521,7 +2521,7 @@ if tab == "home":
 
         if pulse_score is None:
              dot_color = "#64748b"
-          elif float(pulse_score) >= 65:
+        elif float(pulse_score) >= 65:
              dot_color = "#22c55e"
           elif float(pulse_score) >= 45:
              dot_color = "#fbbf24"
