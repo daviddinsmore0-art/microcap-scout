@@ -2545,9 +2545,9 @@ if tab == "home":
                 color = "#22c55e" if good else "#f59e0b"
                 return arrow, color
 
-            mom = env.get("momentum_breadth")
-            brd = env.get("accel_breadth")  # breadth proxy
-            stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
+        mom = env.get("momentum_breadth")
+        brd = env.get("accel_breadth")  # breadth proxy
+        stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
 
             mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
             brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
