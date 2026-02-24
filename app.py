@@ -2476,138 +2476,110 @@ if tab == "home":
             render_portfolio_ticker(data_map, tickers_sorted)
         else:
             st.caption("No price data cached yet for your tickers.")
+
     # -----------------------------
-    # Pulse Environment (HOME CARD) — uses existing pp-card CSS
-    # -----------------------------
-    conn = None
-    try:
-        conn = get_connection()
+# MARKET PULSE (Pulse Environment Card)
+# -----------------------------
+try:
+    conn = get_connection()
+    env = fetch_pulse_environment(conn)   # <-- your function takes (conn)
 
-        # latest row from pulse_environment_daily (created by update_pulse_environment.php cron)
-        env = fetch_pulse_environment(conn)
+    # Optional: if your fetch function returns only latest, this is fine.
+    # If it returns a dict with both latest/prev, handle below.
 
-        if env:
-            pulse_score = env.get("pulse_score")
-            momentum_breadth = env.get("momentum_breadth")
-            accel_breadth = env.get("accel_breadth")
-            avg_stability = env.get("avg_stability")
+    if not env:
+        st.markdown("")  # nothing
+    else:
+        # Expected columns in pulse_environment_daily:
+        # pulse_score, momentum_breadth, accel_breadth, liquidity_breadth, avg_global_percentile, avg_stability
+        pulse_score = env.get("pulse_score")
+        momentum    = env.get("momentum_breadth")
+        breadth     = env.get("accel_breadth") if env.get("accel_breadth") is not None else env.get("liquidity_breadth")
+        vol         = env.get("avg_stability")  # using as "volatility proxy" if that's what you were doing
 
-            # volatility = inverse stability (so higher stability => lower volatility)
-            volatility = None
-            try:
-                if avg_stability is not None:
-                    volatility = max(0.0, 100.0 - float(avg_stability))
-            except Exception:
-                volatility = None
+        # Labels (simple + safe defaults)
+        score_val = float(pulse_score) if pulse_score is not None else None
 
-            # regime label based on pulse_score
+        if score_val is None:
+            regime = "—"
+            dot = "⚪"
+        elif score_val >= 67:
+            regime = "Risk-On"
+            dot = "🟢"
+        elif score_val >= 45:
             regime = "Neutral"
-            dot_class = "pp-dot--yellow"
+            dot = "🟡"
+        else:
+            regime = "Risk-Off"
+            dot = "🔴"
+
+        # Arrows (basic; if you already compute deltas, swap these)
+        def arrow(v):
+            if v is None:
+                return "→"
             try:
-                if pulse_score is not None:
-                    ps = float(pulse_score)
-                    if ps >= 60:
-                        regime, dot_class = "Risk-On", "pp-dot--green"
-                    elif ps <= 40:
-                        regime, dot_class = "Risk-Off", "pp-dot--red"
-            except Exception:
-                pass
+                v = float(v)
+            except:
+                return "→"
+            # >50 good / <50 bad (adjust if your scale differs)
+            return "↑" if v >= 50 else "↓"
 
-            # prior row for arrows
-            prev = None
-            try:
-                with conn.cursor(dictionary=True) as cur:
-                    cur.execute(
-                        "SELECT momentum_breadth, accel_breadth, avg_stability "
-                        "FROM pulse_environment_daily ORDER BY asof_date DESC LIMIT 1 OFFSET 1"
-                    )
-                    prev = cur.fetchone()
-            except Exception:
-                prev = None
+        m_arrow = arrow(momentum)
+        b_arrow = arrow(breadth)
+        v_arrow = arrow(vol)
 
-            def _delta(a, b):
-                try:
-                    if a is None or b is None:
-                        return None
-                    return float(a) - float(b)
-                except Exception:
-                    return None
+        score_txt = f"{int(round(score_val))}" if score_val is not None else "—"
 
-            mom_arrow = "—"
-            br_arrow = "—"
-            vol_arrow = "—"
-
-            if prev:
-                dm = _delta(momentum_breadth, prev.get("momentum_breadth"))
-                db = _delta(accel_breadth, prev.get("accel_breadth"))
-
-                mom_arrow = "↑" if (dm or 0) > 0 else ("↓" if (dm or 0) < 0 else "→")
-                br_arrow  = "↑" if (db or 0) > 0 else ("↓" if (db or 0) < 0 else "→")
-
-                prev_vol = None
-                try:
-                    ps = prev.get("avg_stability")
-                    if ps is not None:
-                        prev_vol = max(0.0, 100.0 - float(ps))
-                except Exception:
-                    prev_vol = None
-
-                dv = _delta(volatility, prev_vol)
-                if dv is not None:
-                    # volatility DOWN is good
-                    vol_arrow = "↓" if dv < 0 else ("↑" if dv > 0 else "→")
-
-            score_txt = "—"
-            try:
-                if pulse_score is not None:
-                    score_txt = f"{float(pulse_score):.0f}"
-            except Exception:
-                score_txt = "—"
-
-            pulse_html = f"""
-            <div class="pp-card pp-card--wide">
-              <div class="pp-card-inner">
-                <div class="pp-header">
-                  <div class="pp-title">MARKET PULSE</div>
-                  <div class="pp-score">
-                    <span class="pp-score-num">{score_txt}</span>
-                    <span class="pp-score-den">/ 100</span>
-                    <span class="pp-dot {dot_class}"></span>
-                    <span class="pp-regime">{regime}</span>
-                  </div>
-                </div>
-
-                <div class="pp-divider"></div>
-
-                <div class="pp-metrics">
-                  <div class="pp-metric">
-                    <span class="pp-icon pp-icon--green">&#9670;</span>
-                    Momentum <span class="pp-arrow">{mom_arrow}</span>
-                  </div>
-                  <div class="pp-metric">
-                    <span class="pp-icon pp-icon--amber">&#9670;</span>
-                    Breadth <span class="pp-arrow">{br_arrow}</span>
-                  </div>
-                  <div class="pp-metric">
-                    <span class="pp-icon pp-icon--amber">&#9670;</span>
-                    Volatility <span class="pp-arrow">{vol_arrow}</span>
-                  </div>
-                </div>
+        card_html = f"""
+        <div class="pp-card" style="margin-top:14px;">
+          <div style="padding:18px 18px 14px 18px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+              <div style="font-size:20px; font-weight:900; letter-spacing:1px; color:#f5d07a;">
+                MARKET PULSE
+              </div>
+              <div style="font-size:22px; font-weight:800; color:#e5e7eb;">
+                {score_txt} <span style="opacity:.7;">/ 100</span>
+                <span style="margin-left:10px; font-size:18px; font-weight:700; color:#e5e7eb;">
+                  {dot} {regime}
+                </span>
               </div>
             </div>
-            """
 
-            # under the ticker scrollbar, above Signal Shift
-            components.html(pulse_html, height=120)
+            <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
 
-    except Exception as e:
-        st.error(f"Pulse environment error: {e}")
-    finally:
-        try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
+            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:18px; color:#e5e7eb;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="color:#49e38b;">◆</span>
+                <span style="opacity:.9;">Momentum</span>
+                <span style="font-weight:800;">{m_arrow}</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="color:#f5d07a;">◆</span>
+                <span style="opacity:.9;">Breadth</span>
+                <span style="font-weight:800;">{b_arrow}</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="color:#f5d07a;">◆</span>
+                <span style="opacity:.9;">Volatility</span>
+                <span style="font-weight:800;">{v_arrow}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pp-glow-line"></div>
+        </div>
+        """
+
+        st.markdown(card_html, unsafe_allow_html=True)
+
+except Exception as e:
+    st.error(f"Pulse environment error: {e}")
+finally:
+    try:
+        conn.close()
+    except:
+        pass
+                    
 
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
