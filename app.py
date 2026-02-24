@@ -2531,15 +2531,15 @@ if tab == "home":
             score_txt = f"{int(round(score_val))}" if score_val is not None else "—"
 
             card_html = f"""
-            <div class="pp-card" style="margin-top:14px;">
+            <div class="pp-card" style="margin-top:4px;">
               <div style="padding:18px 18px 14px 18px;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                  <div style="font-size:16px; font-weight:900; color:#f5d07a;">
+                  <div style="font-size:16px; font-weight:600; color:#f5d07a;">
                     MARKET PULSE
                   </div>
                   <div style="font-size:16px; font-weight:600; color:#e5e7eb;">
                     {score_txt} <span style="opacity:.7;">/ 100</span>
-                    <span style="margin-left:10px; font-size:18px; font-weight:700; color:#e5e7eb;">
+                    <span style="margin-left:10px; font-size:16px; font-weight:600; color:#e5e7eb;">
                       {dot} {regime}
                     </span>
                   </div>
