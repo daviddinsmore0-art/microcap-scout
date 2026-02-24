@@ -2534,10 +2534,10 @@ if tab == "home":
             <div class="pp-card" style="margin-top:14px;">
               <div style="padding:18px 18px 14px 18px;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                  <div style="font-size:20px; font-weight:900; letter-spacing:1px; color:#f5d07a;">
+                  <div style="font-size:16px; font-weight:900; color:#f5d07a;">
                     MARKET PULSE
                   </div>
-                  <div style="font-size:22px; font-weight:800; color:#e5e7eb;">
+                  <div style="font-size:16px; font-weight:600; color:#e5e7eb;">
                     {score_txt} <span style="opacity:.7;">/ 100</span>
                     <span style="margin-left:10px; font-size:18px; font-weight:700; color:#e5e7eb;">
                       {dot} {regime}
@@ -2547,7 +2547,7 @@ if tab == "home":
 
             <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
 
-            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:18px; color:#e5e7eb;">
+            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:16px; color:#e5e7eb;">
                   <div style="display:flex; align-items:center; gap:10px;">
                     <span style="color:#49e38b;">◆</span>
                     <span style="opacity:.9;">Momentum</span>
