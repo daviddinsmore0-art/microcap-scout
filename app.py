@@ -2478,108 +2478,84 @@ if tab == "home":
             st.caption("No price data cached yet for your tickers.")
 
     # -----------------------------
-# Market Pulse (Pulse Environment) - HOME CARD
-# -----------------------------
-try:
-    conn = get_connection()
-    env = fetch_pulse_environment(conn)
-    conn.close()
+    # Market Pulse (Pulse Environment) - HOME CARD
+    # -----------------------------
+    try:
+        conn = get_connection()
+        env = fetch_pulse_environment(conn)  # expects a live DB connection
 
-    if env:
-        pulse = env.get("pulse_score")
-        regime = env.get("pulse_regime") or "—"
+        if env:
+            # --- derived labels/colors/arrows (keeps it simple + stable) ---
+            pulse_score = env.get("pulse_score")
+            pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
 
-        # Simple directional signals from your available columns
-        mom = env.get("momentum_breadth")
-        brd = env.get("accel_breadth")
-        stab = env.get("avg_stability")
+            regime = (env.get("pulse_regime") or "Neutral").strip()
+            regime_l = regime.lower()
+            if "risk-on" in regime_l or "risk on" in regime_l:
+                pulse_label, pulse_color = "Risk-On", "#22c55e"
+            elif "risk-off" in regime_l or "risk off" in regime_l:
+                pulse_label, pulse_color = "Risk-Off", "#ef4444"
+            else:
+                pulse_label, pulse_color = "Neutral", "#f59e0b"
 
-        mom_arrow = "↑" if isinstance(mom, (int, float)) and mom >= 50 else "↓"
-        brd_arrow = "↑" if isinstance(brd, (int, float)) and brd >= 50 else "↓"
+            def _arrow_and_color(val, good_if_high=True):
+                if val is None:
+                    return "—", "rgba(229,231,235,0.75)"
+                v = float(val)
+                good = (v >= 50) if good_if_high else (v < 50)
+                arrow = "↑" if good else "↓"
+                color = "#22c55e" if good else "#f59e0b"
+                return arrow, color
 
-        # volatility feel: if stability is high, volatility is "down"
-        vol_arrow = "↓" if isinstance(stab, (int, float)) and stab >= 50 else "↑"
+            mom = env.get("momentum_breadth")
+            brd = env.get("accel_breadth")  # breadth proxy
+            stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
 
-        pulse_txt = f"{pulse:.0f}" if isinstance(pulse, (int, float)) else "—"
+            mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
+            brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
+            vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
+            # For volatility we want DOWN when stability is high
+            if vol_arrow != "—":
+                vol_arrow = "↓" if float(stb) >= 50 else "↑"
 
-        # Dot color by regime (tweak labels if yours differ)
-        regime_l = str(regime).lower()
-        if "risk-on" in regime_l or "bull" in regime_l:
-            dot = "#22c55e"
-        elif "risk-off" in regime_l or "bear" in regime_l:
-            dot = "#ef4444"
-        else:
-            dot = "#f59e0b"
-
-        market_pulse_html = f"""
-        <div style="margin-top:18px; border-radius:22px; overflow:hidden;
-                    background:linear-gradient(145deg,#0b1220,#0a1224);
-                    box-shadow:0 10px 30px rgba(0,0,0,0.45);
-                    border:1px solid rgba(255,255,255,0.07);">
-
-          <div style="padding:18px 18px 14px 18px;">
-
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
-              <div style="display:flex; align-items:center; gap:12px;">
-                <div style="width:46px; height:46px; border-radius:16px;
-                            background:linear-gradient(135deg,#fbbf24,#f59e0b);
-                            display:flex; align-items:center; justify-content:center;
-                            box-shadow:0 10px 20px rgba(245,158,11,0.18);">
-                  <div style="font-size:20px;">📈</div>
-                </div>
-
-                <div style="font-size:22px; font-weight:900; letter-spacing:0.6px; color:#e5e7eb;">
-                  MARKET PULSE
+            market_pulse_html = textwrap.dedent(f"""
+            <div class="mp-card">
+              <div class="mp-top">
+                <div class="mp-title">MARKET PULSE</div>
+                <div class="mp-score">
+                  <span class="mp-score-num">{pulse_txt}</span>
+                  <span class="mp-score-den">/ 100</span>
+                  <span class="mp-dot" style="background:{pulse_color};"></span>
+                  <span class="mp-regime">{pulse_label}</span>
                 </div>
               </div>
 
-              <div style="display:flex; align-items:center; gap:12px;">
-                <div style="font-size:28px; font-weight:900; color:#e5e7eb;">
-                  {pulse_txt} <span style="opacity:.65; font-weight:800;">/ 100</span>
+              <div class="mp-divider"></div>
+
+              <div class="mp-metrics">
+                <div class="mp-metric">
+                  <span class="mp-bullet" style="color:{mom_color};">◆</span>
+                  <span class="mp-label">Momentum</span>
+                  <span class="mp-arrow">{mom_arrow}</span>
                 </div>
-                <div style="display:flex; align-items:center; gap:10px; color:#e5e7eb; font-weight:800;">
-                  <span style="width:16px; height:16px; border-radius:999px; background:{dot};
-                               box-shadow:0 0 18px {dot}55;"></span>
-                  <span style="font-size:20px;">{regime}</span>
+                <div class="mp-metric">
+                  <span class="mp-bullet" style="color:{brd_color};">◆</span>
+                  <span class="mp-label">Breadth</span>
+                  <span class="mp-arrow">{brd_arrow}</span>
+                </div>
+                <div class="mp-metric">
+                  <span class="mp-bullet" style="color:{vol_color};">◆</span>
+                  <span class="mp-label">Volatility</span>
+                  <span class="mp-arrow">{vol_arrow}</span>
                 </div>
               </div>
             </div>
+            """).strip()
 
-            <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
+            st.markdown(market_pulse_html, unsafe_allow_html=True)
 
-            <div style="display:flex; flex-wrap:wrap; gap:22px; align-items:center; font-size:26px; color:#e5e7eb;">
-
-              <div style="display:flex; align-items:center; gap:12px;">
-                <span style="color:#34d399; font-size:24px;">◆</span>
-                <span style="opacity:.85; font-size:26px;">Momentum</span>
-                <span style="font-weight:900; font-size:28px;">{mom_arrow}</span>
-              </div>
-
-              <div style="display:flex; align-items:center; gap:12px;">
-                <span style="color:#fbbf24; font-size:24px;">◆</span>
-                <span style="opacity:.85; font-size:26px;">Breadth</span>
-                <span style="font-weight:900; font-size:28px;">{brd_arrow}</span>
-              </div>
-
-              <div style="display:flex; align-items:center; gap:12px;">
-                <span style="color:#fbbf24; font-size:24px;">◆</span>
-                <span style="opacity:.85; font-size:26px;">Volatility</span>
-                <span style="font-weight:900; font-size:28px;">{vol_arrow}</span>
-              </div>
-
-            </div>
-          </div>
-
-          <div style="height:3px; background:linear-gradient(90deg,
-                      rgba(245,158,11,0.0), rgba(245,158,11,0.75), rgba(245,158,11,0.0));">
-          </div>
-        </div>
-        """
-
-        st.markdown(market_pulse_html, unsafe_allow_html=True)
-
-except Exception as e:
-    st.error(f"Market pulse error: {e}")
+    except Exception as e:
+        st.error(f"Market pulse error: {e}")
 
 
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
