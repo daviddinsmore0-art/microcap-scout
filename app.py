@@ -2553,7 +2553,7 @@ if tab == "home":
         brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
         vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
             # For volatility we want DOWN when stability is high
-            if vol_arrow != "—":
+        if vol_arrow != "—":
                 vol_arrow = "↓" if float(stb) >= 50 else "↑"
 
             market_pulse_html = textwrap.dedent(f"""
