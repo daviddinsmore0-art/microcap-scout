@@ -2527,8 +2527,8 @@ if tab == "home":
              dot_color = "#fbbf24"
         else:
              dot_color = "#ef4444"
-        regime = (env.get("pulse_regime") or "Neutral").strip()
-            regime_l = regime.lower()
+             regime = (env.get("pulse_regime") or "Neutral").strip()
+             regime_l = regime.lower()
         if "risk-on" in regime_l or "risk on" in regime_l:
                 pulse_label, pulse_color = "Risk-On", "#22c55e"
         elif "risk-off" in regime_l or "risk off" in regime_l:
