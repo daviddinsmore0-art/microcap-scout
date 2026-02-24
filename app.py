@@ -2556,7 +2556,7 @@ if tab == "home":
         if vol_arrow != "—":
                 vol_arrow = "↓" if float(stb) >= 50 else "↑"
 
-            market_pulse_html = textwrap.dedent(f"""
+        market_pulse_html = textwrap.dedent(f"""
             <div class="pulse-card">
               <div class="pulse-top">
                 <div class="pulse-title">MARKET PULSE</div>
@@ -2590,9 +2590,9 @@ if tab == "home":
                 </div>
               </div>
             </div>
-            """).strip()
+        """).strip()
 
-            st.markdown(market_pulse_html, unsafe_allow_html=True)
+        st.markdown(market_pulse_html, unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Market pulse error: {e}")
