@@ -250,56 +250,77 @@ div[data-testid="stDecoration"] {
          }
 
 
+/* Pulse Environment / Market Pulse card */
 .pulse-card{
   border-radius:22px;
   padding:18px 18px 16px 18px;
   background: linear-gradient(160deg, rgba(13,23,46,0.95), rgba(7,14,28,0.95));
   border: 1px solid rgba(255,255,255,0.06);
   box-shadow: 0 10px 26px rgba(0,0,0,0.35);
-  margin-bottom: 16px;
+  margin: 14px 0 16px 0;
 }
 .pulse-top{
-  display:flex; align-items:center; justify-content:space-between;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
   gap:12px;
   margin-bottom: 10px;
 }
 .pulse-title{
-  font-size: 26px;
-  font-weight: 700;
-  color: rgba(255,255,255,0.88);
-  letter-spacing: 0.2px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #f5d07a;
 }
 .pulse-pill{
-  padding: 6px 12px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding: 8px 14px;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.04);
-  color: rgba(255,255,255,0.78);
+  color: rgba(255,255,255,0.86);
   white-space:nowrap;
+}
+.pulse-pill .pulse-score{
+  color: #49e38b;
+  font-weight: 900;
+}
+.pulse-dot{
+  width:12px;
+  height:12px;
+  border-radius:999px;
+  box-shadow: 0 0 14px rgba(34,197,94,0.35);
 }
 .pulse-metrics{
   display:flex;
-  gap:12px;
+  gap:26px;
   flex-wrap:wrap;
+  margin-top: 10px;
 }
 .pulse-metric{
-  flex: 1 1 140px;
-  padding: 12px 12px;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.05);
+  flex: 0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 .pulse-label{
-  font-size: 12px;
-  color: rgba(255,255,255,0.6);
-  margin-bottom: 6px;
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.86);
+  margin: 0;
 }
-.pulse-value{
-  font-size: 20px;
-  font-weight: 800;
-  color: rgba(255,255,255,0.88);
+.pulse-arrow{
+  font-size: 18px;
+  font-weight: 900;
+  opacity: .9;
 }
 .pulse-sub{
   margin-top: 10px;
@@ -307,10 +328,7 @@ div[data-testid="stDecoration"] {
   color: rgba(255,255,255,0.62);
 }
 
-
-
-
-        /* Risk Pills */
+/* Risk Pills */
         .risk-pill { padding: 4px 4px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
@@ -2479,122 +2497,85 @@ if tab == "home":
 
     # -----------------------------
     # Market Pulse (Pulse Environment) - HOME CARD
+    # -----------------------------
     try:
         conn = get_connection()
-        env = fetch_pulse_environment(conn) if conn else None
+        env = fetch_pulse_environment(conn)  # expects a live DB connection
 
         if env:
-            # core
-            pulse = env.get("pulse_score")
-            pulse_int = int(round(float(pulse))) if pulse is not None else None
-            regime = env.get("pulse_regime") or "—"
+            # --- derived labels/colors/arrows (keeps it simple + stable) ---
+            pulse_score = env.get("pulse_score")
+            pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
 
-            # metrics
-            mom = env.get("momentum_breadth")
-            breadth = env.get("liquidity_breadth")
-            if breadth is None:
-                breadth = env.get("accel_breadth")
-
-            vol = None
-            stab = env.get("avg_stability")
-            if stab is not None:
-                try:
-                    vol = max(0.0, min(100.0, 100.0 - float(stab)))  # higher stability => lower volatility
-                except Exception:
-                    vol = None
-
-            def _arrow(v, invert=False):
-                try:
-                    if v is None:
-                        return "—"
-                    v = float(v)
-                except Exception:
-                    return "—"
-                # default: higher is better -> up
-                if invert:
-                    return "↓" if v < 50 else "↑"
-                return "↑" if v >= 50 else "↓"
-
-            def _bullet(v, invert=False):
-                try:
-                    if v is None:
-                        return "#f5d07a"
-                    v = float(v)
-                except Exception:
-                    return "#f5d07a"
-                good = (v >= 50) if not invert else (v < 50)
-                return "#49e38b" if good else "#f5d07a"
-
-            mom_arrow = _arrow(mom)
-            breadth_arrow = _arrow(breadth)
-            vol_arrow = _arrow(vol, invert=True)  # low volatility is good -> show down
-
-            mom_col = _bullet(mom)
-            breadth_col = _bullet(breadth)
-            vol_col = _bullet(vol, invert=True)
-
-            # regime dot
-            r = str(regime).lower()
-            if "risk-on" in r or "risk on" in r:
-                dot = "#22c55e"
-            elif "risk-off" in r or "risk off" in r:
-                dot = "#ef4444"
+            regime = (env.get("pulse_regime") or "Neutral").strip()
+            regime_l = regime.lower()
+            if "risk-on" in regime_l or "risk on" in regime_l:
+                pulse_label, pulse_color = "Risk-On", "#22c55e"
+            elif "risk-off" in regime_l or "risk off" in regime_l:
+                pulse_label, pulse_color = "Risk-Off", "#ef4444"
             else:
-                dot = "#f59e0b"
+                pulse_label, pulse_color = "Neutral", "#f59e0b"
 
-            score_txt = f"{pulse_int} / 100" if pulse_int is not None else "—"
+            def _arrow_and_color(val, good_if_high=True):
+                if val is None:
+                    return "—", "rgba(229,231,235,0.75)"
+                v = float(val)
+                good = (v >= 50) if good_if_high else (v < 50)
+                arrow = "↑" if good else "↓"
+                color = "#22c55e" if good else "#f59e0b"
+                return arrow, color
 
-                        # Color dot for regime
-            dot_color = "#22c55e" if "Risk-On" in env_label else ("#ef4444" if "Risk-Off" in env_label else "#f59e0b")
+            mom = env.get("momentum_breadth")
+            brd = env.get("accel_breadth")  # breadth proxy
+            stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
 
-            market_pulse_html = f"""
- <div class='pulse-card'>
-   <div class='pulse-top'>
-    <div class='pulse-title'>MARKET PULSE</div>
-    <div class='pulse-pill'>
-      <span style='font-weight:800;'>{pulse_score}</span>
-      <span style='display:inline-flex;align-items:center;gap:6px;margin-left:6px;'>
-        <span style='width:14px;height:14px;border-radius:50%;background:{dot_color};display:inline-block;'></span>
-        <span style='font-weight:800;'>{env_label}</span>
-      </span>
-    </div>
-  </div>
+            mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
+            brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
+            vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
+            # For volatility we want DOWN when stability is high
+            if vol_arrow != "—":
+                vol_arrow = "↓" if float(stb) >= 50 else "↑"
 
-  <div style='height:1px;background:rgba(255,255,255,0.08);margin:12px 0 16px 0;'></div>
+            market_pulse_html = textwrap.dedent(f"""
+            <div class="pulse-card">
+              <div class="pulse-top">
+                <div class="pulse-title">MARKET PULSE</div>
 
-  <div style='display:flex;gap:24px;flex-wrap:wrap;'>
-    <div style='display:flex;align-items:center;gap:8px;'>
-      <span style='color:{mom_col};font-size:18px;'>◆</span>
-      <span style='opacity:.9;'>Momentum</span>
-      <span style='font-weight:800;'>{mom_arrow}</span>
-    </div>
+                <div class="pulse-pill">
+                  <span class="pulse-score">{pulse_int} / 100</span>
+                  <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
+                  <span style="font-weight:900;">{env_label}</span>
+                </div>
+              </div>
 
-    <div style='display:flex;align-items:center;gap:8px;'>
-      <span style='color:{breadth_col};font-size:18px;'>◆</span>
-      <span style='opacity:.9;'>Breadth</span>
-      <span style='font-weight:800;'>{breadth_arrow}</span>
-    </div>
+              <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
 
-    <div style='display:flex;align-items:center;gap:8px;'>
-      <span style='color:{vol_col};font-size:18px;'>◆</span>
-      <span style='opacity:.9;'>Volatility</span>
-      <span style='font-weight:800;'>{vol_arrow}</span>
-    </div>
-  </div>
-</div>
-            """.strip()
+              <div class="pulse-metrics">
+                <div class="pulse-metric">
+                  <span style="color:{mom_col}; font-size:18px;">◆</span>
+                  <span class="pulse-label">Momentum</span>
+                  <span class="pulse-arrow">{mom_arrow}</span>
+                </div>
+
+                <div class="pulse-metric">
+                  <span style="color:{breadth_col}; font-size:18px;">◆</span>
+                  <span class="pulse-label">Breadth</span>
+                  <span class="pulse-arrow">{breadth_arrow}</span>
+                </div>
+
+                <div class="pulse-metric">
+                  <span style="color:{vol_col}; font-size:18px;">◆</span>
+                  <span class="pulse-label">Volatility</span>
+                  <span class="pulse-arrow">{vol_arrow}</span>
+                </div>
+              </div>
+            </div>
+            """).strip()
 
             st.markdown(market_pulse_html, unsafe_allow_html=True)
 
-    except Exception:
-        # Never break the homepage if this table is empty / missing / temporarily stale.
-        pass
-    finally:
-        try:
-            if 'conn' in locals() and conn:
-                conn.close()
-        except Exception:
-            pass
+    except Exception as e:
+        st.error(f"Market pulse error: {e}")
 
 
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
