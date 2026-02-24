@@ -2557,7 +2557,7 @@ if tab == "home":
     </div>
   </div>
 
-  <div class="pulse-metrics">
+<div class="pulse-metrics">
     <div class="pulse-metric" style="flex:1 1 160px;">
       <div class="pulse-value"><span style="color:{mom_col}; margin-right:10px;">◆</span><span style="opacity:.9;">Momentum</span> <b>{mom_arrow}</b></div>
     </div>
