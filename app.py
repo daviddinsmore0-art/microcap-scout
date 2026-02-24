@@ -2547,7 +2547,7 @@ if tab == "home":
 
             <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
 
-            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:14px; color:#e5e7eb;">
+            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:16px; color:#e5e7eb;">
                   <div style="display:flex; align-items:center; gap:4px;">
                     <span style="color:#49e38b;">◆</span>
                     <span style="opacity:.9;">Momentum</span>
