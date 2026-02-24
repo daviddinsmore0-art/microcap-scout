@@ -1562,7 +1562,7 @@ def render_portfolio_ticker(data_map, tickers):
         overflow:hidden;
         padding:10px 16px;
         border-radius:0 0 20px 20px;
-        margin:0px 0 48px 0;
+        margin:0px 0 10px 0;
         background:rgba(18,22,30,0.55);
         border:1px solid rgba(255,255,255,0.08);
         backdrop-filter:blur(10px);
@@ -2547,21 +2547,21 @@ if tab == "home":
 
             <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
 
-            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:16px; color:#e5e7eb;">
+            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:14px; color:#e5e7eb;">
                   <div style="display:flex; align-items:center; gap:10px;">
                     <span style="color:#49e38b;">◆</span>
                     <span style="opacity:.9;">Momentum</span>
-                    <span style="font-weight:800;">{m_arrow}</span>
+                    <span style="font-weight:600;">{m_arrow}</span>
                   </div>
                   <div style="display:flex; align-items:center; gap:10px;">
                     <span style="color:#f5d07a;">◆</span>
                     <span style="opacity:.9;">Breadth</span>
-                    <span style="font-weight:800;">{b_arrow}</span>
+                    <span style="font-weight:600;">{b_arrow}</span>
                   </div>
                   <div style="display:flex; align-items:center; gap:10px;">
                     <span style="color:#f5d07a;">◆</span>
                     <span style="opacity:.9;">Volatility</span>
-                    <span style="font-weight:800;">{v_arrow}</span>
+                    <span style="font-weight:600;">{v_arrow}</span>
                   </div>
                 </div>
              </div>
