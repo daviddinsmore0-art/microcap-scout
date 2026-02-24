@@ -55,8 +55,8 @@ st.set_page_config(page_title="Penny Pulse", page_icon="⚡", layout="centered",
 st.markdown("""
     <style>
         /* REMOVE DEFAULT PADDING */
-        
-        
+
+
         /* Force Dark Background */
         .stApp { background-color: #0f1219 !important; color: #e0e6ed !important; }
          header[data-testid="stHeader"] {
@@ -80,7 +80,7 @@ st.markdown("""
         }
          #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-        
+
         /* Input Fields */
         input[type="text"], input[type="password"], input[type="number"] { 
             background-color: #1e293b !important; 
@@ -90,7 +90,7 @@ footer {visibility: hidden;}
             padding: 10px;
         }
         div[data-baseweb="input"] { background-color: transparent !important; border: none; }
-        
+
         /* Dropdowns & Select Boxes (FIXED) */
         div[data-baseweb="select"] > div { 
             background-color: #1e293b !important; 
@@ -101,7 +101,7 @@ footer {visibility: hidden;}
         li[role="option"] { color: white !important; background-color: #1e293b !important; }
         li[role="option"]:hover { background-color: #4ade80 !important; color: black !important; }
         div[data-baseweb="popover"] { background-color: #1e293b !important; }
-        
+
         /* Cards WITH CLICK EFFECT ADDED */
         .card { 
             background-color: #1a1f2b; 
@@ -184,7 +184,7 @@ div[data-testid="stDecoration"] {
         .metric-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
         .metric-value { font-size: 1.5rem; font-weight: bold; color: white; margin-bottom: 2px; line-height: 1.1; }
         .metric-sub { font-size: 0.9rem; font-weight: bold; }
-        
+
         /* Buttons */
         div.stButton > button {
             background: linear-gradient(135deg, #4ade80, #16a34a) !important; 
@@ -195,7 +195,7 @@ div[data-testid="stDecoration"] {
             width: 100%;
             padding: 12px 20px;
         }
-        
+
         /* Delete/Remove Buttons */
         button[kind="secondary"] {
             background: #334155 !important;
@@ -208,7 +208,7 @@ div[data-testid="stDecoration"] {
         /* HEADLINE COLOR FIX */
         a { color: #ffffff !important; text-decoration: none !important; }
         a:hover { color: #4ade80 !important; }
-        
+
         /* Navigation */
         .nav-container { 
             position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; 
@@ -217,7 +217,7 @@ div[data-testid="stDecoration"] {
         }
         a.nav-link { text-decoration: none; font-size: 24px; text-align: center; cursor: pointer;}
         a.nav-link:hover { transform: scale(1.1); }
-        
+
         /* Scrolling Wrapper */
         .scrolling-wrapper { 
             display: flex; 
@@ -309,17 +309,17 @@ div[data-testid="stDecoration"] {
 
 
 
-      
+
         /* Risk Pills */
         .risk-pill { padding: 4px 4px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
         .pill-low { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
         .pill-med { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
         .pill-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
         .risk-row { display: flex; justify-content: space-between; align-items: center; margin: 30px 0 10px 0; border-bottom: 1px solid #2d3748; padding-left:20px; padding-bottom: 5px; }
-        
+
         /* Hide default header/footer */
         header {visibility: hidden;} footer {visibility: hidden;} 
-    
+
   /* Make whole card tappable */
   a.card-link { display:block; text-decoration:none; color:inherit; -webkit-tap-highlight-color: transparent; }
   a.card-link:visited { color:inherit; }
@@ -556,7 +556,7 @@ def get_rank_map(tickers):
         except Exception:
             pass
 
-    
+
 def ensure_stock_cache_ticker(ticker):
     """Ensure ticker exists in stock cache table (if you use one)."""
     t = (ticker or "").strip().upper()
@@ -844,13 +844,13 @@ def parse_smart_date(date_str):
             target = datetime.strptime(str(date_str), "%Y-%m-%d")
         return (target - now).days
     except: return 999
-        
+
 def _to_float(val):
     try:
         return float(val)
     except (TypeError, ValueError):
         return 0.0
-        
+
 def login_user(u, p):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -1210,7 +1210,7 @@ div[data-testid="stToolbar"] { display: none !important; }
 </div>
          </div>
         <div class="pp-right">
-        
+
          </div>
          </div>
     """
@@ -1270,7 +1270,7 @@ def fetch_pulse_environment(conn):
     latest["pulse_delta7_arrow"] = arrow(delta7)
 
     return latest
-    
+
 def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
 
@@ -1485,10 +1485,10 @@ def get_portfolio_summary(username, ptype):
     cursor.execute("SELECT SUM(realized_pl) as realized FROM user_portfolio WHERE username=%s AND portfolio_type=%s AND is_active=FALSE", (username, ptype))
     realized_row = cursor.fetchone()
     realized = float(realized_row['realized'] or 0)
-    
+
     cursor.execute("SELECT p.shares, p.entry_price, s.current_price, s.day_change FROM user_portfolio p LEFT JOIN stock_cache s ON p.ticker = s.ticker WHERE p.username=%s AND p.portfolio_type=%s AND p.is_active=TRUE", (username, ptype))
     active_rows = cursor.fetchall()
-    
+
     unrealized = 0.0; day_pl = 0.0; active_cost_basis = 0.0; current_portfolio_value = 0.0
     for r in active_rows:
         if r['current_price']:
@@ -1500,7 +1500,7 @@ def get_portfolio_summary(username, ptype):
             prev = curr / (1 + (pct/100))
             day_pl += (curr - prev) * shares
     conn.close()
-    
+
     total_pl_dollars = realized + unrealized
     total_pl_pct = (total_pl_dollars / active_cost_basis) * 100 if active_cost_basis > 0 else 0
     day_pl_pct = (day_pl / (current_portfolio_value - day_pl)) * 100 if (current_portfolio_value - day_pl) > 0 else 0
@@ -1512,22 +1512,22 @@ def execute_paper_trade(username, ticker, action, qty, price):
     cursor.execute("SELECT paper_balance FROM user_profiles WHERE username=%s", (username,))
     row = cursor.fetchone()
     if not row: conn.close(); return False, "User not found"
-    
+
     balance = float(row[0])
     total_cost = float(qty) * float(price)
-    
+
     if action == "BUY":
         if balance < total_cost: conn.close(); return False, "Insufficient Balance"
         cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance - %s WHERE username=%s", (total_cost, username))
         cursor.execute("INSERT INTO user_portfolio (username, ticker, shares, entry_price, portfolio_type, is_active) VALUES (%s, %s, %s, %s, 'PAPER', 1)", (username, ticker, qty, price))
         conn.commit(); conn.close()
         return True, f"Bought {qty} shares of {ticker}"
-        
+
     elif action == "SELL":
         cursor.execute("UPDATE user_profiles SET paper_balance = paper_balance + %s WHERE username=%s", (total_cost, username))
         conn.commit(); conn.close()
         return True, f"Sold {qty} shares of {ticker}"
-        
+
 def render_portfolio_ticker(data_map, tickers):
 
     items = []
@@ -1698,7 +1698,7 @@ def get_user_alerts(username):
     rows = cursor.fetchall()
     conn.close()
     return rows
-    
+
 import textwrap
 import streamlit as st
 
@@ -2207,8 +2207,8 @@ def render_watchlist_pick_grid(rows, current_token=None):
       </div>
     </div>
   </div>
-  
-  
+
+
 </a>
 """, unsafe_allow_html=True)
 
@@ -2311,10 +2311,10 @@ if "ticker" in st.query_params:
         s, l, c, _, r = calculate_risk(stock, ai_score)
         confidence = calculate_confidence(stock, ai_score)
         p = float(stock['current_price']); ch = float(stock['day_change']); cc = "#4ade80" if ch>=0 else "#ef4444"
-        
+
         st.markdown(f"<h1 style='margin:0; font-size: 2.5rem;'>{ticker}</h1>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='margin:0; color:{cc}; font-size: 1.5rem;'>${p:,.2f} <span style='font-size:1rem; opacity:0.8;'>({ch:.2f}%) Today</span></h2>", unsafe_allow_html=True)
-        
+
         if current_mode == "PAPER":
             st.markdown("---")
             c1, c2 = st.columns(2)
@@ -2387,7 +2387,7 @@ if "ticker" in st.query_params:
             if type=="debt": return "pill-high" if val > 150 else "pill-low", "HIGH" if val > 150 else "LOW"
             if type=="rsi": return "pill-med" if val > 70 or val < 30 else "pill-low", "EXTREME" if val > 70 or val < 30 else "NORMAL"
             return "pill-low", "LOW"
-        
+
         # RISK FACTORS (Debt/Equity + Volatility + RSI)
         d_cls, d_txt = get_pill(float(stock.get('debt_ratio') or 0), "debt")
         st.markdown(f"<div class='risk-row'><div class='risk-label'>Debt/Equity</div><div class='risk-pill {d_cls}'>{d_txt}</div></div>", unsafe_allow_html=True)
@@ -2419,7 +2419,7 @@ if "ticker" in st.query_params:
                 "</div>",
                 unsafe_allow_html=True
             )
-        
+
         if ai_summary:
             ai_html = f"<div class='card' style='margin-top:15px; border:1px solid #4ade80;'><div style='color:#4ade80; font-size:0.8rem; font-weight:bold; letter-spacing:1px; margin-bottom:5px;'>{ai_source} INSIGHT (Score: {ai_score})</div><div style='font-size:0.9rem; color:white; line-height:1.4;'>{ai_summary}</div></div>"
             st.markdown(textwrap.dedent(ai_html).strip(), unsafe_allow_html=True)
@@ -2429,7 +2429,7 @@ if "ticker" in st.query_params:
             for item in news_items:
                 st.markdown(f"<a href='{item['link']}' target='_blank' style='text-decoration:none;'><div style='font-size:0.95rem; font-weight:bold; color:#ffffff; margin-bottom:5px;'>{item['title']}</div><div style='font-size:0.75rem; color:#64748b; margin-bottom:15px;'>{item['time']} • {item['pub']}</div></a><div style='border-bottom:1px solid #2d3748; margin-bottom:15px;'></div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
-        
+
 
 # If we are on a ticker detail page, stop here so Home does not render underneath.
 if "ticker" in st.query_params:
@@ -2478,108 +2478,108 @@ if tab == "home":
             st.caption("No price data cached yet for your tickers.")
 
     # -----------------------------
-# MARKET PULSE (Pulse Environment Card)
-# -----------------------------
-try:
-    conn = get_connection()
-    env = fetch_pulse_environment(conn)   # <-- your function takes (conn)
-
-    # Optional: if your fetch function returns only latest, this is fine.
-    # If it returns a dict with both latest/prev, handle below.
-
-    if not env:
-        st.markdown("")  # nothing
-    else:
-        # Expected columns in pulse_environment_daily:
-        # pulse_score, momentum_breadth, accel_breadth, liquidity_breadth, avg_global_percentile, avg_stability
-        pulse_score = env.get("pulse_score")
-        momentum    = env.get("momentum_breadth")
-        breadth     = env.get("accel_breadth") if env.get("accel_breadth") is not None else env.get("liquidity_breadth")
-        vol         = env.get("avg_stability")  # using as "volatility proxy" if that's what you were doing
-
-        # Labels (simple + safe defaults)
-        score_val = float(pulse_score) if pulse_score is not None else None
-
-        if score_val is None:
-            regime = "—"
-            dot = "⚪"
-        elif score_val >= 67:
-            regime = "Risk-On"
-            dot = "🟢"
-        elif score_val >= 45:
-            regime = "Neutral"
-            dot = "🟡"
-        else:
-            regime = "Risk-Off"
-            dot = "🔴"
-
-        # Arrows (basic; if you already compute deltas, swap these)
-        def arrow(v):
-            if v is None:
-                return "→"
-            try:
-                v = float(v)
-            except:
-                return "→"
-            # >50 good / <50 bad (adjust if your scale differs)
-            return "↑" if v >= 50 else "↓"
-
-        m_arrow = arrow(momentum)
-        b_arrow = arrow(breadth)
-        v_arrow = arrow(vol)
-
-        score_txt = f"{int(round(score_val))}" if score_val is not None else "—"
-
-        card_html = f"""
-        <div class="pp-card" style="margin-top:14px;">
-          <div style="padding:18px 18px 14px 18px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-              <div style="font-size:20px; font-weight:900; letter-spacing:1px; color:#f5d07a;">
-                MARKET PULSE
-              </div>
-              <div style="font-size:22px; font-weight:800; color:#e5e7eb;">
-                {score_txt} <span style="opacity:.7;">/ 100</span>
-                <span style="margin-left:10px; font-size:18px; font-weight:700; color:#e5e7eb;">
-                  {dot} {regime}
-                </span>
-              </div>
-            </div>
-
-            <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
-
-            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:18px; color:#e5e7eb;">
-              <div style="display:flex; align-items:center; gap:10px;">
-                <span style="color:#49e38b;">◆</span>
-                <span style="opacity:.9;">Momentum</span>
-                <span style="font-weight:800;">{m_arrow}</span>
-              </div>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <span style="color:#f5d07a;">◆</span>
-                <span style="opacity:.9;">Breadth</span>
-                <span style="font-weight:800;">{b_arrow}</span>
-              </div>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <span style="color:#f5d07a;">◆</span>
-                <span style="opacity:.9;">Volatility</span>
-                <span style="font-weight:800;">{v_arrow}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="pp-glow-line"></div>
-        </div>
-        """
-
-        st.markdown(card_html, unsafe_allow_html=True)
-
-except Exception as e:
-    st.error(f"Pulse environment error: {e}")
-finally:
+    # MARKET PULSE (Pulse Environment Card)
+    # -----------------------------
     try:
-        conn.close()
-    except:
-        pass
-                    
+        conn = get_connection()
+        env = fetch_pulse_environment(conn)   # <-- your function takes (conn)
+
+        # Optional: if your fetch function returns only latest, this is fine.
+        # If it returns a dict with both latest/prev, handle below.
+
+        if not env:
+            st.markdown("")  # nothing
+        else:
+            # Expected columns in pulse_environment_daily:
+            # pulse_score, momentum_breadth, accel_breadth, liquidity_breadth, avg_global_percentile, avg_stability
+            pulse_score = env.get("pulse_score")
+            momentum    = env.get("momentum_breadth")
+            breadth     = env.get("accel_breadth") if env.get("accel_breadth") is not None else env.get("liquidity_breadth")
+            vol         = env.get("avg_stability")  # using as "volatility proxy" if that's what you were doing
+
+            # Labels (simple + safe defaults)
+            score_val = float(pulse_score) if pulse_score is not None else None
+
+            if score_val is None:
+                regime = "—"
+                dot = "⚪"
+            elif score_val >= 67:
+                regime = "Risk-On"
+                dot = "🟢"
+            elif score_val >= 45:
+                regime = "Neutral"
+                dot = "🟡"
+            else:
+                regime = "Risk-Off"
+                dot = "🔴"
+
+            # Arrows (basic; if you already compute deltas, swap these)
+            def arrow(v):
+                if v is None:
+                    return "→"
+                try:
+                    v = float(v)
+                except:
+                    return "→"
+                # >50 good / <50 bad (adjust if your scale differs)
+                return "↑" if v >= 50 else "↓"
+
+            m_arrow = arrow(momentum)
+            b_arrow = arrow(breadth)
+            v_arrow = arrow(vol)
+
+            score_txt = f"{int(round(score_val))}" if score_val is not None else "—"
+
+            card_html = f"""
+            <div class="pp-card" style="margin-top:14px;">
+              <div style="padding:18px 18px 14px 18px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                  <div style="font-size:20px; font-weight:900; letter-spacing:1px; color:#f5d07a;">
+                    MARKET PULSE
+                  </div>
+                  <div style="font-size:22px; font-weight:800; color:#e5e7eb;">
+                    {score_txt} <span style="opacity:.7;">/ 100</span>
+                    <span style="margin-left:10px; font-size:18px; font-weight:700; color:#e5e7eb;">
+                      {dot} {regime}
+                    </span>
+                  </div>
+                </div>
+
+                <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
+
+                <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:18px; color:#e5e7eb;">
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="color:#49e38b;">◆</span>
+                    <span style="opacity:.9;">Momentum</span>
+                    <span style="font-weight:800;">{m_arrow}</span>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="color:#f5d07a;">◆</span>
+                    <span style="opacity:.9;">Breadth</span>
+                    <span style="font-weight:800;">{b_arrow}</span>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="color:#f5d07a;">◆</span>
+                    <span style="opacity:.9;">Volatility</span>
+                    <span style="font-weight:800;">{v_arrow}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="pp-glow-line"></div>
+            </div>
+            """
+
+            st.markdown(card_html, unsafe_allow_html=True)
+
+    except Exception as e:
+        st.error(f"Pulse environment error: {e}")
+    finally:
+        try:
+            conn.close()
+        except:
+            pass
+
 
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
@@ -2673,7 +2673,7 @@ finally:
     except Exception as e:
         st.error(f"Signal Shift error: {e}")
 
-     
+
     # ==========================
     # NEW ACCELERATION ALERTS
     # Using momentum_score acceleration (latest vs previous asof_date from rankings_global_daily)
@@ -2732,7 +2732,7 @@ finally:
             border:1px solid rgba(255,255,255,0.06);
         ">
 
-          
+
 
           <!-- TITLE ROW -->
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
@@ -2877,7 +2877,7 @@ finally:
             {items_html}
           </div>
 
-          
+
               <div style="
                 position: absolute;
                 bottom: 0;           /* Sticks it to the very bottom edge */
@@ -2903,7 +2903,7 @@ elif tab == "portfolio":
     c_day = "#4ade80" if day_pl >= 0 else "#ef4444"
     st.markdown(f"""<div style="display:flex; gap:10px; margin-bottom:20px;"><div class="metric-box" style="flex:1;"><div class="metric-label">Total P/L</div><div class="metric-value" style="color:{c_pl}">${total_pl:,.2f}</div><div class="metric-sub" style="color:{c_pl}">({total_pct:+.2f}%)</div></div><div class="metric-box" style="flex:1;"><div class="metric-label">Today's P/L</div><div class="metric-value" style="color:{c_day}">${day_pl:,.2f}</div><div class="metric-sub" style="color:{c_day}">({day_pct:+.2f}%)</div></div></div>""", unsafe_allow_html=True)
 
-    
+
     if current_mode == "REAL":
         with st.expander("Manage Holdings", expanded=False):
             t1, t2, t3 = st.tabs(["Add Stock", "Edit Position", "Remove Stock"])
@@ -2951,7 +2951,7 @@ elif tab == "portfolio":
                         st.rerun()
                 else:
                     st.info("Portfolio is empty.")
-    
+
     st.divider()
     port_rows = get_portfolio_details(user['username'], current_mode)
     if port_rows:
@@ -3360,7 +3360,7 @@ elif tab == "scanner":
         st.markdown('<div class="section-title">Top 3 Quality</div>', unsafe_allow_html=True)
         for r in fetch_rank_rows("quality_score", 3):
             render_rank_card(r)
-            
+
 elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
