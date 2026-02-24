@@ -2482,7 +2482,7 @@ if tab == "home":
     # Pulse Environment (NEW CARD)
     # -----------------------------
     try:
-        env = fetch_pulse_environment_data()  # already in your app.py
+        env = fetch_pulse_environment(conn)  # already in your app.py
 
         if env:
             env_label = env.get("environment_label") or "—"
