@@ -2519,34 +2519,34 @@ if tab == "home":
                 vol_arrow = "↓" if float(stb) >= 50 else "↑"
 
             market_pulse_html = textwrap.dedent(f"""
-            <div class="mp-card">
-              <div class="mp-top">
-                <div class="mp-title">MARKET PULSE</div>
-                <div class="mp-score">
-                  <span class="mp-score-num">{pulse_txt}</span>
-                  <span class="mp-score-den">/ 100</span>
-                  <span class="mp-dot" style="background:{pulse_color};"></span>
-                  <span class="mp-regime">{pulse_label}</span>
+            <div class="pulse-card">
+              <div class="pulse-top">
+                <div class="pulse-title">MARKET PULSE</div>
+                <div class="pulse-score">
+                  <span class="pulse-score-num">{pulse_txt}</span>
+                  <span class="pulse-score-den">/ 100</span>
+                  <span class="pulse-dot" style="background:{pulse_color};"></span>
+                  <span class="pulse-regime">{pulse_label}</span>
                 </div>
               </div>
 
-              <div class="mp-divider"></div>
+              <div class="pulse-divider"></div>
 
-              <div class="mp-metrics">
-                <div class="mp-metric">
-                  <span class="mp-bullet" style="color:{mom_color};">◆</span>
-                  <span class="mp-label">Momentum</span>
-                  <span class="mp-arrow">{mom_arrow}</span>
+              <div class="pulse-metrics">
+                <div class="pulse-metric">
+                  <span class="pulse-bullet" style="color:{mom_color};">◆</span>
+                  <span class="pulse-label">Momentum</span>
+                  <span class="pulse-arrow">{mom_arrow}</span>
                 </div>
-                <div class="mp-metric">
-                  <span class="mp-bullet" style="color:{brd_color};">◆</span>
-                  <span class="mp-label">Breadth</span>
-                  <span class="mp-arrow">{brd_arrow}</span>
+                <div class="pulse-metric">
+                  <span class="pulse-bullet" style="color:{brd_color};">◆</span>
+                  <span class="pulse-label">Breadth</span>
+                  <span class="pulse-arrow">{brd_arrow}</span>
                 </div>
-                <div class="mp-metric">
-                  <span class="mp-bullet" style="color:{vol_color};">◆</span>
-                  <span class="mp-label">Volatility</span>
-                  <span class="mp-arrow">{vol_arrow}</span>
+                <div class="pulse-metric">
+                  <span class="pulse-bullet" style="color:{vol_color};">◆</span>
+                  <span class="pulse-label">Volatility</span>
+                  <span class="pulse-arrow">{vol_arrow}</span>
                 </div>
               </div>
             </div>
