@@ -2519,7 +2519,7 @@ if tab == "home":
             else:
                 env_label = "Risk-Off"
 
-           if pulse_score is None:
+        if pulse_score is None:
              dot_color = "#64748b"
            elif float(pulse_score) >= 65:
              dot_color = "#22c55e"
