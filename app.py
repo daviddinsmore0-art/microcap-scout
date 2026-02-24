@@ -2477,7 +2477,104 @@ if tab == "home":
         else:
             st.caption("No price data cached yet for your tickers.")
 
-     
+     # -----------------------------
+# Pulse Environment (HOME CARD)
+# FULL DROP-IN (includes conn)
+# -----------------------------
+try:
+    conn = get_connection()
+
+    def fetch_pulse_environment(conn):
+        q = """
+            SELECT
+                asof_date,
+                pulse_score,
+                momentum_breadth,
+                accel_breadth,
+                avg_global_percentile,
+                avg_stability,
+                liquidity_breadth
+            FROM pulse_environment_daily
+            ORDER BY asof_date DESC
+            LIMIT 1
+        """
+        cur = conn.cursor(dictionary=True)
+        cur.execute(q)
+        row = cur.fetchone()
+        cur.close()
+        return row
+
+    env = fetch_pulse_environment(conn)
+
+    if env:
+        def _fmt(x, d=1):
+            try:
+                return f"{float(x):.{d}f}"
+            except:
+                return "—"
+
+        asof = env.get("asof_date", "—")
+
+        pulse_html = f"""
+        <div style="margin-top:18px; border-radius:22px; overflow:hidden;
+                    background:linear-gradient(145deg,#0f172a,#0b1220);
+                    box-shadow:0 10px 30px rgba(0,0,0,0.4);
+                    border:1px solid rgba(255,255,255,0.06);">
+          <div style="padding:18px 18px 14px 18px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div style="width:44px; height:44px; border-radius:14px;
+                          background:linear-gradient(135deg,#7c3aed,#4f46e5);
+                          display:flex; align-items:center; justify-content:center;
+                          box-shadow:0 8px 18px rgba(79,70,229,0.25);">
+                <div style="font-size:20px;">🌐</div>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:22px; font-weight:800; color:#e5e7eb;">Pulse Environment</div>
+                <div style="margin-top:2px; font-size:14px; color:rgba(229,231,235,0.65);">
+                  As of {asof} • Pulse <b>{_fmt(env.get("pulse_score"))}</b>
+                </div>
+              </div>
+            </div>
+
+            <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
+
+            <div style="display:grid; grid-template-columns:1fr; gap:10px; font-size:16px;">
+              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                <span style="color:rgba(229,231,235,0.75);">Momentum Breadth</span>
+                <span><b>{_fmt(env.get("momentum_breadth"))}</b></span>
+              </div>
+              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                <span style="color:rgba(229,231,235,0.75);">Acceleration Breadth</span>
+                <span><b>{_fmt(env.get("accel_breadth"))}</b></span>
+              </div>
+              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                <span style="color:rgba(229,231,235,0.75);">Liquidity Breadth</span>
+                <span><b>{_fmt(env.get("liquidity_breadth"))}</b></span>
+              </div>
+              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                <span style="color:rgba(229,231,235,0.75);">Avg Global Percentile</span>
+                <span><b>{_fmt(env.get("avg_global_percentile"))}</b></span>
+              </div>
+              <div style="display:flex; justify-content:space-between; color:#e5e7eb;">
+                <span style="color:rgba(229,231,235,0.75);">Avg Stability</span>
+                <span><b>{_fmt(env.get("avg_stability"))}</b></span>
+              </div>
+            </div>
+          </div>
+          <div style="height:3px; background:linear-gradient(90deg, rgba(124,58,237,0.0), rgba(124,58,237,0.65), rgba(79,70,229,0.0));"></div>
+        </div>
+        """
+
+        components.html(pulse_html, height=330)
+
+except Exception as e:
+    st.error(f"Pulse environment error: {e}")
+
+finally:
+    try:
+        conn.close()
+    except:
+        pass
             
     # ==========================
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
