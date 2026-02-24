@@ -257,7 +257,7 @@ div[data-testid="stDecoration"] {
   background-color: #1a1f2b;
   border: 1px solid rgba(255,255,255,0.06);
   box-shadow: 0 10px 26px rgba(0,0,0,0.35);
-  margin: 4px 0 16px 0;
+  margin: 10px 0 16px 0;
 }
 .pulse-top{
   display:flex;
