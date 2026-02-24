@@ -456,39 +456,33 @@ def _column_exists(cur, table_name: str, column_name: str) -> bool:
         return False
 
 def fetch_signal_shift(cur, latest_date, prev_date):
-    """
-    Biggest global rank improvement between two asof_date values.
-    Uses ONLY:
-      - rankings_global_daily (ticker, asof_date, global_rank)
-      - rankings_daily (ticker, asof_date, momentum_score, stability_score) as an optional join
-    """
-    if not latest_date or not prev_date:
-        return None
-
-    sql = """
+    """Biggest global_rank improvement vs prior day, plus what improved (momentum/stability)."""
+    cur.execute(
+        """
         SELECT
-            g1.ticker,
-            g1.global_rank AS current_rank,
-            g0.global_rank AS prev_rank,
-            (g0.global_rank - g1.global_rank) AS rank_jump,
-            d1.momentum_score,
-            d1.stability_score
-        FROM rankings_global_daily g1
-        JOIN rankings_global_daily g0
-          ON g1.ticker = g0.ticker
-        LEFT JOIN rankings_daily d1
-          ON d1.ticker = g1.ticker
-         AND d1.asof_date = g1.asof_date
-        WHERE g1.asof_date = %s
-          AND g0.asof_date = %s
+            g.ticker,
+            (pg.global_rank - g.global_rank) AS rank_jump,
+            d1.momentum_score AS m_now,
+            d0.momentum_score AS m_prev,
+            d1.stability_score AS s_now,
+            d0.stability_score AS s_prev
+        FROM rankings_global_daily g
+        JOIN rankings_global_daily pg
+          ON pg.ticker = g.ticker
+         AND pg.asof_date = %s
+        JOIN rankings_daily d1
+          ON d1.ticker = g.ticker
+         AND d1.asof_date = %s
+        JOIN rankings_daily d0
+          ON d0.ticker = g.ticker
+         AND d0.asof_date = %s
+        WHERE g.asof_date = %s
         ORDER BY rank_jump DESC
         LIMIT 1
-    """
-    cur.execute(sql, (latest_date, prev_date))
+        """,
+        (prev_date, latest_date, prev_date, latest_date),
+    )
     return cur.fetchone()
-
-
-
 def get_rank_map(tickers):
     """
     Returns {TICKER: {global_rank, sector_rank, sector}} for the latest asof_date in rankings_sector_daily.
@@ -580,140 +574,87 @@ def ensure_stock_cache_ticker(ticker):
             pass
         conn.close()
 
-def get_latest_rank_asofs():
-    """
-    Returns latest asof_date per ranking table.
-    We keep these separate because some pipelines may update at different times.
-    """
-    conn = get_mysql_connection()
-    if not conn:
-        return {"global": None, "daily": None, "sector": None}
-
-    sql = """
-        SELECT
-          (SELECT MAX(asof_date) FROM rankings_global_daily) AS global_asof,
-          (SELECT MAX(asof_date) FROM rankings_daily)        AS daily_asof,
-          (SELECT MAX(asof_date) FROM rankings_sector_daily) AS sector_asof
-    """
-    cur = conn.cursor(dictionary=True)
-    cur.execute(sql)
-    row = cur.fetchone() or {}
-    cur.close()
-    conn.close()
-    return {
-        "global": row.get("global_asof"),
-        "daily": row.get("daily_asof"),
-        "sector": row.get("sector_asof"),
-    }
-
-
 def get_latest_rank_asof():
-    """
-    Backwards-compatible helper: returns latest asof_date from rankings_global_daily.
-    """
-    return get_latest_rank_asofs().get("global")
+    """Return a single asof_date that exists across ALL ranking tables.
 
+    We pick the latest *common* date by taking the LEAST of each table's MAX(asof_date).
+    This avoids mismatches (e.g., global updated but factor table not), which makes the UI look stale.
+    """
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        """
+        SELECT LEAST(
+            (SELECT IFNULL(MAX(asof_date),'0000-00-00') FROM rankings_global_daily),
+            (SELECT IFNULL(MAX(asof_date),'0000-00-00') FROM rankings_sector_daily),
+            (SELECT IFNULL(MAX(asof_date),'0000-00-00') FROM rankings_daily)
+        ) AS latest
+        """
+    )
+    row = cur.fetchone()
+    conn.close()
+    latest = row.get("latest") if row else None
+    return latest if latest and str(latest) != "0000-00-00" else None
 def get_rank_map_for_tickers(tickers):
     """
-    Returns dict keyed by ticker with ranking + factor scores.
+    Returns dict keyed by ticker with ranking + factor scores for the latest asof_date.
 
     Uses:
-      - rankings_global_daily  -> global_rank/global_percentile/composite_score
-      - rankings_sector_daily  -> sector/sector_rank/sector_percentile
-      - rankings_daily         -> momentum/quality/value/stability + signals
-
-    IMPORTANT: We do NOT assume all 3 tables update in lockstep.
-    We fetch each table using its own latest asof_date to avoid "stuck on Feb 19" style issues.
+      - rankings_global_daily (global_rank/global_percentile/composite_score)
+      - rankings_sector_daily (sector/sector_rank/sector_percentile)
+      - rankings_daily (momentum/quality/value/stability)
     """
     tickers = [t.upper().strip() for t in tickers if t]
     if not tickers:
         return {}
 
-    asofs = get_latest_rank_asofs()
-    asof_global = asofs.get("global")
-    asof_daily  = asofs.get("daily")
-    asof_sector = asofs.get("sector")
-
-    # If any table is empty, we still want partial data instead of failing everything.
-    conn = get_mysql_connection()
-    if not conn:
+    asof = get_latest_rank_asof()
+    if not asof:
         return {}
 
-    out = {t: {} for t in tickers}
     placeholders = ",".join(["%s"] * len(tickers))
 
+    conn = get_connection()
     cur = conn.cursor(dictionary=True)
 
-    # ---- Global ranks ----
-    if asof_global:
-        q = f"""
-            SELECT ticker, global_rank, global_percentile, composite_score
-            FROM rankings_global_daily
-            WHERE asof_date = %s AND ticker IN ({placeholders})
-        """
-        cur.execute(q, [asof_global] + tickers)
-        for row in cur.fetchall() or []:
-            t = (row.get("ticker") or "").upper()
-            out[t].update({
-                "global_rank": row.get("global_rank"),
-                "global_percentile": row.get("global_percentile"),
-                "composite_score": row.get("composite_score"),
-                "asof_global": asof_global,
-            })
+    # Global rank + percentile (higher percentile = better)
+    cur.execute(f"""
+        SELECT ticker, global_rank, global_percentile, composite_score
+        FROM rankings_global_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    g_rows = cur.fetchall() or []
 
-    # ---- Sector ranks ----
-    if asof_sector:
-        q = f"""
-            SELECT ticker, sector, sector_rank, sector_percentile
-            FROM rankings_sector_daily
-            WHERE asof_date = %s AND ticker IN ({placeholders})
-        """
-        cur.execute(q, [asof_sector] + tickers)
-        for row in cur.fetchall() or []:
-            t = (row.get("ticker") or "").upper()
-            out[t].update({
-                "sector": row.get("sector"),
-                "sector_rank": row.get("sector_rank"),
-                "sector_percentile": row.get("sector_percentile"),
-                "asof_sector": asof_sector,
-            })
+    # Sector rank + percentile
+    cur.execute(f"""
+        SELECT ticker, sector, sector_rank, sector_percentile
+        FROM rankings_sector_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    s_rows = cur.fetchall() or []
 
-    # ---- Factor scores + signals ----
-    if asof_daily:
-        q = f"""
-            SELECT
-              ticker,
-              momentum_score, stability_score, quality_score, value_score,
-              composite_score,
-              rvol, breakout, range_ratio,
-              prev_global_percentile,
-              quality_reason
-            FROM rankings_daily
-            WHERE asof_date = %s AND ticker IN ({placeholders})
-        """
-        cur.execute(q, [asof_daily] + tickers)
-        for row in cur.fetchall() or []:
-            t = (row.get("ticker") or "").upper()
-            out[t].update({
-                "momentum_score": row.get("momentum_score"),
-                "stability_score": row.get("stability_score"),
-                "quality_score": row.get("quality_score"),
-                "value_score": row.get("value_score"),
-                "composite_score_daily": row.get("composite_score"),
-                "rvol": row.get("rvol"),
-                "breakout": row.get("breakout"),
-                "range_ratio": row.get("range_ratio"),
-                "prev_global_percentile": row.get("prev_global_percentile"),
-                "quality_reason": row.get("quality_reason"),
-                "asof_daily": asof_daily,
-            })
+    # Factor scores (0-100)
+    cur.execute(f"""
+        SELECT ticker,
+               momentum_score, quality_score, value_score, stability_score
+        FROM rankings_daily
+        WHERE asof_date = %s AND ticker IN ({placeholders})
+    """, [asof] + tickers)
+    f_rows = cur.fetchall() or []
 
-    cur.close()
     conn.close()
 
-    # Strip empties so callers can use .get safely
-    return {t: d for t, d in out.items() if d}
+    out = {t: {} for t in tickers}
+    for r in g_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+    for r in s_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
+    for r in f_rows:
+        out[r["ticker"]] = {**out.get(r["ticker"], {}), **r}
 
+    out["_asof"] = asof
+    return out
+    
 def ensure_stock_cache_ticker(ticker: str):
     """Ensure ticker exists in stock_cache AND in global_universe."""
     t = (ticker or "").strip().upper()
@@ -2291,44 +2232,6 @@ if not user: st.error("Session Expired"); st.stop()
 current_mode = "REAL"
 render_topbar(user.get("display_name"))
 
-
-# ---- Quick refresh controls (mobile-friendly) ----
-def _pp_rerun():
-    try:
-        st.rerun()
-    except Exception:
-        try:
-            st.experimental_rerun()
-        except Exception:
-            pass
-
-refresh_col1, refresh_col2 = st.columns([1, 1])
-with refresh_col1:
-    if st.button("↻ Refresh now", use_container_width=True):
-        # Clear any Streamlit caches if present
-        try:
-            st.cache_data.clear()
-        except Exception:
-            pass
-        try:
-            st.cache_resource.clear()
-        except Exception:
-            pass
-        _pp_rerun()
-
-with refresh_col2:
-    auto = st.toggle("Auto-refresh (60s)", value=False)
-    if auto:
-        # lightweight auto-rerun
-        st.caption("Auto-refresh is ON")
-        try:
-            import time
-            time.sleep(60)
-        except Exception:
-            pass
-        _pp_rerun()
-
-
 if "ticker" in st.query_params:
     ticker = st.query_params["ticker"]
     stock = get_single_stock(ticker)
@@ -2516,10 +2419,8 @@ if tab == "home":
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        # latest + previous available dates (GLOBAL ranks)
-        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
-        latest_date = (cur.fetchone() or {}).get("d")
-
+        # latest + previous available dates (COMMON across rank tables)
+        latest_date = get_latest_rank_asof()
         prev_date = None
         if latest_date:
             cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily WHERE asof_date < %s", (latest_date,))
