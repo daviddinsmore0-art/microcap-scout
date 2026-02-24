@@ -285,7 +285,7 @@ div[data-testid="stDecoration"] {
 }
 .pulse-pill .pulse-score{
   color: #49e38b;
-  font-weight: 400;
+  font-weight: 800;
 }
 .pulse-dot{
   width:12px;
