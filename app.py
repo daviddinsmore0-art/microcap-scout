@@ -2478,85 +2478,80 @@ if tab == "home":
             st.caption("No price data cached yet for your tickers.")
 
     # -----------------------------
-    # Market Pulse (Pulse Environment) - HOME CARD
-    # -----------------------------
+# Market Pulse (HOME block)
+# -----------------------------
+try:
+    conn = get_connection()
+    env = fetch_pulse_environment(conn)  # <-- YOUR EXISTING function that takes (conn)
     try:
-        conn = get_connection()
-        env = fetch_pulse_environment(conn)  # expects a live DB connection
+        conn.close()
+    except:
+        pass
 
-        if env:
-            # --- derived labels/colors/arrows (keeps it simple + stable) ---
-            pulse_score = env.get("pulse_score")
-            pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
+    if env:
+        # --- pull values safely (supports either dict or None) ---
+        pulse_score = env.get("pulse_score")
+        if isinstance(pulse_score, (int, float)):
+            score_txt = f"{pulse_score:.0f}"
+        else:
+            score_txt = "—"
 
-            regime = (env.get("pulse_regime") or "Neutral").strip()
-            regime_l = regime.lower()
-            if "risk-on" in regime_l or "risk on" in regime_l:
-                pulse_label, pulse_color = "Risk-On", "#22c55e"
-            elif "risk-off" in regime_l or "risk off" in regime_l:
-                pulse_label, pulse_color = "Risk-Off", "#ef4444"
-            else:
-                pulse_label, pulse_color = "Neutral", "#f59e0b"
+        # This label should be like "Risk-On" / "Risk-Off" / "Neutral"
+        regime = (
+            env.get("environment_label")
+            or env.get("regime_label")
+            or env.get("risk_label")
+            or "—"
+        )
 
-            def _arrow_and_color(val, good_if_high=True):
-                if val is None:
-                    return "—", "rgba(229,231,235,0.75)"
-                v = float(val)
-                good = (v >= 50) if good_if_high else (v < 50)
-                arrow = "↑" if good else "↓"
-                color = "#22c55e" if good else "#f59e0b"
-                return arrow, color
+        # Direction labels (use what you already store; fallback to arrows if missing)
+        mom_lbl = env.get("momentum_label") or ("↑" if (env.get("momentum_delta", 0) or 0) > 0 else "↓")
+        brd_lbl = env.get("breadth_label") or ("↑" if (env.get("breadth_delta", 0) or 0) > 0 else "↓")
+        vol_lbl = env.get("vol_label") or ("↑" if (env.get("vol_delta", 0) or 0) > 0 else "↓")
 
-            mom = env.get("momentum_breadth")
-            brd = env.get("accel_breadth")  # breadth proxy
-            stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
+        # Optional: choose diamond color by “good/bad” direction (volatility usually opposite)
+        def _diamond(color_hex: str):
+            return f'<span style="color:{color_hex}; font-size:18px; margin-right:8px;">◆</span>'
 
-            mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
-            brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
-            vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
-            # For volatility we want DOWN when stability is high
-            if vol_arrow != "—":
-                vol_arrow = "↓" if float(stb) >= 50 else "↑"
+        # If you want volatility “down” to be green, flip it here:
+        vol_is_good = (vol_lbl.strip() in ["↓", "Down", "down", "Decreasing"])
+        mom_is_good = (mom_lbl.strip() in ["↑", "Up", "up", "Increasing"])
+        brd_is_good = (brd_lbl.strip() in ["↑", "Up", "up", "Increasing"])
 
-            market_pulse_html = textwrap.dedent(f"""
-            <div class="pulse-card">
-              <div class="pulse-top">
-                <div class="pulse-title">MARKET PULSE</div>
-                <div class="pulse-score">
-                  <span class="pulse-score-num">{pulse_txt}</span>
-                  <span class="pulse-score-den">/ 100</span>
-                  <span class="pulse-dot" style="background:{pulse_color};"></span>
-                  <span class="pulse-regime">{pulse_label}</span>
-                </div>
-              </div>
+        mom_d = _diamond("#22c55e" if mom_is_good else "#f59e0b")
+        brd_d = _diamond("#22c55e" if brd_is_good else "#f59e0b")
+        vol_d = _diamond("#22c55e" if vol_is_good else "#f59e0b")
 
-              <div class="pulse-divider"></div>
+        pulse_html = f"""
+        <div class="pulse-card">
+          <div class="pulse-top">
+            <div class="pulse-title">MARKET PULSE</div>
+            <div class="pulse-pill">{score_txt} / 100&nbsp;&nbsp;{regime}</div>
+          </div>
 
-              <div class="pulse-metrics">
-                <div class="pulse-metric">
-                  <span class="pulse-bullet" style="color:{mom_color};">◆</span>
-                  <span class="pulse-label">Momentum</span>
-                  <span class="pulse-arrow">{mom_arrow}</span>
-                </div>
-                <div class="pulse-metric">
-                  <span class="pulse-bullet" style="color:{brd_color};">◆</span>
-                  <span class="pulse-label">Breadth</span>
-                  <span class="pulse-arrow">{brd_arrow}</span>
-                </div>
-                <div class="pulse-metric">
-                  <span class="pulse-bullet" style="color:{vol_color};">◆</span>
-                  <span class="pulse-label">Volatility</span>
-                  <span class="pulse-arrow">{vol_arrow}</span>
-                </div>
-              </div>
+          <div class="pulse-metrics">
+            <div class="pulse-metric">
+              <div class="pulse-value">{mom_d}<span style="opacity:.9; font-weight:700;">Momentum</span> <span style="font-weight:900;">{mom_lbl}</span></div>
             </div>
-            """).strip()
 
-            st.markdown(market_pulse_html, unsafe_allow_html=True)
+            <div class="pulse-metric">
+              <div class="pulse-value">{brd_d}<span style="opacity:.9; font-weight:700;">Breadth</span> <span style="font-weight:900;">{brd_lbl}</span></div>
+            </div>
 
-    except Exception as e:
-        st.error(f"Market pulse error: {e}")
+            <div class="pulse-metric" style="flex-basis:100%;">
+              <div class="pulse-value">{vol_d}<span style="opacity:.9; font-weight:700;">Volatility</span> <span style="font-weight:900;">{vol_lbl}</span></div>
+            </div>
+          </div>
 
+          <div class="pulse-sub"></div>
+        </div>
+        """
+
+        components.html(pulse_html, height=220)
+
+except Exception:
+    # keep homepage clean — no error box
+    pass
 
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
