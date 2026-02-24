@@ -2547,7 +2547,7 @@ if tab == "home":
 
             <div style="height:1px; background:rgba(255,255,255,0.10); margin:14px 0;"></div>
 
-                <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:18px; color:#e5e7eb;">
+            <div style="display:flex; gap:22px; flex-wrap:wrap; font-size:18px; color:#e5e7eb;">
                   <div style="display:flex; align-items:center; gap:10px;">
                     <span style="color:#49e38b;">◆</span>
                     <span style="opacity:.9;">Momentum</span>
@@ -2564,10 +2564,10 @@ if tab == "home":
                     <span style="font-weight:800;">{v_arrow}</span>
                   </div>
                 </div>
-              </div>
+             </div>
 
-              <div class="pp-glow-line"></div>
-            </div>
+             <div class="pp-glow-line"></div>
+             </div>
             """
 
             st.markdown(card_html, unsafe_allow_html=True)
