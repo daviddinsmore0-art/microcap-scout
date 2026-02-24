@@ -2509,48 +2509,45 @@ if tab == "home":
         else:
             st.caption("No price data cached yet for your tickers.")
 
-    
-                # -----------------------------
-# Market Pulse (Pulse Environment) - HOME CARD
-# -----------------------------
-try:
-    conn = get_connection()
-    env = fetch_pulse_environment(conn)
+     # -----------------------------
+    # Market Pulse (Pulse Environment) - HOME CARD
+    # -----------------------------
+    try:
+        conn = get_connection()
+        env = fetch_pulse_environment(conn)  # expects a live DB connection
+        env = env or {}
 
-    if env:
-
-        # --- pulse score ---
+        # --- derived labels/colors/arrows (keeps it simple + stable) ---
         pulse_score = env.get("pulse_score")
         pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
 
-        # --- environment label ---
-        env_label = env.get("environment_label") or env.get("env_label")
-
+        env_label = (env.get("environment_label") or env.get("env_label") or "").strip()
         if not env_label:
             if pulse_score is None:
                 env_label = "Neutral"
-            elif float(pulse_score) >= 65:
-                env_label = "Risk-On"
-            elif float(pulse_score) >= 45:
-                env_label = "Neutral"
             else:
-                env_label = "Risk-Off"
+                s = float(pulse_score)
+                if s >= 65:
+                    env_label = "Risk-On"
+                elif s >= 45:
+                    env_label = "Neutral"
+                else:
+                    env_label = "Risk-Off"
 
-        # --- dot color ---
         if pulse_score is None:
             dot_color = "#64748b"
-        elif float(pulse_score) >= 65:
-            dot_color = "#22c55e"
-        elif float(pulse_score) >= 45:
-            dot_color = "#fbbf24"
         else:
-            dot_color = "#ef4444"
+            s = float(pulse_score)
+            if s >= 65:
+                dot_color = "#22c55e"
+            elif s >= 45:
+                dot_color = "#fbbf24"
+            else:
+                dot_color = "#ef4444"
 
-        # --- arrow helper ---
         def _arrow_and_color(val, good_if_high=True):
             if val is None:
                 return "—", "rgba(229,231,235,0.75)"
-
             v = float(val)
             good = (v >= 50) if good_if_high else (v < 50)
             arrow = "↑" if good else "↓"
@@ -2558,18 +2555,20 @@ try:
             return arrow, color
 
         mom = env.get("momentum_breadth")
-        brd = env.get("accel_breadth")
-        stb = env.get("avg_stability")
+        brd = env.get("accel_breadth")   # breadth proxy
+        stb = env.get("avg_stability")   # stability proxy (higher = lower volatility)
 
         mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
         brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
-        vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
 
-        # For volatility we invert arrow (high stability = lower vol)
-        if vol_arrow != "—" and stb is not None:
-            vol_arrow = "↓" if float(stb) >= 50 else "↑"
+        # Volatility: we want ↓ when stability is high
+        if stb is None:
+            vol_arrow, vol_color = "—", "rgba(229,231,235,0.75)"
+        else:
+            stb_f = float(stb)
+            vol_arrow = "↓" if stb_f >= 50 else "↑"
+            vol_color = "#22c55e" if stb_f >= 50 else "#f59e0b"
 
-        # --- HTML ---
         market_pulse_html = textwrap.dedent(f"""
             <div class="pulse-card">
               <div class="pulse-top">
@@ -2605,21 +2604,24 @@ try:
               </div>
 
               <div style="
-                position:absolute;
-                bottom:0;
-                left:10%;
-                width:80%;
-                height:1px;
-                background:linear-gradient(90deg, transparent, #4ade80, transparent);
-                box-shadow:0px -2px 10px rgba(74, 222, 128, 0.6);
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #4ade80, transparent);
+                box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
               "></div>
             </div>
         """).strip()
 
         st.markdown(market_pulse_html, unsafe_allow_html=True)
 
-except Exception as e:
-    st.error(f"Market pulse error: {e}")
+    except Exception as e:
+        st.error(f"Market pulse error: {e}")
+                
+
+        
 
 
     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
