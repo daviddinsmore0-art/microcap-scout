@@ -2660,15 +2660,15 @@ if tab == "home":
        asof_txt = ""
 
 try:
-    if asof_raw:
+       if asof_raw:
         # Parse/normalize to a datetime
         if hasattr(asof_raw, "strftime"):
             asof_dt = asof_raw
-        else:
+       else:
             asof_dt = datetime.strptime(str(asof_raw), "%Y-%m-%d %H:%M:%S")
 
         # If DB returned a naive datetime, assume it's UTC
-        if asof_dt.tzinfo is None:
+       if asof_dt.tzinfo is None:
             asof_dt = asof_dt.replace(tzinfo=timezone.utc)
 
         # Convert to your local timezone (server/device local)
