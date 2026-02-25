@@ -2502,7 +2502,7 @@ if tab == "home":
 
     # Pull latest Market Engine snapshots
     engine = {}
-    try:
+        try:
         cur2 = conn.cursor(dictionary=True)
         cur2.execute("""
             SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
@@ -2530,15 +2530,15 @@ if tab == "home":
             engine["trend_delta_1h"]   = 0
             engine["session_delta_1h"] = 0.0
 
-    except Exception:
+           except Exception:
         try:
             cur2.close()
         except Exception:
             pass
         engine = {}
 
-except Exception as e:
-    st.error(f"Market pulse error: {e}")
+     except Exception as e:
+       st.error(f"Market pulse error: {e}")
 
         if env:
             # --- derived labels/colors/arrows (keeps it simple + stable) ---
