@@ -2700,7 +2700,7 @@ if tab == "home":
                 background: linear-gradient(90deg, transparent, #4ade80, transparent);
                 box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
                 "></div>
-            </div>
+        </div>
         """).strip()
 
         st.markdown(market_pulse_html, unsafe_allow_html=True)
