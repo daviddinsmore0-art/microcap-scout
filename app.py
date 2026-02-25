@@ -2611,7 +2611,13 @@ if tab == "home":
         breadth_pct = float(engine.get("breadth_pct") or 0)
         trend_pct = float(engine.get("trend_pct") or 0)
         session_mult = float(engine.get("session_mult") or 0)
-
+        # --- Volatility label ---
+        if session_mult >= 1.15:
+         vol_label = "Elevated"
+        elif session_mult <= 0.90:
+         vol_label = "Compressed"
+        else:
+         vol_label = "Normal"
         env_msg = "Mixed tape. Selectivity required."
         micro_bias = "Micro-bias: avoid chasing; wait for confirmation."
 
@@ -2649,7 +2655,7 @@ if tab == "home":
         if engine:
             engine_line = (
         f"<div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>"
-        f"Engine: Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {session_mult:.2f}"
+        f"Engine: Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {vol_label} "
         f"</div>"
             )
 
