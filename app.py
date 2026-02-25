@@ -2681,29 +2681,29 @@ if tab == "home":
          breadth_tone = "participation is mixed"
 
 # Trend tone
-       if float(trend_d1h or 0) >= 6:
+    if float(trend_d1h or 0) >= 6:
           trend_tone = "trend is strengthening"
-       elif float(trend_d1h or 0) <= -6:
+    elif float(trend_d1h or 0) <= -6:
           trend_tone = "trend is fading"
-       else:
+    else:
           trend_tone = "trend is holding"
 
 # Momentum tone
-       if float(accel_d1h or 0) >= 4:
+    if float(accel_d1h or 0) >= 4:
          accel_tone = "momentum is picking up"
-       elif float(accel_d1h or 0) <= -4:
+    elif float(accel_d1h or 0) <= -4:
          accel_tone = "momentum is cooling"
-       else:
+    else:
          accel_tone = "momentum is steady"
 
 # Build message based on state
-       if state == "Green Light":
+    if state == "Green Light":
           engine_msg = f"{trend_tone.capitalize()} and {breadth_tone}. {accel_tone.capitalize()} — opportunities are cleaner."
        micro_bias = "Lean into leaders; press strength but manage volatility."
-          elif state == "Selective Tape":
+    elif state == "Selective Tape":
           engine_msg = f"{trend_tone.capitalize()}, but {breadth_tone}. {accel_tone.capitalize()} — be selective."
           micro_bias = "Focus relative strength; avoid random chasing."
-       else:  # Caution Mode
+    else:  # Caution Mode
           engine_msg = f"{trend_tone.capitalize()}, while {breadth_tone}. {accel_tone.capitalize()} — protect capital."
            micro_bias = "Reduce size; wait for confirmation; take quicker profits."
 
