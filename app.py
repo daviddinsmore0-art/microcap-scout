@@ -2730,7 +2730,7 @@ if tab == "home":
             <div class="pulse-pill">
                   <span class="pulse-score"></span>
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
-                  <span style="font-weight:600;">{state} Market</span>
+                  <span style="font-weight:600;">{state}</span>
                 </div>
             </div>
 
