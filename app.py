@@ -2503,11 +2503,11 @@ if tab == "home":
         # Pull latest Market Engine snapshot (accel/trend/vol regime)
         engine = {}
     try:
-        cur2.execute("""
-        SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
-        FROM market_engine_snapshots
-        ORDER BY snapshot_ts DESC
-        LIMIT 6
+     cur2.execute("""
+     SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
+     FROM market_engine_snapshots
+     ORDER BY snapshot_ts DESC
+     LIMIT 6
        """)
        rows = cur2.fetchall() or []
        cur2.close()
