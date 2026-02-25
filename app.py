@@ -2658,12 +2658,12 @@ if tab == "home":
   <div class="pulse-top">
     <div class="pulse-title">MARKET PULSE</div>
 
-    <div class="pulse-pill">
+  <div class="pulse-pill">
       <span class="pulse-score">{pulse_txt} / 100</span>
       <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
       <span style="font-weight:900; color:{pulse_color};">{pulse_label}</span>
       {delta_html}
-    </div>
+  </div>
   </div>
 
   <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
@@ -2673,19 +2673,19 @@ if tab == "home":
       <span style="color:{mom_color}; font-size:12px;">◆</span>
       <span class="pulse-label">Momentum</span>
       <span class="pulse-arrow">{mom_arrow}</span>
-    </div>
+  </div>
 
-    <div class="pulse-metric">
+  <div class="pulse-metric">
       <span style="color:{brd_color}; font-size:12px;">◆</span>
       <span class="pulse-label">Breadth</span>
       <span class="pulse-arrow">{brd_arrow}</span>
-    </div>
+  </div>
 
-    <div class="pulse-metric">
+  <div class="pulse-metric">
       <span style="color:{vol_color}; font-size:12px;">◆</span>
       <span class="pulse-label">Volatility</span>
       <span class="pulse-arrow">{vol_arrow}</span>
-    </div>
+  </div>
   </div>
 
   {env_msg_html}
@@ -2695,7 +2695,7 @@ if tab == "home":
   <div style="position:absolute; bottom:0; left:10%; width:80%; height:1px;
               background:linear-gradient(90deg, transparent, #4ade80, transparent);
               box-shadow:0px -2px 10px rgba(74, 222, 128, 0.6);"></div>
-</div>
+  </div>
 """.strip()
 
 
