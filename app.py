@@ -2503,17 +2503,37 @@ if tab == "home":
         # Pull latest Market Engine snapshot (accel/trend/vol regime)
         engine = {}
         try:
-            cur2 = conn.cursor(dictionary=True)
-            cur2.execute("""
-                SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
-                FROM market_engine_snapshots
-                ORDER BY snapshot_ts DESC
-                LIMIT 1
-            """)
-            engine = cur2.fetchone() or {}
-            cur2.close()
-        except Exception:
-            engine = {}
+        cur2.execute("""
+        SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
+        FROM market_engine_snapshots
+        ORDER BY snapshot_ts DESC
+        LIMIT 6
+    """)
+    rows = cur2.fetchall() or []
+    cur2.close()
+
+    latest = rows[0] if len(rows) >= 1 else {}
+    prev_1h = rows[4] if len(rows) >= 5 else (rows[-1] if len(rows) >= 2 else {})
+
+    # Build an engine dict the rest of your code can keep using
+    engine = dict(latest) if latest else {}
+
+    # Add deltas (1h approx = 4 intervals back)
+    if latest and prev_1h:
+        engine["accel_delta_1h"]   = (latest.get("accel_heat")   or 0) - (prev_1h.get("accel_heat")   or 0)
+        engine["breadth_delta_1h"] = (latest.get("breadth_pct")  or 0) - (prev_1h.get("breadth_pct")  or 0)
+        engine["trend_delta_1h"]   = (latest.get("trend_pct")    or 0) - (prev_1h.get("trend_pct")    or 0)
+        engine["session_delta_1h"] = float((latest.get("session_mult") or 0)) - float((prev_1h.get("session_mult") or 0))
+    else:
+        engine["accel_delta_1h"] = engine["breadth_delta_1h"] = engine["trend_delta_1h"] = 0
+        engine["session_delta_1h"] = 0.0
+
+except Exception:
+    try:
+        cur2.close()
+    except Exception:
+        pass
+    engine = {}
 
 
         if env:
