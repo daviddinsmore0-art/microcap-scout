@@ -2665,7 +2665,13 @@ if tab == "home":
                     asof_dt = asof_raw
                 else:
                     asof_dt = datetime.strptime(str(asof_raw), "%Y-%m-%d %H:%M:%S")
-                asof_txt = asof_dt.strftime("%b %d %H:%M")
+                asof_txt = now = datetime.now(asof_dt.tzinfo) if hasattr(asof_dt, "tzinfo") else datetime.now()
+diff_minutes = (now - asof_dt).total_seconds() / 60
+
+if diff_minutes <= 30:
+    asof_txt = f"Live • {asof_dt.strftime('%I:%M %p').lstrip('0')}"
+else:
+    asof_txt = f"Last update: {asof_dt.strftime('%b %d %H:%M')}"
         except Exception:
             asof_txt = str(asof_raw) if asof_raw else ""
 
