@@ -2509,13 +2509,13 @@ if tab == "home":
             env_label = env.get("environment_label")
 
             if not env_label:
-            if pulse_score is None:
+        if pulse_score is None:
             env_label = "Neutral"
-            elif float(pulse_score) >= 65:
+        elif float(pulse_score) >= 65:
             env_label = "Risk-On"
-            elif float(pulse_score) >= 45:
+        elif float(pulse_score) >= 45:
             env_label = "Neutral"
-            else:
+        else:
             env_label = "Risk-Off"
 
             if pulse_score is None:
