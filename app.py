@@ -2631,21 +2631,7 @@ if engine:
             engine_summary = " • ".join(signals)
 
     except Exception:
-        engine_summary = ""
-
-          
-        # --- derived labels/colors/arrows (keeps it simple + stable) ---
-        pulse_score = (env or {}).get("pulse_score")
-        pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
-        # --- Market Condition (Primary State) ---
-        if pulse_score is None:
-            state = "Neutral"
-        elif pulse_score >= 65:
-            state = "Bullish"
-        elif pulse_score >= 45:
-            state = "Neutral"
-        else:
-            state = "Defensive"
+        
         env_label = (env or {}).get("environment_label") or (env or {}).get("env_label") or ""
         if not env_label:
             if pulse_score is None:
