@@ -2760,17 +2760,8 @@ if tab == "home":
                 "</div>"
             )
 
-        interpretation_msg = f"""
-                <div style='margin-top:12px; font-size:16px; font-weight:700;'>
-               {engine_msg}
-                </div>
-                """
-
-        micro_bias_line = f"""
-                <div style='margin-top:6px; font-size:14px; opacity:0.8;'>
-                {micro_bias}
-                </div>
-                """
+        interpretation_msg = f"<div style='margin-top:12px; font-size:16px; font-weight:700; color:rgba(255,255,255,0.92); line-height:1.35;'>{engine_msg}</div>"
+        micro_bias_line    = f"<div style='margin-top:6px; font-size:14px; color:rgba(255,255,255,0.62); line-height:1.35;'>{micro_bias}</div>"
         
         market_pulse_html = textwrap.dedent(f"""
             <div class="pulse-card">
