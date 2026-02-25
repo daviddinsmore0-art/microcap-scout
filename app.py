@@ -1692,31 +1692,33 @@ def fetch_market_engine_with_deltas(conn, limit=12, steps_per_hour=4):
         return {}, []
 
     latest = engine_rows[0] if len(engine_rows) >= 1 else None
+    if not latest:
+        return {}, engine_rows
 
     # pick “~1 hour ago” row (4 snapshots back if 15m cadence)
     idx = steps_per_hour
-    if len(engine_rows) >= (idx + 1):
-        prev_1h = engine_rows[idx]
-    else:
-        prev_1h = engine_rows[-1] if len(engine_rows) >= 2 else None
+    prev_1h = engine_rows[idx] if len(engine_rows) >= (idx + 1) else None
 
-    if not latest:
-        return {}, engine_rows
+    # fallback: if we don't have 1h yet, use the most recent previous row (15m ago)
+    prev_any = engine_rows[1] if len(engine_rows) >= 2 else None
+    prev = prev_1h or prev_any
 
     engine = dict(latest)
 
     def _delta(key):
         try:
-            if not prev_1h:
+            if not prev:
                 return None
             a = latest.get(key)
-            b = prev_1h.get(key)
+            b = prev.get(key)
             if a is None or b is None:
                 return None
             return float(a) - float(b)
         except Exception:
             return None
 
+    # Note: names kept as *_delta_1h for backwards-compatibility,
+    # but when 1h isn't available yet they act like "since last snapshot".
     engine["accel_delta_1h"] = _delta("accel_heat")
     engine["breadth_delta_1h"] = _delta("breadth_pct")
     engine["trend_delta_1h"] = _delta("trend_pct")
