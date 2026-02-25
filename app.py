@@ -2665,8 +2665,7 @@ if tab == "home":
                     asof_dt = asof_raw
                 else:
                     asof_dt = datetime.strptime(str(asof_raw), "%Y-%m-%d %H:%M:%S")
-                asof_txt = now = datetime.now(asof_dt.tzinfo) if hasattr(asof_dt, "tzinfo") else datetime.now()
-diff_minutes = (now - asof_dt).total_seconds() / 60
+                asof_txt = now = datetime.now(asof_dt.tzinfo) if hasattr(asof_dt, "tzinfo") else datetime.now()diff_minutes = (now - asof_dt).total_seconds() / 60
 
 if diff_minutes <= 30:
     asof_txt = f"Live • {asof_dt.strftime('%I:%M %p').lstrip('0')}"
