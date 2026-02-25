@@ -2597,9 +2597,9 @@ if tab == "home":
 
           engine_line = f"""
 <div style="margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;">
-  Engine: Accel {int(accel_heat)}{_fmt_delta(accel_d1h)}
-  · Breadth {int(breadth_pct)}%{_fmt_delta(breadth_d1h)}
-  · Trend {int(trend_pct)}%{_fmt_delta(trend_d1h)}
+  Engine: Accel {int(accel_heat)}{_fmt_delta(engine.get("accel_delta_1h"))}
+· Breadth {int(breadth_pct)}%{_fmt_delta(engine.get("breadth_delta_1h"))}
+· Trend {int(trend_pct)}%{_fmt_delta(engine.get("trend_delta_1h"))}
   · Vol {vol_label}
 </div>
 """.strip()
