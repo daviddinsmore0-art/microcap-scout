@@ -2560,14 +2560,7 @@ if tab == "home":
     try:
         conn = get_connection()
         env = fetch_pulse_environment(conn) or {}
-        if pulse_score is None:
-          state = "Neutral"
-        elif float(pulse_score) >= 65:
-          state = "Bullish"
-        elif float(pulse_score) >= 45:
-          state = "Neutral"
-        else:
-          state = "Defensive"
+
         # Pull latest Market Engine snapshot(s) + deltas (15m cadence => ~1h is 4 rows back)
         engine, engine_rows = fetch_market_engine_with_deltas(conn, limit=12, steps_per_hour=4)
 
@@ -2712,12 +2705,12 @@ if tab == "home":
                 <div>
                   <div class="pulse-title">MARKET PULSE</div>
                   {asof_html}
-                </div>
+            </div>
 
             <div class="pulse-pill">
                   <span class="pulse-score">{pulse_txt} / 100</span>
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
-                  <span style="font-weight:900;">{state} Market</span>
+                  <span style="font-weight:900;">{env_label}</span>
                 </div>
             </div>
 
