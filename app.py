@@ -2573,11 +2573,11 @@ if tab == "home":
         session_d1h = engine.get("session_delta_1h")
         # --- Vol label from session_mult ---
         if session_mult >= 1.15:
-        vol_label = "High"
+          vol_label = "High"
         elif session_mult <= 0.90:
-        vol_label = "Low"
+          vol_label = "Low"
         else:
-        vol_label = "Normal"
+          vol_label = "Normal"
         
         # --- derived labels/colors/arrows (keeps it simple + stable) ---
         pulse_score = (env or {}).get("pulse_score")
