@@ -2568,13 +2568,13 @@ if tab == "home":
         pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
         # --- Market Condition (Primary State) ---
         if pulse_score is None:
-           state = "Neutral"
+           state = "Selective Tape"
         elif pulse_score >= 65:
-           state = "Bullish"
+           state = "Offensive Mode"
         elif pulse_score >= 45:
-           state = "Neutral"
+           state = "Selective Tape"
         else:
-           state = "Defensive"
+           state = "Caution Mode"
            
         env_label = env.get("environment_label") or env.get("env_label") or ""
         if not env_label:
