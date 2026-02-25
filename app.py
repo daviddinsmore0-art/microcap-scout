@@ -1665,7 +1665,65 @@ def add_ticker_to_db(username, ticker, shares, price, ptype):
     conn.commit()
     conn.close()
 
+def fetch_market_engine_with_deltas(conn, limit=12, steps_per_hour=4):
+    """
+    Pull latest market_engine_snapshots rows and compute ~1h deltas.
+    steps_per_hour=4 assumes snapshots every 15 minutes.
+    Returns: (engine_dict, engine_rows)
+    """
+    engine = {}
+    engine_rows = []
 
+    try:
+        cur2 = conn.cursor(dictionary=True)
+        cur2.execute(f"""
+            SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
+            FROM market_engine_snapshots
+            ORDER BY snapshot_ts DESC
+            LIMIT {int(limit)}
+        """)
+        engine_rows = cur2.fetchall() or []
+        cur2.close()
+    except Exception:
+        try:
+            cur2.close()
+        except Exception:
+            pass
+        return {}, []
+
+    latest = engine_rows[0] if len(engine_rows) >= 1 else None
+
+    # pick “~1 hour ago” row (4 snapshots back if 15m cadence)
+    idx = steps_per_hour
+    if len(engine_rows) >= (idx + 1):
+        prev_1h = engine_rows[idx]
+    else:
+        prev_1h = engine_rows[-1] if len(engine_rows) >= 2 else None
+
+    if not latest:
+        return {}, engine_rows
+
+    engine = dict(latest)
+
+    def _delta(key):
+        try:
+            if not prev_1h:
+                return None
+            a = latest.get(key)
+            b = prev_1h.get(key)
+            if a is None or b is None:
+                return None
+            return float(a) - float(b)
+        except Exception:
+            return None
+
+    engine["accel_delta_1h"] = _delta("accel_heat")
+    engine["breadth_delta_1h"] = _delta("breadth_pct")
+    engine["trend_delta_1h"] = _delta("trend_pct")
+    engine["session_delta_1h"] = _delta("session_mult")
+
+    return engine, engine_rows
+    
 def update_ticker_in_db(username, ticker, shares, price, ptype):
     conn = get_connection()
     cursor = conn.cursor()
