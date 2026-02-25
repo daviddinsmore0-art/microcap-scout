@@ -2655,32 +2655,43 @@ if tab == "home":
         else:
             vol_label = "Normal"
 
-        # As-of timestamp (helps regular users know if it's "today / now")
-        asof_raw = (engine or {}).get("candle_ts") or (engine or {}).get("snapshot_ts")
-        asof_txt = ""
-        try:
-            if asof_raw:
-                # mysql-connector may return datetime or str
-                if hasattr(asof_raw, "strftime"):
-                    asof_dt = asof_raw
-                else:
-                    asof_dt = datetime.strptime(str(asof_raw), "%Y-%m-%d %H:%M:%S")
+        # As-of timestamp (convert DB time -> local time)
+asof_raw = (engine or {}).get("candle_ts") or (engine or {}).get("snapshot_ts")
+asof_txt = ""
 
-                # if the DB datetime has tzinfo use it, otherwise local now()
-                now = datetime.now(asof_dt.tzinfo) if getattr(asof_dt, "tzinfo", None) else datetime.now()
-                diff_minutes = (now - asof_dt).total_seconds() / 60.0
+try:
+    if asof_raw:
+        # Parse/normalize to a datetime
+        if hasattr(asof_raw, "strftime"):
+            asof_dt = asof_raw
+        else:
+            asof_dt = datetime.strptime(str(asof_raw), "%Y-%m-%d %H:%M:%S")
 
-                if diff_minutes <= 30:
-                    asof_txt = f"Live • {asof_dt.strftime('%I:%M %p').lstrip('0')}"
-                else:
-                    asof_txt = f"Last update: {asof_dt.strftime('%b %d %H:%M')}"
-        except Exception:
-            asof_txt = str(asof_raw) if asof_raw else ""
+        # If DB returned a naive datetime, assume it's UTC
+        if asof_dt.tzinfo is None:
+            asof_dt = asof_dt.replace(tzinfo=timezone.utc)
 
-        asof_html = (
-            f"<span style='color:rgba(255,255,255,0.55); font-size:12px; font-weight:700;'>{asof_txt}</span>"
-            if asof_txt else ""
+        # Convert to your local timezone (server/device local)
+        local_tz = datetime.now().astimezone().tzinfo
+        asof_local = asof_dt.astimezone(local_tz)
+        now_local = datetime.now().astimezone(local_tz)
+
+        diff_minutes = (now_local - asof_local).total_seconds() / 60.0
+
+        # 15m cron: "Live" if within 35 minutes
+        if diff_minutes <= 35:
+            asof_txt = f"Live • {asof_local.strftime('%I:%M %p').lstrip('0')}"
+        else:
+            asof_txt = f"Last update: {asof_local.strftime('%b %d %I:%M %p').lstrip('0')}"
+
+except Exception:
+    asof_txt = str(asof_raw) if asof_raw else ""
+
+asof_html = (
+    f"<div style='color:rgba(255,255,255,0.55); font-size:12px; font-weight:700; margin-top:4px;'>{asof_txt}</div>"
+    if asof_txt else ""
     )
+    
 
         # --- Interpretation (use Engine = your strongest intraday signal) ---
         env_msg = "Mixed tape. Selectivity required."
