@@ -2540,7 +2540,6 @@ if tab == "home":
 except Exception as e:
     st.error(f"Market pulse error: {e}")
 
-
         if env:
             # --- derived labels/colors/arrows (keeps it simple + stable) ---
             pulse_score = env.get("pulse_score")
