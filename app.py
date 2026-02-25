@@ -1407,7 +1407,34 @@ def _to_float(x):
         return float(x)
     except Exception:
         return None
+def stable_market_state(score, prev_state=None):
+    """
+    Hysteresis so the label doesn't flicker.
+    prev_state: "Green Light" | "Selective Tape" | "Caution Mode" | None
+    """
+    if score is None:
+        return prev_state or "Selective Tape"
 
+    s = float(score)
+
+    # thresholds (enter / exit)
+    ENTER_GREEN = 67
+    EXIT_GREEN  = 62
+    ENTER_CAUTION = 43
+    EXIT_CAUTION  = 48
+
+    if prev_state == "Green Light":
+        return "Green Light" if s >= EXIT_GREEN else "Selective Tape"
+
+    if prev_state == "Caution Mode":
+        return "Caution Mode" if s <= EXIT_CAUTION else "Selective Tape"
+
+    # prev_state is Selective (or None): decide whether we "enter" extremes
+    if s >= ENTER_GREEN:
+        return "Green Light"
+    if s <= ENTER_CAUTION:
+        return "Caution Mode"
+    return "Selective Tape"
 
 def format_extended_change(row):
     pre = _to_float(row.get("pre_market_change"))
@@ -2567,14 +2594,9 @@ if tab == "home":
         pulse_score = env.get("pulse_score")
         pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
         # --- Market Condition (Primary State) ---
-        if pulse_score is None:
-           state = "Selective Tape"
-        elif pulse_score >= 65:
-           state = "Offensive Mode"
-        elif pulse_score >= 45:
-           state = "Selective Tape"
-        else:
-           state = "Caution Mode"
+        prev_state = st.session_state.get("market_state")
+state = stable_market_state(pulse_score, prev_state)
+st.session_state["market_state"] = state
            
         env_label = env.get("environment_label") or env.get("env_label") or ""
         if not env_label:
