@@ -2711,8 +2711,8 @@ if tab == "home":
         engine_line = ""
         if engine:
             engine_line = (
-                "<div style='margin-top:10px; font-size:12px; opacity: 0.7; color:rgba(255,255,255,0.78); font-weight:400;'>"
-                f"Engine: Accel {int(accel_heat)}{_fmt_delta(accel_d1h,0)} · "
+                "<div style='margin-top:10px; font-size:12px; opacity: 0.7; color:rgba(255,255,255,0.78); font-weight:600;'>"
+                f"Accel {int(accel_heat)}{_fmt_delta(accel_d1h,0)} · "
                 f"Breadth {int(breadth_pct)}%{_fmt_delta(breadth_d1h,0)} · "
                 f"Trend {int(trend_pct)}%{_fmt_delta(trend_d1h,0)} · "
                 f"Vol {vol_label}{_fmt_delta(session_d1h,2)}"
