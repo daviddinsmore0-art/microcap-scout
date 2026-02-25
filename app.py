@@ -2595,14 +2595,45 @@ if tab == "home":
             return f" ▼{abs(x):.0f}"
             return ""
 
-          engine_line = f"""
-<div style="margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;">
-  Engine: Accel {int(accel_heat)}{_fmt_delta(engine.get("accel_delta_1h"))}
-· Breadth {int(breadth_pct)}%{_fmt_delta(engine.get("breadth_delta_1h"))}
-· Trend {int(trend_pct)}%{_fmt_delta(engine.get("trend_delta_1h"))}
-  · Vol {vol_label}
-</div>
-""".strip()
+          # --- Market Internals Summary ---
+engine_summary = ""
+
+if engine:
+    try:
+        accel = int(engine.get("accel_heat") or 0)
+        breadth = int(engine.get("breadth_pct") or 0)
+        trend = int(engine.get("trend_pct") or 0)
+        vol_mult = float(engine.get("session_mult") or 1.0)
+
+        signals = []
+
+        if accel >= 60:
+            signals.append("Strong momentum expansion")
+        elif accel <= 35:
+            signals.append("Weak momentum")
+
+        if breadth >= 60:
+            signals.append("Broad participation")
+        elif breadth <= 40:
+            signals.append("Narrow leadership")
+
+        if trend >= 60:
+            signals.append("Trend strength building")
+        elif trend <= 45:
+            signals.append("Trend fragile")
+
+        if vol_mult >= 1.15:
+            signals.append("High volatility")
+        elif vol_mult <= 0.90:
+            signals.append("Low volatility")
+
+        if signals:
+            engine_summary = " • ".join(signals)
+
+    except Exception:
+        engine_summary = ""
+
+          
         # --- derived labels/colors/arrows (keeps it simple + stable) ---
         pulse_score = (env or {}).get("pulse_score")
         pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
@@ -2749,7 +2780,7 @@ if tab == "home":
 
             <div style="margin-top:12px; color:rgba(226,232,240,0.70); font-size:15px; font-weight:700;">{env_msg}</div>
               {micro_bias_html}
-              {engine_line}
+              {engine_summary}
             </div>
             <div style="
                 position: absolute;
