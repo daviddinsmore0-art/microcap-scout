@@ -2665,29 +2665,29 @@ if tab == "home":
                   <span style="font-weight:900;">{env_label}</span>
                 {delta_html}
                </div>
-               </div>
+        </div>
 
-               <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
+        <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
 
-               <div class="pulse-metrics">
+        <div class="pulse-metrics">
                 <div class="pulse-metric">
                   <span style="color:{mom_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Momentum</span>
                   <span class="pulse-arrow">{mom_arrow}</span>
-            </div>
+        </div>
 
-            <div class="pulse-metric">
+        <div class="pulse-metric">
                   <span style="color:{brd_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Breadth</span>
                   <span class="pulse-arrow">{brd_arrow}</span>
-            </div>
+        </div>
 
-            <div class="pulse-metric">
+        <div class="pulse-metric">
                   <span style="color:{vol_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Volatility</span>
                   <span class="pulse-arrow">{vol_arrow}</span>
                 </div>
-              </div>
+        </div>
               {env_msg_html}
               {micro_bias_html}
               {engine_line}
