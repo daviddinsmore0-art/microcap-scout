@@ -2691,7 +2691,7 @@ asof_html = (
     f"<div style='color:rgba(255,255,255,0.55); font-size:12px; font-weight:700; margin-top:4px;'>{asof_txt}</div>"
     if asof_txt else ""
     )
-    
+    )
 
         # --- Interpretation (use Engine = your strongest intraday signal) ---
         env_msg = "Mixed tape. Selectivity required."
