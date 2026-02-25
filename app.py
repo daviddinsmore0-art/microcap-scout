@@ -2578,7 +2578,19 @@ if tab == "home":
           vol_label = "Low"
         else:
           vol_label = "Normal"
-        
+        # --- Format delta helper ---
+        def _fmt_delta(x):
+          if x is None:
+             return ""
+          try:
+             x = float(x)
+          except Exception:
+             return ""
+          if x > 0:
+             return f" (+{x:.0f})"
+          if x < 0:
+             return f" ({x:.0f})"
+          return " (0)"
         # --- derived labels/colors/arrows (keeps it simple + stable) ---
         pulse_score = (env or {}).get("pulse_score")
         pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
