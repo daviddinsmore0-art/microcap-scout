@@ -2671,7 +2671,7 @@ if tab == "home":
                 diff_minutes = (datetime.now() - asof_dt).total_seconds() / 60
 
                 if diff_minutes <= 30:
-                    asof_txt = f"Live • {asof_dt.strftime('%I:%M %p').lstrip('0')}"
+                    asof_txt = f"Updated {int(diff_minutes)}m ago"
                 else:
                     asof_txt = f"Updated {int(diff_minutes)}m ago"
         except Exception:
