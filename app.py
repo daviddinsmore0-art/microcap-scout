@@ -2634,15 +2634,15 @@ if tab == "home":
             micro_bias += " Compression regime—watch for expansion triggers."
 
         env_msg_html = f"""
-        <div style="margin-top:8px; color:rgba(255,255,255,0.72); font-size:13px; font-weight:650;">
+  <div style="margin-top:8px; color:rgba(255,255,255,0.72); font-size:13px; font-weight:650;">
           {env_msg}
-        </div>
+  </div>
         """
 
         micro_bias_html = f"""
-        <div style="margin-top:6px; color:rgba(255,255,255,0.55); font-size:12px; font-weight:650;">
+  <div style="margin-top:6px; color:rgba(255,255,255,0.55); font-size:12px; font-weight:650;">
           {micro_bias}
-        </div>
+  </div>
         """
 
         engine_line = ""
