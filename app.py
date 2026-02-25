@@ -2503,17 +2503,17 @@ if tab == "home":
         # Pull latest Market Engine snapshot (accel/trend/vol regime)
         engine = {}
     try:
-     cur2.execute("""
-     SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
-     FROM market_engine_snapshots
-     ORDER BY snapshot_ts DESC
-     LIMIT 6
-       """)
-       rows = cur2.fetchall() or []
-       cur2.close()
+        cur2.execute("""
+        SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
+        FROM market_engine_snapshots
+        ORDER BY snapshot_ts DESC
+        LIMIT 6
+        """)
+        rows = cur2.fetchall() or []
+        cur2.close()
 
-    latest = rows[0] if len(rows) >= 1 else {}
-    prev_1h = rows[4] if len(rows) >= 5 else (rows[-1] if len(rows) >= 2 else {})
+        latest = rows[0] if len(rows) >= 1 else {}
+        prev_1h = rows[4] if len(rows) >= 5 else (rows[-1] if len(rows) >= 2 else {})
 
     # Build an engine dict the rest of your code can keep using
     engine = dict(latest) if latest else {}
