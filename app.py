@@ -2656,7 +2656,7 @@ if tab == "home":
             vol_label = "Normal"
 
         # As-of timestamp (helps regular users know if it's "today / now")
-        asof_raw = (engine or {}).get("candle_ts") or (engine or {}).get("snapshot_ts")
+        asof_raw = (engine or {}).get("snapshot_ts")
         asof_txt = ""
         try:
             if asof_raw:
@@ -2668,7 +2668,7 @@ if tab == "home":
 
                 # if the DB datetime has tzinfo use it, otherwise local now()
                 now = datetime.now(asof_dt.tzinfo) if getattr(asof_dt, "tzinfo", None) else datetime.now()
-                diff_minutes = (now - asof_dt).total_seconds() / 60.0
+                diff_minutes = (datetime.now() - asof_dt).total_seconds() / 60
 
                 if diff_minutes <= 30:
                     asof_txt = f"Live • {asof_dt.strftime('%I:%M %p').lstrip('0')}"
