@@ -2684,14 +2684,14 @@ try:
         else:
             asof_txt = f"Last update: {asof_local.strftime('%b %d %I:%M %p').lstrip('0')}"
 
-except Exception:
-    asof_txt = str(asof_raw) if asof_raw else ""
+      except Exception:
+         asof_txt = str(asof_raw) if asof_raw else ""
 
-asof_html = (
-    f"<div style='color:rgba(255,255,255,0.55); font-size:12px; font-weight:700; margin-top:4px;'>{asof_txt}</div>"
-    if asof_txt else ""
-    )
-    )
+        asof_html = (
+         f"<div style='color:rgba(255,255,255,0.55); font-size:12px; font-weight:700; margin-top:4px;'>{asof_txt}</div>"
+           if asof_txt else ""
+             )
+    
 
         # --- Interpretation (use Engine = your strongest intraday signal) ---
         env_msg = "Mixed tape. Selectivity required."
