@@ -2533,9 +2533,9 @@ if tab == "home":
                 # -----------------------------
 # Market Pulse (Pulse Environment) - HOME CARD
 # -----------------------------
-try:
-    conn = get_connection()
-    env = fetch_pulse_environment(conn)
+     try:
+         conn = get_connection()
+         env = fetch_pulse_environment(conn)
 
     if env:
 
