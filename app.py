@@ -2823,37 +2823,39 @@ if tab == "home":
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        # latest + previous available dates (GLOBAL ranks)
-        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
-        latest_date = (cur.fetchone() or {}).get("d")
-
-        prev_date = None
-        if latest_date:
-            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily WHERE asof_date < %s", (latest_date,))
-            prev_date = (cur.fetchone() or {}).get("d")
-
-        row = fetch_signal_shift(cur, latest_date, prev_date) if latest_date and prev_date else None
-
+        radar_sql = """
+        SELECT ticker,
+        peak_range_mult,
+        peak_rvol_60m,
+        peak_focus_score
+        FROM breakout_radar_daily
+        WHERE trade_date = CURDATE()
+        ORDER BY peak_focus_score DESC
+        LIMIT 3
+        """
         cur.close()
         conn.close()
 
         if row and int(row.get("rank_jump") or 0) > 0:
-            ticker = (row.get("ticker") or "").upper()
-            jump = int(row.get("rank_jump") or 0)
-
-            bullets = []
-            try:
-                if float(row.get("momentum_score") or 0) > 70:
-                    bullets.append("<span style='color:#4ade80;'>◆</span> Momentum accelerating")
-            except Exception:
-                pass
-            try:
-                if float(row.get("stability_score") or 0) > 70:
-                    bullets.append("<span style='color:#818cf8;'>◆</span> Stability improving")
-            except Exception:
-                pass
-
-            accel_html = "<br>".join(bullets)
+        if radar_rows:
+        radar_html = ""
+        for r in radar_rows:
+        radar_html += f"""
+        <div style="margin-bottom:10px;">
+            ⚡ <b>{r['ticker']}</b><br>
+            <span style="opacity:0.7;">
+                Range {r['peak_range_mult']}× • 
+                Volume {r['peak_rvol_60m']}×
+            </span>
+        </div>
+        """
+    else:
+    radar_html = """
+    <div style="opacity:0.6;">
+        No significant expansion detected right now.<br>
+        Radar scanning…
+    </div>
+    """
 
             card_html = textwrap.dedent(f"""
     <div style="
@@ -2885,7 +2887,7 @@ if tab == "home":
       </div>
 
       <div style="margin-top:8px; font-size:14px; font-weight:600; color:white;">
-    {ticker} <span style="color:#4ade80;">+{jump}</span> spots
+    {radar_html} <span style="color:#4ade80;"></span>
       </div>
 
       {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 14px; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
