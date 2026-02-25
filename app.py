@@ -2659,12 +2659,12 @@ if tab == "home":
               <div class="pulse-top">
                 <div class="pulse-title">MARKET PULSE</div>
 
-               <div class="pulse-pill">
+            <div class="pulse-pill">
                   <span class="pulse-score">{pulse_txt} / 100</span>
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
                   <span style="font-weight:900;">{env_label}</span>
                 {delta_html}
-                </div>
+            </div>
             </div>
 
             <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
