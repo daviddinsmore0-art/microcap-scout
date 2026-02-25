@@ -2598,17 +2598,7 @@ if tab == "home":
         state = stable_market_state(pulse_score, prev_state)
         st.session_state["market_state"] = state
            
-        env_label = env.get("environment_label") or env.get("env_label") or ""
-        if not env_label:
-            if pulse_score is None:
-                env_label = "Neutral"
-            elif float(pulse_score) >= 65:
-                env_label = "Risk-On"
-            elif float(pulse_score) >= 45:
-                env_label = "Neutral"
-            else:
-                env_label = "Risk-Off"
-
+        
         if pulse_score is None:
             dot_color = "#64748b"
         elif float(pulse_score) >= 65:
