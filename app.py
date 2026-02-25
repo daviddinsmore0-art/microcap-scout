@@ -2695,13 +2695,13 @@ if tab == "home":
                 else:
                     vol_txt = "Normal"
                 engine_line = f"""
-<div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>
-    Engine: Accel {a}{_fmt_delta(engine.get("accel_delta_1h"))}
-    · Breadth {b}%{_fmt_delta(engine.get("breadth_delta_1h"))}
-    · Trend {t}%{_fmt_delta(engine.get("trend_delta_1h"))}
-    · Vol {vol_txt}
-</div>
-"""
+            <div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>
+            Engine: Accel {a}{_fmt_delta(engine.get("accel_delta_1h"))}
+           · Breadth {b}%{_fmt_delta(engine.get("breadth_delta_1h"))}
+            · Trend {t}%{_fmt_delta(engine.get("trend_delta_1h"))}
+             · Vol {vol_txt}
+            </div>
+               """
             except Exception:
                 engine_line = ""
 
