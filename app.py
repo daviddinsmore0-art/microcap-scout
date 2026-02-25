@@ -2559,24 +2559,8 @@ if tab == "home":
         env = fetch_pulse_environment(conn)  # expects a live DB connection
 
         # Pull latest Market Engine snapshot(s)
-        engine = {}
-        engine_rows = []
-        try:
-            cur2 = conn.cursor(dictionary=True)
-            cur2.execute("""
-                SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
-                FROM market_engine_snapshots
-                ORDER BY snapshot_ts DESC
-                LIMIT 12
-            """)
-            engine_rows = cur2.fetchall() or []
-            cur2.close()
-        except Exception:
-            try:
-                cur2.close()
-            except Exception:
-                pass
-            engine_rows = []
+        engine, engine_rows = fetch_market_engine_with_deltas(conn, limit=12, steps_per_hour=4)
+        
 
         latest = engine_rows[0] if len(engine_rows) >= 1 else None
         prev_1h = engine_rows[4] if len(engine_rows) >= 5 else (engine_rows[-1] if len(engine_rows) >= 2 else None)
