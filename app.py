@@ -2656,8 +2656,8 @@ if tab == "home":
             vol_label = "Normal"
 
         # As-of timestamp (convert DB time -> local time)
-asof_raw = (engine or {}).get("candle_ts") or (engine or {}).get("snapshot_ts")
-asof_txt = ""
+       asof_raw = (engine or {}).get("candle_ts") or (engine or {}).get("snapshot_ts")
+       asof_txt = ""
 
 try:
     if asof_raw:
