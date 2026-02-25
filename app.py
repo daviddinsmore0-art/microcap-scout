@@ -269,8 +269,7 @@ div[data-testid="stDecoration"] {
 }
 .pulse-title{
   font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font-weight: 600;
   text-transform: uppercase;
   color: #f5d07a;
 }
@@ -2719,7 +2718,7 @@ if tab == "home":
             <div class="pulse-pill">
                   <span class="pulse-score">{pulse_txt} / 100</span>
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
-                  <span style="font-weight:900;">{state} Market</span>
+                  <span style="font-weight:600;">{state} Market</span>
                 </div>
             </div>
 
