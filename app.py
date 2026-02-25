@@ -2664,7 +2664,7 @@ if tab == "home":
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
                   <span style="font-weight:900;">{env_label}</span>
                 {delta_html}
-               </div>
+        </div>
         </div>
 
         <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
@@ -2686,12 +2686,12 @@ if tab == "home":
                   <span style="color:{vol_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Volatility</span>
                   <span class="pulse-arrow">{vol_arrow}</span>
-                </div>
+        </div>
         </div>
               {env_msg_html}
               {micro_bias_html}
               {engine_line}
-              <div style="
+        <div style="
                 position: absolute;
                 bottom: 0;
                 left: 10%;
