@@ -2554,85 +2554,21 @@ if tab == "home":
             st.caption("No price data cached yet for your tickers.")
 
         # -----------------------------
+        # -----------------------------
     # Market Pulse (Pulse Environment) - HOME CARD
     # -----------------------------
     try:
         conn = get_connection()
-        env = fetch_pulse_environment(conn)  # expects a live DB connection
+        env = fetch_pulse_environment(conn) or {}
 
-        # Pull latest Market Engine snapshot(s)
+        # Pull latest Market Engine snapshot(s) + deltas (15m cadence => ~1h is 4 rows back)
         engine, engine_rows = fetch_market_engine_with_deltas(conn, limit=12, steps_per_hour=4)
-        # --- Market Engine latest values (from snapshots) ---
-        accel_heat   = float(engine.get("accel_heat") or 0)
-        breadth_pct  = float(engine.get("breadth_pct") or 0)
-        trend_pct    = float(engine.get("trend_pct") or 0)
-        session_mult = float(engine.get("session_mult") or 0)
 
-        # --- Market Engine 1-hour deltas (computed in fetch_market_engine_with_deltas) ---
-        accel_d1h   = engine.get("accel_delta_1h")
-        breadth_d1h = engine.get("breadth_delta_1h")
-        trend_d1h   = engine.get("trend_delta_1h")
-        session_d1h = engine.get("session_delta_1h")
-        # --- Vol label from session_mult ---
-        if session_mult >= 1.15:
-          vol_label = "High"
-        elif session_mult <= 0.90:
-          vol_label = "Low"
-        else:
-          vol_label = "Normal"
-        # --- Format delta helper ---
-        def _fmt_delta(x):
-          if x is None:
-            return ""
-          try:
-            x = float(x)
-          except Exception:
-            return ""
+        # --- Pulse headline ---
+        pulse_score = env.get("pulse_score")
+        pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
 
-          if x > 0:
-            return f" ▲{abs(x):.0f}"
-          if x < 0:
-            return f" ▼{abs(x):.0f}"
-            return ""
-
-          # --- Market Internals Summary ---
-engine_summary = ""
-
-if engine:
-    try:
-        accel = int(engine.get("accel_heat") or 0)
-        breadth = int(engine.get("breadth_pct") or 0)
-        trend = int(engine.get("trend_pct") or 0)
-        vol_mult = float(engine.get("session_mult") or 1.0)
-
-        signals = []
-
-        if accel >= 60:
-            signals.append("Strong momentum expansion")
-        elif accel <= 35:
-            signals.append("Weak momentum")
-
-        if breadth >= 60:
-            signals.append("Broad participation")
-        elif breadth <= 40:
-            signals.append("Narrow leadership")
-
-        if trend >= 60:
-            signals.append("Trend strength building")
-        elif trend <= 45:
-            signals.append("Trend fragile")
-
-        if vol_mult >= 1.15:
-            signals.append("High volatility")
-        elif vol_mult <= 0.90:
-            signals.append("Low volatility")
-
-        if signals:
-            engine_summary = " • ".join(signals)
-
-    except Exception:
-        
-        env_label = (env or {}).get("environment_label") or (env or {}).get("env_label") or ""
+        env_label = env.get("environment_label") or env.get("env_label") or ""
         if not env_label:
             if pulse_score is None:
                 env_label = "Neutral"
@@ -2652,18 +2588,36 @@ if engine:
         else:
             dot_color = "#ef4444"
 
+        # --- helpers ---
         def _arrow_and_color(val, good_if_high=True):
             if val is None:
                 return "—", "rgba(229,231,235,0.75)"
-            v = float(val)
+            try:
+                v = float(val)
+            except Exception:
+                return "—", "rgba(229,231,235,0.75)"
             good = (v >= 50) if good_if_high else (v < 50)
             arrow = "↑" if good else "↓"
             color = "#22c55e" if good else "#f59e0b"
             return arrow, color
 
-        mom = (env or {}).get("momentum_breadth")
-        brd = (env or {}).get("accel_breadth")  # breadth proxy
-        stb = (env or {}).get("avg_stability")  # stability proxy (higher = lower volatility)
+        def _fmt_delta(x, digits=0):
+            if x is None:
+                return ""
+            try:
+                x = float(x)
+            except Exception:
+                return ""
+            if abs(x) < 1e-9:
+                return ""
+            if x > 0:
+                return f" <span style='color:#22c55e; font-weight:900;'>▲{abs(x):.{digits}f}</span>"
+            return f" <span style='color:#ef4444; font-weight:900;'>▼{abs(x):.{digits}f}</span>"
+
+        # --- env metrics (from pulse_environment_daily) ---
+        mom = env.get("momentum_breadth")
+        brd = env.get("accel_breadth")  # breadth proxy
+        stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
 
         mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
         brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
@@ -2675,100 +2629,118 @@ if engine:
             except Exception:
                 pass
 
-        # --- environment message + micro-bias ---
-        env_msg = ""
-        micro_bias = ""
+        # --- Engine latest values + deltas ---
+        accel_heat   = float((engine or {}).get("accel_heat") or 0)
+        breadth_pct  = float((engine or {}).get("breadth_pct") or 0)
+        trend_pct    = float((engine or {}).get("trend_pct") or 0)
+        session_mult = float((engine or {}).get("session_mult") or 0)
 
-        try:
-            accel_heat = float(engine.get("accel_heat")) if engine.get("accel_heat") is not None else None
-            session_mult = float(engine.get("session_mult")) if engine.get("session_mult") is not None else None
-        except Exception:
-            accel_heat, session_mult = None, None
+        accel_d1h   = (engine or {}).get("accel_delta_1h")
+        breadth_d1h = (engine or {}).get("breadth_delta_1h")
+        trend_d1h   = (engine or {}).get("trend_delta_1h")
+        session_d1h = (engine or {}).get("session_delta_1h")
 
-        # short environment line
-        if env_label.lower().startswith("risk-off") or env_label.lower().startswith("risk off"):
-            env_msg = "Mixed tape. Selectivity required."
-        elif env_label.lower().startswith("risk-on") or env_label.lower().startswith("risk on"):
-            env_msg = "Risk appetite improving. Momentum has edge."
+        if session_mult >= 1.15:
+            vol_label = "High"
+        elif session_mult <= 0.90 and session_mult > 0:
+            vol_label = "Low"
         else:
-            env_msg = "Balanced tape. Pick spots."
+            vol_label = "Normal"
 
-        # micro-bias hint (uses engine)
-        if accel_heat is not None and session_mult is not None:
-            if accel_heat < 5 and session_mult <= 1.05:
-                micro_bias = "Avoid chasing; low expansion environment."
-            elif accel_heat >= 8 and session_mult >= 1.15:
-                micro_bias = "Expansion regime; momentum trades favored."
+        # As-of timestamp (helps regular users know if it's "today / now")
+        asof_raw = (engine or {}).get("candle_ts") or (engine or {}).get("snapshot_ts")
+        asof_txt = ""
+        try:
+            if asof_raw:
+                # mysql-connector may return datetime or str
+                if hasattr(asof_raw, "strftime"):
+                    asof_dt = asof_raw
+                else:
+                    asof_dt = datetime.strptime(str(asof_raw), "%Y-%m-%d %H:%M:%S")
+                asof_txt = asof_dt.strftime("%b %d %H:%M")
+        except Exception:
+            asof_txt = str(asof_raw) if asof_raw else ""
 
-        micro_bias_html = ""
-        if micro_bias:
-            micro_bias_html = f"<div style='margin-top:6px; color:rgba(226,232,240,0.78); font-size:14px;'>Micro-bias: {micro_bias}</div>"
+        asof_html = f"<span style='color:rgba(255,255,255,0.55); font-size:12px; font-weight:700;'>as of {asof_txt}</span>" if asof_txt else ""
 
-        # engine info line
+        # --- Interpretation (use Engine = your strongest intraday signal) ---
+        env_msg = "Mixed tape. Selectivity required."
+        micro_bias = "Micro-bias: wait for confirmation; avoid random chasing."
+
+        if breadth_pct >= 58 and trend_pct >= 58 and accel_heat >= 25:
+            env_msg = "Broad participation with expanding momentum. Breakouts more likely to follow through."
+            micro_bias = "Micro-bias: lean into leaders; buy strength on pullbacks."
+        elif trend_pct >= 60 and breadth_pct < 50:
+            env_msg = "Trend is holding, but participation is thinning. Expect rotation and chop."
+            micro_bias = "Micro-bias: focus relative strength; avoid chasing extensions."
+        elif breadth_pct < 45 and accel_heat < 15:
+            env_msg = "Low energy with weak participation. Breakouts are less reliable."
+            micro_bias = "Micro-bias: reduce size; favor stability / mean-reversion setups."
+        elif breadth_pct < 40 and session_mult >= 1.15:
+            env_msg = "Weak participation with elevated movement. Fast fades / whipsaws likely."
+            micro_bias = "Micro-bias: protect capital; wait for reclaim + confirmation."
+
+        if session_mult >= 1.20:
+            micro_bias += " Volatility elevated—widen stops or reduce size."
+        elif 0 < session_mult <= 0.90:
+            micro_bias += " Compression regime—watch for expansion triggers."
+
+        env_msg_html = f"<div style='margin-top:8px; color:rgba(255,255,255,0.72); font-size:13px; font-weight:650;'>{env_msg}</div>"
+        micro_bias_html = f"<div style='margin-top:6px; color:rgba(255,255,255,0.55); font-size:12px; font-weight:650;'>{micro_bias}</div>"
+
         engine_line = ""
         if engine:
-            try:
-                a = int(engine.get("accel_heat") or 0)
-                b = int(engine.get("breadth_pct") or 0)
-                t = int(engine.get("trend_pct") or 0)
-                sm = float(engine.get("session_mult") or 0)
-                # session_mult ~ 1.00 means today's avg range is normal vs the 20h baseline
-                if sm >= 1.15:
-                    vol_txt = "High"
-                elif sm <= 0.90:
-                    vol_txt = "Low"
-                else:
-                    vol_txt = "Normal"
-                engine_line = f"""
-            <div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>
-            Engine: Accel {a}{_fmt_delta(engine.get("accel_delta_1h"))}
-           · Breadth {b}%{_fmt_delta(engine.get("breadth_delta_1h"))}
-            · Trend {t}%{_fmt_delta(engine.get("trend_delta_1h"))}
-             · Vol {vol_txt}
-            </div>
-               """
-            except Exception:
-                engine_line = ""
+            engine_line = (
+                "<div style='margin-top:10px; font-size:13px; color:rgba(255,255,255,0.78); font-weight:750;'>"
+                f"Engine: Accel {int(accel_heat)}{_fmt_delta(accel_d1h,0)} · "
+                f"Breadth {int(breadth_pct)}%{_fmt_delta(breadth_d1h,0)} · "
+                f"Trend {int(trend_pct)}%{_fmt_delta(trend_d1h,0)} · "
+                f"Vol {vol_label}{_fmt_delta(session_d1h,2)}"
+                "</div>"
+            )
 
         market_pulse_html = textwrap.dedent(f"""
             <div class="pulse-card">
-              <div class="pulse-top">
-                <div class="pulse-title">MARKET PULSE</div>
+              <div class="pulse-top" style="align-items:flex-end;">
+                <div>
+                  <div class="pulse-title">MARKET PULSE</div>
+                  {asof_html}
+                </div>
 
-            <div class="pulse-pill">
+                <div class="pulse-pill">
                   <span class="pulse-score">{pulse_txt} / 100</span>
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
-                  <span style="font-weight:900;">{state} Market</span>
+                  <span style="font-weight:900;">{env_label}</span>
                 </div>
-            </div>
+              </div>
 
-            <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
+              <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
 
-            <div class="pulse-metrics">
+              <div class="pulse-metrics">
                 <div class="pulse-metric">
                   <span style="color:{mom_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Momentum</span>
                   <span class="pulse-arrow">{mom_arrow}</span>
-            </div>
+                </div>
 
-            <div class="pulse-metric">
+                <div class="pulse-metric">
                   <span style="color:{brd_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Breadth</span>
                   <span class="pulse-arrow">{brd_arrow}</span>
-            </div>
+                </div>
 
-            <div class="pulse-metric">
+                <div class="pulse-metric">
                   <span style="color:{vol_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Volatility</span>
                   <span class="pulse-arrow">{vol_arrow}</span>
                 </div>
-            </div>
+              </div>
 
-            <div style="margin-top:12px; color:rgba(226,232,240,0.70); font-size:15px; font-weight:700;">{env_msg}</div>
+              {engine_line}
+              {env_msg_html}
               {micro_bias_html}
-              {engine_summary}
-            </div>
-            <div style="
+
+              <div style="
                 position: absolute;
                 bottom: 0;
                 left: 10%;
@@ -2776,7 +2748,7 @@ if engine:
                 height: 1px;
                 background: linear-gradient(90deg, transparent, #4ade80, transparent);
                 box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
-                "></div>
+              "></div>
             </div>
         """).strip()
 
@@ -2785,9 +2757,7 @@ if engine:
     except Exception as e:
         st.error(f"Market pulse error: {e}")
 
-
-
-    # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
+# TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
     try:
