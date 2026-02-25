@@ -253,7 +253,7 @@ div[data-testid="stDecoration"] {
 /* Pulse Environment / Market Pulse card */
 .pulse-card{
   position:relative;
-  border-radius:0 0 20px 20px;
+  border-radius:20px 20px 20px 20px;
   padding:10px 10px 20px 20px;
   background-color: #1a1f2b;
   border: 1px solid rgba(255,255,255,0.06);
@@ -2640,13 +2640,13 @@ if tab == "home":
             micro_bias += " Compression regime—watch for expansion triggers."
 
         env_msg_html = f"""
-  <div style="margin-top:8px; color:rgba(255,255,255,0.72); font-size:13px; font-weight:650;">
+  <div style="margin-top:8px; color:rgba(255,255,255,0.72); font-size:14px; font-weight:650;">
           {env_msg}
   </div>
         """
 
         micro_bias_html = f"""
-  <div style="margin-top:6px; color:rgba(255,255,255,0.55); font-size:12px; font-weight:650;">
+  <div style="margin-top:6px; color:rgba(255,255,255,0.55); font-size:14px; font-weight:650;">
           {micro_bias}
   </div>
         """
@@ -2654,7 +2654,7 @@ if tab == "home":
         engine_line = ""
         if engine:
             engine_line = (
-        f"<div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>"
+        f"<div style='margin-top:8px; font-size:14px; color:rgba(255,255,255,0.45); font-weight:600;'>"
         f"Engine: Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {vol_label} "
         f"</div>"
             )
