@@ -2739,18 +2739,7 @@ if tab == "home":
         interpretation_msg = engine_msg
         micro_bias_line = micro_bias
 
-        if breadth_pct >= 58 and trend_pct >= 58 and accel_heat >= 25:
-            env_msg = "Broad participation with expanding momentum. Breakouts more likely to follow through."
-            micro_bias = "Micro-bias: lean into leaders; buy strength on pullbacks."
-        elif trend_pct >= 60 and breadth_pct < 50:
-            env_msg = "Trend is holding, but participation is thinning. Expect rotation and chop."
-            micro_bias = "Micro-bias: focus relative strength; avoid chasing extensions."
-        elif breadth_pct < 45 and accel_heat < 15:
-            env_msg = "Low energy with weak participation. Breakouts are less reliable."
-            micro_bias = "Micro-bias: reduce size; favor stability / mean-reversion setups."
-        elif breadth_pct < 40 and session_mult >= 1.15:
-            env_msg = "Weak participation with elevated movement. Fast fades / whipsaws likely."
-            micro_bias = "Micro-bias: protect capital; wait for reclaim + confirmation."
+        
 
         if session_mult >= 1.20:
             micro_bias += " Volatility elevated—widen stops or reduce size."
