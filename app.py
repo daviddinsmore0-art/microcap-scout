@@ -2591,6 +2591,15 @@ if tab == "home":
           if x < 0:
              return f" ({x:.0f})"
           return " (0)"
+
+          engine_line = f"""
+<div style="margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;">
+  Engine: Accel {int(accel_heat)}{_fmt_delta(accel_d1h)}
+  · Breadth {int(breadth_pct)}%{_fmt_delta(breadth_d1h)}
+  · Trend {int(trend_pct)}%{_fmt_delta(trend_d1h)}
+  · Vol {vol_label}
+</div>
+""".strip()
         # --- derived labels/colors/arrows (keeps it simple + stable) ---
         pulse_score = (env or {}).get("pulse_score")
         pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
