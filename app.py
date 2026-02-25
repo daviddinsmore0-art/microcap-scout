@@ -2655,11 +2655,11 @@ if tab == "home":
 
 
         market_pulse_html = textwrap.dedent(f"""
-                 <div class="pulse-card">
+        <div class="pulse-card">
                      <div class="pulse-top">
                      <div class="pulse-title">MARKET PULSE</div>
 
-                <div class="pulse-pill">
+        <div class="pulse-pill">
                   <span class="pulse-score">{pulse_txt} / 100</span>
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
                   <span style="font-weight:900;">{env_label}</span>
