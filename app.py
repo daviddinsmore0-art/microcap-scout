@@ -2665,16 +2665,22 @@ if tab == "home":
                     asof_dt = asof_raw
                 else:
                     asof_dt = datetime.strptime(str(asof_raw), "%Y-%m-%d %H:%M:%S")
-                asof_txt = now = datetime.now(asof_dt.tzinfo) if hasattr(asof_dt, "tzinfo") else datetime.now()diff_minutes = (now - asof_dt).total_seconds() / 60
 
-if diff_minutes <= 30:
-    asof_txt = f"Live • {asof_dt.strftime('%I:%M %p').lstrip('0')}"
-else:
-    asof_txt = f"Last update: {asof_dt.strftime('%b %d %H:%M')}"
+                # if the DB datetime has tzinfo use it, otherwise local now()
+                now = datetime.now(asof_dt.tzinfo) if getattr(asof_dt, "tzinfo", None) else datetime.now()
+                diff_minutes = (now - asof_dt).total_seconds() / 60.0
+
+                if diff_minutes <= 30:
+                    asof_txt = f"Live • {asof_dt.strftime('%I:%M %p').lstrip('0')}"
+                else:
+                    asof_txt = f"Last update: {asof_dt.strftime('%b %d %H:%M')}"
         except Exception:
             asof_txt = str(asof_raw) if asof_raw else ""
 
-        asof_html = f"<span style='color:rgba(255,255,255,0.55); font-size:12px; font-weight:700;'>as of {asof_txt}</span>" if asof_txt else ""
+        asof_html = (
+            f"<span style='color:rgba(255,255,255,0.55); font-size:12px; font-weight:700;'>{asof_txt}</span>"
+            if asof_txt else ""
+    )
 
         # --- Interpretation (use Engine = your strongest intraday signal) ---
         env_msg = "Mixed tape. Selectivity required."
