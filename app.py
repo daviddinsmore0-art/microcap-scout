@@ -2502,7 +2502,7 @@ if tab == "home":
 
         # Pull latest Market Engine snapshot (accel/trend/vol regime)
         engine = {}
-    try:
+      try:
         cur2.execute("""
         SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
         FROM market_engine_snapshots
