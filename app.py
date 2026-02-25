@@ -2659,7 +2659,7 @@ if tab == "home":
        asof_raw = (engine or {}).get("candle_ts") or (engine or {}).get("snapshot_ts")
        asof_txt = ""
 
-try:
+   try:
     if asof_raw:
         # Parse/normalize to a datetime
        if hasattr(asof_raw, "strftime"):
@@ -2668,7 +2668,7 @@ try:
             asof_dt = datetime.strptime(str(asof_raw), "%Y-%m-%d %H:%M:%S")
 
         # If DB returned a naive datetime, assume it's UTC
-   if asof_dt.tzinfo is None:
+    if asof_dt.tzinfo is None:
             asof_dt = asof_dt.replace(tzinfo=timezone.utc)
 
         # Convert to your local timezone (server/device local)
