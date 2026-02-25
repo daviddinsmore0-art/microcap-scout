@@ -2655,7 +2655,7 @@ if tab == "home":
         if engine:
             engine_line = (
         f"<div style='margin-top:8px; font-size:14px; color:#ffffff; font-weight:600;'>"
-        f" Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {vol_label} "
+        f" Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol - {vol_label} "
         f"</div>"
             )
 
