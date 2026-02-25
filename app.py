@@ -2501,7 +2501,7 @@ if tab == "home":
         env = fetch_pulse_environment(conn)  # expects a live DB connection
 
         # Pull latest Market Engine snapshot (accel/trend/vol regime)
-        engine = {}
+    engine = {}
     try:
         cur2 = conn.cursor(dictionary=True)
 
