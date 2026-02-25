@@ -2496,7 +2496,7 @@ if tab == "home":
     # -----------------------------
     # Market Pulse (Pulse Environment) - HOME CARD
     # -----------------------------
-    try:
+      try:
         conn = get_connection()
         env = fetch_pulse_environment(conn)  # expects a live DB connection
 
@@ -2508,9 +2508,9 @@ if tab == "home":
         FROM market_engine_snapshots
         ORDER BY snapshot_ts DESC
         LIMIT 6
-    """)
-    rows = cur2.fetchall() or []
-    cur2.close()
+       """)
+       rows = cur2.fetchall() or []
+       cur2.close()
 
     latest = rows[0] if len(rows) >= 1 else {}
     prev_1h = rows[4] if len(rows) >= 5 else (rows[-1] if len(rows) >= 2 else {})
