@@ -2669,15 +2669,15 @@ if tab == "home":
 
             # --- Engine interpretation (state + deltas) ---
 
-       engine_msg = ""
-       micro_bias = ""
+    engine_msg = ""
+    micro_bias = ""
 
        # Breadth tone
-       if float(breadth_d1h or 0) >= 8:
+    if float(breadth_d1h or 0) >= 8:
          breadth_tone = "participation is expanding"
-       elif float(breadth_d1h or 0) <= -8:
+    elif float(breadth_d1h or 0) <= -8:
          breadth_tone = "participation is thinning"
-       else:
+    else:
          breadth_tone = "participation is mixed"
 
 # Trend tone
