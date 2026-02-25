@@ -2736,8 +2736,8 @@ if tab == "home":
     
 
         # --- Interpretation (use Engine = your strongest intraday signal) ---
-        env_msg = "Mixed tape. Selectivity required."
-        micro_bias = "Micro-bias: wait for confirmation; avoid random chasing."
+        interpretation_msg = engine_msg
+        micro_bias_line = micro_bias
 
         if breadth_pct >= 58 and trend_pct >= 58 and accel_heat >= 25:
             env_msg = "Broad participation with expanding momentum. Breakouts more likely to follow through."
@@ -2771,6 +2771,18 @@ if tab == "home":
                 "</div>"
             )
 
+        interpretation_msg = f"""
+                <div style='margin-top:12px; font-size:16px; font-weight:700;'>
+               {engine_msg}
+                </div>
+                """
+
+        micro_bias_line = f"""
+                <div style='margin-top:6px; font-size:14px; opacity:0.8;'>
+                {micro_bias}
+                </div>
+                """
+        
         market_pulse_html = textwrap.dedent(f"""
             <div class="pulse-card">
               <div class="pulse-top" style="align-items:flex-end;">
@@ -2803,8 +2815,8 @@ if tab == "home":
             </div>
 
               {engine_line}
-              {env_msg_html}
-              {micro_bias_html}
+              {interpretation_msg}
+              {micro_bias_line}
 
             <div style="
                 position: absolute;
