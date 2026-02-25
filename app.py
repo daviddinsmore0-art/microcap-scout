@@ -2654,8 +2654,8 @@ if tab == "home":
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
                   <span style="font-weight:900;">{env_label}</span>
                 {delta_html}
-                  </div>
-                  </div>
+   </div>
+   </div>
 
    <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
 
