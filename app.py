@@ -2566,12 +2566,18 @@ if tab == "home":
         trend_pct    = float(engine.get("trend_pct") or 0)
         session_mult = float(engine.get("session_mult") or 0)
 
-     # --- Market Engine 1-hour deltas (computed in fetch_market_engine_with_deltas) ---
+        # --- Market Engine 1-hour deltas (computed in fetch_market_engine_with_deltas) ---
         accel_d1h   = engine.get("accel_delta_1h")
         breadth_d1h = engine.get("breadth_delta_1h")
         trend_d1h   = engine.get("trend_delta_1h")
         session_d1h = engine.get("session_delta_1h")
-
+        # --- Vol label from session_mult ---
+        if session_mult >= 1.15:
+        vol_label = "High"
+        elif session_mult <= 0.90:
+        vol_label = "Low"
+        else:
+        vol_label = "Normal"
         
         # --- derived labels/colors/arrows (keeps it simple + stable) ---
         pulse_score = (env or {}).get("pulse_score")
