@@ -2875,7 +2875,7 @@ if tab == "home":
        <div style="display:flex; align-items:center; gap:10px;">
       {ICON_SIGNAL}
       <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
-    Today's <span style="color:white;">Signal Shift</span>
+     <span style="color:white;">BREAKOUT RADAR</span>
       </div>
     </div>
     <div style="color:#22c55e; font-weight:600;"></div>
