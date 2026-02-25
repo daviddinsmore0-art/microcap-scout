@@ -2537,7 +2537,7 @@ if tab == "home":
          conn = get_connection()
          env = fetch_pulse_environment(conn)
 
-        if env:
+    if env:
 
         # --- pulse score ---
         pulse_score = env.get("pulse_score")
