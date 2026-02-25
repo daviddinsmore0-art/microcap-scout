@@ -2711,7 +2711,7 @@ if tab == "home":
         engine_line = ""
         if engine:
             engine_line = (
-                "<div style='margin-top:10px; font-size:13px; color:rgba(255,255,255,0.78); font-weight:750;'>"
+                "<div style='margin-top:10px; font-size:10px; opacity: 0.7; color:rgba(255,255,255,0.78); font-weight:750;'>"
                 f"Engine: Accel {int(accel_heat)}{_fmt_delta(accel_d1h,0)} · "
                 f"Breadth {int(breadth_pct)}%{_fmt_delta(breadth_d1h,0)} · "
                 f"Trend {int(trend_pct)}%{_fmt_delta(trend_d1h,0)} · "
