@@ -2560,30 +2560,6 @@ if tab == "home":
 
         # Pull latest Market Engine snapshot(s)
         engine, engine_rows = fetch_market_engine_with_deltas(conn, limit=12, steps_per_hour=4)
-        
-
-        latest = engine_rows[0] if len(engine_rows) >= 1 else None
-        prev_1h = engine_rows[4] if len(engine_rows) >= 5 else (engine_rows[-1] if len(engine_rows) >= 2 else None)
-
-        if latest:
-            engine = dict(latest)
-            # add simple deltas (approx 1h based on your 15m cron)
-            def _delta(key):
-                try:
-                    if not prev_1h:
-                        return None
-                    a = latest.get(key)
-                    b = prev_1h.get(key)
-                    if a is None or b is None:
-                        return None
-                    return float(a) - float(b)
-                except Exception:
-                    return None
-
-            engine["accel_delta_1h"] = _delta("accel_heat")
-            engine["breadth_delta_1h"] = _delta("breadth_pct")
-            engine["trend_delta_1h"] = _delta("trend_pct")
-            engine["session_delta_1h"] = _delta("session_mult")
 
         # --- derived labels/colors/arrows (keeps it simple + stable) ---
         pulse_score = (env or {}).get("pulse_score")
