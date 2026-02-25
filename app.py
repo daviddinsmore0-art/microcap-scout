@@ -2723,7 +2723,7 @@ if tab == "home":
             <div class="pulse-card">
               <div class="pulse-top" style="align-items:flex-end;">
                 <div>
-                  <div class="pulse-title">MARKET PULSE</div>
+                  <div class="pulse-title">Today's Market</div>
                   {asof_html}
             </div>
 
