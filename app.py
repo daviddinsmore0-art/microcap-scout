@@ -2705,7 +2705,7 @@ if tab == "home":
           micro_bias = "Focus relative strength; avoid random chasing."
         else:  # Caution Mode
           engine_msg = f"{trend_tone.capitalize()}, while {breadth_tone}. {accel_tone.capitalize()} — protect capital."
-           micro_bias = "Reduce size; wait for confirmation; take quicker profits."
+          micro_bias = "Reduce size; wait for confirmation; take quicker profits."
 
         # As-of timestamp (helps regular users know if it's "today / now")
         asof_raw = (engine or {}).get("snapshot_ts")
