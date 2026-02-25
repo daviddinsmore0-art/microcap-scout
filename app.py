@@ -2648,9 +2648,11 @@ if tab == "home":
         engine_line = ""
         if engine:
         engine_line = (
-        f"<div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>"
-        f"Engine: Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {session_mult:.2f}"
-        f"</div>"
+          f"
+        <div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>"
+          f"Engine: Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {session_mult:.2f}"
+          f"
+        </div>"
             )
 
 
