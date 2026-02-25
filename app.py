@@ -2654,7 +2654,7 @@ if tab == "home":
             )
 
 
-    market_pulse_html = f"""<div class="pulse-card">
+        market_pulse_html = f"""<div class="pulse-card">
   <div class="pulse-top">
     <div class="pulse-title">MARKET PULSE</div>
 
