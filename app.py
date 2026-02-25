@@ -2494,15 +2494,17 @@ if tab == "home":
             st.caption("No price data cached yet for your tickers.")
 
     # -----------------------------
-    # Market Pulse (Pulse Environment) - HOME CARD
-    # -----------------------------
-    try:
+# Market Pulse (Pulse Environment) - HOME CARD
+# -----------------------------
+try:
     conn = get_connection()
     env = fetch_pulse_environment(conn)
 
     # Pull latest Market Engine snapshots
     engine = {}
-        try:
+    rows = []
+
+    try:
         cur2 = conn.cursor(dictionary=True)
         cur2.execute("""
             SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
@@ -2511,31 +2513,40 @@ if tab == "home":
             LIMIT 6
         """)
         rows = cur2.fetchall() or []
-        cur2.close()
-
-        latest = rows[0] if len(rows) >= 1 else None
-        prev_1h = rows[4] if len(rows) >= 5 else None
-
-        engine = dict(latest) if latest else {}
-
-        # Add deltas (1h approx = 4 intervals)
-        if latest and prev_1h:
-            engine["accel_delta_1h"]   = (latest.get("accel_heat") or 0)   - (prev_1h.get("accel_heat") or 0)
-            engine["breadth_delta_1h"] = (latest.get("breadth_pct") or 0)  - (prev_1h.get("breadth_pct") or 0)
-            engine["trend_delta_1h"]   = (latest.get("trend_pct") or 0)    - (prev_1h.get("trend_pct") or 0)
-            engine["session_delta_1h"] = float(latest.get("session_mult") or 0) - float(prev_1h.get("session_mult") or 0)
-        else:
-            engine["accel_delta_1h"]   = 0
-            engine["breadth_delta_1h"] = 0
-            engine["trend_delta_1h"]   = 0
-            engine["session_delta_1h"] = 0.0
-
-           except Exception:
+    except Exception:
+        rows = []
+    finally:
         try:
             cur2.close()
         except Exception:
             pass
-        engine = {}
+
+    latest = rows[0] if len(rows) >= 1 else None
+    prev_1h = rows[4] if len(rows) >= 5 else None
+
+    engine = dict(latest) if latest else {}
+
+    # Add deltas (1h approx = 4 intervals if you're writing every 15m)
+    if latest and prev_1h:
+        engine["accel_delta_1h"] = float(latest.get("accel_heat") or 0) - float(prev_1h.get("accel_heat") or 0)
+        engine["breadth_delta_1h"] = float(latest.get("breadth_pct") or 0) - float(prev_1h.get("breadth_pct") or 0)
+        engine["trend_delta_1h"] = float(latest.get("trend_pct") or 0) - float(prev_1h.get("trend_pct") or 0)
+        engine["session_delta_1h"] = float(latest.get("session_mult") or 0) - float(prev_1h.get("session_mult") or 0)
+    else:
+        engine["accel_delta_1h"] = 0
+        engine["breadth_delta_1h"] = 0
+        engine["trend_delta_1h"] = 0
+        engine["session_delta_1h"] = 0
+
+    # ... keep the rest of your existing card rendering below here ...
+
+except Exception as e:
+    st.error(f"Market pulse error: {e}")
+finally:
+    try:
+        conn.close()
+    except Exception:
+        pass
 
      except Exception as e:
        st.error(f"Market pulse error: {e}")
