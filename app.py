@@ -2502,7 +2502,7 @@ if tab == "home":
 
         # Pull latest Market Engine snapshot (accel/trend/vol regime)
         engine = {}
-        try:
+    try:
         cur2.execute("""
         SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
         FROM market_engine_snapshots
@@ -2528,7 +2528,7 @@ if tab == "home":
         engine["accel_delta_1h"] = engine["breadth_delta_1h"] = engine["trend_delta_1h"] = 0
         engine["session_delta_1h"] = 0.0
 
-except Exception:
+       except Exception:
     try:
         cur2.close()
     except Exception:
