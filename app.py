@@ -2580,17 +2580,18 @@ if tab == "home":
           vol_label = "Normal"
         # --- Format delta helper ---
         def _fmt_delta(x):
-          if x is None:
-             return ""
-          try:
-             x = float(x)
-          except Exception:
-             return ""
-          if x > 0:
-             return f" (+{x:.0f})"
-          if x < 0:
-             return f" ({x:.0f})"
-          return " (0)"
+    if x is None:
+        return ""
+    try:
+        x = float(x)
+    except Exception:
+        return ""
+
+    if x > 0:
+        return f" ▲{abs(x):.0f}"
+    if x < 0:
+        return f" ▼{abs(x):.0f}"
+    return ""
 
           engine_line = f"""
 <div style="margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;">
