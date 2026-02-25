@@ -2505,9 +2505,9 @@ if tab == "home":
         try:
             cur2 = conn.cursor(dictionary=True)
             cur2.execute("""
-                SELECT asof_ts, accel_heat, breadth_pct, trend_pct, session_mult, universe_count
+                SELECT snapshot_ts, candle_ts, accel_heat, breadth_pct, trend_pct, session_mult
                 FROM market_engine_snapshots
-                ORDER BY asof_ts DESC
+                ORDER BY snapshot_ts DESC
                 LIMIT 1
             """)
             engine = cur2.fetchone() or {}
