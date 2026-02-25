@@ -2667,6 +2667,46 @@ if tab == "home":
         else:
             vol_label = "Normal"
 
+            # --- Engine interpretation (state + deltas) ---
+
+       engine_msg = ""
+       micro_bias = ""
+
+       # Breadth tone
+       if float(breadth_d1h or 0) >= 8:
+         breadth_tone = "participation is expanding"
+       elif float(breadth_d1h or 0) <= -8:
+         breadth_tone = "participation is thinning"
+       else:
+         breadth_tone = "participation is mixed"
+
+# Trend tone
+       if float(trend_d1h or 0) >= 6:
+          trend_tone = "trend is strengthening"
+       elif float(trend_d1h or 0) <= -6:
+          trend_tone = "trend is fading"
+       else:
+          trend_tone = "trend is holding"
+
+# Momentum tone
+       if float(accel_d1h or 0) >= 4:
+         accel_tone = "momentum is picking up"
+       elif float(accel_d1h or 0) <= -4:
+         accel_tone = "momentum is cooling"
+       else:
+         accel_tone = "momentum is steady"
+
+# Build message based on state
+       if state == "Green Light":
+          engine_msg = f"{trend_tone.capitalize()} and {breadth_tone}. {accel_tone.capitalize()} — opportunities are cleaner."
+       micro_bias = "Lean into leaders; press strength but manage volatility."
+          elif state == "Selective Tape":
+          engine_msg = f"{trend_tone.capitalize()}, but {breadth_tone}. {accel_tone.capitalize()} — be selective."
+          micro_bias = "Focus relative strength; avoid random chasing."
+       else:  # Caution Mode
+          engine_msg = f"{trend_tone.capitalize()}, while {breadth_tone}. {accel_tone.capitalize()} — protect capital."
+           micro_bias = "Reduce size; wait for confirmation; take quicker profits."
+
         # As-of timestamp (helps regular users know if it's "today / now")
         asof_raw = (engine or {}).get("snapshot_ts")
         asof_txt = ""
