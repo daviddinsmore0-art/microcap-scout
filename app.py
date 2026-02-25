@@ -1303,6 +1303,21 @@ def fetch_pulse_environment(conn):
 
     return latest
 
+def fetch_market_engine_latest(conn):
+    """Fetch latest Market Engine snapshot (computed by cron into market_engine_snapshots)."""
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute("""
+            SELECT asof_ts, accel_heat, breadth_pct, trend_pct, session_mult, universe_count
+            FROM market_engine_snapshots
+            ORDER BY asof_ts DESC
+            LIMIT 1
+        """)
+        return cur.fetchone()
+    except Exception:
+        return None
+
+
 def calculate_confidence(row, ai_score=None):
     """Return a 0-100 confidence score (higher = cleaner/healthier setup).
 
@@ -1622,7 +1637,12 @@ def render_portfolio_ticker(data_map, tickers):
     <div class="pp-ticker-wrap">
         <div class="pp-ticker">
             {content}
-        </div>
+        
+              {env_msg_html}
+              {micro_bias_html}
+              {engine_line}
+
+</div>
         <div style="
         position: absolute;
         bottom: 0;
@@ -2569,6 +2589,47 @@ try:
         if vol_arrow != "—" and stb is not None:
             vol_arrow = "↓" if float(stb) >= 50 else "↑"
 
+        # --- Market Engine (accel + trend + vol regime) for descriptive text ---
+        engine = fetch_market_engine_latest(conn) or {}
+        accel_heat = float(engine.get("accel_heat") or 0)
+        breadth_pct = float(engine.get("breadth_pct") or 0)
+        trend_pct = float(engine.get("trend_pct") or 0)
+        session_mult = float(engine.get("session_mult") or 0)
+
+        # Descriptive environment message (USES accel + breadth + trend + vol regime)
+        env_msg = "Mixed tape. Selectivity required."
+        micro_bias = "Micro-bias: wait for clean confirmations."
+
+        if breadth_pct >= 58 and trend_pct >= 58 and accel_heat >= 25:
+            env_msg = "Broad participation with expanding momentum. Breakouts more likely to stick."
+            micro_bias = "Micro-bias: lean into leaders; buy strength on pullbacks."
+        elif trend_pct >= 60 and breadth_pct < 50:
+            env_msg = "Trend is holding up but participation is thinning. Expect rotational / choppy tape."
+            micro_bias = "Micro-bias: focus relative strength; avoid chasing."
+        elif breadth_pct < 45 and accel_heat < 15:
+            env_msg = "Low energy and weak participation. Breakouts are less reliable."
+            micro_bias = "Micro-bias: reduce size; favor stability and mean-reversion setups."
+        elif breadth_pct < 40 and session_mult >= 1.15:
+            env_msg = "Weak participation with elevated movement. Risk of fast fades / whipsaws."
+            micro_bias = "Micro-bias: protect capital; wait for reclaim + confirmation."
+
+        if session_mult >= 1.20:
+            micro_bias += " Volatility elevated—widen stops or reduce size."
+        elif 0 < session_mult <= 0.90:
+            micro_bias += " Compression regime—watch for expansion triggers."
+
+        env_msg_html = f"""<div style='margin-top:10px; font-size:13px; color:rgba(255,255,255,0.74); font-weight:650;'>{env_msg}</div>"""
+        micro_bias_html = f"""<div style='margin-top:6px; font-size:12px; color:rgba(255,255,255,0.55); font-weight:650;'>{micro_bias}</div>"""
+
+        engine_line = ""
+        if engine:
+            engine_line = (
+                f"<div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.55); font-weight:700;'>"
+                f"Engine: Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {session_mult:.2f}"
+                f"</div>"
+            )
+
+
         # --- HTML ---
         market_pulse_html = textwrap.dedent(f"""
             <div class="pulse-card">
@@ -2935,7 +2996,8 @@ except Exception as e:
 
     except Exception as e:
         st.error(f"Sector snapshot error: {e}")
-if tab == "portfolio":
+
+elif tab == "portfolio":
 
     st.markdown(f"")
     total_pl, total_pct, day_pl, day_pct = get_portfolio_summary(user['username'], current_mode)
@@ -3004,7 +3066,9 @@ if tab == "portfolio":
         for row, data in pairs:
             render_portfolio_row(row, data, token, rank_map=rank_map)
         # (Reorder animation disabled for stability)
-if tab == "alerts":
+
+
+elif tab == "alerts":
     st.markdown("## Alerts")
     st.caption("Simple toggles. Portfolio-first. Optional: include your PennyPulse Global List.")
 
@@ -3211,7 +3275,9 @@ if tab == "alerts":
         pass
 
     conn.close()
-if tab == "scanner":
+
+
+elif tab == "scanner":
     st.markdown("Global rankings — biggest signals first.")
 
     st.markdown(
@@ -3396,7 +3462,8 @@ if tab == "scanner":
         st.markdown('<div class="section-title">Top 3 Quality</div>', unsafe_allow_html=True)
         for r in fetch_rank_rows("quality_score", 3):
             render_rank_card(r)
-if tab == "settings":
+
+elif tab == "settings":
     st.markdown("### Settings")
     with st.form("settings_form"):
         new_name = st.text_input("Display Name", value=user['display_name'])
