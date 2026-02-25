@@ -2732,7 +2732,7 @@ if tab == "home":
             <div style="margin-top:12px; color:rgba(226,232,240,0.70); font-size:15px; font-weight:700;">{env_msg}</div>
               {micro_bias_html}
               {engine_line}
-
+            </div>
             <div style="
                 position: absolute;
                 bottom: 0;
