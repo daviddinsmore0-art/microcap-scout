@@ -2633,27 +2633,17 @@ if tab == "home":
         elif 0 < session_mult <= 0.90:
             micro_bias += " Compression regime—watch for expansion triggers."
 
-        env_msg_html = f"""
-        <div style="margin-top:8px; color:rgba(255,255,255,0.72); font-size:13px; font-weight:650;">
-          {env_msg}
-        </div>
-        """
+        env_msg_html = f'<div style="margin-top:8px; color:rgba(226,232,240,0.85); font-size:15px; line-height:1.35;">{env_msg}</div>'
 
-        micro_bias_html = f"""
-        <div style="margin-top:6px; color:rgba(255,255,255,0.55); font-size:12px; font-weight:650;">
-          {micro_bias}
-        </div>
-        """
+        micro_bias_html = f'<div style="margin-top:6px; color:rgba(148,163,184,0.85); font-size:14px;">{micro_bias}</div>'
 
         engine_line = ""
         if engine:
             engine_line = (
-        f"<div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>"
-        f"Engine: Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {session_mult:.2f}"
-        f"</div>"
+                f"<div style=\"margin-top:8px; font-size:13px; color:rgba(226,232,240,0.75);\">"
+                f"Engine: Accel {int(accel_heat)} • Breadth {int(breadth_pct)} • Trend {int(trend_pct)} • Session× {float(session_mult):.2f}"
+                f"</div>"
             )
-
-
         market_pulse_html = textwrap.dedent(f"""
         <div class="pulse-card">
                      <div class="pulse-top">
@@ -2688,9 +2678,9 @@ if tab == "home":
                   <span class="pulse-arrow">{vol_arrow}</span>
         </div>
         </div>
-              {env_msg_html}
-              {micro_bias_html}
-              {engine_line}
+{env_msg_html}
+{micro_bias_html}
+{engine_line}
         <div style="
                 position: absolute;
                 bottom: 0;
