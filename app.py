@@ -252,12 +252,13 @@ div[data-testid="stDecoration"] {
 
 /* Pulse Environment / Market Pulse card */
 .pulse-card{
-  border-radius:22px;
-  padding:18px 18px 16px 18px;
-  background: linear-gradient(160deg, rgba(13,23,46,0.95), rgba(7,14,28,0.95));
+  position:relative;
+  border-radius:0 0 20px 20px;
+  padding:10px 10px 20px 20px;
+  background-color: #1a1f2b;
   border: 1px solid rgba(255,255,255,0.06);
   box-shadow: 0 10px 26px rgba(0,0,0,0.35);
-  margin: 14px 0 16px 0;
+  margin: 10px 0 16px 0;
 }
 .pulse-top{
   display:flex;
@@ -267,9 +268,9 @@ div[data-testid="stDecoration"] {
   margin-bottom: 10px;
 }
 .pulse-title{
-  font-size: 18px;
-  font-weight: 900;
-  letter-spacing: 0.14em;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #f5d07a;
 }
@@ -278,17 +279,14 @@ div[data-testid="stDecoration"] {
   align-items:center;
   gap:12px;
   padding: 8px 14px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 800;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.04);
+  font-size: 16px;
+  font-weight:600;
   color: rgba(255,255,255,0.86);
   white-space:nowrap;
 }
 .pulse-pill .pulse-score{
   color: #49e38b;
-  font-weight: 900;
+  font-weight: 800;
 }
 .pulse-dot{
   width:12px;
@@ -298,7 +296,7 @@ div[data-testid="stDecoration"] {
 }
 .pulse-metrics{
   display:flex;
-  gap:26px;
+  gap:16px;
   flex-wrap:wrap;
   margin-top: 10px;
 }
@@ -312,8 +310,8 @@ div[data-testid="stDecoration"] {
   background: transparent;
 }
 .pulse-label{
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight:600;
   color: rgba(255,255,255,0.86);
   margin: 0;
 }
@@ -324,7 +322,7 @@ div[data-testid="stDecoration"] {
 }
 .pulse-sub{
   margin-top: 10px;
-  font-size: 13px;
+  font-size:18px;
   color: rgba(255,255,255,0.62);
 }
 
@@ -2502,40 +2500,57 @@ if tab == "home":
         conn = get_connection()
         env = fetch_pulse_environment(conn)  # expects a live DB connection
 
+        # Pull latest Market Engine snapshot (accel/trend/vol regime)
+        engine = {}
+        try:
+            cur2 = conn.cursor(dictionary=True)
+            cur2.execute("""
+                SELECT asof_ts, accel_heat, breadth_pct, trend_pct, session_mult, universe_count
+                FROM market_engine_snapshots
+                ORDER BY asof_ts DESC
+                LIMIT 1
+            """)
+            engine = cur2.fetchone() or {}
+            cur2.close()
+        except Exception:
+            engine = {}
+
+
         if env:
             # --- derived labels/colors/arrows (keeps it simple + stable) ---
             pulse_score = env.get("pulse_score")
             pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
-            env_label = env.get("environment_label")
 
-            if not env_label:
-              if pulse_score is None:
-            env_label = "Neutral"
-              elif float(pulse_score) >= 65:
-            env_label = "Risk-On"
-              elif float(pulse_score) >= 45:
-            env_label = "Neutral"
-        else:
-            env_label = "Risk-Off"
+            env_label = env.get("environment_label") or env.get("env_label") or ""
 
+        if not env_label:
             if pulse_score is None:
-            dot_color = "#64748b"
+                env_label = "Neutral"
             elif float(pulse_score) >= 65:
-            dot_color = "#22c55e"
+                env_label = "Risk-On"
             elif float(pulse_score) >= 45:
-            dot_color = "#fbbf24"
+                env_label = "Neutral"
             else:
-            dot_color = "#ef4444"
-            regime = (env.get("pulse_regime") or "Neutral").strip()
-            regime_l = regime.lower()
-            if "risk-on" in regime_l or "risk on" in regime_l:
+                env_label = "Risk-Off"
+
+        if pulse_score is None:
+             dot_color = "#64748b"
+        elif float(pulse_score) >= 65:
+             dot_color = "#22c55e"
+        elif float(pulse_score) >= 45:
+             dot_color = "#fbbf24"
+        else:
+             dot_color = "#ef4444"
+             regime = (env.get("pulse_regime") or "Neutral").strip()
+             regime_l = regime.lower()
+        if "risk-on" in regime_l or "risk on" in regime_l:
                 pulse_label, pulse_color = "Risk-On", "#22c55e"
-            elif "risk-off" in regime_l or "risk off" in regime_l:
+        elif "risk-off" in regime_l or "risk off" in regime_l:
                 pulse_label, pulse_color = "Risk-Off", "#ef4444"
-            else:
+        else:
                 pulse_label, pulse_color = "Neutral", "#f59e0b"
 
-            def _arrow_and_color(val, good_if_high=True):
+        def _arrow_and_color(val, good_if_high=True):
                 if val is None:
                     return "—", "rgba(229,231,235,0.75)"
                 v = float(val)
@@ -2544,54 +2559,151 @@ if tab == "home":
                 color = "#22c55e" if good else "#f59e0b"
                 return arrow, color
 
-            mom = env.get("momentum_breadth")
-            brd = env.get("accel_breadth")  # breadth proxy
-            stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
+        mom = env.get("momentum_breadth")
+        brd = env.get("accel_breadth")  # breadth proxy
+        stb = env.get("avg_stability")  # stability proxy (higher = lower volatility)
 
-            mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
-            brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
-            vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
+        mom_arrow, mom_color = _arrow_and_color(mom, good_if_high=True)
+        brd_arrow, brd_color = _arrow_and_color(brd, good_if_high=True)
+        vol_arrow, vol_color = _arrow_and_color(stb, good_if_high=True)
             # For volatility we want DOWN when stability is high
-            if vol_arrow != "—":
+        if vol_arrow != "—":
                 vol_arrow = "↓" if float(stb) >= 50 else "↑"
 
-            market_pulse_html = textwrap.dedent(f"""
+                # --- 7-day change (optional) ---
+        delta_html = ""
+        try:
+            curd = conn.cursor(dictionary=True)
+            curd.execute("""
+                SELECT asof_date, pulse_score
+                FROM pulse_environment_daily
+                ORDER BY asof_date DESC
+                LIMIT 1
+            """)
+            latest_row = curd.fetchone()
+            if latest_row and latest_row.get("pulse_score") is not None:
+                latest_date = latest_row.get("asof_date")
+                latest_score = float(latest_row.get("pulse_score"))
+                curd.execute("""
+                    SELECT pulse_score
+                    FROM pulse_environment_daily
+                    WHERE asof_date <= DATE_SUB(%s, INTERVAL 7 DAY)
+                    ORDER BY asof_date DESC
+                    LIMIT 1
+                """, (latest_date,))
+                prior_row = curd.fetchone()
+                if prior_row and prior_row.get("pulse_score") is not None:
+                    prior_score = float(prior_row.get("pulse_score"))
+                    d7 = latest_score - prior_score
+                    arrow7 = "▲" if d7 > 0 else ("▼" if d7 < 0 else "•")
+                    color7 = "#22c55e" if d7 > 0 else ("#ef4444" if d7 < 0 else "#94a3b8")
+                    delta_html = f"""
+                    <div style="margin-top:6px; font-size:13px; font-weight:850; color:{color7};">
+                      {arrow7} {abs(d7):.1f} (7d)
+                    </div>
+                    """
+            curd.close()
+        except Exception:
+            delta_html = ""
+
+        # --- Interpretation (USES Market Engine snapshot) ---
+        accel_heat = float(engine.get("accel_heat") or 0)
+        breadth_pct = float(engine.get("breadth_pct") or 0)
+        trend_pct = float(engine.get("trend_pct") or 0)
+        session_mult = float(engine.get("session_mult") or 0)
+
+        env_msg = "Mixed tape. Selectivity required."
+        micro_bias = "Micro-bias: avoid chasing; wait for confirmation."
+
+        if breadth_pct >= 58 and trend_pct >= 58 and accel_heat >= 25:
+            env_msg = "Broad participation with expanding momentum. Breakouts more likely to follow through."
+            micro_bias = "Micro-bias: lean into leaders; buy strength on pullbacks."
+        elif trend_pct >= 60 and breadth_pct < 50:
+            env_msg = "Trend is holding, but participation is thinning. Expect rotation and chop."
+            micro_bias = "Micro-bias: focus relative strength; avoid chasing extensions."
+        elif breadth_pct < 45 and accel_heat < 15:
+            env_msg = "Low energy with weak participation. Breakouts are less reliable."
+            micro_bias = "Micro-bias: reduce size; favor stability / mean-reversion setups."
+        elif breadth_pct < 40 and session_mult >= 1.15:
+            env_msg = "Weak participation with elevated movement. Fast fades / whipsaws likely."
+            micro_bias = "Micro-bias: protect capital; wait for reclaim + confirmation."
+
+        if session_mult >= 1.20:
+            micro_bias += " Volatility elevated—widen stops or reduce size."
+        elif 0 < session_mult <= 0.90:
+            micro_bias += " Compression regime—watch for expansion triggers."
+
+        env_msg_html = f"""
+        <div style="margin-top:8px; color:rgba(255,255,255,0.72); font-size:13px; font-weight:650;">
+          {env_msg}
+        </div>
+        """
+
+        micro_bias_html = f"""
+        <div style="margin-top:6px; color:rgba(255,255,255,0.55); font-size:12px; font-weight:650;">
+          {micro_bias}
+        </div>
+        """
+
+        engine_line = ""
+        if engine:
+            engine_line = (
+                f"<div style='margin-top:8px; font-size:12px; color:rgba(255,255,255,0.45); font-weight:700;'>"
+                f"Engine: Accel {int(accel_heat)} · Breadth {int(breadth_pct)}% · Trend {int(trend_pct)}% · Vol {session_mult:.2f}"
+                f"</div>"
+            )
+
+
+        market_pulse_html = textwrap.dedent(f"""
             <div class="pulse-card">
               <div class="pulse-top">
                 <div class="pulse-title">MARKET PULSE</div>
 
-                <div class="pulse-pill">
+            <div class="pulse-pill">
                   <span class="pulse-score">{pulse_txt} / 100</span>
-                  <span class="pulse-dot" style="background:{color}; box-shadow:0 0 14px {dot_color}55;"></span>
+                  <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
                   <span style="font-weight:900;">{env_label}</span>
+                {delta_html}
                 </div>
-              </div>
+            </div>
 
               <div style="height:1px; background:rgba(255,255,255,0.08); margin:12px 0;"></div>
 
-              <div class="pulse-metrics">
+            <div class="pulse-metrics">
                 <div class="pulse-metric">
-                  <span style="color:{mom_col}; font-size:18px;">◆</span>
+                  <span style="color:{mom_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Momentum</span>
                   <span class="pulse-arrow">{mom_arrow}</span>
-                </div>
+            </div>
 
-                <div class="pulse-metric">
-                  <span style="color:{breadth_col}; font-size:18px;">◆</span>
+            <div class="pulse-metric">
+                  <span style="color:{brd_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Breadth</span>
-                  <span class="pulse-arrow">{breadth_arrow}</span>
-                </div>
+                  <span class="pulse-arrow">{brd_arrow}</span>
+            </div>
 
-                <div class="pulse-metric">
-                  <span style="color:{vol_col}; font-size:18px;">◆</span>
+            <div class="pulse-metric">
+                  <span style="color:{vol_color}; font-size:12px;">◆</span>
                   <span class="pulse-label">Volatility</span>
                   <span class="pulse-arrow">{vol_arrow}</span>
                 </div>
               </div>
+              {env_msg_html}
+              {micro_bias_html}
+              {engine_line}
+              <div style="
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #4ade80, transparent);
+                box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
+                "></div>
             </div>
-            """).strip()
+        """).strip()
 
-            st.markdown(market_pulse_html, unsafe_allow_html=True)
+        st.markdown(market_pulse_html, unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Market pulse error: {e}")
