@@ -2595,8 +2595,8 @@ if tab == "home":
         pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
         # --- Market Condition (Primary State) ---
         prev_state = st.session_state.get("market_state")
-state = stable_market_state(pulse_score, prev_state)
-st.session_state["market_state"] = state
+        state = stable_market_state(pulse_score, prev_state)
+        st.session_state["market_state"] = state
            
         env_label = env.get("environment_label") or env.get("env_label") or ""
         if not env_label:
