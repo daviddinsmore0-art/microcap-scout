@@ -2567,7 +2567,16 @@ if tab == "home":
         # --- Pulse headline ---
         pulse_score = env.get("pulse_score")
         pulse_txt = f"{float(pulse_score):.0f}" if pulse_score is not None else "—"
-
+        # --- Market Condition (Primary State) ---
+        if pulse_score is None:
+           state = "Neutral"
+        elif pulse_score >= 65:
+           state = "Bullish"
+        elif pulse_score >= 45:
+           state = "Neutral"
+        else:
+           state = "Defensive"
+           
         env_label = env.get("environment_label") or env.get("env_label") or ""
         if not env_label:
             if pulse_score is None:
@@ -2710,7 +2719,7 @@ if tab == "home":
             <div class="pulse-pill">
                   <span class="pulse-score">{pulse_txt} / 100</span>
                   <span class="pulse-dot" style="background:{dot_color}; box-shadow:0 0 14px {dot_color}55;"></span>
-                  <span style="font-weight:900;">{env_label}</span>
+                  <span style="font-weight:900;">{state} Market</span>
                 </div>
             </div>
 
