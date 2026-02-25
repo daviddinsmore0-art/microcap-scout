@@ -2673,7 +2673,7 @@ if tab == "home":
                 if diff_minutes <= 30:
                     asof_txt = f"Live • {asof_dt.strftime('%I:%M %p').lstrip('0')}"
                 else:
-                    asof_txt = f"Last update: {asof_dt.strftime('%b %d %H:%M')}"
+                    asof_txt = f"Updated {int(diff_minutes)}m ago"
         except Exception:
             asof_txt = str(asof_raw) if asof_raw else ""
 
