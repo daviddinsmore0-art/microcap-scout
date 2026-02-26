@@ -2836,7 +2836,7 @@ if tab == "home":
         cur.close()
         conn.close()
 
-     if row and int(row.get("rank_jump") or 0) > 0:
+      if row and int(row.get("rank_jump") or 0) > 0:
          if radar_rows:
          radar_html = ""
          for r in radar_rows:
@@ -2849,7 +2849,7 @@ if tab == "home":
             </span>
         </div>
         """
-    else:
+     else:
     radar_html = """
     <div style="opacity:0.6;">
         No significant expansion detected right now.<br>
