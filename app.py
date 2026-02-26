@@ -2911,7 +2911,7 @@ if tab == "home":
                if holds is not None:
                  holds_val = int(float(holds))
             except Exception:
-            holds_val = 0
+                 holds_val = 0
 
             holds_txt = f"{holds_val}" if holds_val > 0 else ""
 
