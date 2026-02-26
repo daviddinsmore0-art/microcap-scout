@@ -2914,7 +2914,7 @@ if tab == "home":
                  holds_txt = ""
 
                  
-                    score_txt = "—"
+                score_txt = "—"
             try:
                 if r.get("peak_focus_score") is not None:
                     score_txt = f"{float(r.get('peak_focus_score')):.0f}"
