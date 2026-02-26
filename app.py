@@ -2905,10 +2905,10 @@ if tab == "home":
        <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
        <div style="margin-top:14px;">
-            <div style="color:#ffffff; font-weight:600; font-size:12px; margin-bottom:10px;">
+            <div style="color:#ffffff; font-weight:600; font-size:14px; margin-bottom:10px;">
               Identifying stocks expanding beyond normal range with elevated participation.
        </div>
-       <div style="color:#e5e7eb; font-size:18px; font-weight:700; line-height:1.25;">
+       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
               {radar_html}
        </div>
        </div>
