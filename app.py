@@ -2831,14 +2831,16 @@ if tab == "home":
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        radar_sql = """
+        radar_sql_bull = """
         SELECT
-            ticker,
-            peak_range_mult,
-            peak_rvol_60m,
-            peak_focus_score
+        ticker,
+        peak_range_mult,
+        peak_rvol_60m,
+        peak_focus_score,
+        TIMESTAMPDIFF(MINUTE, last_seen_ts, NOW()) AS minutes_ago
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
+        AND peak_dir = 'bull'
         ORDER BY peak_focus_score DESC
         LIMIT 3
         """
@@ -2871,8 +2873,11 @@ if tab == "home":
       <div style="margin-bottom:10px;">
                 ⚡ <b>{r.get('ticker','')}</b>
                 <span style="opacity:0.7;">
-                  Range {pr:.2f}× • Volume {pv:.2f}×
-                </span>
+                 Range {r['peak_range_mult']}× • 
+                 Volume {r['peak_rvol_60m']}× • 
+                 Score {r['peak_focus_score']} • 
+                 {r['minutes_ago']}m ago
+                 </span>
       </div>
             """)
         radar_html = "".join(parts)
