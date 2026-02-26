@@ -2917,7 +2917,7 @@ if tab == "home":
     """
 
     st.markdown(breakout_radar_card, unsafe_allow_html=True)
-ACCELERATION ALERTS
+# ACCELERATION ALERTS
     # Using momentum_score acceleration (latest vs previous asof_date from rankings_global_daily)
     # ==========================
     try:
