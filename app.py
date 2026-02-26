@@ -2913,6 +2913,15 @@ if tab == "home":
        </div>
        </div>
        </div>
+       <div style="
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #4ade80, transparent);
+                box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
+              "></div>
        </div>
     """
 
