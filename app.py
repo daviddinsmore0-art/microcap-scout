@@ -2833,8 +2833,7 @@ if tab == "home":
         ORDER BY peak_focus_score DESC
         LIMIT 3
         """
-        cur.close()
-        conn.close()
+        
 
         
         if radar_rows:
