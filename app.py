@@ -2819,7 +2819,7 @@ if tab == "home":
 # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
- try:
+   try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
@@ -2836,7 +2836,7 @@ if tab == "home":
         cur.close()
         conn.close()
 
-    if row and int(row.get("rank_jump") or 0) > 0:
+     if row and int(row.get("rank_jump") or 0) > 0:
          if radar_rows:
          radar_html = ""
          for r in radar_rows:
