@@ -2862,7 +2862,7 @@ if tab == "home":
         
 
         
-        if radar_rows:
+     if radar_rows:
            radar_html = ""
         for r in radar_rows:
            radar_html += f"""
