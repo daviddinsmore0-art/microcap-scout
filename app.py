@@ -2929,7 +2929,7 @@ if tab == "home":
 
     """).strip()
 
-        components.html(card_html, height=260)
+    components.html(card_html, height=260)
         # else: show nothing (no blank card on weekends/holidays)
 
     except Exception as e:
