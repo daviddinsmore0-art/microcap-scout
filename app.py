@@ -2837,7 +2837,7 @@ if tab == "home":
         conn.close()
 
         
-          if radar_rows:
+        if radar_rows:
            radar_html = ""
           for r in radar_rows:
            radar_html += f"""
