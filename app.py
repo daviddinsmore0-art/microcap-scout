@@ -3056,7 +3056,7 @@ if tab == "home":
               days = mins_val // 1440
               mins_txt = f"{days}d ago"
 
-              except Exception:
+            except Exception:
               mins_txt = ""
 
             score_txt = "—"
