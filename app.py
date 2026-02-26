@@ -2838,7 +2838,6 @@ if tab == "home":
         peak_rvol_60m,
         peak_focus_score,
         peak_day_change,
-        peak_candle_ts,
         TIMESTAMPDIFF(MINUTE, last_seen_ts, NOW()) AS minutes_ago
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
