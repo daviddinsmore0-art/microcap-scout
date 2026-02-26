@@ -3044,20 +3044,20 @@ if tab == "home":
             mins_txt = ""
 
             try:
-            if mins is not None:
-            mins_val = int(float(mins))
+             if mins is not None:
+              mins_val = int(float(mins))
 
-            if mins_val < 60:
-            mins_txt = f"{mins_val}m ago"
-            elif mins_val < 1440:
-            hours = mins_val // 60
-            mins_txt = f"{hours}h ago"
-            else:
-            days = mins_val // 1440
-            mins_txt = f"{days}d ago"
+             if mins_val < 60:
+              mins_txt = f"{mins_val}m ago"
+             elif mins_val < 1440:
+              hours = mins_val // 60
+              mins_txt = f"{hours}h ago"
+             else:
+              days = mins_val // 1440
+              mins_txt = f"{days}d ago"
 
-            except Exception:
-            mins_txt = ""
+             except Exception:
+              mins_txt = ""
 
             score_txt = "—"
             try:
