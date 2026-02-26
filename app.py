@@ -2831,7 +2831,7 @@ if tab == "home":
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        radar_sql_bull = """
+        radar_sql = """
         SELECT
         ticker,
         peak_range_mult,
