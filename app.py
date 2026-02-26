@@ -2868,7 +2868,7 @@ if tab == "home":
             pr = float(r.get("peak_range_mult") or 0)
             pv = float(r.get("peak_rvol_60m") or 0)
             parts.append(f"""
-      <div style="margin-bottom:10px;">
+      <div style="margin-bottom:40px;">
                 ⚡ <b>{r.get('ticker','')}</b><br>
                 <span style="opacity:0.7;">
                   Range {pr:.2f}× • Volume {pv:.2f}×
