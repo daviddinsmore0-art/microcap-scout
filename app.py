@@ -3045,8 +3045,8 @@ if tab == "home":
        </div>
        </div>
     """
-
-        
+    
+    st.markdown(breakout_radar_card, unsafe_allow_html=True)  
 
     # ==========================
     # SECTOR ROTATION SNAPSHOT
