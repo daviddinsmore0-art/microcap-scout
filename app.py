@@ -2936,7 +2936,7 @@ if tab == "home":
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
     # ==========================
-    # BREAKOUT RADAR (intraday)
+    # BRfonDOWN RADAR (intraday)
     # ==========================
     radar_rows = []
     radar_html = ""
@@ -2956,7 +2956,7 @@ if tab == "home":
         TIMESTAMPDIFF(MINUTE, last_seen_ts, NOW()) AS minutes_ago
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
-        AND peak_dir = 'bull'
+        AND peak_dir = 'bear'
         ORDER BY peak_focus_score DESC
         LIMIT 3
         """
