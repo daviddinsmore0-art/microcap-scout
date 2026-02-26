@@ -2926,7 +2926,7 @@ if tab == "home":
             parts.append(f"""
       <div style="margin-bottom:10px;">
         <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
-        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span>•<span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span><br><br>
+        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span>   •<span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span><br><br>
         <span style="opacity:0.72;">
           Range {pr:.2f}× • Volume {pv:.2f}× • Score {score_txt}{(' • ' + mins_txt) if mins_txt else ''}
         </span>
