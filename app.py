@@ -2987,7 +2987,7 @@ if tab == "home":
             pv = float(r.get("peak_rvol_60m") or 0)
             parts.append(f"""
       <div style="margin-bottom:10px;">
-                🧨 <b>{r.get('ticker','')}</b>
+                🧨 <b><span style="color:#f87171;">{r.get('ticker','')}</span></b>
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
@@ -3027,7 +3027,7 @@ if tab == "home":
 
        <div style="margin-top:14px;">
             <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
-              Identifying stocks expanding beyond normal range with elevated participation.
+              Downside expansion with elevated selling pressure.
        </div>
        <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
               {radar_html}
