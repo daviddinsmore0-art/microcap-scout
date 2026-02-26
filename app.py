@@ -2874,7 +2874,7 @@ if tab == "home":
             
             parts.append(f"""
       <div style="margin-bottom:10px;">
-                <span style="color:#ef4444;">⬇</span><b>{r.get('ticker','')}</b>
+                <span style="color:#22c55e;">⬆</span><b>{r.get('ticker','')}</b>
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
