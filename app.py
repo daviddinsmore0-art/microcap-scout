@@ -2849,13 +2849,13 @@ if tab == "home":
                 </span>
               </div>
             """
-      else:
-        radar_html = """
+        else:
+         radar_html = """
           <div style="opacity:0.6;">
             No significant expansion detected right now.<br>
             Radar scanning…
           </div>
-        """
+         """
 
 except Exception as e:
     radar_html = f"<div style='opacity:0.7;'>Breakout Radar error: {e}</div>"
