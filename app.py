@@ -2931,100 +2931,122 @@ if tab == "home":
     """
 
     st.markdown(breakout_radar_card, unsafe_allow_html=True)
-# ACCELERATION ALERTS
-    # Using momentum_score acceleration (latest vs previous asof_date from rankings_global_daily)
+
+     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
+    # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
+    # ==========================
+    # BREAKOUT RADAR (intraday)
+    # ==========================
+    radar_rows = []
+    radar_html = ""
+    conn = None
+    cur = None
+
     try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
-        latest_date = (cur.fetchone() or {}).get("d")
+        radar_sql = """
+        SELECT
+        ticker,
+        peak_range_mult,
+        peak_rvol_60m,
+        peak_focus_score,
+        TIMESTAMPDIFF(MINUTE, last_seen_ts, NOW()) AS minutes_ago
+        FROM breakout_radar_daily
+        WHERE trade_date = CURDATE()
+        AND peak_dir = 'bull'
+        ORDER BY peak_focus_score DESC
+        LIMIT 3
+        """
+        cur.execute(radar_sql)
+        radar_rows = cur.fetchall() or []
 
-        prev_date = None
-        if latest_date:
-            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily WHERE asof_date < %s", (latest_date,))
-            prev_date = (cur.fetchone() or {}).get("d")
+    except Exception:
+        # Keep UI clean; details will be in Streamlit logs
+        radar_rows = []
 
-        rows = []
-        if latest_date and prev_date:
-            cur.execute(
-                """
-                SELECT
-                    d1.ticker,
-                    (d1.momentum_score - d0.momentum_score) AS momentum_delta
-                FROM rankings_daily d1
-                JOIN rankings_daily d0
-                  ON d1.ticker = d0.ticker
-                WHERE d1.asof_date = %s
-                  AND d0.asof_date = %s
-                ORDER BY momentum_delta DESC
-                LIMIT 3
-                """,
-                (latest_date, prev_date),
-            )
-            rows = cur.fetchall() or []
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
 
-        cur.close()
-        conn.close()
-
-        items_html = ""
-        if rows:
-            for r in rows:
-                t = (r.get("ticker") or "").upper()
-                items_html += f"<div style='margin-top:6px; font-size:16px; font-weight:600; color:#e5e7eb;'>⚡ {t}</div>"
-        else:
-            items_html = "<div style='margin-top:10px; color:#94a3b8;'>No new accelerations on the latest run.</div>"
-
-        card_html = textwrap.dedent(f"""
-        <div style="
-            margin-top:0px;
-            margin-bottom:0px;
-            border-radius:20px;
-            padding:10px 10px 20px 20px;
-            background:linear-gradient(145deg,#0f172a,#0b1220);
-            box-shadow:0 12px 35px rgba(0,0,0,0.45);
-            position:relative;
-            border:1px solid rgba(255,255,255,0.06);
-        ">
-
-
-
-          <!-- TITLE ROW -->
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-            <div style="display:flex; align-items:center; gap:10px;">
-      {ICON_ACCEL}
-      <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
-    New <span style="color:white;">Acceleration Alerts</span>
+    if radar_rows:
+        parts = []
+        for r in radar_rows:
+            # Defensive formatting (NULL-safe)
+            pr = float(r.get("peak_range_mult") or 0)
+            pv = float(r.get("peak_rvol_60m") or 0)
+            parts.append(f"""
+      <div style="margin-bottom:10px;">
+                ⚡ <b>{r.get('ticker','')}</b>
+                <span style="opacity:0.7;">
+                 Range {r['peak_range_mult']}× • 
+                 Volume {r['peak_rvol_60m']}× • 
+                 Score {r['peak_focus_score']} • 
+                 {r['minutes_ago']}m ago
+                 </span>
       </div>
-    </div>
-    <div style="color:#22c55e; font-weight:600;"></div>
-    </div>
+            """)
+        radar_html = "".join(parts)
+    else:
+        radar_html = """
+      <div style="opacity:0.6;">
+            No significant expansion detected right now.<br>
+            Radar scanning…
+      </div>
+        """
 
-          <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:400;">
-            Stocks speeding up <span style="opacity:.7;"> (vs prior run)</span>
-          </div>
+    breakout_radar_card = f"""
+      <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+                  background:linear-gradient(145deg,#0f172a,#0b1220);
+                  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+                  border:1px solid rgba(255,255,255,0.06);">
+      <div style="padding:18px 18px 14px 18px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+      <div style="width:40px; height:40px; border-radius:14px;
+                        background:linear-gradient(135deg,#fbbf24,#f59e0b);
+                        display:flex; align-items:center; justify-content:center;
+                        box-shadow:0 10px 22px rgba(245,158,11,0.25);">
+              <span style="font-size:20px;">📈</span>
+       </div>
+       <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
+              BREAKOUT RADAR
+            </div>
+       </div>
 
-          <div style="margin-top:12px; color:#cbd5e1; line-height:1.7; font-size:16px; font-weight:400;">
-            {items_html}
-          </div>
-              <div style="
-              position: absolute;
-              bottom: 0;           /* Sticks it to the very bottom edge */
-              left: 10%;           /* Centers it */
-              width: 80%;          /* Makes it 80% of the card width */
-              height: 1px; 
-              background: linear-gradient(90deg, transparent, #facc15, transparent);
-              box-shadow: 0px -2px 10px rgba(250, 204, 21, 0.6); /* Negative Y pushes glow UP into the card */
-             "></div>
-          </div>
-          """).strip()
+       <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
-        components.html(card_html, height=260)
+       <div style="margin-top:14px;">
+            <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
+              Identifying stocks expanding beyond normal range with elevated participation.
+       </div>
+       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+              {radar_html}
+       </div>
+       </div>
+       <div style="
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #4ade80, transparent);
+                box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
+              "></div>
+       </div>
+       </div>
+    """
 
-    except Exception as e:
-      st.error(f"Acceleration Alerts error: {e}")
-
+        
 
     # ==========================
     # SECTOR ROTATION SNAPSHOT
