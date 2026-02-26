@@ -2869,14 +2869,6 @@ if tab == "home":
             # Defensive formatting (NULL-safe)
             pr = float(r.get("peak_range_mult") or 0)
             pv = float(r.get("peak_rvol_60m") or 0)
-            chg = r.get("peak_day_change")
-            chg_txt = "—"
-            chg_color = "rgba(255,255,255,0.65)"
-
-        if chg is not None:
-            chg_f = float(chg)
-            chg_txt = f"{chg_f:+.2f}%"
-            chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
 
             
             parts.append(f"""
