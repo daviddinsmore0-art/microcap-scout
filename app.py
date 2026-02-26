@@ -2820,6 +2820,7 @@ if tab == "home":
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
     try:
+        radar_rows = []
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
