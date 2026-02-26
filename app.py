@@ -2885,8 +2885,8 @@ if tab == "home":
                  {r['minutes_ago']}m ago
                  </span>
       </div>
-      """)
-      radar_html = "".join(parts)
+                """)
+        radar_html = "".join(parts)
     else:
         radar_html = """
       <div style="opacity:0.6;">
