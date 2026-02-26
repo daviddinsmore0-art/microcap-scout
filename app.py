@@ -2849,12 +2849,12 @@ if tab == "home":
             </span>
           </div>
         """
-      else:
-       radar_html = """
-       <div style="opacity:0.6;">
+        else:
+           radar_html = """
+         <div style="opacity:0.6;">
         No significant expansion detected right now.<br>
         Radar scanning…
-       </div>
+         </div>
       """
 
     card_html = textwrap.dedent(f"""
