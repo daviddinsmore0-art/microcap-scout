@@ -2850,14 +2850,14 @@ if tab == "home":
         </div>
         """
      else:
-    radar_html = """
-    <div style="opacity:0.6;">
+       radar_html = """
+       <div style="opacity:0.6;">
         No significant expansion detected right now.<br>
         Radar scanning…
-    </div>
-    """
+       </div>
+      """
 
-            card_html = textwrap.dedent(f"""
+    card_html = textwrap.dedent(f"""
     <div style="
     margin-top:30px;
     margin-bottom:0px;
