@@ -2819,7 +2819,7 @@ if tab == "home":
 # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
-   try:
+    try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
