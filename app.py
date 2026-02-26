@@ -3045,7 +3045,7 @@ if tab == "home":
                 pass
             parts.append(f"""
       <div style="margin-bottom:10px;">
-                <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
+                <span style="color:#ef4444;">⬇</span> <b>{r.get('ticker','')}</b>
                 <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><br>
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
