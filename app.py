@@ -2836,12 +2836,12 @@ if tab == "home":
         cur.close()
         conn.close()
 
-        if row and int(row.get("rank_jump") or 0) > 0:
-        if radar_rows:
-        radar_html = ""
-        for r in radar_rows:
-        radar_html += f"""
-        <div style="margin-bottom:10px;">
+       if row and int(row.get("rank_jump") or 0) > 0:
+         if radar_rows:
+         radar_html = ""
+         for r in radar_rows:
+         radar_html += f"""
+       <div style="margin-bottom:10px;">
             ⚡ <b>{r['ticker']}</b><br>
             <span style="opacity:0.7;">
                 Range {r['peak_range_mult']}× • 
