@@ -3072,7 +3072,7 @@ if tab == "home":
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
-                 Score {r['peak_focus_score']} • 
+                 Score {r['peak_focus_score']} 
                  {(' • ' + mins_txt) if mins_txt else ''}
                  </span>
       </div>
@@ -3097,7 +3097,7 @@ if tab == "home":
                         background:linear-gradient(135deg,#fbbf24,#f59e0b);
                         display:flex; align-items:center; justify-content:center;
                         box-shadow:0 10px 22px rgba(245,158,11,0.25);">
-              <span style="font-size:20px;">📈</span>
+              <span style="font-size:20px;">📉</span>
        </div>
        <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
               BREAKDOWN RADAR
@@ -3229,7 +3229,7 @@ if tab == "home":
           </div>
 
           <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:400;">
-            Top Sectors Today
+            Top Sectors Yesterday
           </div>
 
           <div style="margin-top:12px; color:#cbd5e1; line-height:1.7;">
