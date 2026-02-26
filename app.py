@@ -2837,7 +2837,7 @@ if tab == "home":
         cur.execute(radar_sql)
         radar_rows = cur.fetchall() or []
 
-       if radar_rows:
+        if radar_rows:
         radar_html = ""
         for r in radar_rows:
             radar_html += f"""
