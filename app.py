@@ -2820,22 +2820,45 @@ if tab == "home":
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
     try:
-        radar_rows = []
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
         radar_sql = """
-        cur.execute(radar_sql)
-        radar_rows = cur.fetchall() or []
         SELECT ticker,
-        peak_range_mult,
-        peak_rvol_60m,
-        peak_focus_score
+               peak_range_mult,
+               peak_rvol_60m,
+               peak_focus_score
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
         ORDER BY peak_focus_score DESC
         LIMIT 3
+    """
+
+    cur.execute(radar_sql)
+    radar_rows = cur.fetchall() or []
+
+    if radar_rows:
+        radar_html = ""
+        for r in radar_rows:
+            radar_html += f"""
+              <div style="margin-bottom:10px;">
+                ⚡ <b>{r['ticker']}</b><br>
+                <span style="opacity:0.7;">
+                  Range {r['peak_range_mult']}× •
+                  Volume {r['peak_rvol_60m']}×
+                </span>
+              </div>
+            """
+    else:
+        radar_html = """
+          <div style="opacity:0.6;">
+            No significant expansion detected right now.<br>
+            Radar scanning…
+          </div>
         """
+
+except Exception as e:
+    radar_html = f"<div style='opacity:0.7;'>Breakout Radar error: {e}</div>"
         
 
         
