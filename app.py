@@ -2837,17 +2837,17 @@ if tab == "home":
         conn.close()
 
         if row and int(row.get("rank_jump") or 0) > 0:
-         if radar_rows:
-         radar_html = ""
-         for r in radar_rows:
-         radar_html += f"""
-         <div style="margin-bottom:10px;">
+          if radar_rows:
+          radar_html = ""
+          for r in radar_rows:
+          radar_html += f"""
+          <div style="margin-bottom:10px;">
             ⚡ <b>{r['ticker']}</b><br>
             <span style="opacity:0.7;">
                 Range {r['peak_range_mult']}× • 
                 Volume {r['peak_rvol_60m']}×
             </span>
-         </div>
+          </div>
         """
       else:
        radar_html = """
