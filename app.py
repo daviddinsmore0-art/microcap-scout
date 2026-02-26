@@ -2857,7 +2857,7 @@ if tab == "home":
          </div>
       """
 
-    card_html = textwrap.dedent(f"""
+        card_html = textwrap.dedent(f"""
     <div style="
     margin-top:30px;
     margin-bottom:0px;
