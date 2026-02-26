@@ -3043,20 +3043,20 @@ if tab == "home":
             mins = r.get("minutes_ago")
             mins_txt = ""
 
-         try:
-           if mins is not None:
+            try:
+            if mins is not None:
             mins_val = int(float(mins))
 
-           if mins_val < 60:
+            if mins_val < 60:
             mins_txt = f"{mins_val}m ago"
-           elif mins_val < 1440:
+            elif mins_val < 1440:
             hours = mins_val // 60
             mins_txt = f"{hours}h ago"
-           else:
+            else:
             days = mins_val // 1440
             mins_txt = f"{days}d ago"
 
-           except Exception:
+            except Exception:
             mins_txt = ""
 
             score_txt = "—"
