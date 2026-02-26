@@ -2889,31 +2889,31 @@ if tab == "home":
                   background:linear-gradient(145deg,#0f172a,#0b1220);
                   box-shadow:0 10px 30px rgba(0,0,0,0.45);
                   border:1px solid rgba(255,255,255,0.06);">
-        <div style="padding:18px 18px 14px 18px;">
-          <div style="display:flex; align-items:center; gap:12px;">
-            <div style="width:44px; height:44px; border-radius:14px;
+      <div style="padding:18px 18px 14px 18px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+      <div style="width:44px; height:44px; border-radius:14px;
                         background:linear-gradient(135deg,#fbbf24,#f59e0b);
                         display:flex; align-items:center; justify-content:center;
                         box-shadow:0 10px 22px rgba(245,158,11,0.25);">
               <span style="font-size:20px;">📈</span>
-            </div>
-            <div style="font-size:20px; letter-spacing:0.06em; font-weight:700; color:#e5e7eb;">
+       </div>
+       <div style="font-size:20px; letter-spacing:0.06em; font-weight:700; color:#e5e7eb;">
               BREAKOUT RADAR
             </div>
-          </div>
+       </div>
 
-          <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+       <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
-          <div style="margin-top:14px;">
+       <div style="margin-top:14px;">
             <div style="color:#fbbf24; font-weight:800; font-size:18px; margin-bottom:10px;">
               All Eyes On Deck
-            </div>
-            <div style="color:#e5e7eb; font-size:18px; font-weight:700; line-height:1.25;">
+       </div>
+       <div style="color:#e5e7eb; font-size:18px; font-weight:700; line-height:1.25;">
               {radar_html}
-            </div>
-          </div>
-        </div>
-      </div>
+       </div>
+       </div>
+     . </div>
+       </div>
     """
 
     st.markdown(breakout_radar_card, unsafe_allow_html=True)
