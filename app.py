@@ -2926,7 +2926,7 @@ if tab == "home":
             parts.append(f"""
       <div style="margin-bottom:10px;">
         <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
-        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span>   •<span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span><br><br>
+        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span><br>
         <span style="opacity:0.72;">
           Range {pr:.2f}× • Volume {pv:.2f}× • Score {score_txt}{(' • ' + mins_txt) if mins_txt else ''}
         </span>
@@ -3009,6 +3009,7 @@ if tab == "home":
         peak_focus_score,
         peak_day_change,
         peak_candle_ts,
+        appearances,
         TIMESTAMPDIFF(MINUTE, peak_candle_ts, NOW()) AS minutes_ago
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
@@ -3072,6 +3073,24 @@ if tab == "home":
             except Exception:
               mins_txt = ""
 
+             holds = r.get("appearances")
+            holds_val = 0
+                 
+            try:
+               if holds is not None:
+                 holds_val = int(float(holds))
+            except Exception:
+                 holds_val = 0
+
+            holds_txt = f"{holds_val}" if holds_val > 0 else ""
+
+                 
+            score_txt = "—"
+            try:
+                if r.get("peak_focus_score") is not None:
+                 score_txt = f"{float(r.get('peak_focus_score')):.0f}"
+            except Exception:
+                pass
             score_txt = "—"
             try:
                 if r.get("peak_focus_score") is not None:
@@ -3081,7 +3100,7 @@ if tab == "home":
             parts.append(f"""
       <div style="margin-bottom:10px;">
                 <span style="color:#ef4444;">⬇</span> <b>{r.get('ticker','')}</b>
-                <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><br>
+                <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span><br><br>
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
