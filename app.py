@@ -2839,6 +2839,7 @@ if tab == "home":
                 peak_focus_score,
                 peak_day_change,
                 peak_candle_ts,
+                appearances,
                 TIMESTAMPDIFF(MINUTE, peak_candle_ts, NOW()) AS minutes_ago
             FROM breakout_radar_daily
             WHERE trade_date = CURDATE()
@@ -2903,6 +2904,16 @@ if tab == "home":
             except Exception:
                  mins_txt = ""
 
+                 holds = r.get("appearances")
+                 holds_txt = ""
+
+             try:
+               if holds is not None:
+                 holds_txt = f"{int(holds)}"
+             except:
+                 holds_txt = ""
+
+                 
             score_txt = "—"
             try:
                 if r.get("peak_focus_score") is not None:
@@ -2913,7 +2924,7 @@ if tab == "home":
             parts.append(f"""
       <div style="margin-bottom:10px;">
         <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
-        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><br>
+        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span>{holds_txt} Holds<br>
         <span style="opacity:0.72;">
           Range {pr:.2f}× • Volume {pv:.2f}× • Score {score_txt}{(' • ' + mins_txt) if mins_txt else ''}
         </span>
