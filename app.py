@@ -2931,7 +2931,7 @@ if tab == "home":
 
     components.html(card_html, height=260)
         # else: show nothing (no blank card on weekends/holidays)font-family ept Exception as e:
-        st.error(f"Signal Shift error: {e}")
+    st.error(f"Signal Shift error: {e}")
 
 
     # ==========================
