@@ -2836,7 +2836,7 @@ if tab == "home":
         cur.close()
         conn.close()
 
-        if row and int(row.get("rank_jump") or 0) > 0:
+        
           if radar_rows:
            radar_html = ""
           for r in radar_rows:
@@ -2875,7 +2875,7 @@ if tab == "home":
       <!-- TITLE ROW -->
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
        <div style="display:flex; align-items:center; gap:10px;">
-      {ICON_SIGNAL}
+      
       <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
      <span style="color:white;">BREAKOUT RADAR</span>
       </div>
@@ -2890,7 +2890,7 @@ if tab == "home":
     {radar_html} <span style="color:#4ade80;"></span>
       </div>
 
-      {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 14px; line-height:1.6;">{accel_html}</div>' if accel_html else ''}
+      {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 14px; line-height:1.6;"></div>' if accel_html else ''}
     <div style="
         position: absolute;
         bottom: 0;           /* Sticks it to the very bottom edge */
