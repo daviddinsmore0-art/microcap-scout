@@ -3039,7 +3039,7 @@ if tab == "home":
                     chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
             except Exception:
                 pass
-
+            mins_val = None
             mins = r.get("minutes_ago")
             mins_txt = ""
 
