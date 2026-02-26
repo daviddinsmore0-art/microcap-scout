@@ -2868,7 +2868,7 @@ if tab == "home":
             pr = float(r.get("peak_range_mult") or 0)
             pv = float(r.get("peak_rvol_60m") or 0)
             parts.append(f"""
-      <div style="margin-bottom:40px;">
+      <div style="margin-bottom:10px;">
                 ⚡ <b>{r.get('ticker','')}</b><br>
                 <span style="opacity:0.7;">
                   Range {pr:.2f}× • Volume {pv:.2f}×
@@ -2885,7 +2885,7 @@ if tab == "home":
         """
 
     breakout_radar_card = f"""
-      <div style="margin-top:18px; border-radius:20px; overflow:hidden;
+      <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; overflow:hidden;
                   background:linear-gradient(145deg,#0f172a,#0b1220);
                   box-shadow:0 10px 30px rgba(0,0,0,0.45);
                   border:1px solid rgba(255,255,255,0.06);">
