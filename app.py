@@ -2905,13 +2905,15 @@ if tab == "home":
                  mins_txt = ""
 
                  holds = r.get("appearances")
-                 holds_txt = ""
+                 holds_val = 0
+                 
             try:
                if holds is not None:
                  holds_val = int(float(holds))
-                 holds_txt = f"{holds_val}"
             except Exception:
-                 holds_txt = ""
+                 holds_val = 0
+
+                 holds_txt = f"{holds_val}" if holds_val > 0 else ""
 
                  
                  score_txt = "—"
