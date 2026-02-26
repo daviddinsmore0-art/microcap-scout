@@ -2987,7 +2987,7 @@ if tab == "home":
             pv = float(r.get("peak_rvol_60m") or 0)
             parts.append(f"""
       <div style="margin-bottom:10px;">
-                ⚡ <b>{r.get('ticker','')}</b>
+                🧨 <b>{r.get('ticker','')}</b>
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
@@ -3000,7 +3000,7 @@ if tab == "home":
     else:
         radar_html = """
       <div style="opacity:0.6;">
-            No significant expansion detected right now.<br>
+            No significant declines detected right now.<br>
             Radar scanning…
       </div>
         """
@@ -3019,7 +3019,7 @@ if tab == "home":
               <span style="font-size:20px;">📈</span>
        </div>
        <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
-              BREAKOUT RADAR
+              BREAKDOWN RADAR
             </div>
        </div>
 
