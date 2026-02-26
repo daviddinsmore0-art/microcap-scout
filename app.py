@@ -2897,7 +2897,7 @@ if tab == "home":
                         box-shadow:0 10px 22px rgba(245,158,11,0.25);">
               <span style="font-size:20px;">📈</span>
        </div>
-       <div style="font-size:20px; letter-spacing:0.06em; font-weight:700; color:#e5e7eb;">
+       <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
               BREAKOUT RADAR
             </div>
        </div>
