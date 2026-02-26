@@ -2857,8 +2857,8 @@ if tab == "home":
           </div>
          """
 
-       except Exception as e:
-       radar_html = f"<div style='opacity:0.7;'>Breakout Radar error: {e}</div>"
+      except Exception as e:
+      radar_html = f"<div style='opacity:0.7;'>Breakout Radar error: {e}</div>"
         
 
         
