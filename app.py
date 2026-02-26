@@ -2891,7 +2891,7 @@ if tab == "home":
                   border:1px solid rgba(255,255,255,0.06);">
       <div style="padding:18px 18px 14px 18px;">
       <div style="display:flex; align-items:center; gap:12px;">
-      <div style="width:40px; height:40px; border-radius:14px;
+      <div style="width:30px; height:30px; border-radius:14px;
                         background:linear-gradient(135deg,#fbbf24,#f59e0b);
                         display:flex; align-items:center; justify-content:center;
                         box-shadow:0 10px 22px rgba(245,158,11,0.25);">
