@@ -2987,7 +2987,7 @@ if tab == "home":
             pv = float(r.get("peak_rvol_60m") or 0)
             parts.append(f"""
       <div style="margin-bottom:10px;">
-                <span style="color:#ef4444;">⬇</span><b><span style="color:#f87171;">{r.get('ticker','')}</span></b>
+                <span style="color:#ef4444;">⬇</span><b>{r.get('ticker','')}</b>
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
