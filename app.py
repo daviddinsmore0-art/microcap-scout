@@ -2837,9 +2837,9 @@ if tab == "home":
         conn.close()
 
         if row and int(row.get("rank_jump") or 0) > 0:
-         if radar_rows:
-         radar_html = ""
-         for r in radar_rows:
+        if radar_rows:
+        radar_html = ""
+        for r in radar_rows:
         radar_html += f"""
         <div style="margin-bottom:10px;">
             ⚡ <b>{r['ticker']}</b><br>
