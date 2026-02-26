@@ -2834,8 +2834,8 @@ if tab == "home":
         LIMIT 3
     """
 
-    cur.execute(radar_sql)
-    radar_rows = cur.fetchall() or []
+       cur.execute(radar_sql)
+       radar_rows = cur.fetchall() or []
 
     if radar_rows:
         radar_html = ""
