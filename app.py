@@ -3039,8 +3039,8 @@ if tab == "home":
                 left: 10%;
                 width: 80%;
                 height: 1px;
-                border-bottom: 3px solid #ef4444;
-                box-shadow: 0 8px 24px rgba(239, 68, 68, 0.12);
+                background: linear-gradient(90deg, transparent, #4ade80, transparent);
+                box-shadow: 0px -2px 10px rgba(239, 68, 68, 0.12);
               "></div>
        </div>
        </div>
