@@ -2819,123 +2819,105 @@ if tab == "home":
 # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
+    # ==========================
+    # BREAKOUT RADAR (intraday)
+    # ==========================
+    radar_rows = []
+    radar_html = ""
+    conn = None
+    cur = None
+
     try:
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
         radar_sql = """
-        SELECT ticker,
-               peak_range_mult,
-               peak_rvol_60m,
-               peak_focus_score
+        SELECT
+            ticker,
+            peak_range_mult,
+            peak_rvol_60m,
+            peak_focus_score
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
         ORDER BY peak_focus_score DESC
         LIMIT 3
-    """
-
+        """
         cur.execute(radar_sql)
         radar_rows = cur.fetchall() or []
 
-        if radar_rows:
-         radar_html = ""
-         for r in radar_rows:
-            radar_html += f"""
+    except Exception:
+        # Keep UI clean; details will be in Streamlit logs
+        radar_rows = []
+
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
+    if radar_rows:
+        parts = []
+        for r in radar_rows:
+            # Defensive formatting (NULL-safe)
+            pr = float(r.get("peak_range_mult") or 0)
+            pv = float(r.get("peak_rvol_60m") or 0)
+            parts.append(f"""
               <div style="margin-bottom:10px;">
-                ⚡ <b>{r['ticker']}</b><br>
+                ⚡ <b>{r.get('ticker','')}</b><br>
                 <span style="opacity:0.7;">
-                  Range {r['peak_range_mult']}× •
-                  Volume {r['peak_rvol_60m']}×
+                  Range {pr:.2f}× • Volume {pv:.2f}×
                 </span>
               </div>
-            """
-        else:
-         radar_html = """
+            """)
+        radar_html = "".join(parts)
+    else:
+        radar_html = """
           <div style="opacity:0.6;">
             No significant expansion detected right now.<br>
             Radar scanning…
           </div>
-         """
-
-    except Exception as e:
-      radar_html = f"<div style='opacity:0.7;'>Breakout Radar error: {e}</div>"
-        
-
-        
-    if radar_rows:
-           radar_html = ""
-    for r in radar_rows:
-           radar_html += f"""
-          <div style="margin-bottom:10px;">
-            ⚡ <b>{r['ticker']}</b><br>
-            <span style="opacity:0.7;">
-                Range {r['peak_range_mult']}× • 
-                Volume {r['peak_rvol_60m']}×
-            </span>
-          </div>
         """
-    else:
-           radar_html = """
-         <div style="opacity:0.6;">
-        No significant expansion detected right now.<br>
-        Radar scanning…
-         </div>
-      """
 
-    card_html = textwrap.dedent(f"""
-    <div style="
-    margin-top:30px;
-    margin-bottom:0px;
-    border-radius:20px;
-    padding:10px 10px 20px 20px;
-    background:linear-gradient(145deg,#0f172a,#0b1220);
-    box-shadow:0 12px 35px rgba(0,0,0,0.45);
-    position:relative;
-    border:1px solid rgba(255,255,255,0.06);
-    ">
+    breakout_radar_card = f"""
+      <div style="margin-top:18px; border-radius:22px; overflow:hidden;
+                  background:linear-gradient(145deg,#0f172a,#0b1220);
+                  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+                  border:1px solid rgba(255,255,255,0.06);">
+        <div style="padding:18px 18px 14px 18px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:44px; height:44px; border-radius:14px;
+                        background:linear-gradient(135deg,#fbbf24,#f59e0b);
+                        display:flex; align-items:center; justify-content:center;
+                        box-shadow:0 10px 22px rgba(245,158,11,0.25);">
+              <span style="font-size:20px;">📈</span>
+            </div>
+            <div style="font-size:20px; letter-spacing:0.06em; font-weight:700; color:#e5e7eb;">
+              BREAKOUT RADAR
+            </div>
+          </div>
 
-      <!-- ICON BADGE -->
+          <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
-
-      <!-- TITLE ROW -->
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-       <div style="display:flex; align-items:center; gap:10px;">
-      
-      <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
-     <span style="color:white;">BREAKOUT RADAR</span>
+          <div style="margin-top:14px;">
+            <div style="color:#fbbf24; font-weight:800; font-size:18px; margin-bottom:10px;">
+              All Eyes On Deck
+            </div>
+            <div style="color:#e5e7eb; font-size:18px; font-weight:700; line-height:1.25;">
+              {radar_html}
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div style="color:#22c55e; font-weight:600;"></div>
-    </div>
-      <div style="margin-top:16px; color:#fbbf24; font-size:14px; font-weight:400;">
-    Biggest Rank Jump (24h)
-      </div>
+    """
 
-      <div style="margin-top:8px; font-size:14px; font-weight:600; color:white;">
-    {radar_html} <span style="color:#4ade80;"></span>
-      </div>
-
-      {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 14px; line-height:1.6;"></div>'}
-    <div style="
-        position: absolute;
-        bottom: 0;           /* Sticks it to the very bottom edge */
-        left: 10%;           /* Centers it */
-        width: 80%;          /* Makes it 80% of the card width */
-        height: 1px; 
-        background: linear-gradient(90deg, transparent, #facc15, transparent);
-        box-shadow: 0px -2px 10px rgba(250, 204, 21, 0.6); /* Negative Y pushes glow UP into the card */
-    "></div>
-    </div>
-
-    """).strip()
-
-    components.html(card_html, height=260)
-        # else: show nothing (no blank card on weekends/holidays)font-family ept Exception as e:
-    st.error(f"Signal Shift error: {e}")
-
-
-    # ==========================
-    # NEW ACCELERATION ALERTS
+    st.markdown(breakout_radar_card, unsafe_allow_html=True)
+ACCELERATION ALERTS
     # Using momentum_score acceleration (latest vs previous asof_date from rankings_global_daily)
     # ==========================
     try:
