@@ -3073,7 +3073,7 @@ if tab == "home":
             except Exception:
               mins_txt = ""
 
-             holds = r.get("appearances")
+            holds = r.get("appearances")
             holds_val = 0
                  
             try:
