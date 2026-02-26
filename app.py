@@ -2840,7 +2840,7 @@ if tab == "home":
           if radar_rows:
            radar_html = ""
           for r in radar_rows:
-          radar_html += f"""
+           radar_html += f"""
           <div style="margin-bottom:10px;">
             ⚡ <b>{r['ticker']}</b><br>
             <span style="opacity:0.7;">
