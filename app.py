@@ -2876,9 +2876,9 @@ if tab == "home":
             chg_color = "rgba(255,255,255,0.65)"
 
             if chg is not None:
-            chg_f = float(chg)
-            chg_txt = f"{chg_f:+.2f}%"
-            chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
+               chg_f = float(chg)
+               chg_txt = f"{chg_f:+.2f}%"
+               chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
             parts.append(f"""
       <div style="margin-bottom:10px;">
                 <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
