@@ -2983,6 +2983,8 @@ if tab == "home":
         peak_range_mult,
         peak_rvol_60m,
         peak_focus_score,
+        peak_day_change,
+        peak_candle_ts,
         TIMESTAMPDIFF(MINUTE, last_seen_ts, NOW()) AS minutes_ago
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
@@ -3015,6 +3017,32 @@ if tab == "home":
             # Defensive formatting (NULL-safe)
             pr = float(r.get("peak_range_mult") or 0)
             pv = float(r.get("peak_rvol_60m") or 0)
+                        # Day % change (green if positive, red if negative)
+            chg = r.get("peak_day_change")
+            chg_txt = "—"
+            chg_color = "rgba(255,255,255,0.65)"
+            try:
+                if chg is not None:
+                    chg_f = float(chg)
+                    chg_txt = f"{chg_f:+.2f}%"
+                    chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
+            except Exception:
+                pass
+
+            mins = r.get("minutes_ago")
+            mins_txt = ""
+            try:
+                if mins is not None:
+                    mins_txt = f"{int(float(mins))}m ago"
+            except Exception:
+                mins_txt = ""
+
+            score_txt = "—"
+            try:
+                if r.get("peak_focus_score") is not None:
+                    score_txt = f"{float(r.get('peak_focus_score')):.0f}"
+            except Exception:
+                pass
             parts.append(f"""
       <div style="margin-bottom:10px;">
                 <span style="color:#ef4444;">⬇</span><b>{r.get('ticker','')}</b>
