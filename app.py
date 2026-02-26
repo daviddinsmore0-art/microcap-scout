@@ -3073,7 +3073,7 @@ if tab == "home":
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
                  Score {r['peak_focus_score']} • 
-                 {r['minutes_ago']}m ago
+                 {(' • ' + mins_txt) if mins_txt else ''}
                  </span>
       </div>
             """)
