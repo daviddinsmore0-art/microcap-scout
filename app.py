@@ -27,12 +27,12 @@ ICON_SIGNAL = """<div style="width:30px;height:30px;border-radius:12px;backgroun
 <path d="M20 8V12" stroke="#FBBF24" stroke-width="2" stroke-linecap="round"/>
 </svg></div>"""
 
-ICON_ACCEL = """<div style="width:30px;height:30px;border-radius:999px;background:linear-gradient(135deg,rgba(34,197,94,.22),rgba(22,163,74,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
+ICON_ACCEL = """<div style="width:40px;height:40px;border-radius:999px;background:linear-gradient(135deg,rgba(34,197,94,.22),rgba(22,163,74,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:.95">
 <path d="M13 2L3 14H11L9 22L21 9H13L13 2Z" stroke="#22C55E" stroke-width="2" stroke-linejoin="round"/>
 </svg></div>"""
 
-ICON_SECTOR = """<div style="width:30px;height:30px;border-radius:12px;background:linear-gradient(135deg,rgba(96,165,250,.22),rgba(59,130,246,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
+ICON_SECTOR = """<div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,rgba(96,165,250,.22),rgba(59,130,246,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:.95">
 <path d="M12 2L3 7L12 12L21 7L12 2Z" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/>
 <path d="M3 12L12 17L21 12" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/>
