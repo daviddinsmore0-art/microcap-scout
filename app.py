@@ -2896,7 +2896,7 @@ if tab == "home":
                elif mins_val < 1440:
                  hours = mins_val // 60
                  mins_txt = f"{hours}h ago"
-            else:
+               else:
                  days = mins_val // 1440
                  mins_txt = f"{days}d ago"
 
