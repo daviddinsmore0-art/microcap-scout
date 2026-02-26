@@ -2892,7 +2892,7 @@ if tab == "home":
     {radar_html} <span style="color:#4ade80;"></span>
       </div>
 
-      {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 14px; line-height:1.6;"></div>' if accel_html else ''}
+      {f'<div style="margin-top:12px; color:#cbd5e1; font-size: 14px; line-height:1.6;"></div>'}
     <div style="
         position: absolute;
         bottom: 0;           /* Sticks it to the very bottom edge */
