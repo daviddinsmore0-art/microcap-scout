@@ -2838,7 +2838,7 @@ if tab == "home":
 
         if row and int(row.get("rank_jump") or 0) > 0:
           if radar_rows:
-          radar_html = ""
+           radar_html = ""
           for r in radar_rows:
           radar_html += f"""
           <div style="margin-bottom:10px;">
