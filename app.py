@@ -2907,10 +2907,10 @@ if tab == "home":
                  holds = r.get("appearances")
                  holds_txt = ""
 
-             try:
+            try:
                if holds is not None:
                  holds_txt = f"{int(holds)}"
-             except:
+            except:
                  holds_txt = ""
 
                  
