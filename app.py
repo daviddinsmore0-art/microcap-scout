@@ -2904,8 +2904,8 @@ if tab == "home":
             except Exception:
                  mins_txt = ""
 
-                    holds = r.get("appearances")
-                    holds_txt = ""
+                holds = r.get("appearances")
+                holds_txt = ""
             try:
                if holds is not None:
                     holds_val = int(float(holds))
