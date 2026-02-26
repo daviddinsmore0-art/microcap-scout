@@ -2825,6 +2825,8 @@ if tab == "home":
         cur = conn.cursor(dictionary=True)
 
         radar_sql = """
+        cur.execute(radar_sql)
+        radar_rows = cur.fetchall() or []
         SELECT ticker,
         peak_range_mult,
         peak_rvol_60m,
