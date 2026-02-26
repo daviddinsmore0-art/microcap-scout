@@ -2885,13 +2885,13 @@ if tab == "home":
         """
 
     breakout_radar_card = f"""
-      <div style="margin-top:18px; border-radius:22px; overflow:hidden;
+      <div style="margin-top:18px; border-radius:20px; overflow:hidden;
                   background:linear-gradient(145deg,#0f172a,#0b1220);
                   box-shadow:0 10px 30px rgba(0,0,0,0.45);
                   border:1px solid rgba(255,255,255,0.06);">
       <div style="padding:18px 18px 14px 18px;">
       <div style="display:flex; align-items:center; gap:12px;">
-      <div style="width:44px; height:44px; border-radius:14px;
+      <div style="width:20px; height:20px; border-radius:14px;
                         background:linear-gradient(135deg,#fbbf24,#f59e0b);
                         display:flex; align-items:center; justify-content:center;
                         box-shadow:0 10px 22px rgba(245,158,11,0.25);">
