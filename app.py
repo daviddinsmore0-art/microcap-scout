@@ -2849,7 +2849,7 @@ if tab == "home":
                 </span>
               </div>
             """
-    else:
+      else:
         radar_html = """
           <div style="opacity:0.6;">
             No significant expansion detected right now.<br>
