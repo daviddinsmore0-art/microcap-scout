@@ -2110,16 +2110,16 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     rank_lines = []
     if g_label and g_top:
         rank_lines.append(
-            f"<span style='opacity:0.75;'>Global Rank:</span> "
-            f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:1px 1px; font-weight:700;'>{g_label}</span> "
-            f"<span style='opacity:0.8;'>• {g_top}</span>"
+           # f"<span style='opacity:0.75;'>Global Rank:</span> "
+           # f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:1px 1px; font-weight:700;'>{g_label}</span> "
+           #  f"<span style='opacity:0.8;'>• {g_top}</span>"
         )
     if s_label and s_top:
         sec_txt = f"  ({sector})" if sector else ""
         rank_lines.append(
-            f"<span style='opacity:0.75;'>Sector Rank:</span> "
-            f"<span style='color:{get_rank_color(s_label)}; background:{get_rank_bg(s_label)}; padding:1px 1px; font-weight:700;'>{s_label}</span> "
-            f"<span style='opacity:0.8;'>• {s_top}{sec_txt}</span>"
+           # f"<span style='opacity:0.75;'>Sector Rank:</span> "
+           # f"<span style='color:{get_rank_color(s_label)}; background:{get_rank_bg(s_label)}; padding:1px 1px; font-weight:700;'>{s_label}</span> "
+           # f"<span style='opacity:0.8;'>• {s_top}{sec_txt}</span>"
         )
 
     factors = []
@@ -2145,7 +2145,7 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
       </div>
     </div>
 
-   # {('<div style="margin-top:12px; margin-bottom:6px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
+    {('<div style="margin-top:12px; margin-bottom:6px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
 
     {('<div style="margin-top:8px; font-size:14px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
 
