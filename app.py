@@ -2843,7 +2843,7 @@ if tab == "home":
             FROM breakout_radar_daily
             WHERE trade_date = CURDATE()
               AND peak_dir = 'bull'
-            ORDER BY peak_candle_ts DESC
+            ORDER BY peak_candle_ts DESC, peak_focus_score DESC
             LIMIT 3
         """
         cur.execute(radar_sql)
@@ -3013,7 +3013,7 @@ if tab == "home":
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
         AND peak_dir = 'bear'
-        ORDER BY peak_candle_ts DESC
+        ORDER BY peak_candle_ts DESC, peak_focus_score DESC
         LIMIT 3
         """
         cur.execute(radar_sql)
