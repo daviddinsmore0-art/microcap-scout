@@ -2839,7 +2839,7 @@ if tab == "home":
                 peak_day_change,
                 peak_candle_ts,
                 appearances,
-                TIMESTAMPDIFF(MINUTE, peak_candle_ts, NOW()) AS minutes_ago
+                TIMESTAMPDIFF(MINUTE, first_seen_ts, NOW()) AS minutes_ago
             FROM breakout_radar_daily
             WHERE trade_date = CURDATE()
               AND peak_dir = 'bull'
@@ -3009,7 +3009,7 @@ if tab == "home":
         peak_day_change,
         peak_candle_ts,
         appearances,
-        TIMESTAMPDIFF(MINUTE, peak_candle_ts, NOW()) AS minutes_ago
+        TIMESTAMPDIFF(MINUTE, first_seen_ts, NOW()) AS minutes_ago
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
         AND peak_dir = 'bear'
