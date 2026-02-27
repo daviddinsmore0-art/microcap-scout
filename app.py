@@ -269,7 +269,7 @@ div[data-testid="stDecoration"] {
 }
 .pulse-title{
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 400;
   text-transform: uppercase;
   color: #f5d07a;
 }
