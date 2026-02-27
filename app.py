@@ -3099,7 +3099,7 @@ if tab == "home":
             parts.append(f"""
       <div style="margin-bottom:20px;">
                 <span style="color:#ef4444;">⬇</span> <b>{r.get('ticker','')}</b>
-                <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span> <span style="opacity:0.72;">- {(' • ' + mins_txt) if mins_txt else ''}</span><br>
+                <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span> <span style="opacity:0.72;">- Alerted {(' • ' + mins_txt) if mins_txt else ''}</span><br>
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
@@ -3144,6 +3144,8 @@ if tab == "home":
               {radar_html}
        </div>
        </div>
+
+       </div>
        <div style="
                 position: absolute;
                 bottom: 0;
@@ -3153,7 +3155,6 @@ if tab == "home":
                 background: linear-gradient(90deg, transparent, #b91c1c;, transparent);
                 box-shadow: 0px -2px 10px rgba(239, 68, 68, 0.12);
               "></div>
-       </div>
        </div>
     """
     
