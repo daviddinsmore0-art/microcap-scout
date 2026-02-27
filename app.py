@@ -3097,9 +3097,9 @@ if tab == "home":
             except Exception:
                 pass
             parts.append(f"""
-      <div style="margin-bottom:10px;">
+      <div style="margin-bottom:20px;">
                 <span style="color:#ef4444;">⬇</span> <b>{r.get('ticker','')}</b>
-                <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span><br><br>
+                <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span> - {(' • ' + mins_txt) if mins_txt else ''}<br>
                 <span style="opacity:0.7;">
                  Range {r['peak_range_mult']}× • 
                  Volume {r['peak_rvol_60m']}× • 
