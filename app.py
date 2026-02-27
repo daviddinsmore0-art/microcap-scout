@@ -3253,7 +3253,7 @@ if tab == "home":
             <div style="display:flex; align-items:center; gap:10px;">
               {ICON_SECTOR}
               <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
-                Sector Rotation Snapshot
+                Sector Snapshot
               </div>
             </div>
             <div style="color:#22c55e; font-weight:900;"></div>
