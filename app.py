@@ -2923,7 +2923,7 @@ if tab == "home":
                 pass
 
             parts.append(f"""
-      <div style="margin-bottom:20px;">
+      <div style="margin-bottom:20px; background-color: #1a1f2b;">
         <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
         <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span> <span style="opacity:0.72;"> - Alerted {(' • ' + mins_txt) if mins_txt else ''}</span><br>
         <span style="opacity:0.72;">
