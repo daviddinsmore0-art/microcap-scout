@@ -3260,7 +3260,7 @@ if tab == "home":
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
             <div style="display:flex; align-items:center; gap:10px;">
               {ICON_SECTOR}
-              <div style="font-size: 16px;font-weight: 400;text-transform: uppercase;color: #f5d07a;">
+              <div style="font-size:16px;font-weight:600;text-transform:uppercase;color: #f5d07a;">
                 Sector Snapshot
               </div>
             </div>
