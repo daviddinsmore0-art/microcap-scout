@@ -2873,11 +2873,11 @@ if tab == "home":
           # show .0 for big strikes, .5/.25 etc preserved
          if f >= 100:
             return f"{f:.0f}" if abs(f - round(f)) < 1e-9 else f"{f:.1f}".rstrip("0").rstrip(".")
-          return f"{f:.2f}".rstrip("0").rstrip(".")
+            return f"{f:.2f}".rstrip("0").rstrip(".")
         except Exception:
-         return "—"
+            return "—"
 
-        def fmt_dt(x):
+    def fmt_dt(x):
         try:
          return str(x)[:19] if x else "—"
         except Exception:
