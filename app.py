@@ -2821,14 +2821,14 @@ if tab == "home":
     # ==========================
     # Options RADAR 
     # ==========================
-    options_rows = []
-    options_html = ""
-    conn = None
-    cur = None
+       options_rows = []
+       options_html = ""
+       conn = None
+       cur = None
 
-try:
-    conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    try:
+       conn = get_connection()
+       cur = conn.cursor(dictionary=True)
 
     options_sql = """
         SELECT
