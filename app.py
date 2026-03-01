@@ -2883,16 +2883,16 @@ if tab == "home":
         except Exception:
          return "—"
 
-       if opt_rows:
-       parts = []
-       for r in opt_rows:
-        t = r.get("ticker", "")
-        score = r.get("options_score")
-        score_txt = "—"
-      try:
-       if score is not None:
-                score_txt = f"{int(float(score))}/100"
-        except Exception:
+         if opt_rows:
+          parts = []
+          for r in opt_rows:
+          t = r.get("ticker", "")
+          score = r.get("options_score")
+          score_txt = "—"
+       try:
+         if score is not None:
+          score_txt = f"{int(float(score))}/100"
+       except Exception:
             pass
 
         bias = (r.get("bias") or "neutral").lower()
