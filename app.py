@@ -2853,34 +2853,34 @@ if tab == "home":
         except Exception:
          opt_rows = []
 
-       finally:
-       try:
-        if cur:
+        finally:
+        try:
+         if cur:
             cur.close()
-       except Exception:
-        pass
-       try:
-        if conn:
+        except Exception:
+         pass
+        try:
+            if conn:
             conn.close()
-       except Exception:
+        except Exception:
         pass
 
-      def fmt_strike(x):
-      try:
-        if x is None:
+        def fmt_strike(x):
+        try:
+         if x is None:
             return "—"
-        f = float(x)
-        # show .0 for big strikes, .5/.25 etc preserved
-        if f >= 100:
+            f = float(x)
+          # show .0 for big strikes, .5/.25 etc preserved
+         if f >= 100:
             return f"{f:.0f}" if abs(f - round(f)) < 1e-9 else f"{f:.1f}".rstrip("0").rstrip(".")
-        return f"{f:.2f}".rstrip("0").rstrip(".")
-       except Exception:
-        return "—"
+          return f"{f:.2f}".rstrip("0").rstrip(".")
+        except Exception:
+         return "—"
 
-       def fmt_dt(x):
-       try:
+        def fmt_dt(x):
+        try:
          return str(x)[:19] if x else "—"
-       except Exception:
+        except Exception:
          return "—"
 
        if opt_rows:
