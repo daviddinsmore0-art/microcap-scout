@@ -2863,9 +2863,9 @@ if tab == "home":
          if conn:
             conn.close()
         except Exception:
-        pass
+         pass
 
-        def fmt_strike(x):
+         def fmt_strike(x):
         try:
          if x is None:
             return "—"
