@@ -2822,9 +2822,9 @@ if tab == "home":
     # Options RADAR 
     # ==========================
     options_rows = []
-options_html = ""
-conn = None
-cur = None
+    options_html = ""
+    conn = None
+    cur = None
 
 try:
     conn = get_connection()
