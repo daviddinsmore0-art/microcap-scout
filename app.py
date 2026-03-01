@@ -2825,8 +2825,8 @@ if tab == "home":
         cur = None
 
         try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
+         conn = get_connection()
+         cur = conn.cursor(dictionary=True)
 
         opt_sql = """
          SELECT
