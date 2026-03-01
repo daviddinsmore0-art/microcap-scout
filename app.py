@@ -2853,7 +2853,7 @@ if tab == "home":
         except Exception:
          opt_rows = []
 
-        finally:
+         finally:
         try:
          if cur:
             cur.close()
