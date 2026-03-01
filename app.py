@@ -2850,19 +2850,19 @@ if tab == "home":
          cur.execute(opt_sql)
          opt_rows = cur.fetchall() or []
 
-       except Exception:
+        except Exception:
          opt_rows = []
 
-      finally:
-      try:
+       finally:
+       try:
         if cur:
             cur.close()
-      except Exception:
+       except Exception:
         pass
-      try:
+       try:
         if conn:
             conn.close()
-      except Exception:
+       except Exception:
         pass
 
       def fmt_strike(x):
