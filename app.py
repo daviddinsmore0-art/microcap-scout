@@ -2984,6 +2984,177 @@ if tab == "home":
     """
 
     st.markdown(breakout_radar_card, unsafe_allow_html=True)
+     
+
+# TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
+    # Uses the latest available asof_date (so weekends/holidays still show last run)
+    # ==========================
+    # ==========================
+    # BREAKOUT RADAR (intraday)
+    # ==========================
+    radar_rows = []
+    radar_html = ""
+    conn = None
+    cur = None
+
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        radar_sql = """
+            SELECT
+                ticker,
+                peak_range_mult,
+                peak_rvol_60m,
+                peak_focus_score,
+                peak_day_change,
+                peak_candle_ts,
+                appearances,
+                TIMESTAMPDIFF(MINUTE, first_seen_ts, NOW()) AS minutes_ago
+            FROM breakout_radar_daily
+            WHERE trade_date = CURDATE()
+              AND peak_dir = 'bull'
+            ORDER BY peak_candle_ts DESC, peak_focus_score DESC
+            LIMIT 3
+        """
+        cur.execute(radar_sql)
+        radar_rows = cur.fetchall() or []
+
+    except Exception:
+        # Keep UI clean; details will be in Streamlit logs
+        radar_rows = []
+
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
+    if radar_rows:
+        parts = []
+        for r in radar_rows:
+            # Defensive formatting (NULL-safe)
+            pr = float(r.get("peak_range_mult") or 0)
+            pv = float(r.get("peak_rvol_60m") or 0)
+
+            # Day % change (green if positive, red if negative)
+            chg = r.get("peak_day_change")
+            chg_txt = "—"
+            chg_color = "rgba(255,255,255,0.65)"
+            try:
+                if chg is not None:
+                    chg_f = float(chg)
+                    chg_txt = f"{chg_f:+.2f}%"
+                    chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
+            except Exception:
+                pass
+
+            mins = r.get("minutes_ago")
+            mins_txt = ""
+
+            try:
+               if mins is not None:
+                 mins_val = int(float(mins))
+
+               if mins_val < 60:
+                 mins_txt = f"{mins_val}m ago"
+               elif mins_val < 1440:
+                 hours = mins_val // 60
+                 mins_txt = f"{hours}h ago"
+               else:
+                 days = mins_val // 1440
+                 mins_txt = f"{days}d ago"
+
+            except Exception:
+                 mins_txt = ""
+
+            holds = r.get("appearances")
+            holds_val = 0
+                 
+            try:
+               if holds is not None:
+                 holds_val = int(float(holds))
+            except Exception:
+                 holds_val = 0
+
+            holds_txt = f"{holds_val}" if holds_val > 0 else ""
+
+                 
+            score_txt = "—"
+            try:
+                if r.get("peak_focus_score") is not None:
+                 score_txt = f"{float(r.get('peak_focus_score')):.0f}"
+            except Exception:
+                pass
+
+            parts.append(f"""
+      <div style="margin-bottom:20px; background-color: #1a1f2b;">
+        <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
+        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span> <span style="opacity:0.72;"> - Alerted {(' • ' + mins_txt) if mins_txt else ''}</span><br>
+        <span style="opacity:0.72;">
+          Range {pr:.2f}× • Volume {pv:.2f}× • Score {score_txt}
+        </span>
+      </div>
+            """)
+
+        radar_html = "".join(parts)
+    else:
+        radar_html = """
+      <div style="opacity:0.6;">
+        No significant expansion detected right now.<br>
+        Radar scanning…
+      </div>
+        """
+
+
+    breakout_radar_card = f"""
+      <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+                  background:linear-gradient(145deg,#0f172a,#0b1220);
+                  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+                  border:1px solid rgba(255,255,255,0.06);">
+      <div style="padding:18px 18px 14px 18px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+      <div style="width:40px; height:40px; border-radius:14px;
+                        background:linear-gradient(135deg,#fbbf24,#f59e0b);
+                        display:flex; align-items:center; justify-content:center;
+                        box-shadow:0 10px 22px rgba(245,158,11,0.25);">
+              <span style="font-size:20px;">📈</span>
+       </div>
+       <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
+              BREAKOUT RADAR
+            </div>
+       </div>
+
+       <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+
+       <div style="margin-top:14px;">
+            <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
+              Identifying stocks expanding beyond normal range with elevated participation.
+       </div>
+       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+              {radar_html}
+       </div>
+       </div>
+       <div style="
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #4ade80, transparent);
+                box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
+              "></div>
+       </div>
+       </div>
+    """
+
+    st.markdown(breakout_radar_card, unsafe_allow_html=True)
 
      # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
