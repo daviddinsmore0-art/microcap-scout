@@ -2966,7 +2966,7 @@ if tab == "home":
      </div>
         """)
 
-         opt_html = "".join(parts)
+        opt_html = "".join(parts)
         else:
           opt_html = """
           <div style="opacity:0.6;">
