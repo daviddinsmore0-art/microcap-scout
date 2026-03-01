@@ -2826,11 +2826,11 @@ if tab == "home":
        conn = None
        cur = None
 
-    try:
-       conn = get_connection()
-       cur = conn.cursor(dictionary=True)
+       try:
+         conn = get_connection()
+         cur = conn.cursor(dictionary=True)
 
-    options_sql = """
+       options_sql = """
         SELECT
             ticker,
             options_score,
