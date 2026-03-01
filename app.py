@@ -2933,7 +2933,7 @@ if tab == "home":
         # Make details safe for HTML
         guidance_html = guidance.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
-     parts.append(f"""
+        parts.append(f"""
      <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
               border:1px solid rgba(255,255,255,0.06);">
      <div style="display:flex; align-items:center; justify-content:space-between;">
