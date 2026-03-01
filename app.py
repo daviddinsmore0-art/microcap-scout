@@ -3139,9 +3139,9 @@ if tab == "home":
       </div>
             """)
 
-        radar_html = "".join(parts)
-    else:
-        radar_html = """
+            radar_html = "".join(parts)
+      else:
+            radar_html = """
       <div style="opacity:0.6;">
         No significant expansion detected right now.<br>
         Radar scanning…
