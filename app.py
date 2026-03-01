@@ -2860,7 +2860,7 @@ if tab == "home":
         except Exception:
          pass
         try:
-            if conn:
+         if conn:
             conn.close()
         except Exception:
         pass
