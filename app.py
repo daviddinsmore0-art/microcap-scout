@@ -2819,51 +2819,49 @@ if tab == "home":
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
     # ==========================
-    # BREAKOUT RADAR (intraday)
+    # Options RADAR 
     # ==========================
-    radar_rows = []
-    radar_html = ""
-    conn = None
-    cur = None
+    options_rows = []
+options_html = ""
+conn = None
+cur = None
 
+try:
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+
+    options_sql = """
+        SELECT
+            ticker,
+            options_score,
+            flow_label,
+            put_call_ratio,
+            iv_rank,
+            dte_window,
+            strike_window,
+            top_contract_type,
+            top_contract_strike,
+            top_contract_expiry,
+            top_contract_dte,
+            top_contract_otm_pct
+        FROM options_radar_current
+        WHERE options_score >= 45
+        ORDER BY options_score DESC, updated_at DESC
+        LIMIT 3
+    """
+    cur.execute(options_sql)
+    options_rows = cur.fetchall() or []
+
+except Exception:
+    options_rows = []
+
+finally:
     try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
-
-        radar_sql = """
-            SELECT
-                ticker,
-                peak_range_mult,
-                peak_rvol_60m,
-                peak_focus_score,
-                peak_day_change,
-                peak_candle_ts,
-                appearances,
-                TIMESTAMPDIFF(MINUTE, first_seen_ts, NOW()) AS minutes_ago
-            FROM breakout_radar_daily
-            WHERE trade_date = CURDATE()
-              AND peak_dir = 'bull'
-            ORDER BY peak_candle_ts DESC, peak_focus_score DESC
-            LIMIT 3
-        """
-        cur.execute(radar_sql)
-        radar_rows = cur.fetchall() or []
-
-    except Exception:
-        # Keep UI clean; details will be in Streamlit logs
-        radar_rows = []
-
-    finally:
-        try:
-            if cur:
-                cur.close()
-        except Exception:
-            pass
-        try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
+        if cur: cur.close()
+    except: pass
+    try:
+        if conn: conn.close()
+    except: pass
 
     if radar_rows:
         parts = []
