@@ -2815,175 +2815,210 @@ if tab == "home":
     except Exception as e:
         st.error(f"Market pulse error: {e}")
 
-# TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
-    # Uses the latest available asof_date (so weekends/holidays still show last run)
-    # ==========================
-    # ==========================
-    # BREAKOUT RADAR (intraday)
-    # ==========================
-    radar_rows = []
-    radar_html = ""
-    conn = None
-    cur = None
 
+ # ==========================
+# ELITE OPTIONS PICKS (sent via Telegram)
+# Shows only picks actually sent (0–3)
+# ==========================
+opt_rows = []
+opt_html = ""
+conn = None
+cur = None
+
+try:
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+
+    opt_sql = """
+        SELECT
+            slot,
+            ticker,
+            bias,
+            options_score,
+            dte_window,
+            strike_window,
+            top_contract_type,
+            top_contract_strike,
+            top_contract_expiry,
+            top_contract_dte,
+            guidance_text,
+            sent_at
+        FROM weekly_options_active
+        WHERE week_start = DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+        ORDER BY slot ASC
+        LIMIT 3
+    """
+    cur.execute(opt_sql)
+    opt_rows = cur.fetchall() or []
+
+except Exception:
+    opt_rows = []
+
+finally:
     try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
-
-        radar_sql = """
-            SELECT
-                ticker,
-                peak_range_mult,
-                peak_rvol_60m,
-                peak_focus_score,
-                peak_day_change,
-                peak_candle_ts,
-                appearances,
-                TIMESTAMPDIFF(MINUTE, first_seen_ts, NOW()) AS minutes_ago
-            FROM breakout_radar_daily
-            WHERE trade_date = CURDATE()
-              AND peak_dir = 'bull'
-            ORDER BY peak_candle_ts DESC, peak_focus_score DESC
-            LIMIT 3
-        """
-        cur.execute(radar_sql)
-        radar_rows = cur.fetchall() or []
-
+        if cur:
+            cur.close()
     except Exception:
-        # Keep UI clean; details will be in Streamlit logs
-        radar_rows = []
+        pass
+    try:
+        if conn:
+            conn.close()
+    except Exception:
+        pass
 
-    finally:
+def fmt_strike(x):
+    try:
+        if x is None:
+            return "—"
+        f = float(x)
+        # show .0 for big strikes, .5/.25 etc preserved
+        if f >= 100:
+            return f"{f:.0f}" if abs(f - round(f)) < 1e-9 else f"{f:.1f}".rstrip("0").rstrip(".")
+        return f"{f:.2f}".rstrip("0").rstrip(".")
+    except Exception:
+        return "—"
+
+def fmt_dt(x):
+    try:
+        return str(x)[:19] if x else "—"
+    except Exception:
+        return "—"
+
+if opt_rows:
+    parts = []
+    for r in opt_rows:
+        t = r.get("ticker", "")
+        score = r.get("options_score")
+        score_txt = "—"
         try:
-            if cur:
-                cur.close()
+            if score is not None:
+                score_txt = f"{int(float(score))}/100"
         except Exception:
             pass
+
+        bias = (r.get("bias") or "neutral").lower()
+        if bias == "bull":
+            bias_txt = "BULLISH"
+            bias_color = "#4ade80"
+            icon = "📈"
+        elif bias == "bear":
+            bias_txt = "BEARISH"
+            bias_color = "#ef4444"
+            icon = "📉"
+        else:
+            bias_txt = "NEUTRAL"
+            bias_color = "rgba(255,255,255,0.70)"
+            icon = "⚖️"
+
+        dte_win = r.get("dte_window") or "—"
+        strike_win = r.get("strike_window") or "—"
+
+        ctype = (r.get("top_contract_type") or "").upper() or "—"
+        cstrike = fmt_strike(r.get("top_contract_strike"))
+        cexp = str(r.get("top_contract_expiry") or "—")[:10]
+        cdte = r.get("top_contract_dte")
+        cdte_txt = "—"
         try:
-            if conn:
-                conn.close()
+            if cdte is not None:
+                cdte_txt = f"{int(float(cdte))}"
         except Exception:
             pass
 
-    if radar_rows:
-        parts = []
-        for r in radar_rows:
-            # Defensive formatting (NULL-safe)
-            pr = float(r.get("peak_range_mult") or 0)
-            pv = float(r.get("peak_rvol_60m") or 0)
+        sent_at = fmt_dt(r.get("sent_at"))
+        guidance = (r.get("guidance_text") or "").strip()
 
-            # Day % change (green if positive, red if negative)
-            chg = r.get("peak_day_change")
-            chg_txt = "—"
-            chg_color = "rgba(255,255,255,0.65)"
-            try:
-                if chg is not None:
-                    chg_f = float(chg)
-                    chg_txt = f"{chg_f:+.2f}%"
-                    chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
-            except Exception:
-                pass
+        suggested = "—"
+        if ctype != "—" and cstrike != "—" and cexp != "—":
+            suggested = f"{ctype} {cstrike} exp {cexp} ({cdte_txt} DTE)"
 
-            mins = r.get("minutes_ago")
-            mins_txt = ""
+        # Make details safe for HTML
+        guidance_html = guidance.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
-            try:
-               if mins is not None:
-                 mins_val = int(float(mins))
-
-               if mins_val < 60:
-                 mins_txt = f"{mins_val}m ago"
-               elif mins_val < 1440:
-                 hours = mins_val // 60
-                 mins_txt = f"{hours}h ago"
-               else:
-                 days = mins_val // 1440
-                 mins_txt = f"{days}d ago"
-
-            except Exception:
-                 mins_txt = ""
-
-            holds = r.get("appearances")
-            holds_val = 0
-                 
-            try:
-               if holds is not None:
-                 holds_val = int(float(holds))
-            except Exception:
-                 holds_val = 0
-
-            holds_txt = f"{holds_val}" if holds_val > 0 else ""
-
-                 
-            score_txt = "—"
-            try:
-                if r.get("peak_focus_score") is not None:
-                 score_txt = f"{float(r.get('peak_focus_score')):.0f}"
-            except Exception:
-                pass
-
-            parts.append(f"""
-      <div style="margin-bottom:20px; background-color: #1a1f2b;">
-        <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
-        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span> <span style="opacity:0.72;"> - Alerted {(' • ' + mins_txt) if mins_txt else ''}</span><br>
-        <span style="opacity:0.72;">
-          Range {pr:.2f}× • Volume {pv:.2f}× • Score {score_txt}
-        </span>
+        parts.append(f"""
+  <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
+              border:1px solid rgba(255,255,255,0.06);">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-size:15px; font-weight:800; color:#ffffff;">
+        {icon} <b>{t}</b> <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
       </div>
-            """)
-
-        radar_html = "".join(parts)
-    else:
-        radar_html = """
-      <div style="opacity:0.6;">
-        No significant expansion detected right now.<br>
-        Radar scanning…
+      <div style="font-size:14px; font-weight:900; color:#f5d07a;">
+        {score_txt}
       </div>
-        """
+    </div>
 
+    <div style="margin-top:8px; opacity:0.85; color:#e5e7eb; font-size:14px; line-height:1.3;">
+      📅 <span style="opacity:0.75;">Expiry Window:</span> <b>{dte_win}</b><br>
+      🎯 <span style="opacity:0.75;">Strike Range:</span> <b>{strike_win}</b><br>
+      🧾 <span style="opacity:0.75;">Suggested:</span> <b>{suggested}</b>
+    </div>
 
-    breakout_radar_card = f"""
-      <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
-                  background:linear-gradient(145deg,#0f172a,#0b1220);
-                  box-shadow:0 10px 30px rgba(0,0,0,0.45);
-                  border:1px solid rgba(255,255,255,0.06);">
-      <div style="padding:18px 18px 14px 18px;">
-      <div style="display:flex; align-items:center; gap:12px;">
-      <div style="width:40px; height:40px; border-radius:14px;
-                        background:linear-gradient(135deg,#fbbf24,#f59e0b);
-                        display:flex; align-items:center; justify-content:center;
-                        box-shadow:0 10px 22px rgba(245,158,11,0.25);">
-              <span style="font-size:20px;">📈</span>
-       </div>
-       <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
-              BREAKOUT RADAR
-            </div>
-       </div>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
+        Details ▾
+      </summary>
+      <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.92;">
+        <div><span style="opacity:0.7;">Sent:</span> <b>{sent_at}</b></div>
+        <div style="margin-top:8px;">
+          <span style="opacity:0.7;">Notes:</span><br>
+          {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
+        </div>
+      </div>
+    </details>
+  </div>
+        """)
 
-       <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
-
-       <div style="margin-top:14px;">
-            <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
-              Identifying stocks expanding beyond normal range with elevated participation.
-       </div>
-       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
-              {radar_html}
-       </div>
-       </div>
-       <div style="
-                position: absolute;
-                bottom: 0;
-                left: 10%;
-                width: 80%;
-                height: 1px;
-                background: linear-gradient(90deg, transparent, #4ade80, transparent);
-                box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
-              "></div>
-       </div>
-       </div>
+    opt_html = "".join(parts)
+else:
+    opt_html = """
+  <div style="opacity:0.6;">
+    No Elite Options picks have been sent this week.<br>
+    (Telegram alerts will appear here automatically.)
+  </div>
     """
 
-    st.markdown(breakout_radar_card, unsafe_allow_html=True)
+elite_options_card = f"""
+  <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+              background:linear-gradient(145deg,#0f172a,#0b1220);
+              box-shadow:0 10px 30px rgba(0,0,0,0.45);
+              border:1px solid rgba(255,255,255,0.06);">
+    <div style="padding:18px 18px 14px 18px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:40px; height:40px; border-radius:14px;
+                    background:linear-gradient(135deg,#60a5fa,#3b82f6);
+                    display:flex; align-items:center; justify-content:center;
+                    box-shadow:0 10px 22px rgba(59,130,246,0.25);">
+          <span style="font-size:20px;">🎯</span>
+        </div>
+        <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #bfdbfe;">
+          ELITE OPTIONS PICKS (SENT)
+        </div>
+      </div>
+
+      <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+
+      <div style="margin-top:14px;">
+        <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
+          Only alerts actually sent via Telegram show here (0–3 per week max).
+        </div>
+        <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+          {opt_html}
+        </div>
+      </div>
+
+      <div style="
+            position: absolute;
+            bottom: 0;
+            left: 10%;
+            width: 80%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #60a5fa, transparent);
+            box-shadow: 0px -2px 10px rgba(96, 165, 250, 0.6);
+          "></div>
+    </div>
+  </div>
+"""
+
+st.markdown(elite_options_card, unsafe_allow_html=True)     
        
         
             
