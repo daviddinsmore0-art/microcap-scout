@@ -2819,8 +2819,8 @@ if tab == "home":
 # ELITE OPTIONS PICKS (sent via Telegram)
 # Shows only picks actually sent (0–3)
 # ==========================
-       opt_rows = []
-       opt_html = ""
+        opt_rows = []
+        opt_html = ""
        conn = None
        cur = None
 
