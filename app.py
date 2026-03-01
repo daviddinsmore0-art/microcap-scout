@@ -2820,16 +2820,16 @@ if tab == "home":
 # ELITE OPTIONS PICKS (sent via Telegram)
 # Shows only picks actually sent (0–3)
 # ==========================
-opt_rows = []
-opt_html = ""
-conn = None
-cur = None
+       opt_rows = []
+       opt_html = ""
+       conn = None
+       cur = None
 
-try:
-    conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+       try:
+       conn = get_connection()
+       cur = conn.cursor(dictionary=True)
 
-    opt_sql = """
+       opt_sql = """
         SELECT
             slot,
             ticker,
@@ -2849,13 +2849,13 @@ try:
         LIMIT 3
     """
     cur.execute(opt_sql)
-    opt_rows = cur.fetchall() or []
+       opt_rows = cur.fetchall() or []
 
-except Exception:
-    opt_rows = []
+    except Exception:
+       opt_rows = []
 
-finally:
-    try:
+    finally:
+      try:
         if cur:
             cur.close()
     except Exception:
@@ -2866,7 +2866,7 @@ finally:
     except Exception:
         pass
 
-def fmt_strike(x):
+    def fmt_strike(x):
     try:
         if x is None:
             return "—"
@@ -2878,15 +2878,15 @@ def fmt_strike(x):
     except Exception:
         return "—"
 
-def fmt_dt(x):
+    def fmt_dt(x):
     try:
         return str(x)[:19] if x else "—"
     except Exception:
         return "—"
 
-if opt_rows:
-    parts = []
-    for r in opt_rows:
+    if opt_rows:
+       parts = []
+       for r in opt_rows:
         t = r.get("ticker", "")
         score = r.get("options_score")
         score_txt = "—"
