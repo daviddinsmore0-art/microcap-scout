@@ -2828,8 +2828,8 @@ if tab == "home":
          conn = get_connection()
          cur = conn.cursor(dictionary=True)
 
-        opt_sql = """
-         SELECT
+         opt_sql = """
+          SELECT
             slot,
             ticker,
             bias,
@@ -2842,31 +2842,31 @@ if tab == "home":
             top_contract_dte,
             guidance_text,
             sent_at
-        FROM weekly_options_active
-        WHERE week_start = DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
-        ORDER BY slot ASC
-        LIMIT 3
-    """
-    cur.execute(opt_sql)
-       opt_rows = cur.fetchall() or []
+         FROM weekly_options_active
+         WHERE week_start = DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+         ORDER BY slot ASC
+         LIMIT 3
+        """
+       cur.execute(opt_sql)
+        opt_rows = cur.fetchall() or []
 
-    except Exception:
-       opt_rows = []
+       except Exception:
+        opt_rows = []
 
-    finally:
+      finally:
       try:
         if cur:
             cur.close()
-    except Exception:
+      except Exception:
         pass
-    try:
+      try:
         if conn:
             conn.close()
-    except Exception:
+      except Exception:
         pass
 
-    def fmt_strike(x):
-    try:
+      def fmt_strike(x):
+      try:
         if x is None:
             return "—"
         f = float(x)
@@ -2874,23 +2874,23 @@ if tab == "home":
         if f >= 100:
             return f"{f:.0f}" if abs(f - round(f)) < 1e-9 else f"{f:.1f}".rstrip("0").rstrip(".")
         return f"{f:.2f}".rstrip("0").rstrip(".")
-    except Exception:
+       except Exception:
         return "—"
 
-    def fmt_dt(x):
-    try:
-        return str(x)[:19] if x else "—"
-    except Exception:
-        return "—"
+       def fmt_dt(x):
+       try:
+         return str(x)[:19] if x else "—"
+       except Exception:
+         return "—"
 
-    if opt_rows:
+       if opt_rows:
        parts = []
        for r in opt_rows:
         t = r.get("ticker", "")
         score = r.get("options_score")
         score_txt = "—"
-        try:
-            if score is not None:
+      try:
+       if score is not None:
                 score_txt = f"{int(float(score))}/100"
         except Exception:
             pass
