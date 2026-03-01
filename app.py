@@ -2847,7 +2847,7 @@ if tab == "home":
          ORDER BY slot ASC
          LIMIT 3
         """
-       cur.execute(opt_sql)
+        cur.execute(opt_sql)
         opt_rows = cur.fetchall() or []
 
        except Exception:
