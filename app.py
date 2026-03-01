@@ -2885,14 +2885,14 @@ if tab == "home":
 
          if opt_rows:
           parts = []
-          for r in opt_rows:
+         for r in opt_rows:
           t = r.get("ticker", "")
           score = r.get("options_score")
           score_txt = "—"
-       try:
+        try:
          if score is not None:
           score_txt = f"{int(float(score))}/100"
-       except Exception:
+        except Exception:
             pass
 
         bias = (r.get("bias") or "neutral").lower()
