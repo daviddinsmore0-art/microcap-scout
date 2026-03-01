@@ -2966,14 +2966,14 @@ if tab == "home":
      </div>
         """)
 
-        opt_html = "".join(parts)
-       else:
-        opt_html = """
-      <div style="opacity:0.6;">
-        No Elite Options picks have been sent this week.<br>
-       (Telegram alerts will appear here automatically.)
-      </div>
-      """
+         opt_html = "".join(parts)
+        else:
+         opt_html = """
+          <div style="opacity:0.6;">
+          No Elite Options picks have been sent this week.<br>
+          (Telegram alerts will appear here automatically.)
+          </div>
+        """
 
       elite_options_card = f"""
       <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
