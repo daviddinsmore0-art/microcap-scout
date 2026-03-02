@@ -2986,7 +2986,7 @@ if tab == "home":
                       display:flex; align-items:center; justify-content:center;
                       box-shadow:0 10px 22px rgba(59,130,246,0.25);">
             <span style="font-size:20px;">🎯</span>
-          </div>
+      </div>
           <div style="font-size:16px;font-weight:600;text-transform:uppercase;color:#bfdbfe;">
             ELITE OPTIONS PICKS (SENT)
       </div>
@@ -3000,7 +3000,7 @@ if tab == "home":
       </div>
       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
             {opt_html}
-          </div>
+      </div>
       </div>
 
       <div style="
