@@ -3182,12 +3182,12 @@ if tab == "home":
         </div>
             {cur_line}
             {greeks_line}
-<div style="margin-top:8px;">
+        <div style="margin-top:8px;">
               <span style="opacity:0.7;">Notes:</span><br>
               {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
         </div>
             {updated_line}
-</div>
+        </div>
           </details>
         </div>
             """)
@@ -3202,35 +3202,35 @@ if tab == "home":
         """
 
     elite_options_card = f"""
-      <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+        <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
                   background:linear-gradient(145deg,#0f172a,#0b1220);
                   box-shadow:0 10px 30px rgba(0,0,0,0.45);
                   border:1px solid rgba(255,255,255,0.06);">
-      <div style="padding:18px 18px 14px 18px;">
+        <div style="padding:18px 18px 14px 18px;">
           <div style="display:flex; align-items:center; gap:12px;">
             <div style="width:40px; height:40px; border-radius:14px;
                         background:linear-gradient(135deg,#60a5fa,#3b82f6);
                         display:flex; align-items:center; justify-content:center;
                         box-shadow:0 10px 22px rgba(59,130,246,0.25);">
               <span style="font-size:20px;">🎯</span>
-      </div>
-      <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #bfdbfe;">
+        </div>
+        <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #bfdbfe;">
               ELITE OPTIONS PICKS
-      </div>
-      </div>
+        </div>
+        </div>
 
-      <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+        <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
-      <div style="margin-top:14px;">
+        <div style="margin-top:14px;">
             <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
               Identifying Only Elite Option Picks Here!
-      </div>
-      <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+        </div>
+        <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
               {opt_html}
-      </div>
-      </div>
+        </div>
+        </div>
 
-      <div style="
+        <div style="
                 position: absolute;
                 bottom: 0;
                 left: 10%;
@@ -3239,8 +3239,8 @@ if tab == "home":
                 background: linear-gradient(90deg, transparent, #60a5fa, transparent);
                 box-shadow: 0px -2px 10px rgba(96, 165, 250, 0.6);
               "></div>
-      </div>
-      </div>
+        </div>
+        </div>
     """
 
     st.markdown(elite_options_card, unsafe_allow_html=True)
