@@ -2815,6 +2815,205 @@ if tab == "home":
     except Exception as e:
         st.error(f"Market pulse error: {e}")
 
+# ==========================
+# ELITE OPTIONS PICKS (sent via Telegram)
+# Shows only picks actually sent (0–3)
+# ==========================
+opt_rows = []
+opt_html = ""
+conn = None
+cur = None
+
+def fmt_strike(x):
+    try:
+        if x is None:
+            return "—"
+        f = float(x)
+        if f >= 100:
+            # 220.0 -> 220, 222.5 -> 222.5
+            return f"{f:.0f}" if abs(f - round(f)) < 1e-9 else f"{f:.1f}".rstrip("0").rstrip(".")
+        # smaller strikes keep 0.5 etc
+        return f"{f:.2f}".rstrip("0").rstrip(".")
+    except Exception:
+        return "—"
+
+def fmt_dt(x):
+    try:
+        return str(x)[:19] if x else "—"
+    except Exception:
+        return "—"
+
+try:
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+
+    opt_sql = """
+        SELECT
+            slot,
+            ticker,
+            bias,
+            options_score,
+            dte_window,
+            strike_window,
+            top_contract_type,
+            top_contract_strike,
+            top_contract_expiry,
+            top_contract_dte,
+            guidance_text,
+            sent_at
+        FROM weekly_options_active
+        WHERE week_start = DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+        ORDER BY slot ASC
+        LIMIT 3
+    """
+    cur.execute(opt_sql)
+    opt_rows = cur.fetchall() or []
+
+except Exception:
+    opt_rows = []
+
+finally:
+    try:
+        if cur:
+            cur.close()
+    except Exception:
+        pass
+    try:
+        if conn:
+            conn.close()
+    except Exception:
+        pass
+
+if opt_rows:
+    parts = []
+    for r in opt_rows:
+        t = r.get("ticker", "")
+        score_txt = "—"
+        try:
+            if r.get("options_score") is not None:
+                score_txt = f"{int(float(r.get('options_score')))}" + "/100"
+        except Exception:
+            pass
+
+        bias = (r.get("bias") or "neutral").lower()
+        if bias == "bull":
+            bias_txt, bias_color, icon = "BULLISH", "#4ade80", "📈"
+        elif bias == "bear":
+            bias_txt, bias_color, icon = "BEARISH", "#ef4444", "📉"
+        else:
+            bias_txt, bias_color, icon = "NEUTRAL", "rgba(255,255,255,0.70)", "⚖️"
+
+        dte_win = r.get("dte_window") or "—"
+        strike_win = r.get("strike_window") or "—"
+
+        ctype = (r.get("top_contract_type") or "").upper() or "—"
+        cstrike = fmt_strike(r.get("top_contract_strike"))
+        cexp = str(r.get("top_contract_expiry") or "—")[:10]
+
+        cdte_txt = "—"
+        try:
+            if r.get("top_contract_dte") is not None:
+                cdte_txt = f"{int(float(r.get('top_contract_dte')))}"
+        except Exception:
+            pass
+
+        sent_at = fmt_dt(r.get("sent_at"))
+        guidance = (r.get("guidance_text") or "").strip()
+
+        suggested = "—"
+        if ctype != "—" and cstrike != "—" and cexp != "—":
+            suggested = f"{ctype} {cstrike} exp {cexp} ({cdte_txt} DTE)"
+
+        # Safe HTML
+        guidance_html = (
+            guidance.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\n", "<br>")
+        )
+
+        parts.append(f"""
+<div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
+            border:1px solid rgba(255,255,255,0.06);">
+  <div style="display:flex; align-items:center; justify-content:space-between;">
+    <div style="font-size:15px; font-weight:800; color:#ffffff;">
+      {icon} <b>{t}</b> <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
+    </div>
+    <div style="font-size:14px; font-weight:900; color:#f5d07a;">
+      {score_txt}
+    </div>
+  </div>
+
+  <div style="margin-top:8px; opacity:0.85; color:#e5e7eb; font-size:14px; line-height:1.3;">
+    📅 <span style="opacity:0.75;">Expiry Window:</span> <b>{dte_win}</b><br>
+    🎯 <span style="opacity:0.75;">Strike Range:</span> <b>{strike_win}</b><br>
+    🧾 <span style="opacity:0.75;">Suggested:</span> <b>{suggested}</b>
+  </div>
+
+  <details style="margin-top:10px;">
+    <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
+      Details ▾
+    </summary>
+    <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.92;">
+      <div><span style="opacity:0.7;">Sent:</span> <b>{sent_at}</b></div>
+      <div style="margin-top:8px;">
+        <span style="opacity:0.7;">Notes:</span><br>
+        {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
+      </div>
+    </div>
+  </details>
+</div>
+        """)
+
+    opt_html = "".join(parts)
+else:
+    opt_html = """
+<div style="opacity:0.6;">
+  No Elite Options picks have been sent this week.<br>
+  (Telegram alerts will appear here automatically.)
+</div>
+    """
+
+elite_options_card = f"""
+<div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+            background:linear-gradient(145deg,#0f172a,#0b1220);
+            box-shadow:0 10px 30px rgba(0,0,0,0.45);
+            border:1px solid rgba(255,255,255,0.06);">
+  <div style="padding:18px 18px 14px 18px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div style="width:40px; height:40px; border-radius:14px;
+                  background:linear-gradient(135deg,#60a5fa,#3b82f6);
+                  display:flex; align-items:center; justify-content:center;
+                  box-shadow:0 10px 22px rgba(59,130,246,0.25);">
+        <span style="font-size:20px;">🎯</span>
+      </div>
+      <div style="font-size:16px;font-weight:600;text-transform:uppercase;color:#bfdbfe;">
+        ELITE OPTIONS PICKS (SENT)
+      </div>
+    </div>
+
+    <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+
+    <div style="margin-top:14px;">
+      <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
+        Only alerts actually sent via Telegram show here (0–3 per week max).
+      </div>
+      <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+        {opt_html}
+      </div>
+    </div>
+
+    <div style="
+          position:absolute; bottom:0; left:10%;
+          width:80%; height:1px;
+          background: linear-gradient(90deg, transparent, #60a5fa, transparent);
+          box-shadow:0px -2px 10px rgba(96, 165, 250, 0.6);
+        "></div>
+  </div>
+</div>
+"""
+
+st.markdown(elite_options_card, unsafe_allow_html=True)
 
 
     
