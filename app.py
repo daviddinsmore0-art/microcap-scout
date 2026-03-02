@@ -2938,17 +2938,17 @@ if tab == "home":
       <div style="display:flex; align-items:center; justify-content:space-between;">
         <div style="font-size:15px; font-weight:800; color:#ffffff;">
           {icon} <b>{t}</b> <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
-        </div>
-        <div style="font-size:14px; font-weight:900; color:#f5d07a;">
+    </div>
+    <div style="font-size:14px; font-weight:900; color:#f5d07a;">
           {score_txt}
-      </div>
-      </div>
+    </div>
+    </div>
 
-      <div style="margin-top:8px; opacity:0.85; color:#e5e7eb; font-size:14px; line-height:1.3;">
+    <div style="margin-top:8px; opacity:0.85; color:#e5e7eb; font-size:14px; line-height:1.3;">
         📅 <span style="opacity:0.75;">Expiry Window:</span> <b>{dte_win}</b><br>
         🎯 <span style="opacity:0.75;">Strike Range:</span> <b>{strike_win}</b><br>
         🧾 <span style="opacity:0.75;">Suggested:</span> <b>{suggested}</b>
-      </div>
+    </div>
 
       <details style="margin-top:10px;">
         <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
