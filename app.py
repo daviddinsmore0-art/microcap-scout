@@ -2816,16 +2816,17 @@ if tab == "home":
         st.error(f"Market pulse error: {e}")
 
 
+
     # ==========================
 # ELITE OPTIONS PICKS (sent via Telegram)
 # Shows only picks actually sent (0–3)
 # ==========================
-opt_rows = []
-opt_html = ""
-conn = None
-cur = None
+    opt_rows = []
+    opt_html = ""
+    conn = None
+    cur = None
 
-def fmt_strike(x):
+    def fmt_strike(x):
     try:
         if x is None:
             return "—"
@@ -2838,15 +2839,15 @@ def fmt_strike(x):
     except Exception:
         return "—"
 
-def fmt_dt(x):
+    def fmt_dt(x):
     try:
         return str(x)[:19] if x else "—"
     except Exception:
         return "—"
 
-try:
-    conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    try:
+      conn = get_connection()
+      cur = conn.cursor(dictionary=True)
 
     opt_sql = """
         SELECT
@@ -2870,10 +2871,10 @@ try:
     cur.execute(opt_sql)
     opt_rows = cur.fetchall() or []
 
-except Exception:
+    except Exception:
     opt_rows = []
 
-finally:
+  finally:
     try:
         if cur:
             cur.close()
@@ -2885,7 +2886,7 @@ finally:
     except Exception:
         pass
 
-if opt_rows:
+    if opt_rows:
     parts = []
     for r in opt_rows:
         t = r.get("ticker", "")
@@ -2967,7 +2968,7 @@ if opt_rows:
         """)
 
     opt_html = "".join(parts)
-else:
+    else:
     opt_html = """
 <div style="opacity:0.6;">
   No Elite Options picks have been sent this week.<br>
@@ -3015,6 +3016,8 @@ elite_options_card = f"""
 """
 
 st.markdown(elite_options_card, unsafe_allow_html=True)
+        
+    
         
             
 
