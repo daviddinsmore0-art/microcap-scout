@@ -2992,25 +2992,25 @@ if tab == "home":
           </div>
         </div>
 
-        <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+      <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
-        <div style="margin-top:14px;">
+      <div style="margin-top:14px;">
           <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
             Only alerts actually sent via Telegram show here (0–3 per week max).
-          </div>
-          <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+      </div>
+      <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
             {opt_html}
           </div>
-        </div>
+      </div>
 
-        <div style="
+      <div style="
               position:absolute; bottom:0; left:10%;
               width:80%; height:1px;
               background: linear-gradient(90deg, transparent, #60a5fa, transparent);
               box-shadow:0px -2px 10px rgba(96, 165, 250, 0.6);
             "></div>
       </div>
-    </div>
+      </div>
     """
 
     st.markdown(elite_options_card, unsafe_allow_html=True)
