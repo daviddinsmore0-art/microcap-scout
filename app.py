@@ -3112,7 +3112,7 @@ if tab == "home":
           </div>
           <div style="font-size:14px; font-weight:900; color:#f5d07a;">
             {score_txt}
-          </div>
+        </div>
         </div>
 
         <div style="margin-top:8px; opacity:0.88; color:#e5e7eb; font-size:14px; line-height:1.3;">
@@ -3125,40 +3125,40 @@ if tab == "home":
           <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
             ▶ Details ▾
           </summary>
-          <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.94;">
+        <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.94;">
             <div><span style="opacity:0.7;">Sent:</span> <b>{sent_at}</b></div>
             <div style="margin-top:6px;">
               <span style="opacity:0.7;">Performance:</span>
               <b>Option {opt_pct_txt}</b> • <b>Underlying {under_pct_txt}</b>
-          </div>
-          <div style="margin-top:8px;">
+        </div>
+        <div style="margin-top:8px;">
               <span style="opacity:0.7;">Current:</span>
               <b>${fmt_num(perf.get('cur_last'), nd=2)}</b>
               <span style="opacity:0.75;">(bid {fmt_num(perf.get('cur_bid'), nd=2)} / ask {fmt_num(perf.get('cur_ask'), nd=2)})</span>
-          </div>
-          <div style="margin-top:6px; opacity:0.92;">
+        </div>
+        <div style="margin-top:6px; opacity:0.92;">
               <span style="opacity:0.7;">Greeks/Flow:</span>
               Δ {fmt_num(perf.get('cur_delta'), nd=3)} • IV {fmt_num(perf.get('cur_iv'), nd=1)} • Vol {fmt_num(perf.get('cur_vol'), nd=0)} • OI {fmt_num(perf.get('cur_oi'), nd=0)}
-          </div>
-          <div style="margin-top:8px;">
+        </div>
+        <div style="margin-top:8px;">
               <span style="opacity:0.7;">Notes:</span><br>
               {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
-          </div>
-          <div style="margin-top:8px; opacity:0.7;">
+        </div>
+        <div style="margin-top:8px; opacity:0.7;">
               Updated: <b>{fmt_dt(perf.get('cur_ts'))}</b>
-          </div>
-          </div>
+        </div>
+        </div>
           </details>
-          </div>
+        </div>
             """)
 
         opt_html = "".join(parts)
     else:
         opt_html = """
-          <div style="opacity:0.6;">
+        <div style="opacity:0.6;">
         No Elite Options picks are active right now.<br>
         (Only Telegram-sent Elite picks appear here.)
-          </div>
+        </div>
         """
 
     elite_options_card = f"""
@@ -3187,7 +3187,7 @@ if tab == "home":
       </div>
       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
               {opt_html}
-            </div>
+      </div>
       </div>
 
       <div style="
