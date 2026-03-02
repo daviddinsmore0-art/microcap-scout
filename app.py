@@ -2936,110 +2936,140 @@ if tab == "home":
         except Exception:
             return None
 
+    def _build_polygon_option_ticker(underlying, expiry, ctype, strike):
+        """Build Polygon option ticker like O:NVDA260306C00220000."""
+        try:
+            u = (underlying or "").upper().strip()
+            if not u:
+                return None
+            # expiry can be date/datetime/str
+            if hasattr(expiry, "strftime"):
+                ymd = expiry.strftime("%y%m%d")
+            else:
+                s = str(expiry)[:10]
+                ymd = s[2:4] + s[5:7] + s[8:10]
+            cp = "C" if str(ctype).lower().startswith("c") else "P"
+            k = float(strike)
+            k_i = int(round(k * 1000.0))
+            k8 = f"{k_i:08d}"
+            return f"O:{u}{ymd}{cp}{k8}"
+        except Exception:
+            return None
+
+    def _fetch_underlying_perf(ticker, sent_at):
+        """Return (entry_close, current_close) using daily_candles."""
+        if not ticker or not sent_at:
+            return (None, None)
+        try:
+            # entry: last close on/just before sent_at
+            cur.execute(
+                "SELECT close, d FROM daily_candles WHERE ticker=%s AND d <= %s ORDER BY d DESC LIMIT 1",
+                (ticker, sent_at),
+            )
+            row_e = cur.fetchone() or {}
+            entry = row_e.get("close")
+
+            # current: most recent close
+            cur.execute(
+                "SELECT close, d FROM daily_candles WHERE ticker=%s ORDER BY d DESC LIMIT 1",
+                (ticker,),
+            )
+            row_c = cur.fetchone() or {}
+            curc = row_c.get("close")
+
+            return (entry, curc)
+        except Exception:
+            return (None, None)
+
     def _fetch_perf(pick):
-        """Return dict with entry/current option + underlying performance if quote table exists."""
+        """Return dict with entry/current option + underlying performance if possible."""
         if not opt_quote_table:
             return {}
 
         t = pick.get("ticker")
-        ctype = (pick.get("top_contract_type") or "").lower()
+        ctype = (pick.get("top_contract_type") or "")
         strike = pick.get("top_contract_strike")
         exp = pick.get("top_contract_expiry")
         sent_at = pick.get("last_sent_at")
 
-        if not (t and ctype and strike is not None and exp):
+        opt_tkr = _build_polygon_option_ticker(t, exp, ctype, strike)
+        if not opt_tkr:
             return {}
 
-        tbl = opt_quote_table  # discovered from information_schema
+        out = {"opt_ticker": opt_tkr}
 
-        q_cur = f"""
-            SELECT last_price, bid, ask, volume, open_interest, implied_vol, delta, underlying_price, captured_at
-            FROM {tbl}
-            WHERE ticker = %s
-              AND contract_type = %s
-              AND strike_price = %s
-              AND expiration_date = %s
-            ORDER BY captured_at DESC
-            LIMIT 1
-        """
-
-        q_ent_after = f"""
-            SELECT last_price, underlying_price, captured_at
-            FROM {tbl}
-            WHERE ticker = %s
-              AND contract_type = %s
-              AND strike_price = %s
-              AND expiration_date = %s
-              AND captured_at >= %s
-            ORDER BY captured_at ASC
-            LIMIT 1
-        """
-
-        q_ent_before = f"""
-            SELECT last_price, underlying_price, captured_at
-            FROM {tbl}
-            WHERE ticker = %s
-              AND contract_type = %s
-              AND strike_price = %s
-              AND expiration_date = %s
-              AND captured_at <= %s
-            ORDER BY captured_at DESC
-            LIMIT 1
-        """
-
-        perf = {}
-        conn2 = None
-        cur2 = None
+        # Current option quote (latest)
         try:
-            conn2 = get_connection()
-            cur2 = conn2.cursor(dictionary=True)
-
-            cur2.execute(q_cur, (t, ctype, strike, exp))
-            cur_row = cur2.fetchone() or {}
-
-            ent_row = {}
-            if sent_at:
-                cur2.execute(q_ent_after, (t, ctype, strike, exp, sent_at))
-                ent_row = cur2.fetchone() or {}
-                if not ent_row:
-                    cur2.execute(q_ent_before, (t, ctype, strike, exp, sent_at))
-                    ent_row = cur2.fetchone() or {}
-
-            perf.update({
-                "cur_last": cur_row.get("last_price"),
-                "cur_bid": cur_row.get("bid"),
-                "cur_ask": cur_row.get("ask"),
-                "cur_vol": cur_row.get("volume"),
-                "cur_oi": cur_row.get("open_interest"),
-                "cur_iv": cur_row.get("implied_vol"),
-                "cur_delta": cur_row.get("delta"),
-                "cur_under": cur_row.get("underlying_price"),
-                "cur_ts": cur_row.get("captured_at"),
-
-                "ent_last": ent_row.get("last_price"),
-                "ent_under": ent_row.get("underlying_price"),
-                "ent_ts": ent_row.get("captured_at"),
-            })
-
-            perf["opt_pct"] = _pct(perf.get("cur_last"), perf.get("ent_last"))
-            perf["under_pct"] = _pct(perf.get("cur_under"), perf.get("ent_under"))
-
+            cur.execute(
+                f"""SELECT last_price, bid, ask, volume, open_interest, delta, implied_vol,
+                          underlying_price, captured_at
+                     FROM {opt_quote_table}
+                    WHERE option_ticker=%s
+                    ORDER BY captured_at DESC
+                    LIMIT 1""",
+                (opt_tkr,),
+            )
+            q = cur.fetchone() or {}
+            out.update(
+                {
+                    "cur_opt": q.get("last_price"),
+                    "cur_bid": q.get("bid"),
+                    "cur_ask": q.get("ask"),
+                    "cur_vol": q.get("volume"),
+                    "cur_oi": q.get("open_interest"),
+                    "cur_delta": q.get("delta"),
+                    "cur_iv": q.get("implied_vol"),
+                    "cur_under": q.get("underlying_price"),
+                    "asof": q.get("captured_at"),
+                }
+            )
         except Exception:
-            return {}
-        finally:
-            try:
-                if cur2:
-                    cur2.close()
-            except Exception:
-                pass
-            try:
-                if conn2:
-                    conn2.close()
-            except Exception:
-                pass
+            pass
 
-        return perf
+        # Entry option price: first quote at/after sent time (fallback: last quote before sent)
+        entry_opt = None
+        if sent_at:
+            try:
+                cur.execute(
+                    f"""SELECT last_price, captured_at
+                         FROM {opt_quote_table}
+                        WHERE option_ticker=%s AND captured_at >= %s
+                        ORDER BY captured_at ASC
+                        LIMIT 1""",
+                    (opt_tkr, sent_at),
+                )
+                r = cur.fetchone() or {}
+                entry_opt = r.get("last_price")
+            except Exception:
+                entry_opt = None
 
+            if entry_opt is None:
+                try:
+                    cur.execute(
+                        f"""SELECT last_price, captured_at
+                             FROM {opt_quote_table}
+                            WHERE option_ticker=%s AND captured_at <= %s
+                            ORDER BY captured_at DESC
+                            LIMIT 1""",
+                        (opt_tkr, sent_at),
+                    )
+                    r = cur.fetchone() or {}
+                    entry_opt = r.get("last_price")
+                except Exception:
+                    entry_opt = None
+
+        out["entry_opt"] = entry_opt
+
+        # Underlying entry/current using daily candles (works even if quote table lacks underlying_price)
+        entry_u, cur_u = _fetch_underlying_perf(t, sent_at)
+        out["entry_under"] = entry_u
+        out["cur_under_close"] = cur_u
+
+        # % calcs
+        out["opt_pct"] = _pct(out.get("cur_opt"), entry_opt)
+        out["under_pct"] = _pct(cur_u, entry_u)
+
+        return out
     if opt_rows:
         parts = []
         for r in opt_rows:
@@ -3102,6 +3132,26 @@ if tab == "home":
             except Exception:
                 pass
 
+            # Build optional detail lines (hide empty)
+            cur_opt_val = perf.get("cur_opt")
+            cur_bid_val = perf.get("cur_bid")
+            cur_ask_val = perf.get("cur_ask")
+            cur_line = ""
+            if cur_opt_val is not None or cur_bid_val is not None or cur_ask_val is not None:
+                cur_line = f'<div style="margin-top:10px; color:#cbd5e1;">Current: <b>${fmt_num(cur_opt_val)}</b> (bid {fmt_num(cur_bid_val)} / ask {fmt_num(cur_ask_val)})</div>'
+
+            g_delta = perf.get("cur_delta")
+            g_iv    = perf.get("cur_iv")
+            g_vol   = perf.get("cur_vol")
+            g_oi    = perf.get("cur_oi")
+            greeks_line = ""
+            if g_delta is not None or g_iv is not None or g_vol is not None or g_oi is not None:
+                greeks_line = f'<div style="margin-top:8px; color:#cbd5e1;">Greeks/Flow: Δ {fmt_num(g_delta)} • IV {fmt_num(g_iv)} • Vol {fmt_num(g_vol)} • OI {fmt_num(g_oi)}</div>'
+
+            updated_line = ""
+            if perf.get("asof"):
+                updated_line = f'<div style="margin-top:8px; color:#94a3b8;">Updated: {fmt_dt(perf.get("asof"))}</div>'
+
             parts.append(f"""
         <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
                   border:1px solid rgba(255,255,255,0.06);">
@@ -3130,23 +3180,14 @@ if tab == "home":
               <span style="opacity:0.7;">Performance:</span>
               <b>Option {opt_pct_txt}</b> • <b>Underlying {under_pct_txt}</b>
         </div>
-        <div style="margin-top:8px;">
-              <span style="opacity:0.7;">Current:</span>
-              <b>${fmt_num(perf.get('cur_last'), nd=2)}</b>
-              <span style="opacity:0.75;">(bid {fmt_num(perf.get('cur_bid'), nd=2)} / ask {fmt_num(perf.get('cur_ask'), nd=2)})</span>
-        </div>
-        <div style="margin-top:6px; opacity:0.92;">
-              <span style="opacity:0.7;">Greeks/Flow:</span>
-              Δ {fmt_num(perf.get('cur_delta'), nd=3)} • IV {fmt_num(perf.get('cur_iv'), nd=1)} • Vol {fmt_num(perf.get('cur_vol'), nd=0)} • OI {fmt_num(perf.get('cur_oi'), nd=0)}
-        </div>
-        <div style="margin-top:8px;">
+            {cur_line}
+            {greeks_line}
+<div style="margin-top:8px;">
               <span style="opacity:0.7;">Notes:</span><br>
               {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
         </div>
-        <div style="margin-top:8px; opacity:0.7;">
-              Updated: <b>{fmt_dt(perf.get('cur_ts'))}</b>
-        </div>
-        </div>
+            {updated_line}
+</div>
           </details>
         </div>
             """)
