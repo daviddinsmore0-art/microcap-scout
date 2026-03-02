@@ -27,13 +27,13 @@ ICON_SIGNAL = """<div style="width:30px;height:30px;border-radius:12px;backgroun
 <path d="M20 8V12" stroke="#FBBF24" stroke-width="2" stroke-linecap="round"/>
 </svg></div>"""
 
-ICON_ACCEL = """<div style="width:30px;height:30px;border-radius:999px;background:linear-gradient(135deg,rgba(34,197,94,.22),rgba(22,163,74,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
-<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:.95">
+ICON_ACCEL = """<div style="width:40px;height:40px;border-radius:999px;background:linear-gradient(135deg,rgba(34,197,94,.22),rgba(22,163,74,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
+<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:.95">
 <path d="M13 2L3 14H11L9 22L21 9H13L13 2Z" stroke="#22C55E" stroke-width="2" stroke-linejoin="round"/>
 </svg></div>"""
 
-ICON_SECTOR = """<div style="width:30px;height:30px;border-radius:12px;background:linear-gradient(135deg,rgba(96,165,250,.22),rgba(59,130,246,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
-<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:.95">
+ICON_SECTOR = """<div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,rgba(96,165,250,.22),rgba(59,130,246,.10));border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 24px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;">
+<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:.95">
 <path d="M12 2L3 7L12 12L21 7L12 2Z" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/>
 <path d="M3 12L12 17L21 12" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/>
 <path d="M3 17L12 22L21 17" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/>
@@ -2110,16 +2110,16 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
     rank_lines = []
     if g_label and g_top:
         rank_lines.append(
-            f"<span style='opacity:0.75;'>Global Rank:</span> "
-            f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:1px 1px; font-weight:700;'>{g_label}</span> "
-            f"<span style='opacity:0.8;'>• {g_top}</span>"
+           f"<span style='opacity:0.75;'>Global Rank:</span> "
+           f"<span style='color:{get_rank_color(g_label)}; background:{get_rank_bg(g_label)}; padding:1px 1px; font-weight:700;'>{g_label}</span> "
+           f"<span style='opacity:0.8;'>• {g_top}</span>"
         )
     if s_label and s_top:
         sec_txt = f"  ({sector})" if sector else ""
         rank_lines.append(
-            f"<span style='opacity:0.75;'>Sector Rank:</span> "
-            f"<span style='color:{get_rank_color(s_label)}; background:{get_rank_bg(s_label)}; padding:1px 1px; font-weight:700;'>{s_label}</span> "
-            f"<span style='opacity:0.8;'>• {s_top}{sec_txt}</span>"
+           f"<span style='opacity:0.75;'>Sector Rank:</span> "
+           f"<span style='color:{get_rank_color(s_label)}; background:{get_rank_bg(s_label)}; padding:1px 1px; font-weight:700;'>{s_label}</span> "
+           f"<span style='opacity:0.8;'>• {s_top}{sec_txt}</span>"
         )
 
     factors = []
@@ -2145,7 +2145,6 @@ def render_portfolio_row(row, data, token=None, rank_map=None):
       </div>
     </div>
 
-    {('<div style="margin-top:12px; margin-bottom:6px; font-size:14px; color:rgba(226,232,240,0.85);">' + '<br>'.join(rank_lines) + '</div>') if rank_lines else ''}
 
     {('<div style="margin-top:8px; font-size:14px; color:rgba(148,163,184,0.85);">' + factors_line + '</div>') if factors_line else ''}
 
@@ -2816,7 +2815,211 @@ if tab == "home":
     except Exception as e:
         st.error(f"Market pulse error: {e}")
 
-# TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
+    # ==========================
+    # ELITE OPTIONS PICKS (sent via Telegram)
+    # Shows only picks actually sent (0–3)
+    # ==========================
+    opt_rows = []
+    opt_html = ""
+    conn = None
+    cur = None
+
+    def fmt_strike(x):
+        try:
+            if x is None:
+                return "—"
+            f = float(x)
+            if f >= 100:
+                # 220.0 -> 220, 222.5 -> 222.5
+                return f"{f:.0f}" if abs(f - round(f)) < 1e-9 else f"{f:.1f}".rstrip("0").rstrip(".")
+            # smaller strikes keep 0.5 etc
+            return f"{f:.2f}".rstrip("0").rstrip(".")
+        except Exception:
+            return "—"
+
+    def fmt_dt(x):
+        try:
+            return str(x)[:19] if x else "—"
+        except Exception:
+            return "—"
+
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        opt_sql = """
+            SELECT
+                slot,
+                ticker,
+                bias,
+                options_score,
+                dte_window,
+                strike_window,
+                top_contract_type,
+                top_contract_strike,
+                top_contract_expiry,
+                top_contract_dte,
+                guidance_text,
+                sent_at
+            FROM weekly_options_active
+            WHERE week_start = DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+            ORDER BY slot ASC
+            LIMIT 3
+        """
+        cur.execute(opt_sql)
+        opt_rows = cur.fetchall() or []
+
+    except Exception:
+        opt_rows = []
+
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
+    if opt_rows:
+        parts = []
+        for r in opt_rows:
+            t = r.get("ticker", "")
+            score_txt = "—"
+            try:
+                if r.get("options_score") is not None:
+                    score_txt = f"{int(float(r.get('options_score')))}" + "/100"
+            except Exception:
+                pass
+
+            bias = (r.get("bias") or "neutral").lower()
+            if bias == "bull":
+                bias_txt, bias_color, icon = "BULLISH", "#4ade80", "📈"
+            elif bias == "bear":
+                bias_txt, bias_color, icon = "BEARISH", "#ef4444", "📉"
+            else:
+                bias_txt, bias_color, icon = "NEUTRAL", "rgba(255,255,255,0.70)", "⚖️"
+
+            dte_win = r.get("dte_window") or "—"
+            strike_win = r.get("strike_window") or "—"
+
+            ctype = (r.get("top_contract_type") or "").upper() or "—"
+            cstrike = fmt_strike(r.get("top_contract_strike"))
+            cexp = str(r.get("top_contract_expiry") or "—")[:10]
+
+            cdte_txt = "—"
+            try:
+                if r.get("top_contract_dte") is not None:
+                    cdte_txt = f"{int(float(r.get('top_contract_dte')))}"
+            except Exception:
+                pass
+
+            sent_at = fmt_dt(r.get("sent_at"))
+            guidance = (r.get("guidance_text") or "").strip()
+
+            suggested = "—"
+            if ctype != "—" and cstrike != "—" and cexp != "—":
+                suggested = f"{ctype} {cstrike} exp {cexp} ({cdte_txt} DTE)"
+
+            # Safe HTML
+            guidance_html = (
+                guidance.replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;")
+                        .replace("\n", "<br>")
+            )
+
+            parts.append(f"""
+    <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
+                border:1px solid rgba(255,255,255,0.06);">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div style="font-size:15px; font-weight:800; color:#ffffff;">
+          {icon} <b>{t}</b> <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
+        </div>
+        <div style="font-size:14px; font-weight:900; color:#f5d07a;">
+          {score_txt}
+        </div>
+      </div>
+
+      <div style="margin-top:8px; opacity:0.85; color:#e5e7eb; font-size:14px; line-height:1.3;">
+        📅 <span style="opacity:0.75;">Expiry Window:</span> <b>{dte_win}</b><br>
+        🎯 <span style="opacity:0.75;">Strike Range:</span> <b>{strike_win}</b><br>
+        🧾 <span style="opacity:0.75;">Suggested:</span> <b>{suggested}</b>
+      </div>
+
+      <details style="margin-top:10px;">
+        <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
+          Details ▾
+        </summary>
+        <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.92;">
+          <div><span style="opacity:0.7;">Sent:</span> <b>{sent_at}</b></div>
+          <div style="margin-top:8px;">
+            <span style="opacity:0.7;">Notes:</span><br>
+            {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
+          </div>
+        </div>
+      </details>
+    </div>
+            """)
+
+        opt_html = "".join(parts)
+    else:
+        opt_html = """
+    <div style="opacity:0.6;">
+      No Elite Options picks have been sent this week.<br>
+      (Telegram alerts will appear here automatically.)
+    </div>
+        """
+
+    elite_options_card = f"""
+    <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+                background:linear-gradient(145deg,#0f172a,#0b1220);
+                box-shadow:0 10px 30px rgba(0,0,0,0.45);
+                border:1px solid rgba(255,255,255,0.06);">
+      <div style="padding:18px 18px 14px 18px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="width:40px; height:40px; border-radius:14px;
+                      background:linear-gradient(135deg,#60a5fa,#3b82f6);
+                      display:flex; align-items:center; justify-content:center;
+                      box-shadow:0 10px 22px rgba(59,130,246,0.25);">
+            <span style="font-size:20px;">🎯</span>
+          </div>
+          <div style="font-size:16px;font-weight:600;text-transform:uppercase;color:#bfdbfe;">
+            ELITE OPTIONS PICKS (SENT)
+          </div>
+        </div>
+
+        <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+
+        <div style="margin-top:14px;">
+          <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
+            Only alerts actually sent via Telegram show here (0–3 per week max).
+          </div>
+          <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+            {opt_html}
+          </div>
+        </div>
+
+        <div style="
+              position:absolute; bottom:0; left:10%;
+              width:80%; height:1px;
+              background: linear-gradient(90deg, transparent, #60a5fa, transparent);
+              box-shadow:0px -2px 10px rgba(96, 165, 250, 0.6);
+            "></div>
+      </div>
+    </div>
+    """
+
+    st.markdown(elite_options_card, unsafe_allow_html=True)
+
+
+    
+            
+
+    # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
     # ==========================
@@ -2832,14 +3035,189 @@ if tab == "home":
         cur = conn.cursor(dictionary=True)
 
         radar_sql = """
+            SELECT
+                ticker,
+                peak_range_mult,
+                peak_rvol_60m,
+                peak_focus_score,
+                peak_day_change,
+                peak_candle_ts,
+                appearances,
+                TIMESTAMPDIFF(MINUTE, first_seen_ts, NOW()) AS minutes_ago
+            FROM breakout_radar_daily
+            WHERE trade_date = CURDATE()
+              AND peak_dir = 'bull'
+            ORDER BY peak_candle_ts DESC, peak_focus_score DESC
+            LIMIT 3
+        """
+        cur.execute(radar_sql)
+        radar_rows = cur.fetchall() or []
+
+    except Exception:
+        # Keep UI clean; details will be in Streamlit logs
+        radar_rows = []
+
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
+    if radar_rows:
+        parts = []
+        for r in radar_rows:
+            # Defensive formatting (NULL-safe)
+            pr = float(r.get("peak_range_mult") or 0)
+            pv = float(r.get("peak_rvol_60m") or 0)
+
+            # Day % change (green if positive, red if negative)
+            chg = r.get("peak_day_change")
+            chg_txt = "—"
+            chg_color = "rgba(255,255,255,0.65)"
+            try:
+                if chg is not None:
+                    chg_f = float(chg)
+                    chg_txt = f"{chg_f:+.2f}%"
+                    chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
+            except Exception:
+                pass
+
+            mins = r.get("minutes_ago")
+            mins_txt = ""
+
+            try:
+               if mins is not None:
+                 mins_val = int(float(mins))
+
+               if mins_val < 60:
+                 mins_txt = f"{mins_val}m ago"
+               elif mins_val < 1440:
+                 hours = mins_val // 60
+                 mins_txt = f"{hours}h ago"
+               else:
+                 days = mins_val // 1440
+                 mins_txt = f"{days}d ago"
+
+            except Exception:
+                 mins_txt = ""
+
+            holds = r.get("appearances")
+            holds_val = 0
+                 
+            try:
+               if holds is not None:
+                 holds_val = int(float(holds))
+            except Exception:
+                 holds_val = 0
+
+            holds_txt = f"{holds_val}" if holds_val > 0 else ""
+
+                 
+            score_txt = "—"
+            try:
+                if r.get("peak_focus_score") is not None:
+                 score_txt = f"{float(r.get('peak_focus_score')):.0f}"
+            except Exception:
+                pass
+
+            parts.append(f"""
+      <div style="margin-bottom:20px; background-color: #1a1f2b;">
+        <span style="color:#22c55e;">⬆</span> <b>{r.get('ticker','')}</b>
+        <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span> <span style="opacity:0.72;"> - Alerted {(' • ' + mins_txt) if mins_txt else ''}</span><br>
+        <span style="opacity:0.72;">
+          Range {pr:.2f}× • Volume {pv:.2f}× • Score {score_txt}
+        </span>
+      </div>
+            """)
+
+            radar_html = "".join(parts)
+    else:
+            radar_html = """
+      <div style="opacity:0.6;">
+        No significant expansion detected right now.<br>
+        Radar scanning…
+      </div>
+        """
+
+
+    breakout_radar_card = f"""
+      <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+                  background:linear-gradient(145deg,#0f172a,#0b1220);
+                  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+                  border:1px solid rgba(255,255,255,0.06);">
+      <div style="padding:18px 18px 14px 18px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+      <div style="width:40px; height:40px; border-radius:14px;
+                        background:linear-gradient(135deg,#fbbf24,#f59e0b);
+                        display:flex; align-items:center; justify-content:center;
+                        box-shadow:0 10px 22px rgba(245,158,11,0.25);">
+              <span style="font-size:20px;">📈</span>
+       </div>
+       <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
+              BREAKOUT RADAR
+            </div>
+       </div>
+
+       <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+
+       <div style="margin-top:14px;">
+            <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
+              Identifying stocks expanding beyond normal range with elevated participation.
+       </div>
+       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+              {radar_html}
+       </div>
+       </div>
+       <div style="
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #4ade80, transparent);
+                box-shadow: 0px -2px 10px rgba(74, 222, 128, 0.6);
+              "></div>
+       </div>
+       </div>
+    """
+
+    st.markdown(breakout_radar_card, unsafe_allow_html=True)
+
+     # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
+    # Uses the latest available asof_date (so weekends/holidays still show last run)
+    # ==========================
+    # ==========================
+    # BRfonDOWN RADAR (intraday)
+    # ==========================
+    radar_rows = []
+    radar_html = ""
+    conn = None
+    cur = None
+
+    try:
+        conn = get_connection()
+        cur = conn.cursor(dictionary=True)
+
+        radar_sql = """
         SELECT
-            ticker,
-            peak_range_mult,
-            peak_rvol_60m,
-            peak_focus_score
+        ticker,
+        peak_range_mult,
+        peak_rvol_60m,
+        peak_focus_score,
+        peak_day_change,
+        peak_candle_ts,
+        appearances,
+        TIMESTAMPDIFF(MINUTE, first_seen_ts, NOW()) AS minutes_ago
         FROM breakout_radar_daily
         WHERE trade_date = CURDATE()
-        ORDER BY peak_focus_score DESC
+        AND peak_dir = 'bear'
+        ORDER BY peak_candle_ts DESC, peak_focus_score DESC
         LIMIT 3
         """
         cur.execute(radar_sql)
@@ -2867,150 +3245,132 @@ if tab == "home":
             # Defensive formatting (NULL-safe)
             pr = float(r.get("peak_range_mult") or 0)
             pv = float(r.get("peak_rvol_60m") or 0)
+                        # Day % change (green if positive, red if negative)
+            chg = r.get("peak_day_change")
+            chg_txt = "—"
+            chg_color = "rgba(255,255,255,0.65)"
+            try:
+                if chg is not None:
+                    chg_f = float(chg)
+                    chg_txt = f"{chg_f:+.2f}%"
+                    chg_color = "#4ade80" if chg_f >= 0 else "#ef4444"
+            except Exception:
+                pass
+            mins_val = None
+            mins = r.get("minutes_ago")
+            mins_txt = ""
+
+            try:
+             if mins is not None:
+              mins_val = int(float(mins))
+
+             if mins_val < 60:
+              mins_txt = f"{mins_val}m ago"
+             elif mins_val < 1440:
+              hours = mins_val // 60
+              mins_txt = f"{hours}h ago"
+             else:
+              days = mins_val // 1440
+              mins_txt = f"{days}d ago"
+
+            except Exception:
+              mins_txt = ""
+
+            holds = r.get("appearances")
+            holds_val = 0
+                 
+            try:
+               if holds is not None:
+                 holds_val = int(float(holds))
+            except Exception:
+                 holds_val = 0
+
+            holds_txt = f"{holds_val}" if holds_val > 0 else ""
+
+                 
+            score_txt = "—"
+            try:
+                if r.get("peak_focus_score") is not None:
+                 score_txt = f"{float(r.get('peak_focus_score')):.0f}"
+            except Exception:
+                pass
+            score_txt = "—"
+            try:
+                if r.get("peak_focus_score") is not None:
+                    score_txt = f"{float(r.get('peak_focus_score')):.0f}"
+            except Exception:
+                pass
             parts.append(f"""
-              <div style="margin-bottom:10px;">
-                ⚡ <b>{r.get('ticker','')}</b><br>
+      <div style="margin-bottom:20px;">
+                <span style="color:#ef4444;">⬇</span> <b>{r.get('ticker','')}</b>
+                <span style="color:{chg_color}; font-weight:700;"> {chg_txt}</span><span style="opacity:0.85; padding-left:10px; color:#f5d07a;">{holds_txt} Holds</span> <span style="opacity:0.72;">- Alerted {(' • ' + mins_txt) if mins_txt else ''}</span><br>
                 <span style="opacity:0.7;">
-                  Range {pr:.2f}× • Volume {pv:.2f}×
-                </span>
-              </div>
+                 Range {r['peak_range_mult']}× • 
+                 Volume {r['peak_rvol_60m']}× • 
+                 Score {r['peak_focus_score']} 
+                 </span>
+      </div>
             """)
         radar_html = "".join(parts)
     else:
         radar_html = """
-          <div style="opacity:0.6;">
-            No significant expansion detected right now.<br>
+      <div style="opacity:0.6;">
+            No significant declines detected right now.<br>
             Radar scanning…
-          </div>
+      </div>
         """
 
     breakout_radar_card = f"""
-      <div style="margin-top:18px; border-radius:22px; overflow:hidden;
+      <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
                   background:linear-gradient(145deg,#0f172a,#0b1220);
                   box-shadow:0 10px 30px rgba(0,0,0,0.45);
                   border:1px solid rgba(255,255,255,0.06);">
-        <div style="padding:18px 18px 14px 18px;">
-          <div style="display:flex; align-items:center; gap:12px;">
-            <div style="width:44px; height:44px; border-radius:14px;
+      <div style="padding:18px 18px 14px 18px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+      <div style="width:40px; height:40px; border-radius:14px;
                         background:linear-gradient(135deg,#fbbf24,#f59e0b);
                         display:flex; align-items:center; justify-content:center;
                         box-shadow:0 10px 22px rgba(245,158,11,0.25);">
-              <span style="font-size:20px;">📈</span>
+              <span style="font-size:20px;">📉</span>
+       </div>
+       <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #f5d07a;">
+              BREAKDOWN RADAR
             </div>
-            <div style="font-size:20px; letter-spacing:0.06em; font-weight:700; color:#e5e7eb;">
-              BREAKOUT RADAR
-            </div>
-          </div>
+       </div>
 
-          <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+       <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
-          <div style="margin-top:14px;">
-            <div style="color:#fbbf24; font-weight:800; font-size:18px; margin-bottom:10px;">
-              All Eyes On Deck
-            </div>
-            <div style="color:#e5e7eb; font-size:18px; font-weight:700; line-height:1.25;">
+       <div style="margin-top:14px;">
+            <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
+              Downside expansion with elevated selling pressure.
+       </div>
+       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
               {radar_html}
-            </div>
-          </div>
-        </div>
-      </div>
-    """
-
-    st.markdown(breakout_radar_card, unsafe_allow_html=True)
-ACCELERATION ALERTS
-    # Using momentum_score acceleration (latest vs previous asof_date from rankings_global_daily)
-    # ==========================
-    try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
-
-        cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily")
-        latest_date = (cur.fetchone() or {}).get("d")
-
-        prev_date = None
-        if latest_date:
-            cur.execute("SELECT MAX(asof_date) AS d FROM rankings_global_daily WHERE asof_date < %s", (latest_date,))
-            prev_date = (cur.fetchone() or {}).get("d")
-
-        rows = []
-        if latest_date and prev_date:
-            cur.execute(
-                """
-                SELECT
-                    d1.ticker,
-                    (d1.momentum_score - d0.momentum_score) AS momentum_delta
-                FROM rankings_daily d1
-                JOIN rankings_daily d0
-                  ON d1.ticker = d0.ticker
-                WHERE d1.asof_date = %s
-                  AND d0.asof_date = %s
-                ORDER BY momentum_delta DESC
-                LIMIT 3
-                """,
-                (latest_date, prev_date),
-            )
-            rows = cur.fetchall() or []
-
-        cur.close()
-        conn.close()
-
-        items_html = ""
-        if rows:
-            for r in rows:
-                t = (r.get("ticker") or "").upper()
-                items_html += f"<div style='margin-top:6px; font-size:16px; font-weight:600; color:#e5e7eb;'>⚡ {t}</div>"
-        else:
-            items_html = "<div style='margin-top:10px; color:#94a3b8;'>No new accelerations on the latest run.</div>"
-
-        card_html = textwrap.dedent(f"""
+       </div>
+       </div>
         <div style="
-            margin-top:0px;
-            margin-bottom:0px;
-            border-radius:20px;
-            padding:10px 10px 20px 20px;
-            background:linear-gradient(145deg,#0f172a,#0b1220);
-            box-shadow:0 12px 35px rgba(0,0,0,0.45);
-            position:relative;
-            border:1px solid rgba(255,255,255,0.06);
-        ">
-
-
-
-          <!-- TITLE ROW -->
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
-            <div style="display:flex; align-items:center; gap:10px;">
-      {ICON_ACCEL}
-      <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
-    New <span style="color:white;">Acceleration Alerts</span>
-      </div>
-    </div>
-    <div style="color:#22c55e; font-weight:600;"></div>
-    </div>
-
-          <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:400;">
-            Stocks speeding up <span style="opacity:.7;"> (vs prior run)</span>
-          </div>
-
-          <div style="margin-top:12px; color:#cbd5e1; line-height:1.7; font-size:16px; font-weight:400;">
-            {items_html}
-          </div>
-              <div style="
-              position: absolute;
-              bottom: 0;           /* Sticks it to the very bottom edge */
-              left: 10%;           /* Centers it */
-              width: 80%;          /* Makes it 80% of the card width */
-              height: 1px; 
-              background: linear-gradient(90deg, transparent, #facc15, transparent);
-              box-shadow: 0px -2px 10px rgba(250, 204, 21, 0.6); /* Negative Y pushes glow UP into the card */
-             "></div>
-          </div>
-          """).strip()
-
-        components.html(card_html, height=260)
-
-    except Exception as e:
-      st.error(f"Acceleration Alerts error: {e}")
-
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #b91c1c, transparent);
+                box-shadow: 0px -2px 10px rgba(239, 68, 68, 0.12);
+              "></div>
+       </div>
+       <div style="
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #b91c1c;, transparent);
+                box-shadow: 0px -2px 10px rgba(239, 68, 68, 0.12);
+              "></div>
+       </div>
+    """
+    
+    st.markdown(breakout_radar_card, unsafe_allow_html=True)  
 
     # ==========================
     # SECTOR ROTATION SNAPSHOT
@@ -3104,15 +3464,15 @@ ACCELERATION ALERTS
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0px; padding-bottom:5px; border-bottom: 1px solid #2d3748;">
             <div style="display:flex; align-items:center; gap:10px;">
               {ICON_SECTOR}
-              <div style="font-size:16px; font-weight:400; color:#cbd5e1;">
-                Sector <span style="color:white;">Rotation Snapshot</span>
+              <div style="font-size:16px;font-weight:600;text-transform:uppercase;color: #f5d07a;">
+                Sector Snapshot
               </div>
             </div>
             <div style="color:#22c55e; font-weight:900;"></div>
           </div>
 
           <div style="margin-top:16px; color:#fbbf24; font-size:16px; font-weight:400;">
-            Top Sectors Today
+            Top Sectors Yesterday
           </div>
 
           <div style="margin-top:12px; color:#cbd5e1; line-height:1.7;">
