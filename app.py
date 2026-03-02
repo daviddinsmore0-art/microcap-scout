@@ -3173,24 +3173,24 @@ if tab == "home":
                         display:flex; align-items:center; justify-content:center;
                         box-shadow:0 10px 22px rgba(59,130,246,0.25);">
               <span style="font-size:20px;">🎯</span>
-            </div>
-            <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #bfdbfe;">
+      </div>
+      <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #bfdbfe;">
               ELITE OPTIONS PICKS (SENT)
             </div>
-          </div>
+      </div>
 
-          <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+      <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
-          <div style="margin-top:14px;">
+      <div style="margin-top:14px;">
             <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
               Only Telegram-sent Elite picks show here (active until expiry, max 3).
-            </div>
-            <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+      </div>
+      <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
               {opt_html}
             </div>
-          </div>
+      </div>
 
-          <div style="
+      <div style="
                 position: absolute;
                 bottom: 0;
                 left: 10%;
@@ -3199,7 +3199,7 @@ if tab == "home":
                 background: linear-gradient(90deg, transparent, #60a5fa, transparent);
                 box-shadow: 0px -2px 10px rgba(96, 165, 250, 0.6);
               "></div>
-        </div>
+      </div>
       </div>
     """
 
