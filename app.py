@@ -3109,10 +3109,10 @@ if tab == "home":
         <div style="display:flex; align-items:center; justify-content:space-between;">
           <div style="font-size:15px; font-weight:800; color:#ffffff;">
             {icon} <b>{t}</b> <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
-        </div>
+          </div>
           <div style="font-size:14px; font-weight:900; color:#f5d07a;">
             {score_txt}
-        </div>
+          </div>
         </div>
 
         <div style="margin-top:8px; opacity:0.88; color:#e5e7eb; font-size:14px; line-height:1.3;">
@@ -3155,10 +3155,10 @@ if tab == "home":
         opt_html = "".join(parts)
     else:
         opt_html = """
-      <div style="opacity:0.6;">
+          <div style="opacity:0.6;">
         No Elite Options picks are active right now.<br>
         (Only Telegram-sent Elite picks appear here.)
-      </div>
+          </div>
         """
 
     elite_options_card = f"""
@@ -3166,7 +3166,7 @@ if tab == "home":
                   background:linear-gradient(145deg,#0f172a,#0b1220);
                   box-shadow:0 10px 30px rgba(0,0,0,0.45);
                   border:1px solid rgba(255,255,255,0.06);">
-        <div style="padding:18px 18px 14px 18px;">
+      <div style="padding:18px 18px 14px 18px;">
           <div style="display:flex; align-items:center; gap:12px;">
             <div style="width:40px; height:40px; border-radius:14px;
                         background:linear-gradient(135deg,#60a5fa,#3b82f6);
@@ -3176,7 +3176,7 @@ if tab == "home":
       </div>
       <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #bfdbfe;">
               ELITE OPTIONS PICKS (SENT)
-            </div>
+      </div>
       </div>
 
       <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
