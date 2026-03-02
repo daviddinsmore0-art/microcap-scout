@@ -2821,10 +2821,10 @@ if tab == "home":
 # ELITE OPTIONS PICKS (sent via Telegram)
 # Shows only picks actually sent (0–3)
 # ==========================
-    opt_rows = []
-    opt_html = ""
-    conn = None
-    cur = None
+     opt_rows = []
+     opt_html = ""
+     conn = None
+     cur = None
 
      def fmt_strike(x):
     try:
