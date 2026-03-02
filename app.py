@@ -2989,8 +2989,8 @@ if tab == "home":
           </div>
           <div style="font-size:16px;font-weight:600;text-transform:uppercase;color:#bfdbfe;">
             ELITE OPTIONS PICKS (SENT)
-          </div>
-        </div>
+      </div>
+      </div>
 
       <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
