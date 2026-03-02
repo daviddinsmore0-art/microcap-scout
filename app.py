@@ -2826,7 +2826,7 @@ if tab == "home":
     conn = None
     cur = None
 
-    def fmt_strike(x):
+     def fmt_strike(x):
     try:
         if x is None:
             return "—"
