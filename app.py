@@ -2931,13 +2931,13 @@ if tab == "home":
             )
 
             parts.append(f"""
-    <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
+      <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
                 border:1px solid rgba(255,255,255,0.06);">
       <div style="display:flex; align-items:center; justify-content:space-between;">
         <div style="font-size:15px; font-weight:800; color:#ffffff;">
           {icon} <b>{t}</b>
           <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
-        </div>
+      </div>
         <div style="font-size:14px; font-weight:900; color:#f5d07a;">{score_txt}</div>
       </div>
 
@@ -2951,28 +2951,28 @@ if tab == "home":
         <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
           Details ▾
         </summary>
-        <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.92;">
+      <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.92;">
           <div><span style="opacity:0.7;">Sent:</span> <b>{sent_at}</b></div>
           <div style="margin-top:8px;">
             <span style="opacity:0.7;">Notes:</span><br>
             {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
-          </div>
-        </div>
+      </div>
+      </div>
       </details>
-    </div>
+      </div>
             """)
 
         opt_html = "".join(parts)
     else:
         opt_html = """
-    <div style="opacity:0.6;">
+     <div style="opacity:0.6;">
       No Elite Options picks have been sent (and still active) right now.<br>
       (Telegram-sent alerts will appear here automatically.)
-    </div>
+     </div>
         """
 
     elite_options_card = f"""
-    <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+     <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
                 background:linear-gradient(145deg,#0f172a,#0b1220);
                 box-shadow:0 10px 30px rgba(0,0,0,0.45);
                 border:1px solid rgba(255,255,255,0.06);">
@@ -2984,29 +2984,29 @@ if tab == "home":
                       box-shadow:0 10px 22px rgba(59,130,246,0.25);">
             <span style="font-size:20px;">🎯</span>
           </div>
-          <div style="font-size:16px; font-weight:600; text-transform:uppercase; color:#bfdbfe;">
+      <div style="font-size:16px; font-weight:600; text-transform:uppercase; color:#bfdbfe;">
             ELITE OPTIONS PICKS (SENT)
           </div>
         </div>
 
-        <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+      <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
 
-        <div style="margin-top:14px;">
+      <div style="margin-top:14px;">
           <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
             Only Telegram-sent Elite picks show here (active until expiry, max 3).
-          </div>
-          <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+      </div>
+      <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
             {opt_html}
-          </div>
-        </div>
+      </div>
+      </div>
 
-        <div style="
+      <div style="
           position:absolute; bottom:0; left:10%; width:80%; height:1px;
           background:linear-gradient(90deg, transparent, #60a5fa, transparent);
           box-shadow:0px -2px 10px rgba(96,165,250,0.6);
         "></div>
       </div>
-    </div>
+      </div>
     """
 
     st.markdown(elite_options_card, unsafe_allow_html=True)
