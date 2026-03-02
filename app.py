@@ -2818,20 +2818,22 @@ if tab == "home":
         # ==========================
     # ELITE OPTIONS PICKS (sent via Telegram)
     # Shows ONLY picks actually sent + still active (0–3 max)
+    # Active until top_contract_expiry
     # ==========================
     opt_rows = []
     opt_html = ""
     conn = None
     cur = None
+    opt_quote_table = None
+    opt_max_score = None
 
-    def fmt_strike(x):
+    def fmt_num(x, nd=2):
         try:
             if x is None:
                 return "—"
             f = float(x)
-            if f >= 100:
-                return f"{f:.0f}" if abs(f - round(f)) < 1e-9 else f"{f:.1f}".rstrip("0").rstrip(".")
-            return f"{f:.2f}".rstrip("0").rstrip(".")
+            s = f"{f:.{nd}f}"
+            return s.rstrip("0").rstrip(".")
         except Exception:
             return "—"
 
@@ -2845,21 +2847,50 @@ if tab == "home":
         conn = get_connection()
         cur = conn.cursor(dictionary=True)
 
-        # Latest (most recently sent) active pick per ticker, max 3
+        # Normalize options_score into a percent (your current table tops out ~52)
+        cur.execute("SELECT MAX(options_score) AS mx FROM options_radar_current")
+        opt_max_score = (cur.fetchone() or {}).get("mx") or None
+        try:
+            opt_max_score = float(opt_max_score) if opt_max_score is not None else None
+        except Exception:
+            opt_max_score = None
+
+        # Find an options quote table automatically (so we can show option % / underlying %)
+        find_sql = """
+            SELECT c.table_name
+            FROM information_schema.columns c
+            WHERE c.table_schema = DATABASE()
+              AND c.column_name IN ('ticker','contract_type','strike_price','expiration_date','last_price','underlying_price','captured_at')
+            GROUP BY c.table_name
+            HAVING COUNT(DISTINCT c.column_name) = 7
+            ORDER BY c.table_name
+            LIMIT 1
+        """
+        cur.execute(find_sql)
+        row = cur.fetchone()
+        opt_quote_table = row.get("table_name") if row else None
+
+        # Pull latest active picks (sent via Telegram) – keep at most 3 on home card
         opt_sql = """
-            SELECT p.*
-            FROM options_weekly_picks p
-            JOIN (
-                SELECT ticker, MAX(last_sent_at) AS max_sent
-                FROM options_weekly_picks
-                WHERE is_active = 1
-                  AND last_sent_at IS NOT NULL
-                GROUP BY ticker
-            ) x
-              ON x.ticker = p.ticker AND x.max_sent = p.last_sent_at
-            WHERE p.is_active = 1
-              AND p.last_sent_at IS NOT NULL
-            ORDER BY p.last_sent_at DESC
+            SELECT
+                week_start,
+                ticker,
+                bias,
+                options_score,
+                put_call_ratio,
+                iv_rank,
+                dte_window,
+                strike_window,
+                top_contract_type,
+                top_contract_strike,
+                top_contract_expiry,
+                top_contract_dte,
+                guidance_text,
+                last_sent_at
+            FROM options_weekly_picks
+            WHERE is_active = 1
+              AND (top_contract_expiry IS NULL OR top_contract_expiry >= CURDATE())
+            ORDER BY last_sent_at DESC
             LIMIT 3
         """
         cur.execute(opt_sql)
@@ -2867,6 +2898,8 @@ if tab == "home":
 
     except Exception:
         opt_rows = []
+        opt_quote_table = None
+        opt_max_score = None
 
     finally:
         try:
@@ -2880,34 +2913,161 @@ if tab == "home":
         except Exception:
             pass
 
+    def _pct(cur_val, base_val):
+        try:
+            if cur_val is None or base_val is None:
+                return None
+            cur_f = float(cur_val)
+            base_f = float(base_val)
+            if base_f == 0:
+                return None
+            return (cur_f - base_f) / base_f * 100.0
+        except Exception:
+            return None
+
+    def _normalize_score(score):
+        try:
+            if score is None:
+                return None
+            s = float(score)
+            mx = float(opt_max_score) if opt_max_score else None
+            if mx and mx > 0:
+                return max(0, min(100, round((s / mx) * 100)))
+            return max(0, min(100, round(s)))
+        except Exception:
+            return None
+
+    def _fetch_perf(pick):
+        """Return dict with entry/current option + underlying performance if quote table exists."""
+        if not opt_quote_table:
+            return {}
+
+        t = pick.get("ticker")
+        ctype = (pick.get("top_contract_type") or "").lower()
+        strike = pick.get("top_contract_strike")
+        exp = pick.get("top_contract_expiry")
+        sent_at = pick.get("last_sent_at")
+
+        if not (t and ctype and strike is not None and exp):
+            return {}
+
+        tbl = opt_quote_table  # discovered from information_schema
+
+        q_cur = f"""
+            SELECT last_price, bid, ask, volume, open_interest, implied_vol, delta, underlying_price, captured_at
+            FROM {tbl}
+            WHERE ticker = %s
+              AND contract_type = %s
+              AND strike_price = %s
+              AND expiration_date = %s
+            ORDER BY captured_at DESC
+            LIMIT 1
+        """
+
+        q_ent_after = f"""
+            SELECT last_price, underlying_price, captured_at
+            FROM {tbl}
+            WHERE ticker = %s
+              AND contract_type = %s
+              AND strike_price = %s
+              AND expiration_date = %s
+              AND captured_at >= %s
+            ORDER BY captured_at ASC
+            LIMIT 1
+        """
+
+        q_ent_before = f"""
+            SELECT last_price, underlying_price, captured_at
+            FROM {tbl}
+            WHERE ticker = %s
+              AND contract_type = %s
+              AND strike_price = %s
+              AND expiration_date = %s
+              AND captured_at <= %s
+            ORDER BY captured_at DESC
+            LIMIT 1
+        """
+
+        perf = {}
+        conn2 = None
+        cur2 = None
+        try:
+            conn2 = get_connection()
+            cur2 = conn2.cursor(dictionary=True)
+
+            cur2.execute(q_cur, (t, ctype, strike, exp))
+            cur_row = cur2.fetchone() or {}
+
+            ent_row = {}
+            if sent_at:
+                cur2.execute(q_ent_after, (t, ctype, strike, exp, sent_at))
+                ent_row = cur2.fetchone() or {}
+                if not ent_row:
+                    cur2.execute(q_ent_before, (t, ctype, strike, exp, sent_at))
+                    ent_row = cur2.fetchone() or {}
+
+            perf.update({
+                "cur_last": cur_row.get("last_price"),
+                "cur_bid": cur_row.get("bid"),
+                "cur_ask": cur_row.get("ask"),
+                "cur_vol": cur_row.get("volume"),
+                "cur_oi": cur_row.get("open_interest"),
+                "cur_iv": cur_row.get("implied_vol"),
+                "cur_delta": cur_row.get("delta"),
+                "cur_under": cur_row.get("underlying_price"),
+                "cur_ts": cur_row.get("captured_at"),
+
+                "ent_last": ent_row.get("last_price"),
+                "ent_under": ent_row.get("underlying_price"),
+                "ent_ts": ent_row.get("captured_at"),
+            })
+
+            perf["opt_pct"] = _pct(perf.get("cur_last"), perf.get("ent_last"))
+            perf["under_pct"] = _pct(perf.get("cur_under"), perf.get("ent_under"))
+
+        except Exception:
+            return {}
+        finally:
+            try:
+                if cur2:
+                    cur2.close()
+            except Exception:
+                pass
+            try:
+                if conn2:
+                    conn2.close()
+            except Exception:
+                pass
+
+        return perf
+
     if opt_rows:
         parts = []
         for r in opt_rows:
             t = r.get("ticker", "")
-
-            score = r.get("options_score")
-            score_txt = "—"
-            try:
-                if score is not None:
-                    score_txt = f"{int(float(score))}/100"
-            except Exception:
-                pass
+            score_pct = _normalize_score(r.get("options_score"))
+            score_txt = f"{int(score_pct)}%" if score_pct is not None else "—"
 
             bias = (r.get("bias") or "neutral").lower()
             if bias == "bull":
-                bias_txt, bias_color, icon = "BULLISH", "#4ade80", "📈"
+                bias_txt = "BULLISH"
+                bias_color = "#4ade80"
+                icon = "📈"
             elif bias == "bear":
-                bias_txt, bias_color, icon = "BEARISH", "#ef4444", "📉"
+                bias_txt = "BEARISH"
+                bias_color = "#ef4444"
+                icon = "📉"
             else:
-                bias_txt, bias_color, icon = "NEUTRAL", "rgba(255,255,255,0.70)", "⚖️"
+                bias_txt = "NEUTRAL"
+                bias_color = "rgba(255,255,255,0.70)"
+                icon = "⚖️"
 
             dte_win = r.get("dte_window") or "—"
             strike_win = r.get("strike_window") or "—"
 
             ctype = (r.get("top_contract_type") or "").upper() or "—"
-            cstrike = fmt_strike(r.get("top_contract_strike"))
+            cstrike = fmt_num(r.get("top_contract_strike"), nd=2)
             cexp = str(r.get("top_contract_expiry") or "—")[:10]
-
             cdte = r.get("top_contract_dte")
             cdte_txt = "—"
             try:
@@ -2923,102 +3083,128 @@ if tab == "home":
             if ctype != "—" and cstrike != "—" and cexp != "—":
                 suggested = f"{ctype} {cstrike} exp {cexp} ({cdte_txt} DTE)"
 
-            guidance_html = (
-                guidance.replace("&", "&amp;")
-                        .replace("<", "&lt;")
-                        .replace(">", "&gt;")
-                        .replace("\n", "<br>")
-            )
+            guidance_html = guidance.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+
+            perf = _fetch_perf(r)
+            opt_pct = perf.get("opt_pct")
+            under_pct = perf.get("under_pct")
+
+            opt_pct_txt = "—"
+            try:
+                if opt_pct is not None:
+                    opt_pct_txt = f"{float(opt_pct):+,.1f}%"
+            except Exception:
+                pass
+
+            under_pct_txt = "—"
+            try:
+                if under_pct is not None:
+                    under_pct_txt = f"{float(under_pct):+,.2f}%"
+            except Exception:
+                pass
 
             parts.append(f"""
       <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
-                border:1px solid rgba(255,255,255,0.06);">
-      <div style="display:flex; align-items:center; justify-content:space-between;">
-        <div style="font-size:15px; font-weight:800; color:#ffffff;">
-          {icon} <b>{t}</b>
-          <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
-      </div>
-        <div style="font-size:14px; font-weight:900; color:#f5d07a;">{score_txt}</div>
-      </div>
+                  border:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <div style="font-size:15px; font-weight:800; color:#ffffff;">
+            {icon} <b>{t}</b> <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
+          </div>
+          <div style="font-size:14px; font-weight:900; color:#f5d07a;">
+            {score_txt}
+          </div>
+        </div>
 
-      <div style="margin-top:8px; opacity:0.85; color:#e5e7eb; font-size:14px; line-height:1.3;">
-        📅 <span style="opacity:0.75;">Expiry Window:</span> <b>{dte_win}</b><br>
-        🎯 <span style="opacity:0.75;">Strike Range:</span> <b>{strike_win}</b><br>
-        🧾 <span style="opacity:0.75;">Suggested:</span> <b>{suggested}</b>
-      </div>
+        <div style="margin-top:8px; opacity:0.88; color:#e5e7eb; font-size:14px; line-height:1.3;">
+          📅 <span style="opacity:0.75;">Expiry Window:</span> <b>{dte_win}</b><br>
+          🎯 <span style="opacity:0.75;">Strike Range:</span> <b>{strike_win}</b><br>
+          🧾 <span style="opacity:0.75;">Suggested:</span> <b>{suggested}</b>
+        </div>
 
-      <details style="margin-top:10px;">
-        <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
-          Details ▾
-        </summary>
-      <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.92;">
-          <div><span style="opacity:0.7;">Sent:</span> <b>{sent_at}</b></div>
-          <div style="margin-top:8px;">
-            <span style="opacity:0.7;">Notes:</span><br>
-            {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
-      </div>
-      </div>
-      </details>
+        <details style="margin-top:10px;">
+          <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
+            ▶ Details ▾
+          </summary>
+          <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.94;">
+            <div><span style="opacity:0.7;">Sent:</span> <b>{sent_at}</b></div>
+            <div style="margin-top:6px;">
+              <span style="opacity:0.7;">Performance:</span>
+              <b>Option {opt_pct_txt}</b> • <b>Underlying {under_pct_txt}</b>
+            </div>
+            <div style="margin-top:8px;">
+              <span style="opacity:0.7;">Current:</span>
+              <b>${fmt_num(perf.get('cur_last'), nd=2)}</b>
+              <span style="opacity:0.75;">(bid {fmt_num(perf.get('cur_bid'), nd=2)} / ask {fmt_num(perf.get('cur_ask'), nd=2)})</span>
+            </div>
+            <div style="margin-top:6px; opacity:0.92;">
+              <span style="opacity:0.7;">Greeks/Flow:</span>
+              Δ {fmt_num(perf.get('cur_delta'), nd=3)} • IV {fmt_num(perf.get('cur_iv'), nd=1)} • Vol {fmt_num(perf.get('cur_vol'), nd=0)} • OI {fmt_num(perf.get('cur_oi'), nd=0)}
+            </div>
+            <div style="margin-top:8px;">
+              <span style="opacity:0.7;">Notes:</span><br>
+              {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
+            </div>
+            <div style="margin-top:8px; opacity:0.7;">
+              Updated: <b>{fmt_dt(perf.get('cur_ts'))}</b>
+            </div>
+          </div>
+        </details>
       </div>
             """)
 
         opt_html = "".join(parts)
     else:
         opt_html = """
-     <div style="opacity:0.6;">
-      No Elite Options picks have been sent (and still active) right now.<br>
-      (Telegram-sent alerts will appear here automatically.)
-     </div>
+      <div style="opacity:0.6;">
+        No Elite Options picks are active right now.<br>
+        (Only Telegram-sent Elite picks appear here.)
+      </div>
         """
 
     elite_options_card = f"""
-     <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
-                background:linear-gradient(145deg,#0f172a,#0b1220);
-                box-shadow:0 10px 30px rgba(0,0,0,0.45);
-                border:1px solid rgba(255,255,255,0.06);">
-      <div style="padding:18px 18px 14px 18px;">
-        <div style="display:flex; align-items:center; gap:12px;">
-          <div style="width:40px; height:40px; border-radius:14px;
-                      background:linear-gradient(135deg,#60a5fa,#3b82f6);
-                      display:flex; align-items:center; justify-content:center;
-                      box-shadow:0 10px 22px rgba(59,130,246,0.25);">
-            <span style="font-size:20px;">🎯</span>
+      <div style="margin-top:18px; margin-bottom:40px;border-radius:20px; position:relative; overflow:hidden;
+                  background:linear-gradient(145deg,#0f172a,#0b1220);
+                  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+                  border:1px solid rgba(255,255,255,0.06);">
+        <div style="padding:18px 18px 14px 18px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:40px; height:40px; border-radius:14px;
+                        background:linear-gradient(135deg,#60a5fa,#3b82f6);
+                        display:flex; align-items:center; justify-content:center;
+                        box-shadow:0 10px 22px rgba(59,130,246,0.25);">
+              <span style="font-size:20px;">🎯</span>
+            </div>
+            <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #bfdbfe;">
+              ELITE OPTIONS PICKS (SENT)
+            </div>
           </div>
-      <div style="font-size:16px; font-weight:600; text-transform:uppercase; color:#bfdbfe;">
-            ELITE OPTIONS PICKS (SENT)
+
+          <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
+
+          <div style="margin-top:14px;">
+            <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
+              Only Telegram-sent Elite picks show here (active until expiry, max 3).
+            </div>
+            <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
+              {opt_html}
+            </div>
           </div>
+
+          <div style="
+                position: absolute;
+                bottom: 0;
+                left: 10%;
+                width: 80%;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #60a5fa, transparent);
+                box-shadow: 0px -2px 10px rgba(96, 165, 250, 0.6);
+              "></div>
         </div>
-
-      <div style="margin-top:14px; height:1px; background:rgba(255,255,255,0.07);"></div>
-
-      <div style="margin-top:14px;">
-          <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
-            Only Telegram-sent Elite picks show here (active until expiry, max 3).
-      </div>
-      <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
-            {opt_html}
-      </div>
-      </div>
-
-      <div style="
-          position:absolute; bottom:0; left:10%; width:80%; height:1px;
-          background:linear-gradient(90deg, transparent, #60a5fa, transparent);
-          box-shadow:0px -2px 10px rgba(96,165,250,0.6);
-        "></div>
-      </div>
       </div>
     """
 
     st.markdown(elite_options_card, unsafe_allow_html=True)
-
-
-    
-            
-
-    # TODAY'S SIGNAL SHIFT (Biggest Rank Jump)
-    # Uses the latest available asof_date (so weekends/holidays still show last run)
-    # ==========================
-    # ==========================
+# ==========================
     # BREAKOUT RADAR (intraday)
     # ==========================
     radar_rows = []
