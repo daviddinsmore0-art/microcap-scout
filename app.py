@@ -2891,7 +2891,6 @@ if tab == "home":
             WHERE is_active = 1
               AND (top_contract_expiry IS NULL OR top_contract_expiry >= CURDATE())
             ORDER BY last_sent_at DESC
-            LIMIT 3
         """
         cur.execute(opt_sql)
         opt_rows = cur.fetchall() or []
