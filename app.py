@@ -3174,7 +3174,7 @@ if tab == "home":
               <span style="font-size:20px;">🎯</span>
       </div>
       <div style="font-size: 16px;font-weight: 600;text-transform: uppercase;color: #bfdbfe;">
-              ELITE OPTIONS PICKS (SENT)
+              ELITE OPTIONS PICKS
       </div>
       </div>
 
@@ -3182,7 +3182,7 @@ if tab == "home":
 
       <div style="margin-top:14px;">
             <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
-              Only Telegram-sent Elite picks show here (active until expiry, max 3).
+              Only Elite Picks
       </div>
       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
               {opt_html}
