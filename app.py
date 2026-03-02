@@ -2941,7 +2941,7 @@ if tab == "home":
         </div>
         <div style="font-size:14px; font-weight:900; color:#f5d07a;">
           {score_txt}
-        </div>
+      </div>
       </div>
 
       <div style="margin-top:8px; opacity:0.85; color:#e5e7eb; font-size:14px; line-height:1.3;">
@@ -2954,15 +2954,15 @@ if tab == "home":
         <summary style="cursor:pointer; color:#bfdbfe; font-weight:700; font-size:14px;">
           Details ▾
         </summary>
-        <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.92;">
+      <div style="margin-top:10px; color:#e5e7eb; font-size:13px; line-height:1.35; opacity:0.92;">
           <div><span style="opacity:0.7;">Sent:</span> <b>{sent_at}</b></div>
           <div style="margin-top:8px;">
             <span style="opacity:0.7;">Notes:</span><br>
             {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
-          </div>
-        </div>
+      </div>
+      </div>
       </details>
-    </div>
+      </div>
             """)
 
         opt_html = "".join(parts)
