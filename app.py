@@ -2861,7 +2861,7 @@ if tab == "home":
                 top_contract_dte,
                 guidance_text,
                 sent_at
-            FROM weekly_options_active
+            FROM options_weekly_picks
             WHERE week_start = DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
             ORDER BY slot ASC
             LIMIT 3
