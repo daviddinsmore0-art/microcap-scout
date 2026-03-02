@@ -3374,7 +3374,7 @@ if tab == "home":
     # Uses the latest available asof_date (so weekends/holidays still show last run)
     # ==========================
     # ==========================
-    # BRfonDOWN RADAR (intraday)
+    # BREAKDOWN RADAR (intraday)
     # ==========================
     radar_rows = []
     radar_html = ""
@@ -3554,7 +3554,7 @@ if tab == "home":
     st.markdown(breakout_radar_card, unsafe_allow_html=True)  
 
     # ==========================
-    # SECTOR ROTATION SNAPSHOT
+    #OPTIONS HISTORY
     # Uses rankings_sector_daily (asof_date, sector, ticker, composite_score, sector_rank, sector_count, sector_percentile)
     # Shows top 3 sectors by average composite_score change vs prior run.
     # ==========================
