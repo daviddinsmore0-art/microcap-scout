@@ -3104,15 +3104,15 @@ if tab == "home":
                 pass
 
             parts.append(f"""
-      <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
+        <div style="margin-bottom:18px; background-color:#1a1f2b; padding:12px 14px; border-radius:14px;
                   border:1px solid rgba(255,255,255,0.06);">
         <div style="display:flex; align-items:center; justify-content:space-between;">
           <div style="font-size:15px; font-weight:800; color:#ffffff;">
             {icon} <b>{t}</b> <span style="color:{bias_color}; font-weight:900; padding-left:8px;">{bias_txt}</span>
-          </div>
+        </div>
           <div style="font-size:14px; font-weight:900; color:#f5d07a;">
             {score_txt}
-          </div>
+        </div>
         </div>
 
         <div style="margin-top:8px; opacity:0.88; color:#e5e7eb; font-size:14px; line-height:1.3;">
@@ -3130,26 +3130,26 @@ if tab == "home":
             <div style="margin-top:6px;">
               <span style="opacity:0.7;">Performance:</span>
               <b>Option {opt_pct_txt}</b> • <b>Underlying {under_pct_txt}</b>
-            </div>
-            <div style="margin-top:8px;">
+          </div>
+          <div style="margin-top:8px;">
               <span style="opacity:0.7;">Current:</span>
               <b>${fmt_num(perf.get('cur_last'), nd=2)}</b>
               <span style="opacity:0.75;">(bid {fmt_num(perf.get('cur_bid'), nd=2)} / ask {fmt_num(perf.get('cur_ask'), nd=2)})</span>
-            </div>
-            <div style="margin-top:6px; opacity:0.92;">
+          </div>
+          <div style="margin-top:6px; opacity:0.92;">
               <span style="opacity:0.7;">Greeks/Flow:</span>
               Δ {fmt_num(perf.get('cur_delta'), nd=3)} • IV {fmt_num(perf.get('cur_iv'), nd=1)} • Vol {fmt_num(perf.get('cur_vol'), nd=0)} • OI {fmt_num(perf.get('cur_oi'), nd=0)}
-            </div>
-            <div style="margin-top:8px;">
+          </div>
+          <div style="margin-top:8px;">
               <span style="opacity:0.7;">Notes:</span><br>
               {guidance_html if guidance_html else "<span style='opacity:0.6;'>—</span>"}
-            </div>
-            <div style="margin-top:8px; opacity:0.7;">
-              Updated: <b>{fmt_dt(perf.get('cur_ts'))}</b>
-            </div>
           </div>
-        </details>
-      </div>
+          <div style="margin-top:8px; opacity:0.7;">
+              Updated: <b>{fmt_dt(perf.get('cur_ts'))}</b>
+          </div>
+          </div>
+          </details>
+          </div>
             """)
 
         opt_html = "".join(parts)
