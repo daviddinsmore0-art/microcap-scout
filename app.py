@@ -3156,7 +3156,7 @@ if tab == "home":
         opt_html = """
         <div style="opacity:0.6;">
         No Elite Options picks are active right now.<br>
-        (Only Telegram-sent Elite picks appear here.)
+        (Only Elite picks appear here.)
         </div>
         """
 
@@ -3182,7 +3182,7 @@ if tab == "home":
 
       <div style="margin-top:14px;">
             <div style="color:#ffffff; font-weight:600; font-size:14px; opacity:0.7; margin-bottom:10px;">
-              Only Elite Picks
+              Identifying Only Elite Option Picks Here!
       </div>
       <div style="color:#e5e7eb; font-size:16px; font-weight:400; line-height:1.25;">
               {opt_html}
