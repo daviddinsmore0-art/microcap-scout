@@ -2966,9 +2966,9 @@ if tab == "home":
      </div>
         """)
 
-           opt_html = "".join(parts)
+            opt_html = "".join(parts)
         else:
-           opt_html = """
+            opt_html = """
           <div style="opacity:0.6;">
           No Elite Options picks have been sent this week.<br>
           (Telegram alerts will appear here automatically.)
